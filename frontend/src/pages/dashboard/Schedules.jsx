@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell } from 'lucide-react';
 import Modal from '../../components/Modal';
+import ConflictPanel from '../../components/ConflictPanel';
 import { api } from '../../utils/api';
+import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
 
 export default function Schedules() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
+  const [formConflicts, setFormConflicts] = useState([]);
   
   // Date Helpers
   const monthNames = [
@@ -32,17 +36,14 @@ export default function Schedules() {
     const firstDay = getFirstDayOfMonth(year, month);
     const days = [];
 
-    // Fill empty slots from previous month
     for (let i = 0; i < firstDay; i++) {
       days.push({ day: null, currentMonth: false });
     }
 
-    // Fill current month days
     for (let d = 1; d <= daysInMonth; d++) {
       days.push({ day: d, currentMonth: true, date: new Date(year, month, d) });
     }
 
-    // Fill remaining slots to complete the grid (6 rows of 7 = 42 slots)
     const remaining = 42 - days.length;
     for (let i = 1; i <= remaining; i++) {
       days.push({ day: i, currentMonth: false });
@@ -68,9 +69,18 @@ export default function Schedules() {
   const fetchDropdownData = async () => {
     try {
       const [subjectsData, roomsData, teachersData] = await Promise.all([
-        api.get('/subjects').catch(() => [{ id: 1, name: 'Math 101', code: 'M101' }]),
-        api.get('/rooms').catch(() => [{ id: 1, name: 'RM 301', building: 'Main' }]),
-        api.get('/users?role=faculty').catch(() => [{ id: 1, name: 'Dr. Smith' }])
+        api.get('/subjects').catch(() => [
+          { id: 1, name: 'Math 101', code: 'M101' },
+          { id: 2, name: 'Financing', code: 'FIN1' }
+        ]),
+        api.get('/rooms').catch(() => [
+          { id: 1, name: 'RM 301', building: 'Main' },
+          { id: 2, name: 'CL1', building: 'Lab' }
+        ]),
+        api.get('/users?role=faculty').catch(() => [
+          { id: 1, name: 'Dr. Smith' },
+          { id: 2, name: 'Prof. Jones' }
+        ])
       ]);
       setSubjects(subjectsData);
       setRooms(roomsData);
@@ -83,7 +93,20 @@ export default function Schedules() {
   const handleOpenModal = () => {
     fetchDropdownData();
     setIsModalOpen(true);
+    setFormConflicts([]);
   };
+
+  // Real-time conflict check
+  useEffect(() => {
+    if (formData.subject_id && formData.start_time) {
+      const conflicts = detectConflicts({
+        ...formData,
+        room_name: rooms.find(r => r.id === parseInt(formData.room_id))?.name,
+        teacher: teachers.find(t => t.id === parseInt(formData.faculty_id))?.name
+      }, schedules);
+      setFormConflicts(conflicts);
+    }
+  }, [formData, schedules, rooms, teachers]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -92,15 +115,18 @@ export default function Schedules() {
       fetchSchedules();
       setIsModalOpen(false);
     } catch (error) {
-      // Mocking successful submission for now
       const newSched = {
         id: Date.now(),
         subject: subjects.find(s => s.id === parseInt(formData.subject_id))?.name || 'New Class',
         startTime: formData.start_time,
         endTime: formData.end_time,
-        date: new Date() // Just for demo
+        dayOfWeek: formData.day_of_week,
+        date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 15), // Mock date
+        room_id: parseInt(formData.room_id),
+        faculty_id: parseInt(formData.faculty_id),
+        section: formData.section
       };
-      setSchedules([...schedules, newSched]);
+      setSchedules(checkScheduleIntegrity([...schedules, newSched]));
       setIsModalOpen(false);
     }
   };
@@ -108,11 +134,11 @@ export default function Schedules() {
   const fetchSchedules = async () => {
     setIsLoading(true);
     try {
-      // Mock data for now
-      setSchedules([
-        { id: 1, subject: 'Financing', startTime: '07:30', endTime: '08:30', dayOfWeek: 'Tue', date: new Date(2026, 8, 15) },
-        { id: 2, subject: 'Operations Mgt.', startTime: '07:30', endTime: '08:30', dayOfWeek: 'Wed', date: new Date(2026, 8, 16) },
-      ]);
+      const rawData = [
+        { id: 1, subject: 'Financing', startTime: '07:30', endTime: '08:30', dayOfWeek: 'Tue', date: new Date(2026, 8, 15), room_id: 1, faculty_id: 1, section: 'A' },
+        { id: 2, subject: 'Operations Mgt.', startTime: '07:30', endTime: '08:30', dayOfWeek: 'Wed', date: new Date(2026, 8, 16), room_id: 1, faculty_id: 1, section: 'A' },
+      ];
+      setSchedules(checkScheduleIntegrity(rawData));
     } catch (error) {
       console.error('Failed to fetch schedules');
     } finally {
@@ -124,20 +150,33 @@ export default function Schedules() {
     fetchSchedules();
   }, [currentDate]);
 
+  const activeConflictsCount = schedules.filter(s => s.isConflicting).length;
+
   return (
     <>
       {/* Page Header */}
       <div className="bg-green-700 text-white py-3 shadow-inner">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <h2 className="text-lg font-medium">Manage Schedules For Teachers</h2>
-          <button className="text-sm text-green-100 hover:text-white flex items-center">
-            <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
-          </button>
+          <div className="flex items-center space-x-4">
+            {activeConflictsCount > 0 && (
+              <button 
+                onClick={() => setIsConflictPanelOpen(true)}
+                className="flex items-center bg-red-600 hover:bg-red-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse transition-colors"
+              >
+                <AlertTriangle className="w-3 h-3 mr-1.5" />
+                {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
+              </button>
+            )}
+            <button className="text-sm text-green-100 hover:text-white flex items-center">
+              <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           
           {/* Calendar Toolbar */}
@@ -174,14 +213,10 @@ export default function Schedules() {
           {/* Calendar Grid */}
           <div className="p-4">
             <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-              {/* Days Header */}
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="bg-gray-50 py-2 text-center text-sm font-bold text-gray-600">
-                  {day}
-                </div>
+                <div key={day} className="bg-gray-50 py-2 text-center text-sm font-bold text-gray-600">{day}</div>
               ))}
               
-              {/* Calendar Cells */}
               {renderCalendarDays().map((cell, i) => {
                 const daySchedules = schedules.filter(s => 
                   cell.date && 
@@ -200,9 +235,16 @@ export default function Schedules() {
                       {daySchedules.map(schedule => (
                         <div 
                           key={schedule.id}
-                          className="text-xs bg-yellow-100 border border-yellow-300 text-yellow-800 p-1.5 rounded shadow-sm cursor-pointer hover:bg-yellow-200"
+                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all ${
+                            schedule.isConflicting 
+                              ? 'bg-red-50 border border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20' 
+                              : 'bg-yellow-100 border border-yellow-300 text-yellow-800 hover:bg-yellow-200'
+                          }`}
                         >
-                          <div className="font-bold truncate">{schedule.subject}</div>
+                          <div className="flex items-center justify-between">
+                            <div className="font-bold truncate">{schedule.subject}</div>
+                            {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
+                          </div>
                           <div className="text-[10px] opacity-80">({schedule.startTime} - {schedule.endTime})</div>
                         </div>
                       ))}
@@ -212,9 +254,18 @@ export default function Schedules() {
               })}
             </div>
           </div>
-
         </div>
       </main>
+
+      <ConflictPanel 
+        isOpen={isConflictPanelOpen} 
+        onClose={() => setIsConflictPanelOpen(false)}
+        conflicts={schedules.filter(s => s.isConflicting).map(s => ({
+          ...s,
+          type: 'General',
+          conflictWith: s.conflictDetails?.[0]
+        }))}
+      />
 
       <Modal
         isOpen={isModalOpen}
@@ -222,6 +273,18 @@ export default function Schedules() {
         title="Create New Schedule"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
+          {formConflicts.length > 0 && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-3 flex items-start">
+              <AlertTriangle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold text-red-800">Potential Conflict Detected!</p>
+                <p className="text-[11px] text-red-700 mt-0.5">
+                  This time slot overlaps with another class in the same {formConflicts[0].type.toLowerCase()}.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Subject</label>
@@ -319,13 +382,18 @@ export default function Schedules() {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-md shadow-sm"
+              className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${
+                formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
+              }`}
             >
-              Save Schedule
+              {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
             </button>
           </div>
         </form>
       </Modal>
+    </>
+  );
+}
     </>
   );
 }

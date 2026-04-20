@@ -20,29 +20,24 @@
 
 ### 4. User Interface Foundation
 * **Landing Page**: Built an introductory landing page (`Landing.jsx`).
-* **Dashboard Shell**: Created a responsive layout for the main application (`Dashboard.jsx`) with role-aware navigation, a top navigation bar, and a preliminary calendar UI mockup for managing schedules.
+* **Dashboard Shell**: Created a responsive layout for the main application (`Dashboard.jsx`) with role-aware navigation and functional nested routing.
+
+### 5. Core Entity Management (Frontend)
+* **CRUD Interfaces**: Built data management tables and modals for Subjects, Rooms, Students, and Teachers.
+* **API Utility**: Implemented a centralized API client with JWT handling and automatic session management.
+
+### 6. Scheduling Engine (Frontend)
+* **Dynamic Calendar**: Developed a date-driven calendar with month navigation and dynamic grid rendering.
+* **Schedule Creation**: Implemented the "Create New Schedule" flow with dynamic dropdowns and calendar mapping.
 
 ---
 
 ## 📅 Upcoming Sprints & Milestones
 
-### Sprint 1: Core Entity Management (CRUD Operations)
-* **Objective**: Enable administrators and program chairs to manage fundamental data.
+### Sprint 1 & 2: Backend Development (In Progress)
 * **Backend (DE GUZMAN)**:
-  * Implement RESTful API endpoints for Departments, Subjects, Rooms, and Users (Students & Faculty).
-  * Add data validation and error handling using schemas.
-* **Frontend (DAYAO)**:
-  * Build data management interfaces (data tables, creation forms, edit modals) for Subjects, Sections, Rooms, Students, and Teachers.
-  * Connect frontend CRUD interfaces to the backend APIs.
-
-### Sprint 2: Scheduling Engine & Dashboard Integration
-* **Objective**: Transition the schedule calendar from a UI mockup to a fully functional tool.
-* **Backend (DE GUZMAN)**:
-  * Develop endpoints to create, read, update, and delete class schedules.
-  * Implement filtering by semester, faculty, room, and department.
-* **Frontend (DAYAO)**:
-  * Integrate the `Dashboard.jsx` calendar with real backend data.
-  * Implement interactive schedule creation (e.g., modal forms accessible via the "Create New Schedule" button).
+  * Implement RESTful API endpoints for Departments, Subjects, Rooms, Users, and Schedules.
+  * Add data validation, error handling, and filtering.
 
 ### Sprint 3: Conflict Detection & Resolution
 * **Objective**: Ensure schedule integrity by preventing overlaps and resolving issues.
@@ -56,16 +51,16 @@
 ### Sprint 4: Role-Based Access Control (RBAC) & UI Refinement
 * **Objective**: Secure the application based on user roles and refine the user experience.
 * **Backend (DE GUZMAN)**:
-  * Enforce strict RBAC on all API endpoints (e.g., Students can only view their schedules, Admins can edit system data).
+  * Enforce strict RBAC on all API endpoints.
 * **Frontend (DAYAO)**:
-  * Tailor the dashboard UI based on the logged-in user's role (hiding/showing specific navigation items and actions).
-  * Polish UI/UX, add loading states, toast notifications for success/errors, and handle edge cases.
+  * Tailor the dashboard UI based on the logged-in user's role.
+  * Polish UI/UX, add loading states, and handle edge cases.
 
 ### Sprint 5: Production Readiness & Deployment
 * **Objective**: Prepare the application for real-world usage.
 * **Backend (DE GUZMAN)**:
-  * Migrate the database engine from SQLite to a production-ready relational database like PostgreSQL or MySQL.
-  * Write unit and integration tests for critical backend logic, especially the conflict detection and scheduling algorithms.
-  * Containerize the backend API and configure deployment pipelines (CI/CD).
+  * Database migration and integration testing.
+  * Containerization and CI/CD setup.
 * **Frontend (DAYAO)**:
-  * Containerize the frontend application (optional) and configure deployment pipelines (CI/CD) to host the static assets.
+  * Final UI testing and deployment configuration.
+
