@@ -6,10 +6,17 @@ from .database import Base
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
+    first_name = Column(String(255), nullable=False)
+    last_name = Column(String(255), nullable=False)
+    contact_number = Column(String(20), nullable=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum('admin', 'program_chair', 'faculty', 'student', name='user_roles'), nullable=False)
+    is_verified = Column(Boolean, default=False)
+    verification_otp = Column(String(10), nullable=True)
+    reset_otp = Column(String(10), nullable=True)
+    reset_otp_expiry = Column(DateTime, nullable=True)
+    session_version = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -18,6 +25,7 @@ class Department(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     code = Column(String(50), nullable=False, unique=True)
+    description = Column(String(500), nullable=True)
 
 class Subject(Base):
     __tablename__ = "subjects"

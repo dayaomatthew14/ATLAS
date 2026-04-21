@@ -20,8 +20,8 @@ export default function Landing() {
           <h1 className="text-xl font-bold tracking-wide">ATLAS</h1>
         </div>
         <div className="space-x-6 text-sm font-medium">
-          <Link to="/login" className="hover:text-yellow-400 transition-colors">Login</Link>
-          <Link to="/login" className="hover:text-yellow-400 transition-colors">Register</Link>
+          <Link to="/login" state={{ mode: 'login' }} className="hover:text-yellow-400 transition-colors">Login</Link>
+          <Link to="/login" state={{ mode: 'register' }} className="hover:text-yellow-400 transition-colors">Register</Link>
         </div>
       </nav>
 
