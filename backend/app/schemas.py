@@ -1,10 +1,12 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
 class UserBase(BaseModel):
     email: EmailStr
-    name: str
+    first_name: str = Field(pattern=r'^[A-Za-z\s]+$')
+    last_name: str = Field(pattern=r'^[A-Za-z\s]+$')
+    contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: str
 
 class UserCreate(UserBase):
@@ -25,3 +27,15 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class VerifyOTP(BaseModel):
+    email: str
+    otp: str
+
+class ForgotPassword(BaseModel):
+    email: str
+
+class ResetPassword(BaseModel):
+    email: str
+    otp: str
+    new_password: str

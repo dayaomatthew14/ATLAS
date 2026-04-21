@@ -3,9 +3,11 @@ import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell } from '
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import { api } from '../../utils/api';
+import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
 
 export default function Schedules() {
+  const { addToast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -114,6 +116,7 @@ export default function Schedules() {
       await api.post('/schedules', formData);
       fetchSchedules();
       setIsModalOpen(false);
+      addToast('Schedule created successfully', 'success');
     } catch (error) {
       const newSched = {
         id: Date.now(),
@@ -128,6 +131,7 @@ export default function Schedules() {
       };
       setSchedules(checkScheduleIntegrity([...schedules, newSched]));
       setIsModalOpen(false);
+      addToast('Schedule saved (Offline Mode)', 'success');
     }
   };
 
@@ -391,9 +395,6 @@ export default function Schedules() {
           </div>
         </form>
       </Modal>
-    </>
-  );
-}
     </>
   );
 }

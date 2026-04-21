@@ -1,52 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, GraduationCap } from 'lucide-react';
+import { Plus, School } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
+import { useToast } from '../../components/ToastProvider';
 
-export default function Students() {
-  const [students, setStudents] = useState([]);
+export default function Colleges() {
+  const { addToast } = useToast();
+  const [colleges, setColleges] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingStudent, setEditingStudent] = useState(null);
+  const [editingCollege, setEditingCollege] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
-    role: 'student',
-    password: ''
+    code: '',
+    description: ''
   });
 
   const columns = [
     { 
       key: 'name', 
-      label: 'Student Name',
+      label: 'College Name',
       render: (item) => (
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 mr-3">
-            <GraduationCap className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 mr-3 font-bold text-xs">
+            {item.code}
           </div>
           <span className="font-medium text-gray-900">{item.name}</span>
         </div>
       )
     },
-    { key: 'email', label: 'Email Address' },
-    { 
-      key: 'created_at', 
-      label: 'Joined Date',
-      render: (item) => new Date(item.created_at || Date.now()).toLocaleDateString()
-    },
+    { key: 'code', label: 'Code' },
+    { key: 'description', label: 'Description' },
   ];
 
-  const fetchStudents = async () => {
+  const fetchColleges = async () => {
     setIsLoading(true);
     try {
-      const data = await api.get('/users?role=student');
-      setStudents(data);
+      const data = await api.get('/departments');
+      setColleges(data);
     } catch (error) {
-      console.error('Failed to fetch students');
-      setStudents([
-        { id: 101, name: 'Alice Smith', email: 'alice@example.com', role: 'student', created_at: '2026-01-15' },
-        { id: 102, name: 'Bob Johnson', email: 'bob@example.com', role: 'student', created_at: '2026-02-20' },
+      console.error('Failed to fetch colleges');
+      setColleges([
+        { id: 1, name: 'College of Veterinary Medicine and Agricultural Sciences', code: 'CVMAS', description: 'Agricultural and Veterinary studies' },
+        { id: 2, name: 'College of Business, Management and Accountancy', code: 'CBMA', description: 'Business and Financial courses' },
+        { id: 3, name: 'College of Arts, Sciences and Technology', code: 'CAST', description: 'Scientific and Technological innovation' },
+        { id: 4, name: 'College of Education', code: 'CED', description: 'Teacher training and Education research' },
       ]);
     } finally {
       setIsLoading(false);
@@ -54,52 +53,53 @@ export default function Students() {
   };
 
   useEffect(() => {
-    fetchStudents();
+    fetchColleges();
   }, []);
 
-  const handleOpenModal = (student = null) => {
-    if (student) {
-      setEditingStudent(student);
+  const handleOpenModal = (college = null) => {
+    if (college) {
+      setEditingCollege(college);
       setFormData({
-        name: student.name,
-        email: student.email,
-        role: 'student',
-        password: '' // Don't pre-fill password
+        name: college.name,
+        code: college.code,
+        description: college.description || ''
       });
     } else {
-      setEditingStudent(null);
-      setFormData({ name: '', email: '', role: 'student', password: '' });
+      setEditingCollege(null);
+      setFormData({ name: '', code: '', description: '' });
     }
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setEditingStudent(null);
+    setEditingCollege(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingStudent) {
-        await api.put(`/users/${editingStudent.id}`, formData);
+      if (editingCollege) {
+        await api.put(`/departments/${editingCollege.id}`, formData);
       } else {
-        await api.post('/users', formData);
+        await api.post('/departments', formData);
       }
-      fetchStudents();
+      fetchColleges();
       handleCloseModal();
+      addToast(`College ${editingCollege ? 'updated' : 'added'} successfully`, 'success');
     } catch (error) {
-      alert('Error saving student');
+      addToast(error.message || 'Error saving college', 'error');
     }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this student?')) {
+    if (window.confirm('Are you sure you want to delete this college?')) {
       try {
-        await api.delete(`/users/${id}`);
-        fetchStudents();
+        await api.delete(`/departments/${id}`);
+        fetchColleges();
+        addToast('College removed successfully', 'success');
       } catch (error) {
-        alert('Error deleting student');
+        addToast(error.message || 'Error removing college', 'error');
       }
     }
   };
@@ -108,20 +108,20 @@ export default function Students() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Manage Students</h2>
-          <p className="text-gray-500 text-sm mt-1">Enroll and manage student accounts.</p>
+          <h2 className="text-2xl font-bold text-gray-800">Manage Colleges</h2>
+          <p className="text-gray-500 text-sm mt-1">Manage the departments of the TED School.</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
           className="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-lg flex items-center shadow-sm transition-colors font-medium"
         >
-          <Plus className="w-5 h-5 mr-1" /> Add Student
+          <Plus className="w-5 h-5 mr-1" /> Add College
         </button>
       </div>
 
       <Table 
         columns={columns} 
-        data={students} 
+        data={colleges} 
         isLoading={isLoading} 
         onEdit={handleOpenModal}
         onDelete={handleDelete}
@@ -130,11 +130,11 @@ export default function Students() {
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingStudent ? 'Edit Student' : 'Add New Student'}
+        title={editingCollege ? 'Edit College' : 'Add New College'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Full Name</label>
+            <label className="block text-sm font-medium text-gray-700">College Name</label>
             <input
               type="text"
               required
@@ -144,25 +144,23 @@ export default function Students() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Email Address</label>
+            <label className="block text-sm font-medium text-gray-700">Code</label>
             <input
-              type="email"
+              type="text"
               required
+              placeholder="e.g. CVMAS"
               className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              value={formData.code}
+              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">
-              {editingStudent ? 'New Password (leave blank to keep current)' : 'Password'}
-            </label>
-            <input
-              type="password"
-              required={!editingStudent}
+            <label className="block text-sm font-medium text-gray-700">Description</label>
+            <textarea
               className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              rows={3}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             />
           </div>
           <div className="pt-4 flex justify-end space-x-3">
@@ -177,7 +175,7 @@ export default function Students() {
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-md shadow-sm"
             >
-              {editingStudent ? 'Update Student' : 'Save Student'}
+              {editingCollege ? 'Update College' : 'Save College'}
             </button>
           </div>
         </form>

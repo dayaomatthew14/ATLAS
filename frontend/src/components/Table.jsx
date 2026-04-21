@@ -4,16 +4,27 @@ import { Edit, Trash2 } from 'lucide-react';
 export default function Table({ columns, data, onEdit, onDelete, isLoading }) {
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-pulse">
+        <div className="bg-gray-50 h-12 border-b border-gray-200"></div>
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="h-16 border-b border-gray-100 mx-4 flex items-center space-x-4">
+            <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+            <div className="flex-1 h-4 bg-gray-100 rounded"></div>
+            <div className="w-24 h-4 bg-gray-100 rounded"></div>
+          </div>
+        ))}
       </div>
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white p-12 text-center rounded-xl border border-gray-200">
-        <p className="text-gray-500">No data found.</p>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+        <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300 font-black text-2xl">
+          !
+        </div>
+        <h3 className="text-lg font-bold text-gray-800">No data found</h3>
+        <p className="text-gray-500 text-sm mt-1">There are no records to display at the moment.</p>
       </div>
     );
   }

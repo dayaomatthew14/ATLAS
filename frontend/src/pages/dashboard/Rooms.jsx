@@ -3,8 +3,10 @@ import { Plus } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
+import { useToast } from '../../components/ToastProvider';
 
 export default function Rooms() {
+  const { addToast } = useToast();
   const [rooms, setRooms] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -86,8 +88,9 @@ export default function Rooms() {
       }
       fetchRooms();
       handleCloseModal();
+      addToast(`Room ${editingRoom ? 'updated' : 'created'} successfully`, 'success');
     } catch (error) {
-      alert('Error saving room');
+      addToast(error.message || 'Error saving room', 'error');
     }
   };
 
@@ -96,8 +99,9 @@ export default function Rooms() {
       try {
         await api.delete(`/rooms/${id}`);
         fetchRooms();
+        addToast('Room deleted successfully', 'success');
       } catch (error) {
-        alert('Error deleting room');
+        addToast(error.message || 'Error deleting room', 'error');
       }
     }
   };

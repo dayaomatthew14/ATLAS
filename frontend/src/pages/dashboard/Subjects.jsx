@@ -3,8 +3,10 @@ import { Plus } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
+import { useToast } from '../../components/ToastProvider';
 
 export default function Subjects() {
+  const { addToast } = useToast();
   const [subjects, setSubjects] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -86,8 +88,9 @@ export default function Subjects() {
       }
       fetchSubjects();
       handleCloseModal();
+      addToast(`Subject ${editingSubject ? 'updated' : 'created'} successfully`, 'success');
     } catch (error) {
-      alert('Error saving subject');
+      addToast(error.message || 'Error saving subject', 'error');
     }
   };
 
@@ -96,8 +99,9 @@ export default function Subjects() {
       try {
         await api.delete(`/subjects/${id}`);
         fetchSubjects();
+        addToast('Subject deleted successfully', 'success');
       } catch (error) {
-        alert('Error deleting subject');
+        addToast(error.message || 'Error deleting subject', 'error');
       }
     }
   };

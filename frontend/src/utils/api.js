@@ -1,17 +1,15 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 async function request(endpoint, options = {}) {
-  const token = localStorage.getItem('atlas_token');
-  
   const headers = {
     'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` }),
     ...options.headers,
   };
 
   const config = {
     ...options,
     headers,
+    credentials: 'include',
   };
 
   try {

@@ -3,8 +3,10 @@ import { Plus, Users as UsersIcon } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
+import { useToast } from '../../components/ToastProvider';
 
 export default function Teachers() {
+  const { addToast } = useToast();
   const [teachers, setTeachers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -93,8 +95,9 @@ export default function Teachers() {
       }
       fetchTeachers();
       handleCloseModal();
+      addToast(`Teacher ${editingTeacher ? 'updated' : 'added'} successfully`, 'success');
     } catch (error) {
-      alert('Error saving teacher');
+      addToast(error.message || 'Error saving teacher', 'error');
     }
   };
 
@@ -103,8 +106,9 @@ export default function Teachers() {
       try {
         await api.delete(`/users/${id}`);
         fetchTeachers();
+        addToast('Teacher removed successfully', 'success');
       } catch (error) {
-        alert('Error deleting teacher');
+        addToast(error.message || 'Error removing teacher', 'error');
       }
     }
   };
