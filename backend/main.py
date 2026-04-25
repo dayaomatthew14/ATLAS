@@ -2,7 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine
 from app import models
-from app.routers import auth_router
+from app.routers import (
+    auth_router, departments, subjects, rooms, 
+    users, schedules, semesters, faculty, ai_scheduler
+)
 
 # Create the database tables
 models.Base.metadata.create_all(bind=engine)
@@ -19,6 +22,14 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+app.include_router(departments.router)
+app.include_router(subjects.router)
+app.include_router(rooms.router)
+app.include_router(users.router)
+app.include_router(schedules.router)
+app.include_router(semesters.router)
+app.include_router(faculty.router)
+app.include_router(ai_scheduler.router)
 
 @app.get("/api/health")
 def health_check():

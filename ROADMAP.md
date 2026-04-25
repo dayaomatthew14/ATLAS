@@ -46,14 +46,14 @@
 ## 📅 Upcoming Sprints & Milestones
 
 ### Sprint 1 & 2: Core Data APIs & Department Dashboards
-*Status: Frontend [COMPLETED] | Backend [PENDING]*
+*Status: Frontend [COMPLETED] | Backend [COMPLETED]*
 *Objective: Fully transition from mock data to real database interactions, separated securely into 4 department workspaces (CAST, CBMA, CVMAS, COED).*
 
-* **Backend Track (DE GUZMAN)**:
-  * Create `department_data.py` router.
-  * Implement RESTful API endpoints for Subjects, Rooms, Teachers, and Schedules.
-  * **Critical:** Enforce Department Filtering. Ensure APIs strictly return data matching the authenticated user's department.
-  * Add robust data validation and error handling.
+* **Backend Track (DE GUZMAN) [COMPLETED]**:
+  * ✅ Create `department_data.py` router.
+  * ✅ Implement RESTful API endpoints for Subjects, Rooms, Teachers, and Schedules.
+  * ✅ **Critical:** Enforce Department Filtering. Ensure APIs strictly return data matching the authenticated user's department.
+  * ✅ Add robust data validation and error handling.
 
 * **Frontend Track (DAYAO) [COMPLETED]**:
   * ✅ Update `Dashboard.jsx` top navigation to proudly display the user's Department (e.g., "CAST Dashboard").
@@ -61,13 +61,13 @@
   * ✅ Wire up all frontend tables and calendars to the new backend endpoints to display real, department-specific data.
 
 ### Sprint 3: AI-Driven Schedule Generation & Conflict Resolution
-*Status: Frontend [COMPLETED] | Backend [PENDING]*
+*Status: Frontend [COMPLETED] | Backend [COMPLETED]*
 *Objective: Fully automate the creation of optimal class schedules while dynamically preventing overlaps and constraints.*
 
-* **Backend Track (DE GUZMAN)**:
-  * **Automated Generation Engine (AI)**: Develop an algorithmic/AI logic that ingests available faculty, rooms, subjects, and generates an optimal schedule.
-  * Develop heuristic logic to detect schedule conflicts (e.g., room double-booking, faculty time overlaps).
-  * Enable the algorithm to attempt self-correction via backtracking; populate the `conflicts` database table for issues requiring human intervention.
+* **Backend Track (DE GUZMAN) [COMPLETED]**:
+  * ✅ **Automated Generation Engine (AI)**: Develop an algorithmic/AI logic that ingests available faculty, rooms, subjects, and generates an optimal schedule.
+  * ✅ Develop heuristic logic to detect schedule conflicts (e.g., room double-booking, faculty time overlaps).
+  * ✅ Enable the algorithm to attempt self-correction via backtracking; populate the `conflicts` database table for issues requiring human intervention.
 
 * **Frontend Track (DAYAO) [COMPLETED]**:
   * ✅ Build the "Generate Schedule" dashboard where parameters are reviewed, and the automated AI sequence is triggered asynchronously.
@@ -75,24 +75,24 @@
   * ✅ Highlight generated and conflicting schedules visually on the calendar view.
 
 ### Sprint 4: Role-Based Access Control (RBAC) & UI Refinement
-*Status: Frontend [COMPLETED] | Backend [PENDING]*
+*Status: Frontend [COMPLETED] | Backend [COMPLETED]*
 *Objective: Secure the application based on user roles and polish the user experience.*
 
-* **Backend Track (DE GUZMAN)**:
-  * Enforce strict RBAC on all API endpoints (Admin vs Program Chair vs Faculty).
+* **Backend Track (DE GUZMAN) [COMPLETED]**:
+  * ✅ Enforce strict RBAC on all API endpoints (Admin vs Program Chair vs Faculty).
 
 * **Frontend Track (DAYAO) [COMPLETED]**:
   * ✅ Tailor the dashboard UI based on the logged-in user's specific role (Admin vs Program Chair vs Faculty).
   * ✅ Polish UI/UX, add global loading states, and handle edge cases gracefully.
 
 ### Sprint 5: Production Readiness & Deployment
+*Status: Frontend [COMPLETED] | Backend [COMPLETED]*
 *Objective: Prepare the application for real-world usage.*
 
-* **Backend Track (DE GUZMAN)**:
-  * Finalize database migrations and write integration tests.
-  * Set up Docker containerization and CI/CD pipelines.
+* **Backend Track (DE GUZMAN) [COMPLETED]**:
+  * ✅ Finalize database migrations and write integration tests.
+  * ✅ Set up Docker containerization and CI/CD pipelines.
 
-* **Frontend Track (DAYAO)**:
-  * Conduct final UI testing across devices.
-  * Configure Vite deployment builds and environment variables for production.
-
+* **Frontend Track (DAYAO) [COMPLETED]**:
+  * ✅ Conduct final UI testing across devices.
+  * ✅ Configure Vite deployment builds and environment variables for production.
