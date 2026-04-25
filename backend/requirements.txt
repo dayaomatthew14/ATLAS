@@ -11,3 +11,4 @@ twilio
 requests
 python-dotenv
 bcrypt
+alembic
