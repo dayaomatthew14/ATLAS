@@ -40,14 +40,11 @@ export default function Rooms() {
     setIsLoading(true);
     try {
       const data = await api.get('/rooms');
-      setRooms(data);
+      setRooms(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Failed to fetch rooms');
-      // Mock data if backend fails
-      setRooms([
-        { id: 1, name: 'CL1', building: 'Engineering', capacity: 40, type: 'computer_lab' },
-        { id: 2, name: 'RM301', building: 'Main', capacity: 50, type: 'lecture' },
-      ]);
+      console.error('Failed to fetch rooms', error);
+      setRooms([]);
+      addToast('Failed to load rooms', 'error');
     } finally {
       setIsLoading(false);
     }
