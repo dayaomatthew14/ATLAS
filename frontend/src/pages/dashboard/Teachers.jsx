@@ -46,13 +46,11 @@ export default function Teachers() {
     setIsLoading(true);
     try {
       const data = await api.get('/users?role=faculty');
-      setTeachers(data);
+      setTeachers(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Failed to fetch teachers');
-      setTeachers([
-        { id: 201, name: 'Dr. Emily Carter', email: 'emily@example.com', max_units: 21, department: { name: 'Computer Science' } },
-        { id: 202, name: 'Prof. Mark Wilson', email: 'mark@example.com', max_units: 18, department: { name: 'Mathematics' } },
-      ]);
+      console.error('Failed to fetch teachers', error);
+      setTeachers([]);
+      addToast('Failed to load teachers', 'error');
     } finally {
       setIsLoading(false);
     }

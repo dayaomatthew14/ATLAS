@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, X, ChevronRight } from 'lucide-react';
+import { AlertTriangle, X, ChevronRight, Wand2 } from 'lucide-react';
 
 export default function ConflictPanel({ conflicts, isOpen, onClose }) {
   if (!isOpen) return null;
@@ -26,7 +26,7 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
           </div>
         ) : (
           conflicts.map((item, idx) => (
-            <div key={idx} className="bg-white border border-red-200 rounded-lg p-3 shadow-sm hover:border-red-400 transition-colors cursor-pointer group">
+            <div key={idx} className="bg-white border border-red-200 rounded-lg p-3 shadow-sm hover:border-red-400 transition-colors group">
               <div className="flex justify-between items-start mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
                   {item.type} Conflict
@@ -41,14 +41,27 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
               <p className="text-[11px] text-gray-500 mt-1 italic">
                 Reason: {item.reason || 'Overlapping schedules in the same location or teacher.'}
               </p>
+              <div className="mt-3 pt-3 border-t border-red-100 flex justify-end space-x-2">
+                <button className="text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1">Ignore</button>
+                <button className="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3 py-1 rounded transition-colors">
+                  Resolve
+                </button>
+              </div>
             </div>
           ))
         )}
       </div>
 
-      <div className="p-4 border-t border-gray-100 bg-gray-50">
-        <p className="text-[11px] text-gray-400 text-center">
-          Resolve conflicts by editing the schedules on the calendar grid.
+      <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-3">
+        <button 
+          disabled={conflicts.length === 0}
+          className="w-full py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold flex items-center justify-center transition-colors shadow-sm"
+        >
+          <Wand2 className="w-4 h-4 mr-2" />
+          Auto-Resolve All
+        </button>
+        <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+          Auto-resolve will attempt to shift conflicting classes to the nearest available open time slots.
         </p>
       </div>
     </div>

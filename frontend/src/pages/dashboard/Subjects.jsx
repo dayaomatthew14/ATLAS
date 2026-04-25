@@ -40,13 +40,11 @@ export default function Subjects() {
     setIsLoading(true);
     try {
       const data = await api.get('/subjects');
-      setSubjects(data);
+      setSubjects(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Failed to fetch subjects');
-      setSubjects([
-        { id: 1, code: 'MATH101', name: 'Calculus 1', units: 3, type: 'lecture' },
-        { id: 2, code: 'CS201', name: 'Data Structures', units: 3, type: 'lecture' },
-      ]);
+      console.error('Failed to fetch subjects', error);
+      setSubjects([]);
+      addToast('Failed to load subjects', 'error');
     } finally {
       setIsLoading(false);
     }

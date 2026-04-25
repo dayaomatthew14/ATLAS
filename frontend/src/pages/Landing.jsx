@@ -27,18 +27,21 @@ export default function Landing() {
 
       {/* Center Content */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-6">
-        <div className="bg-green-800/80 backdrop-blur-md rounded-2xl p-10 max-w-2xl text-center shadow-2xl border border-green-700/50 transform transition-all hover:scale-[1.02]">
-          <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-6 drop-shadow-md">
-            Class Scheduling System
+        <div className="bg-green-800/80 backdrop-blur-md rounded-2xl p-10 max-w-3xl text-center shadow-2xl border border-green-700/50 transform transition-all hover:scale-[1.02]">
+          <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-4 drop-shadow-md">
+            DLSAU ATLAS
           </h2>
+          <h3 className="text-xl md:text-2xl font-bold text-yellow-400 mb-6 uppercase tracking-widest">
+            Tertiary Education Program Chair Portal
+          </h3>
           <p className="text-green-50 text-lg md:text-xl mb-10 leading-relaxed font-light">
-            Intelligently plan and organize your academic schedule with our automated system. Eliminate conflicts and save time with smart scheduling designed for educational excellence.
+            An automated timtabling system strictly for Program Chairs of De La Salle Araneta University. Intelligently plan department schedules, eliminate room conflicts, and optimize faculty loading.
           </p>
           <Link 
             to="/login"
-            className="inline-block bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold px-8 py-3 rounded-full shadow-lg transform transition hover:-translate-y-1 hover:shadow-xl text-lg"
+            className="inline-block bg-yellow-400 hover:bg-yellow-500 text-green-900 font-black px-10 py-4 rounded-full shadow-lg transform transition hover:-translate-y-1 hover:shadow-xl text-lg uppercase tracking-tighter"
           >
-            Get Started
+            Access Portal
           </Link>
         </div>
       </div>

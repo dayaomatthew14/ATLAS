@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
+import AIGenerationModal from '../../components/AIGenerationModal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
@@ -12,8 +13,12 @@ export default function Schedules() {
   const [schedules, setSchedules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
   
+  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
+  const canManage = ['admin', 'program_chair'].includes(role);
+
   // Date Helpers
   const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -71,24 +76,16 @@ export default function Schedules() {
   const fetchDropdownData = async () => {
     try {
       const [subjectsData, roomsData, teachersData] = await Promise.all([
-        api.get('/subjects').catch(() => [
-          { id: 1, name: 'Math 101', code: 'M101' },
-          { id: 2, name: 'Financing', code: 'FIN1' }
-        ]),
-        api.get('/rooms').catch(() => [
-          { id: 1, name: 'RM 301', building: 'Main' },
-          { id: 2, name: 'CL1', building: 'Lab' }
-        ]),
-        api.get('/users?role=faculty').catch(() => [
-          { id: 1, name: 'Dr. Smith' },
-          { id: 2, name: 'Prof. Jones' }
-        ])
+        api.get('/subjects').catch(() => []),
+        api.get('/rooms').catch(() => []),
+        api.get('/users?role=faculty').catch(() => [])
       ]);
-      setSubjects(subjectsData);
-      setRooms(roomsData);
-      setTeachers(teachersData);
+      setSubjects(subjectsData || []);
+      setRooms(roomsData || []);
+      setTeachers(teachersData || []);
     } catch (error) {
       console.error('Error fetching dropdown data');
+      addToast('Failed to fetch required data', 'error');
     }
   };
 
@@ -118,36 +115,34 @@ export default function Schedules() {
       setIsModalOpen(false);
       addToast('Schedule created successfully', 'success');
     } catch (error) {
-      const newSched = {
-        id: Date.now(),
-        subject: subjects.find(s => s.id === parseInt(formData.subject_id))?.name || 'New Class',
-        startTime: formData.start_time,
-        endTime: formData.end_time,
-        dayOfWeek: formData.day_of_week,
-        date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 15), // Mock date
-        room_id: parseInt(formData.room_id),
-        faculty_id: parseInt(formData.faculty_id),
-        section: formData.section
-      };
-      setSchedules(checkScheduleIntegrity([...schedules, newSched]));
-      setIsModalOpen(false);
-      addToast('Schedule saved (Offline Mode)', 'success');
+      addToast(error.response?.data?.detail || error.message || 'Failed to create schedule', 'error');
     }
   };
 
   const fetchSchedules = async () => {
     setIsLoading(true);
     try {
-      const rawData = [
-        { id: 1, subject: 'Financing', startTime: '07:30', endTime: '08:30', dayOfWeek: 'Tue', date: new Date(2026, 8, 15), room_id: 1, faculty_id: 1, section: 'A' },
-        { id: 2, subject: 'Operations Mgt.', startTime: '07:30', endTime: '08:30', dayOfWeek: 'Wed', date: new Date(2026, 8, 16), room_id: 1, faculty_id: 1, section: 'A' },
-      ];
-      setSchedules(checkScheduleIntegrity(rawData));
+      const rawData = await api.get('/schedules');
+      const formattedData = Array.isArray(rawData) ? rawData.map(s => ({
+        ...s,
+        date: s.date ? new Date(s.date) : new Date()
+      })) : [];
+      setSchedules(checkScheduleIntegrity(formattedData));
     } catch (error) {
-      console.error('Failed to fetch schedules');
+      console.error('Failed to fetch schedules', error);
+      setSchedules([]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleAIGeneration = (params) => {
+    // Simulate receiving generated schedules from the AI
+    const mockGenerated = [
+      { id: Date.now() + 1, subject: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
+      { id: Date.now() + 2, subject: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{subject: 'Existing Class'}] }
+    ];
+    setSchedules(checkScheduleIntegrity([...schedules, ...mockGenerated]));
   };
 
   useEffect(() => {
@@ -205,12 +200,22 @@ export default function Schedules() {
               >
                 Next <ChevronRight className="w-4 h-4 ml-1" />
               </button>
-              <button 
-                onClick={handleOpenModal}
-                className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium flex items-center shadow-sm transition-colors"
-              >
-                <Plus className="w-4 h-4 mr-1" /> Create New Schedule
-              </button>
+              {canManage && (
+                <>
+                  <button 
+                    onClick={() => setIsAIModalOpen(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-lg text-sm font-bold flex items-center shadow-md transition-transform transform hover:scale-105 mr-2"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1.5" /> Auto-Generate
+                  </button>
+                  <button 
+                    onClick={handleOpenModal}
+                    className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium flex items-center shadow-sm transition-colors"
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Create Manual
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -239,15 +244,20 @@ export default function Schedules() {
                       {daySchedules.map(schedule => (
                         <div 
                           key={schedule.id}
-                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all ${
+                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${
                             schedule.isConflicting 
-                              ? 'bg-red-50 border border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20' 
-                              : 'bg-yellow-100 border border-yellow-300 text-yellow-800 hover:bg-yellow-200'
+                              ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20' 
+                              : schedule.isAI
+                                ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
+                                : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
                           }`}
                         >
                           <div className="flex items-center justify-between">
                             <div className="font-bold truncate">{schedule.subject}</div>
-                            {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
+                            <div className="flex items-center">
+                              {schedule.isAI && <Sparkles className="w-2.5 h-2.5 text-indigo-500 mr-1" />}
+                              {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
+                            </div>
                           </div>
                           <div className="text-[10px] opacity-80">({schedule.startTime} - {schedule.endTime})</div>
                         </div>
@@ -395,6 +405,12 @@ export default function Schedules() {
           </div>
         </form>
       </Modal>
+
+      <AIGenerationModal 
+        isOpen={isAIModalOpen} 
+        onClose={() => setIsAIModalOpen(false)}
+        onGenerate={handleAIGeneration}
+      />
     </>
   );
 }

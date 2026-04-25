@@ -44,7 +44,7 @@ export default function DashboardHome() {
                 Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-green-400">Schedule.</span>
               </h1>
               <p className="text-slate-500 text-lg font-medium mb-10 leading-relaxed">
-                Welcome, {localStorage.getItem('atlas_user_name') || 'Administrator'}. Your command center for academic efficiency. Experience a crystal-clear overview of your institution.
+                Welcome, {localStorage.getItem('atlas_user_name') || 'Administrator'}. Your command center for the {localStorage.getItem('atlas_department') ? `${localStorage.getItem('atlas_department')} department` : 'entire institution'}. Experience a crystal-clear overview of your academic resources.
               </p>
               <div className="flex flex-wrap gap-4 justify-center lg:justify-start">
                 <Link to="/dashboard/schedules" className="px-8 py-4 bg-green-700 hover:bg-green-800 text-white rounded-2xl font-black transition-all transform hover:scale-105 shadow-lg shadow-green-700/20 flex items-center">
