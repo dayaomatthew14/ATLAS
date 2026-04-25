@@ -40,7 +40,7 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <Link to="/dashboard" className="flex items-center space-x-3 group">
-              <div className="w-10 h-10 bg-yellow-400 text-green-900 rounded-xl flex items-center justify-center font-black text-xl transform group-hover:rotate-12 transition-transform shadow-md">A</div>
+              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-10 h-10 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
               <div className="hidden sm:block">
                 <span className="font-black text-lg tracking-tighter block leading-none">ATLAS</span>
                 <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest opacity-80">{dashboardTitle}</span>

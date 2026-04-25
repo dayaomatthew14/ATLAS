@@ -9,11 +9,11 @@ axios.defaults.withCredentials = true; // Send HttpOnly cookies automatically
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // State Machine for flows
   // 'login', 'register', 'verify', 'forgot_email', 'forgot_otp', 'forgot_reset'
   const [mode, setMode] = useState(location.state?.mode === 'register' ? 'register' : 'login');
-  
+
   // Form Fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,13 +24,13 @@ export default function Login() {
   const [department, setDepartment] = useState('');
   const [otp, setOtp] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  
+
   // Validation Errors
   const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  
+
   // UI States
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
@@ -57,7 +57,7 @@ export default function Login() {
     } else if (name === 'department') {
       if (!value) err = "Please select a department.";
     }
-    
+
     setFieldErrors(prev => ({ ...prev, [name]: err }));
     return err === '';
   };
@@ -74,7 +74,7 @@ export default function Login() {
     const isEmailValid = validateField('email', email);
     const isPasswordValid = validateField('password', password);
     const isDepartmentValid = validateField('department', department);
-    
+
     return isFirstNameValid && isLastNameValid && isContactValid && isEmailValid && isPasswordValid && isDepartmentValid;
   };
 
@@ -101,7 +101,7 @@ export default function Login() {
           localStorage.setItem('atlas_department', response.data.department);
         }
         navigate('/dashboard');
-      } 
+      }
       else if (mode === 'register') {
         if (!validateAll()) {
           setLoading(false);
@@ -129,7 +129,7 @@ export default function Login() {
       }
       else if (mode === 'verify') {
         await axios.post(`${API_URL}/auth/verify-email`, { email, otp });
-        
+
         // Auto-login after successful verification
         const formData = new URLSearchParams();
         formData.append('username', email);
@@ -308,7 +308,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen relative flex items-center justify-center font-sans p-4">
-      <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: `url('/bg.png')`, backgroundColor: '#052e16' }}>
+      <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: `url('/dlsau_bg.jpg')`, backgroundColor: '#052e16' }}>
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
       </div>
 
@@ -316,21 +316,21 @@ export default function Login() {
         <Link to="/" className="inline-flex items-center text-white/70 hover:text-white mb-6 text-sm font-medium transition-colors group">
           <ArrowLeft className="w-4 h-4 mr-2 transform group-hover:-translate-x-1 transition-transform" /> Back to Home
         </Link>
-        
+
         <div className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-hidden border-t-[10px] border-green-700">
           <div className="pt-10 pb-6 px-8 text-center bg-gray-50/50">
-            <div className="w-20 h-20 bg-green-700 text-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl rotate-3">
-              <ShieldCheck className="w-12 h-12" />
+            <div className="w-24 h-24 bg-white/10 backdrop-blur-sm p-1 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl border border-white/20 transform hover:scale-110 transition-transform">
+              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-2xl" />
             </div>
             <h2 className="text-3xl font-black text-gray-900 tracking-tight">
-              {mode === 'login' ? 'Welcome Back' : 
-               mode === 'register' ? 'Join ATLAS' : 
-               mode === 'verify' ? 'Verify Account' : 
-               'Reset Password'}
+              {mode === 'login' ? 'ATLAS' :
+                mode === 'register' ? 'Join ATLAS' :
+                  mode === 'verify' ? 'Verify Account' :
+                    'Reset Password'}
             </h2>
             <p className="text-gray-500 mt-1 text-[10px] font-black uppercase tracking-widest opacity-60">DLSAU Tertiary Education Portal</p>
           </div>
-          
+
           <div className="px-8 pb-10 pt-6">
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
@@ -349,7 +349,7 @@ export default function Login() {
                 <>
                   {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
                   {renderPasswordField('password', password, setPassword, 'Password')}
-                  
+
                   {capsLockOn && (
                     <div className="flex items-center text-yellow-600 text-[10px] font-bold uppercase tracking-widest mt-1 ml-1">
                       <AlertCircle className="w-3 h-3 mr-1.5" /> Caps Lock is ON
@@ -358,13 +358,13 @@ export default function Login() {
 
                   <div className="flex items-center justify-between pt-1">
                     <label className="flex items-center cursor-pointer group">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={rememberMe}
                         onChange={(e) => setRememberMe(e.target.checked)}
-                        className="rounded-lg text-green-600 focus:ring-green-500 h-5 w-5 border-gray-200 cursor-pointer transition-all" 
+                        className="rounded-lg text-green-600 focus:ring-green-500 h-5 w-5 border-gray-200 cursor-pointer transition-all"
                       />
-                      <span className="ml-3 text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">Remember session</span>
+                      <span className="ml-3 text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">Remember Me</span>
                     </label>
                     <button type="button" onClick={() => setMode('forgot_email')} className="text-xs font-black text-green-700 hover:text-green-600 uppercase tracking-tighter">Forgot password?</button>
                   </div>
@@ -399,8 +399,8 @@ export default function Login() {
                   {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
                   {renderField('otp', Key, 'text', '123456', otp, setOtp, 'Verification OTP (6 digits)')}
                   <div className="text-center mt-2">
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={handleResend}
                       disabled={loading}
                       className="text-xs font-black text-green-700 hover:text-green-600 uppercase tracking-widest disabled:opacity-50"
@@ -458,23 +458,23 @@ export default function Login() {
                 )}
               </button>
             </form>
-            
+
             <div className="mt-8 text-center">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
                 {mode === 'login' ? "First time using ATLAS?" : "Already have an account?"}
               </p>
               {mode === 'login' ? (
-                <button 
-                  type="button" 
-                  onClick={() => setMode('register')} 
+                <button
+                  type="button"
+                  onClick={() => setMode('register')}
                   className="w-full py-4 px-6 rounded-2xl border-2 border-gray-100 font-black text-xs uppercase tracking-widest text-gray-600 hover:bg-gray-50 hover:border-gray-200 transition-all"
                 >
-                  Create Program Chair Account
+                  Create Account
                 </button>
               ) : (
-                <button 
-                  type="button" 
-                  onClick={() => { setMode('login'); setError(''); setSuccess(''); }} 
+                <button
+                  type="button"
+                  onClick={() => { setMode('login'); setError(''); setSuccess(''); }}
                   className="w-full py-4 px-6 rounded-2xl border-2 border-green-50 font-black text-xs uppercase tracking-widest text-green-700 hover:bg-green-50 transition-all"
                 >
                   Return to Login
@@ -483,7 +483,7 @@ export default function Login() {
             </div>
           </div>
         </div>
-        
+
         <p className="mt-8 text-center text-white/40 text-[10px] font-bold uppercase tracking-[0.3em]">
           &copy; 2026 ATLAS Academic Timetabling System
         </p>

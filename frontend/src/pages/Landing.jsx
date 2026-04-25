@@ -5,19 +5,19 @@ export default function Landing() {
   return (
     <div className="min-h-screen relative font-sans flex flex-col">
       {/* Background Image */}
-      <div 
+      <div
         className="absolute inset-0 z-0 bg-cover bg-center"
-        style={{ 
-          backgroundImage: `url('/bg.png')`,
-          filter: 'brightness(0.6)'
+        style={{
+          backgroundImage: `url('/dlsau_bg.jpg')`,
+          filter: 'brightness(0.5)'
         }}
       ></div>
 
       {/* Top Navbar */}
       <nav className="relative z-10 bg-green-800/90 backdrop-blur-sm shadow-md py-4 px-8 flex justify-between items-center text-white">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-white text-green-800 rounded-full flex items-center justify-center font-bold text-lg">A</div>
-          <h1 className="text-xl font-bold tracking-wide">ATLAS</h1>
+          <img src="/atlas_logo.png" alt="Atlas Logo" className="w-10 h-10 object-contain drop-shadow-md" />
+          <h1 className="text-xl font-black tracking-tight">ATLAS</h1>
         </div>
         <div className="space-x-6 text-sm font-medium">
           <Link to="/login" state={{ mode: 'login' }} className="hover:text-yellow-400 transition-colors">Login</Link>
@@ -35,9 +35,9 @@ export default function Landing() {
             Tertiary Education Program Chair Portal
           </h3>
           <p className="text-green-50 text-lg md:text-xl mb-10 leading-relaxed font-light">
-            An automated timtabling system strictly for Program Chairs of De La Salle Araneta University. Intelligently plan department schedules, eliminate room conflicts, and optimize faculty loading.
+            An automated timtabling system for TED Program Chairs of De La Salle Araneta University. Intelligently plan department schedules, eliminate room conflicts, and optimize faculty loading.
           </p>
-          <Link 
+          <Link
             to="/login"
             className="inline-block bg-yellow-400 hover:bg-yellow-500 text-green-900 font-black px-10 py-4 rounded-full shadow-lg transform transition hover:-translate-y-1 hover:shadow-xl text-lg uppercase tracking-tighter"
           >
