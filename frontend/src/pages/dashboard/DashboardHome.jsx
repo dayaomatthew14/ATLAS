@@ -12,16 +12,19 @@ import {
   Zap,
   ShieldCheck,
   Activity,
-  School
+  School,
+  Sparkles,
+  Upload,
+  Sliders
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function DashboardHome() {
   const stats = [
-    { name: 'Subjects', value: '24', icon: BookOpen, color: 'text-cyan-600', glow: 'shadow-cyan-500/20', trend: '+12%' },
-    { name: 'Rooms', value: '12', icon: MapPin, color: 'text-purple-600', glow: 'shadow-purple-500/20', trend: 'Stable' },
-    { name: 'Faculty', value: '38', icon: Users, color: 'text-emerald-600', glow: 'shadow-emerald-500/20', trend: '+2' },
-    { name: 'Conflicts', value: '2', icon: AlertTriangle, color: 'text-rose-600', glow: 'shadow-rose-500/20', trend: '-50%' },
+    { name: 'Subjects', value: '0', icon: BookOpen, color: 'text-cyan-600', glow: 'shadow-cyan-500/20', trend: '---' },
+    { name: 'Rooms', value: '0', icon: MapPin, color: 'text-purple-600', glow: 'shadow-purple-500/20', trend: '---' },
+    { name: 'Faculty', value: '0', icon: Users, color: 'text-emerald-600', glow: 'shadow-emerald-500/20', trend: '---' },
+    { name: 'Conflicts', value: '0', icon: AlertTriangle, color: 'text-rose-600', glow: 'shadow-rose-500/20', trend: '---' },
   ];
 
   return (
@@ -40,19 +43,19 @@ export default function DashboardHome() {
                 <Zap className="w-3 h-3 animate-pulse" />
                 <span>System Optimized</span>
               </div>
-              <h1 className="text-4xl lg:text-6xl font-black tracking-tighter mb-6 leading-[1.1] text-slate-900">
+              <h1 className="text-5xl lg:text-7xl font-black tracking-tighter mb-8 leading-[1] text-slate-900">
                 Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-green-400">Schedule.</span>
               </h1>
-              <p className="text-slate-500 text-lg font-medium mb-10 leading-relaxed">
-                Welcome, {localStorage.getItem('atlas_user_name') || 'Administrator'}. Your command center for the {localStorage.getItem('atlas_department') ? `${localStorage.getItem('atlas_department')} department` : 'entire institution'}. Experience a crystal-clear overview of your academic resources.
+              <p className="text-slate-500 text-xl font-semibold mb-12 leading-relaxed max-w-2xl">
+                Welcome, {localStorage.getItem('atlas_user_name') || 'Administrator'}. Your command center for the {localStorage.getItem('atlas_department') ? `${localStorage.getItem('atlas_department')} department` : 'entire institution'}.
               </p>
               <div className="flex flex-wrap gap-4 justify-center lg:justify-start">
                 <Link to="/dashboard/schedules" className="px-8 py-4 bg-green-700 hover:bg-green-800 text-white rounded-2xl font-black transition-all transform hover:scale-105 shadow-lg shadow-green-700/20 flex items-center">
                   Launch Calendar <ChevronRight className="w-4 h-4 ml-2" />
                 </Link>
-                <button className="px-8 py-4 bg-white/40 hover:bg-white/80 backdrop-blur-md text-slate-700 rounded-2xl font-bold transition-all border border-slate-200 flex items-center group shadow-sm">
+                <Link to="/dashboard/logs" className="px-8 py-4 bg-white/40 hover:bg-white/80 backdrop-blur-md text-slate-700 rounded-2xl font-bold transition-all border border-slate-200 flex items-center group shadow-sm">
                   System Logs <Activity className="w-4 h-4 ml-2 group-hover:rotate-12 transition-transform text-slate-400" />
-                </button>
+                </Link>
               </div>
             </div>
             
@@ -80,8 +83,8 @@ export default function DashboardHome() {
                     {stat.trend}
                   </div>
                 </div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{stat.name}</p>
-                <h3 className="text-4xl font-black tracking-tighter leading-none text-slate-900">{stat.value}</h3>
+                <p className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.name}</p>
+                <h3 className="text-5xl font-black tracking-tighter leading-none text-slate-900">{stat.value}</h3>
               </div>
             </div>
           ))}
@@ -101,25 +104,10 @@ export default function DashboardHome() {
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Updates</span>
               </div>
             </div>
-            <div className="space-y-8">
-              {[
-                { title: 'Faculty Assigned', desc: 'Prof. Dayao joined BSCS 3-A', time: 'Just now', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                { title: 'Room Optimized', desc: 'Lab 1 capacity adjusted to 50', time: '14m ago', icon: MapPin, color: 'text-purple-600', bg: 'bg-purple-50' },
-                { title: 'New Entry', desc: 'Subject: Advanced AI added', time: '1h ago', icon: BookOpen, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-              ].map((item, i) => (
-                <div key={i} className="flex items-start group cursor-pointer">
-                  <div className={`mt-1 p-3 rounded-xl ${item.bg} ${item.color} mr-6 group-hover:scale-110 transition-transform shadow-sm`}>
-                    <item.icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 pb-8 border-b border-slate-100 last:border-0 last:pb-0">
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-sm font-black text-slate-800 group-hover:text-green-700 transition-colors">{item.title}</p>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.time}</span>
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="space-y-8 py-10 text-center">
+              <Activity className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+              <p className="text-sm font-black text-slate-300 uppercase tracking-[0.2em]">No Recent Activity</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Everything is up to date.</p>
             </div>
           </div>
 
@@ -130,40 +118,52 @@ export default function DashboardHome() {
                 <Zap className="w-32 h-32" />
               </div>
               <div className="relative z-10">
-                <h3 className="text-2xl font-black mb-4 tracking-tighter text-white">Quick Start</h3>
-                <p className="text-green-100 text-xs font-bold mb-8 uppercase tracking-widest leading-loose">
-                  Instant access to management modules.
+                <h3 className="text-3xl font-black mb-6 tracking-tighter text-white">Quick Action</h3>
+                <p className="text-green-100 text-xs font-bold mb-10 uppercase tracking-widest leading-loose">
+                  High-impact AI commands.
                 </p>
                 <div className="space-y-3">
                   {[
-                    { name: 'Schedules', path: '/dashboard/schedules', icon: Calendar },
-                    { name: 'Colleges', path: '/dashboard/colleges', icon: School },
-                    { name: 'Teachers', path: '/dashboard/teachers', icon: Users },
-                    { name: 'Rooms', path: '/dashboard/rooms', icon: MapPin },
+                    { name: 'Auto-Resolve Conflicts', action: 'resolve', icon: Sparkles, color: 'hover:text-yellow-600' },
+                    { name: 'Generate Official PDF', action: 'pdf', icon: BookOpen, color: 'hover:text-blue-600' },
+                    { name: 'Notify All Faculty', action: 'notify', icon: Zap, color: 'hover:text-purple-600' },
                   ].map(action => (
-                    <Link key={action.name} to={action.path} className="flex items-center justify-between w-full p-4 bg-white/10 hover:bg-white text-white hover:text-green-800 rounded-2xl transition-all duration-300 font-black text-xs uppercase tracking-widest group/btn border border-white/10">
+                    <button 
+                      key={action.name} 
+                      className={`flex items-center justify-between w-full p-5 bg-white/10 hover:bg-white text-white ${action.color} rounded-2xl transition-all duration-300 font-black text-xs uppercase tracking-widest group/btn border border-white/10 shadow-lg`}
+                    >
                       <div className="flex items-center">
                         <action.icon className="w-4 h-4 mr-3" />
                         {action.name}
                       </div>
                       <ChevronRight className="w-4 h-4 transform group-hover/btn:translate-x-1 transition-transform" />
-                    </Link>
+                    </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            <div className="bg-white/80 backdrop-blur-2xl border border-white rounded-[2.5rem] p-8 text-center group shadow-sm">
-              <div className="w-16 h-16 bg-yellow-400/10 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:rotate-12 transition-transform">
-                <Plus className="w-8 h-8 text-yellow-600" />
+            <div className="bg-white/80 backdrop-blur-2xl border border-white rounded-[2.5rem] p-8 text-center group shadow-sm flex flex-col">
+              <div>
+                <div className="w-16 h-16 bg-green-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+                  <Plus className="w-8 h-8 text-green-700" />
+                </div>
+                <h4 className="font-black text-lg mb-2 text-slate-900 leading-tight">Data Integration</h4>
+                <p className="text-[10px] text-slate-400 font-bold mb-4 px-4 leading-relaxed uppercase tracking-widest">
+                  Rapid entry & AI Logic Setup.
+                </p>
               </div>
-              <h4 className="font-black text-lg mb-2 text-slate-900">Create Anything</h4>
-              <p className="text-xs text-slate-400 font-bold mb-6 px-4 leading-relaxed uppercase tracking-widest">
-                Start a new entry from anywhere.
-              </p>
-              <button className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] transition-all hover:bg-slate-800 shadow-lg">
-                Open Global Add
-              </button>
+              
+              <div className="space-y-4 mt-8">
+                <button className="w-full py-5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all hover:bg-slate-800 shadow-lg flex items-center justify-center">
+                  <Upload className="w-5 h-5 mr-4 text-green-400" />
+                  Import from Excel
+                </button>
+                <button className="w-full py-5 bg-white border border-slate-200 text-slate-700 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all hover:bg-slate-50 shadow-sm flex items-center justify-center">
+                  <Sliders className="w-5 h-5 mr-4 text-green-600" />
+                  Configure AI Rules
+                </button>
+              </div>
             </div>
           </div>
         </div>

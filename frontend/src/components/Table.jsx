@@ -38,13 +38,13 @@ export default function Table({ columns, data, onEdit, onDelete, isLoading }) {
               <th
                 key={col.key}
                 scope="col"
-                className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"
+                className="px-8 py-5 text-left text-sm font-black text-slate-500 uppercase tracking-[0.1em]"
               >
                 {col.label}
               </th>
             ))}
             {(onEdit || onDelete) && (
-              <th scope="col" className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-8 py-5 text-right text-sm font-black text-slate-500 uppercase tracking-[0.1em]">
                 Actions
               </th>
             )}
@@ -54,27 +54,27 @@ export default function Table({ columns, data, onEdit, onDelete, isLoading }) {
           {data.map((item, index) => (
             <tr key={item.id || index} className="hover:bg-gray-50 transition-colors">
               {columns.map((col) => (
-                <td key={col.key} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                <td key={col.key} className="px-8 py-6 whitespace-nowrap text-base font-bold text-slate-700">
                   {col.render ? col.render(item) : item[col.key]}
                 </td>
               ))}
               {(onEdit || onDelete) && (
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <td className="px-8 py-6 whitespace-nowrap text-right text-base font-medium">
                   <div className="flex justify-end space-x-2">
                     {onEdit && (
                       <button
                         onClick={() => onEdit(item)}
-                        className="text-blue-600 hover:text-blue-900 p-1 hover:bg-blue-50 rounded"
+                        className="text-blue-600 hover:text-blue-900 p-2 hover:bg-blue-50 rounded-xl"
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="w-5 h-5" />
                       </button>
                     )}
                     {onDelete && (
                       <button
                         onClick={() => onDelete(item.id)}
-                        className="text-red-600 hover:text-red-900 p-1 hover:bg-red-50 rounded"
+                        className="text-rose-600 hover:text-rose-900 p-2 hover:bg-rose-50 rounded-xl"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-5 h-5" />
                       </button>
                     )}
                   </div>

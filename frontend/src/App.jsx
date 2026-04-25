@@ -6,10 +6,10 @@ import Dashboard from './pages/Dashboard';
 import Schedules from './pages/dashboard/Schedules';
 import Subjects from './pages/dashboard/Subjects';
 import Rooms from './pages/dashboard/Rooms';
-import Colleges from './pages/dashboard/Colleges';
 import Teachers from './pages/dashboard/Teachers';
 import Sections from './pages/dashboard/Sections';
 import DashboardHome from './pages/dashboard/DashboardHome';
+import SystemLogs from './pages/dashboard/SystemLogs';
 
 const ProtectedRoute = ({ children }) => {
   const role = localStorage.getItem('atlas_role');
@@ -40,9 +40,9 @@ function App() {
           <Route path="schedules" element={<Schedules />} />
           <Route path="subjects" element={<Subjects />} />
           <Route path="rooms" element={<Rooms />} />
-          <Route path="colleges" element={<Colleges />} />
           <Route path="teachers" element={<Teachers />} />
           <Route path="sections" element={<Sections />} />
+          <Route path="logs" element={<SystemLogs />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

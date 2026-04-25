@@ -154,9 +154,9 @@ export default function Schedules() {
   return (
     <>
       {/* Page Header */}
-      <div className="bg-green-700 text-white py-3 shadow-inner">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h2 className="text-lg font-medium">Manage Schedules For Teachers</h2>
+      <div className="bg-green-700 text-white py-6 shadow-inner">
+        <div className="max-w-[1600px] mx-auto px-6 sm:px-10 lg:px-12 flex justify-between items-center">
+          <h2 className="text-3xl font-black tracking-tighter uppercase tracking-[0.1em]">Academic Schedules</h2>
           <div className="flex items-center space-x-4">
             {activeConflictsCount > 0 && (
               <button 
@@ -167,15 +167,15 @@ export default function Schedules() {
                 {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
               </button>
             )}
-            <button className="text-sm text-green-100 hover:text-white flex items-center">
-              <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
+            <button className="text-sm font-black uppercase tracking-widest text-green-100 hover:text-white flex items-center bg-white/10 px-4 py-2 rounded-xl transition-colors">
+              <BookOpen className="w-5 h-5 mr-2" /> Manage Sections
             </button>
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 w-full relative">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           
           {/* Calendar Toolbar */}
@@ -189,8 +189,8 @@ export default function Schedules() {
               </button>
             </div>
             
-            <h3 className="text-xl font-bold text-gray-800">
-              {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+              {monthNames[currentDate.getMonth()]} <span className="text-green-600">{currentDate.getFullYear()}</span>
             </h3>
             
             <div className="flex space-x-2 items-center">
@@ -204,15 +204,15 @@ export default function Schedules() {
                 <>
                   <button 
                     onClick={() => setIsAIModalOpen(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-lg text-sm font-bold flex items-center shadow-md transition-transform transform hover:scale-105 mr-2"
+                    className="px-6 py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center shadow-lg transition-transform transform hover:scale-105 mr-3"
                   >
-                    <Sparkles className="w-4 h-4 mr-1.5" /> Auto-Generate
+                    <Sparkles className="w-5 h-5 mr-2" /> Auto-Generate
                   </button>
                   <button 
                     onClick={handleOpenModal}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium flex items-center shadow-sm transition-colors"
+                    className="px-6 py-3 bg-green-700 hover:bg-green-800 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center shadow-lg transition-all"
                   >
-                    <Plus className="w-4 h-4 mr-1" /> Create Manual
+                    <Plus className="w-5 h-5 mr-2" /> Create Manual
                   </button>
                 </>
               )}
@@ -235,8 +235,8 @@ export default function Schedules() {
                 );
 
                 return (
-                  <div key={i} className={`bg-white min-h-[100px] p-2 relative group transition-colors ${cell.currentMonth ? 'hover:bg-gray-50' : 'bg-gray-50'}`}>
-                    <span className={`absolute top-2 right-2 text-xs font-medium ${cell.currentMonth ? 'text-gray-400' : 'text-gray-300'}`}>
+                  <div key={i} className={`bg-white min-h-[80px] lg:min-h-[110px] p-1.5 relative group transition-colors ${cell.currentMonth ? 'hover:bg-gray-50' : 'bg-gray-50'}`}>
+                    <span className={`absolute top-3 right-3 text-sm font-black ${cell.currentMonth ? 'text-slate-400' : 'text-slate-200'}`}>
                       {cell.day}
                     </span>
                     

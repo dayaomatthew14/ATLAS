@@ -6,6 +6,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   
   // Normalized role check
   const rawRole = localStorage.getItem('atlas_role') || 'guest';
@@ -26,7 +27,6 @@ export default function Dashboard() {
     { name: 'Subjects', icon: BookOpen, path: '/dashboard/subjects', roles: ['admin', 'program_chair'] },
     { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'program_chair'] },
     { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
-    { name: 'Colleges', icon: School, path: '/dashboard/colleges', roles: ['admin'] },
     { name: 'Teachers', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
   ];
 
@@ -37,13 +37,12 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       {/* Top Navbar */}
       <nav className="bg-green-800 text-white shadow-lg sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link to="/dashboard" className="flex items-center space-x-3 group">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-10 h-10 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
+        <div className="max-w-[1600px] mx-auto px-6 sm:px-10 lg:px-12">
+          <div className="flex items-center justify-between h-24">
+            <Link to="/dashboard" className="flex items-center space-x-4 group">
+              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-14 h-14 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
               <div className="hidden sm:block">
-                <span className="font-black text-lg tracking-tighter block leading-none">ATLAS</span>
-                <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest opacity-80">{dashboardTitle}</span>
+                <span className="font-black text-4xl tracking-tighter block leading-none">ATLAS</span>
               </div>
             </Link>
             
@@ -58,13 +57,13 @@ export default function Dashboard() {
                   <Link 
                     key={item.name} 
                     to={item.path}
-                    className={`flex items-center px-4 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${
+                    className={`flex items-center px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${
                       isActive 
                         ? 'bg-white text-green-800 shadow-md transform -translate-y-0.5' 
                         : 'text-green-50 hover:bg-green-700 hover:text-white'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 mr-2 ${isActive ? 'text-green-700' : 'text-green-200'}`} />
+                    <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-green-700' : 'text-green-200'}`} />
                     {item.name}
                   </Link>
                 );
@@ -73,23 +72,56 @@ export default function Dashboard() {
 
             </div>
 
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3 bg-green-900/50 px-3 py-1.5 rounded-2xl border border-white/10">
-                <div className="w-8 h-8 bg-white/20 rounded-full overflow-hidden border border-white/20 shadow-inner">
-                  <img src={`https://ui-avatars.com/api/?name=${rawRole}&background=random&color=fff`} alt="User" />
+            <div className="relative">
+              <button 
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                className="flex items-center space-x-4 bg-green-900/50 px-4 py-2 rounded-2xl border border-white/10 hover:bg-green-700/50 transition-colors"
+              >
+                <div className="w-12 h-12 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center">
+                  <span className="text-pink-600 font-black text-sm uppercase">PR</span>
                 </div>
                 <div className="hidden lg:block text-left">
-                  <p className="text-xs font-black uppercase tracking-widest text-yellow-400 leading-none mb-0.5">{role}</p>
-                  <p className="text-[10px] font-medium text-green-200 leading-none">Logged In</p>
+                  <p className="text-xs font-black uppercase tracking-tight text-white leading-none mb-1.5">
+                    {localStorage.getItem('atlas_user_name') || 'Program Chair'}
+                  </p>
+                  <p className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest leading-none">
+                    {department || 'Tertiary Education'}
+                  </p>
                 </div>
-              </div>
-              <button 
-                onClick={handleLogout} 
-                className="text-green-100 hover:text-white p-2 hover:bg-red-500/20 rounded-xl transition-all group"
-                title="Log Out"
-              >
-                <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <ChevronDown className={`w-4 h-4 text-green-300 transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} />
               </button>
+
+              {isProfileOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setIsProfileOpen(false)}
+                  ></div>
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl py-2 z-50 border border-gray-100 animate-in fade-in slide-in-from-top-2">
+                    <div className="px-4 py-2 border-b border-gray-50 mb-1">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Account</p>
+                      <p className="text-sm font-bold text-gray-700 truncate">{localStorage.getItem('atlas_user_name') || 'Program Chair'}</p>
+                    </div>
+                    <button className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
+                      <Users className="w-4 h-4 mr-3 text-gray-400" />
+                      View Profile
+                    </button>
+                    <button className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
+                      <Folder className="w-4 h-4 mr-3 text-gray-400" />
+                      Settings
+                    </button>
+                    <div className="border-t border-gray-50 mt-1 pt-1">
+                      <button 
+                        onClick={handleLogout}
+                        className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 font-bold transition-colors"
+                      >
+                        <LogOut className="w-4 h-4 mr-3" />
+                        Log Out
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -107,14 +107,14 @@ export default function Rooms() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Manage Rooms</h2>
-          <p className="text-gray-500 text-sm mt-1">Add, edit, or remove classrooms and labs.</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Rooms</h2>
+          <p className="text-slate-500 text-base font-medium mt-2">Add, edit, or remove classrooms and labs.</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-lg flex items-center shadow-sm transition-colors font-medium"
+          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
         >
-          <Plus className="w-5 h-5 mr-1" /> Add Room
+          <Plus className="w-6 h-6 mr-2" /> Add Room
         </button>
       </div>
 

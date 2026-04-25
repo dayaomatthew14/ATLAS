@@ -6,10 +6,13 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
 
   return (
     <div className="fixed right-0 top-0 h-full w-80 bg-white shadow-2xl z-40 border-l border-gray-200 flex flex-col animate-in slide-in-from-right duration-300">
-      <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-red-50">
-        <div className="flex items-center text-red-700">
-          <AlertTriangle className="w-5 h-5 mr-2" />
-          <h3 className="font-bold">Conflicts ({conflicts.length})</h3>
+      <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/80 sticky top-0 z-10">
+        <div>
+          <h2 className="text-base font-black text-gray-800 flex items-center tracking-tight">
+            <AlertTriangle className="w-4 h-4 text-red-600 mr-2" />
+            Active Conflicts
+          </h2>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{conflicts.length} Issues Found</p>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
           <X className="w-5 h-5" />
