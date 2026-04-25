@@ -1,4 +1,17 @@
-# ATLAS Project Roadmap
+
+# ATLAS: Academic Timetabling System (DLSAU Edition)
+**Strictly for Program Chairs of De La Salle Araneta University - Tertiary Education**
+
+### Core Constraints
+- **Target Users**: Strictly Program Chairs (CAST, CBMA, CVMAS, COED).
+- **Scope**: Tertiary Education Academic Scheduling.
+
+# ATLAS: Academic Timetabling System (DLSAU Edition)
+**Strictly for Program Chairs of De La Salle Araneta University - Tertiary Education**
+
+### Core Constraints
+- **Target Users**: Strictly Program Chairs (CAST, CBMA, CVMAS, COED).
+- **Scope**: Tertiary Education Academic Scheduling.
 
 ## 🚀 Achievements to Date (Completed)
 
@@ -34,35 +47,50 @@
 
 ## 📅 Upcoming Sprints & Milestones
 
-### Sprint 1 & 2: Backend Development (In Progress)
-* **Backend (DE GUZMAN)**:
-  * Implement RESTful API endpoints for Departments, Subjects, Rooms, Users, and Schedules.
-  * Add data validation, error handling, and filtering.
+### Sprint 1 & 2: Core Data APIs & Department Dashboards (In Progress)
+*Objective: Fully transition from mock data to real database interactions, separated securely into 4 department workspaces (CAST, CBMA, CVMAS, COED).*
+
+* **Backend Track (DE GUZMAN)**:
+  * Create `department_data.py` router.
+  * Implement RESTful API endpoints for Subjects, Rooms, Teachers, and Schedules.
+  * **Critical:** Enforce Department Filtering. Ensure APIs strictly return data matching the authenticated user's department.
+  * Add robust data validation and error handling.
+
+* **Frontend Track (DAYAO)**:
+  * Update `Dashboard.jsx` top navigation to proudly display the user's Department (e.g., "CAST Dashboard").
+  * Remove temporary "mock data" placeholders from `Schedules.jsx` and other dashboard views.
+  * Wire up all frontend tables and calendars to the new backend endpoints to display real, department-specific data.
 
 ### Sprint 3: AI-Driven Schedule Generation & Conflict Resolution
-* **Objective**: Fully automate the creation of optimal class schedules while dynamically preventing overlaps and constraints.
-* **Backend (DE GUZMAN)**:
-  * **Automated Generation Engine (AI)**: Develop an algorithmic/AI logic that ingests programmatic inputs (available faculty, rooms, subjects, units) and automatically generates an optimal schedule.
+*Objective: Fully automate the creation of optimal class schedules while dynamically preventing overlaps and constraints.*
+
+* **Backend Track (DE GUZMAN)**:
+  * **Automated Generation Engine (AI)**: Develop an algorithmic/AI logic that ingests available faculty, rooms, subjects, and generates an optimal schedule.
   * Develop heuristic logic to detect schedule conflicts (e.g., room double-booking, faculty time overlaps).
   * Enable the algorithm to attempt self-correction via backtracking; populate the `conflicts` database table for issues requiring human intervention.
-* **Frontend (DAYAO)**:
+
+* **Frontend Track (DAYAO)**:
   * Build the "Generate Schedule" dashboard where parameters are reviewed, and the automated AI sequence is triggered asynchronously.
   * Create a conflict resolution interface or dashboard notifications for schedule managers to review what the AI couldn't self-resolve.
   * Highlight generated and conflicting schedules visually on the calendar view.
 
 ### Sprint 4: Role-Based Access Control (RBAC) & UI Refinement
-* **Objective**: Secure the application based on user roles and refine the user experience.
-* **Backend (DE GUZMAN)**:
-  * Enforce strict RBAC on all API endpoints.
-* **Frontend (DAYAO)**:
-  * Tailor the dashboard UI based on the logged-in user's role.
-  * Polish UI/UX, add loading states, and handle edge cases.
+*Objective: Secure the application based on user roles and polish the user experience.*
+
+* **Backend Track (DE GUZMAN)**:
+  * Enforce strict RBAC on all API endpoints (Admin vs Program Chair vs Faculty).
+
+* **Frontend Track (DAYAO)**:
+  * Tailor the dashboard UI based on the logged-in user's specific role.
+  * Polish UI/UX, add global loading states, and handle edge cases gracefully.
 
 ### Sprint 5: Production Readiness & Deployment
-* **Objective**: Prepare the application for real-world usage.
-* **Backend (DE GUZMAN)**:
-  * Database migration and integration testing.
-  * Containerization and CI/CD setup.
-* **Frontend (DAYAO)**:
-  * Final UI testing and deployment configuration.
+*Objective: Prepare the application for real-world usage.*
 
+* **Backend Track (DE GUZMAN)**:
+  * Finalize database migrations and write integration tests.
+  * Set up Docker containerization and CI/CD pipelines.
+
+* **Frontend Track (DAYAO)**:
+  * Conduct final UI testing across devices.
+  * Configure Vite deployment builds and environment variables for production.
