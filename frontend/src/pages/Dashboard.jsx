@@ -10,6 +10,9 @@ export default function Dashboard() {
   // Normalized role check
   const rawRole = localStorage.getItem('atlas_role') || 'guest';
   const role = rawRole.toLowerCase();
+  
+  const department = localStorage.getItem('atlas_department');
+  const dashboardTitle = department ? `${department} Program Chair Portal` : 'DLSAU Tertiary Education';
 
   const handleLogout = () => {
     localStorage.removeItem('atlas_token');
@@ -18,13 +21,13 @@ export default function Dashboard() {
   };
 
   const navItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'faculty', 'student'] },
-    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'faculty', 'student'] },
-    { name: 'Subjects', icon: BookOpen, path: '/dashboard/subjects', roles: ['admin', 'faculty'] },
-    { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'faculty'] },
-    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'faculty'] },
-    { name: 'Colleges', icon: School, path: '/dashboard/colleges', roles: ['admin', 'faculty'] },
-    { name: 'Teachers', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'faculty'] },
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'faculty', 'student'] },
+    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'faculty', 'student'] },
+    { name: 'Subjects', icon: BookOpen, path: '/dashboard/subjects', roles: ['admin', 'program_chair'] },
+    { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'program_chair'] },
+    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
+    { name: 'Colleges', icon: School, path: '/dashboard/colleges', roles: ['admin'] },
+    { name: 'Teachers', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
   ];
 
   // Filter items based on normalized role
@@ -40,7 +43,7 @@ export default function Dashboard() {
               <div className="w-10 h-10 bg-yellow-400 text-green-900 rounded-xl flex items-center justify-center font-black text-xl transform group-hover:rotate-12 transition-transform shadow-md">A</div>
               <div className="hidden sm:block">
                 <span className="font-black text-lg tracking-tighter block leading-none">ATLAS</span>
-                <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest opacity-80">Scheduler</span>
+                <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest opacity-80">{dashboardTitle}</span>
               </div>
             </Link>
             

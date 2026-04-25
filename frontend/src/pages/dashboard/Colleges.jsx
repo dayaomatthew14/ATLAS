@@ -38,15 +38,11 @@ export default function Colleges() {
     setIsLoading(true);
     try {
       const data = await api.get('/departments');
-      setColleges(data);
+      setColleges(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Failed to fetch colleges');
-      setColleges([
-        { id: 1, name: 'College of Veterinary Medicine and Agricultural Sciences', code: 'CVMAS', description: 'Agricultural and Veterinary studies' },
-        { id: 2, name: 'College of Business, Management and Accountancy', code: 'CBMA', description: 'Business and Financial courses' },
-        { id: 3, name: 'College of Arts, Sciences and Technology', code: 'CAST', description: 'Scientific and Technological innovation' },
-        { id: 4, name: 'College of Education', code: 'CED', description: 'Teacher training and Education research' },
-      ]);
+      console.error('Failed to fetch colleges', error);
+      setColleges([]);
+      addToast('Failed to load colleges', 'error');
     } finally {
       setIsLoading(false);
     }

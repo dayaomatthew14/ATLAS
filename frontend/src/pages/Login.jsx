@@ -120,7 +120,7 @@ export default function Login() {
         }
 
         const payload = {
-          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role: 'faculty', department
+          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role: 'program_chair', department
         };
 
         await axios.post(`${API_URL}/auth/register`, payload);
@@ -328,7 +328,7 @@ export default function Login() {
                mode === 'verify' ? 'Verify Account' : 
                'Reset Password'}
             </h2>
-            <p className="text-gray-500 mt-1 text-sm font-bold uppercase tracking-widest opacity-60">Academic Management System</p>
+            <p className="text-gray-500 mt-1 text-[10px] font-black uppercase tracking-widest opacity-60">DLSAU Tertiary Education Portal</p>
           </div>
           
           <div className="px-8 pb-10 pt-6">
@@ -469,7 +469,7 @@ export default function Login() {
                   onClick={() => setMode('register')} 
                   className="w-full py-4 px-6 rounded-2xl border-2 border-gray-100 font-black text-xs uppercase tracking-widest text-gray-600 hover:bg-gray-50 hover:border-gray-200 transition-all"
                 >
-                  Create Department Account
+                  Create Program Chair Account
                 </button>
               ) : (
                 <button 
