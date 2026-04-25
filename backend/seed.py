@@ -8,10 +8,13 @@ def seed_admin():
     if not admin:
         hashed = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode("utf-8")
         new_admin = models.User(
-            name="System Administrator",
+            first_name="System",
+            last_name="Administrator",
             email="admin@dlsau.edu.ph",
             password_hash=hashed,
-            role="admin"
+            role="admin",
+            department=None,
+            is_verified=True
         )
         db.add(new_admin)
         db.commit()

@@ -8,9 +8,11 @@ class UserBase(BaseModel):
     last_name: str = Field(pattern=r'^[A-Za-z\s]+$')
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: str
+    department: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
+    department: str
 
 class UserResponse(UserBase):
     id: int

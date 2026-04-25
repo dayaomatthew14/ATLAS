@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2 } from 'lucide-react';
+import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building } from 'lucide-react';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 axios.defaults.withCredentials = true; // Send HttpOnly cookies automatically
 
 export default function Login() {
@@ -20,6 +21,7 @@ export default function Login() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
+  const [department, setDepartment] = useState('');
   const [otp, setOtp] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   
@@ -52,6 +54,8 @@ export default function Login() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) err = "Enter a valid email address.";
     } else if (name === 'password') {
       if (/^\s|\s$/.test(value)) err = "Password cannot start or end with spaces.";
+    } else if (name === 'department') {
+      if (!value) err = "Please select a department.";
     }
     
     setFieldErrors(prev => ({ ...prev, [name]: err }));
@@ -69,8 +73,9 @@ export default function Login() {
     const isContactValid = validateField('contactNumber', contactNumber);
     const isEmailValid = validateField('email', email);
     const isPasswordValid = validateField('password', password);
+    const isDepartmentValid = validateField('department', department);
     
-    return isFirstNameValid && isLastNameValid && isContactValid && isEmailValid && isPasswordValid;
+    return isFirstNameValid && isLastNameValid && isContactValid && isEmailValid && isPasswordValid && isDepartmentValid;
   };
 
   const handleSubmit = async (e) => {
@@ -86,12 +91,15 @@ export default function Login() {
         formData.append('password', password);
         formData.append('remember_me', rememberMe);
 
-        const response = await axios.post('http://localhost:8000/api/auth/login', formData, {
+        const response = await axios.post(`${API_URL}/auth/login`, formData, {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
         localStorage.setItem('atlas_role', response.data.role);
         localStorage.setItem('atlas_user_name', response.data.name);
+        if (response.data.department) {
+          localStorage.setItem('atlas_department', response.data.department);
+        }
         navigate('/dashboard');
       } 
       else if (mode === 'register') {
@@ -112,20 +120,35 @@ export default function Login() {
         }
 
         const payload = {
-          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role: 'faculty'
+          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role: 'faculty', department
         };
 
-        await axios.post('http://localhost:8000/api/auth/register', payload);
+        await axios.post(`${API_URL}/auth/register`, payload);
         setSuccess('A verification code has been sent to your email and phone. Please confirm before logging in.');
         setMode('verify');
       }
       else if (mode === 'verify') {
-        await axios.post('http://localhost:8000/api/auth/verify-email', { email, otp });
-        setSuccess('Email verified successfully! You can now log in.');
-        setMode('login');
+        await axios.post(`${API_URL}/auth/verify-email`, { email, otp });
+        
+        // Auto-login after successful verification
+        const formData = new URLSearchParams();
+        formData.append('username', email);
+        formData.append('password', password);
+        formData.append('remember_me', rememberMe);
+
+        const response = await axios.post(`${API_URL}/auth/login`, formData, {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        localStorage.setItem('atlas_role', response.data.role);
+        localStorage.setItem('atlas_user_name', response.data.name);
+        if (response.data.department) {
+          localStorage.setItem('atlas_department', response.data.department);
+        }
+        navigate('/dashboard');
       }
       else if (mode === 'forgot_email') {
-        const response = await axios.post('http://localhost:8000/api/auth/forgot-password', { email });
+        const response = await axios.post(`${API_URL}/auth/forgot-password`, { email });
         setSuccess(response.data.msg);
         setMode('forgot_otp');
       }
@@ -139,7 +162,7 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        await axios.post('http://localhost:8000/api/auth/reset-password', { email, otp, new_password: password });
+        await axios.post(`${API_URL}/auth/reset-password`, { email, otp, new_password: password });
         setSuccess('Password reset successfully! You can now log in.');
         setMode('login');
       }
@@ -173,7 +196,7 @@ export default function Login() {
     setError('');
     setSuccess('');
     try {
-      const response = await axios.post('http://localhost:8000/api/auth/resend-verification', { email });
+      const response = await axios.post(`${API_URL}/auth/resend-verification`, { email });
       setSuccess(response.data.msg);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to resend code.');
@@ -205,6 +228,43 @@ export default function Login() {
             `}
             placeholder={placeholder}
           />
+        </div>
+        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+      </div>
+    );
+  };
+
+  const renderSelectField = (name, icon, value, setter, label, options) => {
+    const Icon = icon;
+    const hasError = fieldErrors[name];
+    return (
+      <div className="mb-4">
+        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+        <div className="relative group">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
+          </div>
+          <select
+            name={name}
+            required
+            value={value}
+            onChange={(e) => setter(e.target.value)}
+            onBlur={handleBlur}
+            className={`block w-full pl-11 pr-4 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium appearance-none shadow-sm
+              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
+              ${!value ? 'text-gray-300' : ''}
+            `}
+          >
+            <option value="" disabled hidden>Select Department</option>
+            {options.map(opt => (
+              <option key={opt.value} value={opt.value} className="text-gray-700">{opt.label}</option>
+            ))}
+          </select>
+          <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
         </div>
         {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
       </div>
@@ -318,6 +378,12 @@ export default function Login() {
                     {renderField('firstName', User, 'text', 'Juan', firstName, setFirstName, 'First Name')}
                     {renderField('lastName', User, 'text', 'Dela Cruz', lastName, setLastName, 'Last Name')}
                   </div>
+                  {renderSelectField('department', Building, department, setDepartment, 'Department', [
+                    { value: 'CAST', label: 'CAST' },
+                    { value: 'CVMAS', label: 'CVMAS' },
+                    { value: 'COED', label: 'COED' },
+                    { value: 'CBMA', label: 'CBMA' }
+                  ])}
                   {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
                   {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
                   <div className="grid grid-cols-2 gap-4">
