@@ -39,14 +39,16 @@
   * Implement RESTful API endpoints for Departments, Subjects, Rooms, Users, and Schedules.
   * Add data validation, error handling, and filtering.
 
-### Sprint 3: Conflict Detection & Resolution
-* **Objective**: Ensure schedule integrity by preventing overlaps and resolving issues.
+### Sprint 3: AI-Driven Schedule Generation & Conflict Resolution
+* **Objective**: Fully automate the creation of optimal class schedules while dynamically preventing overlaps and constraints.
 * **Backend (DE GUZMAN)**:
-  * Develop algorithmic logic to detect schedule conflicts (e.g., room double-booking, faculty time overlaps).
-  * Automatically populate the `conflicts` database table when issues arise.
+  * **Automated Generation Engine (AI)**: Develop an algorithmic/AI logic that ingests programmatic inputs (available faculty, rooms, subjects, units) and automatically generates an optimal schedule.
+  * Develop heuristic logic to detect schedule conflicts (e.g., room double-booking, faculty time overlaps).
+  * Enable the algorithm to attempt self-correction via backtracking; populate the `conflicts` database table for issues requiring human intervention.
 * **Frontend (DAYAO)**:
-  * Create a conflict resolution interface or dashboard notifications for schedule managers.
-  * Highlight conflicting schedules visually on the calendar view.
+  * Build the "Generate Schedule" dashboard where parameters are reviewed, and the automated AI sequence is triggered asynchronously.
+  * Create a conflict resolution interface or dashboard notifications for schedule managers to review what the AI couldn't self-resolve.
+  * Highlight generated and conflicting schedules visually on the calendar view.
 
 ### Sprint 4: Role-Based Access Control (RBAC) & UI Refinement
 * **Objective**: Secure the application based on user roles and refine the user experience.

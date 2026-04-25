@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Form
 from sqlalchemy.orm import Session
-from datetime import timedelta, datetime
-import random
+from datetime import timedelta, datetime, timezone
+import secrets
 import string
 from .. import database, models, schemas, auth, notifications
 
@@ -11,7 +11,7 @@ router = APIRouter(
 )
 
 def generate_otp():
-    return ''.join(random.choices(string.digits, k=6))
+    return ''.join(secrets.choice(string.digits) for _ in range(6))
 
 @router.post("/login")
 def login_for_access_token(
@@ -60,7 +60,8 @@ def login_for_access_token(
         "access_token": access_token, 
         "token_type": "bearer",
         "role": user.role,
-        "name": f"{user.first_name} {user.last_name}"
+        "name": f"{user.first_name} {user.last_name}",
+        "department": user.department
     }
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -83,6 +84,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
         contact_number=user.contact_number,
         password_hash=hashed_password,
         role=user.role,
+        department=user.department,
         is_verified=False,
         verification_otp=otp
     )
@@ -90,11 +92,13 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     db.commit()
     db.refresh(db_user)
     
-    # Send actual email and SMS
-    notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
-    if user.contact_number:
-        # Note: Frontend needs to ensure contact_number is in E.164 format (e.g., +639123456789)
-        notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
+    # Send OTP via TextBee (Primary) and fallback to SMTP if configured
+    textbee_sent = notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
+    
+    if not textbee_sent:
+        notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
+        if user.contact_number:
+            notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
     
     return db_user
 
@@ -128,13 +132,18 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     user.verification_otp = otp
     db.commit()
     
-    # Send actual email and SMS
-    email_sent = notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
+    # Send OTP via TextBee (Primary) and fallback
+    textbee_sent = notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
+    
+    email_sent = False
     sms_sent = False
-    if user.contact_number:
-        sms_sent = notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
+    
+    if not textbee_sent:
+        email_sent = notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
+        if user.contact_number:
+            sms_sent = notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
         
-    if not email_sent and not sms_sent:
+    if not textbee_sent and not email_sent and not sms_sent:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send verification code. Please check server logs."
@@ -149,13 +158,16 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
     if user:
         otp = generate_otp()
         user.reset_otp = otp
-        user.reset_otp_expiry = datetime.utcnow() + timedelta(minutes=15)
+        user.reset_otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
         db.commit()
         
-        # Send actual email and SMS
-        notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Password Reset")
-        if user.contact_number:
-            notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Password Reset")
+        # Send OTP via TextBee (Primary) and fallback
+        textbee_sent = notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Password Reset")
+        
+        if not textbee_sent:
+            notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Password Reset")
+            if user.contact_number:
+                notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Password Reset")
         
     return {"msg": "If this account exists, a reset link or code has been sent."}
 
@@ -165,7 +177,7 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
     if not user or user.reset_otp != payload.otp:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
         
-    if user.reset_otp_expiry and datetime.utcnow() > user.reset_otp_expiry:
+    if user.reset_otp_expiry and datetime.now(timezone.utc).replace(tzinfo=None) > user.reset_otp_expiry.replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="OTP has expired")
         
     user.password_hash = auth.get_password_hash(payload.new_password)
@@ -199,13 +211,11 @@ def seed_admin(db: Session = Depends(database.get_db)):
             email="admin@dlsau.edu.ph",
             password_hash=hashed,
             role="admin",
+            department=None,
             is_verified=True
         )
         db.add(new_admin)
         db.commit()
         return {"msg": "Admin created"}
     else:
-        hashed = auth.get_password_hash("password123")
-        admin.password_hash = hashed
-        db.commit()
-        return {"msg": "Admin updated"}
+        return {"msg": "Admin already exists"}

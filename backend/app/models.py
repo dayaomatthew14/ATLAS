@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Enum, Time, DateTime
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from .database import Base
 
 class User(Base):
@@ -12,13 +12,14 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum('admin', 'program_chair', 'faculty', 'student', name='user_roles'), nullable=False)
+    department = Column(String(50), nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_otp = Column(String(10), nullable=True)
     reset_otp = Column(String(10), nullable=True)
     reset_otp_expiry = Column(DateTime, nullable=True)
     session_version = Column(Integer, default=1)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class Department(Base):
     __tablename__ = "departments"
@@ -70,8 +71,8 @@ class Schedule(Base):
     end_time = Column(Time, index=True)
     section = Column(String(20))
     status = Column(Enum('draft', 'published', name='schedule_status'), default='draft')
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class Conflict(Base):
     __tablename__ = "conflicts"
