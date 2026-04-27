@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Outlet, useLocation, Link } from 'react-router-dom';
-import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder, AlertCircle } from 'lucide-react';
+import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder, AlertCircle, Activity } from 'lucide-react';
 import { api } from '../utils/api';
 
 export default function Dashboard() {
@@ -45,6 +45,7 @@ export default function Dashboard() {
     { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'program_chair'] },
     { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
     { name: 'Teachers', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
+    { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair'] },
   ];
 
   // Filter items based on normalized role

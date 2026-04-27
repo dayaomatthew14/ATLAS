@@ -60,6 +60,8 @@ export default function Schedules() {
   };
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -91,8 +93,29 @@ export default function Schedules() {
 
   const handleOpenModal = () => {
     fetchDropdownData();
+    setAiSuggestions([]);
     setIsModalOpen(true);
-    setFormConflicts([]);
+  };
+
+  const handleGetSuggestions = async () => {
+    if (!formData.subject_id) {
+      addToast('Please select a subject first', 'error');
+      return;
+    }
+    setIsFetchingSuggestions(true);
+    try {
+      const data = await api.get('/schedules/suggestions', { params: { subject_id: formData.subject_id } });
+      setAiSuggestions(data);
+      if (data.length === 0) {
+        addToast('No suggestions found. Faculty might be overloaded.', 'warning');
+      } else {
+        addToast('AI Suggestions generated!', 'success');
+      }
+    } catch (e) {
+      addToast('Failed to fetch AI suggestions', 'error');
+    } finally {
+      setIsFetchingSuggestions(false);
+    }
   };
 
   // Real-time conflict check
@@ -385,22 +408,67 @@ export default function Schedules() {
             </div>
           </div>
 
-          <div className="pt-4 flex justify-end space-x-3">
+          <div className="pt-4 flex justify-between items-center">
             <button
               type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+              onClick={handleGetSuggestions}
+              disabled={isFetchingSuggestions}
+              className="px-4 py-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md shadow-sm flex items-center transition-colors disabled:opacity-50"
             >
-              Cancel
+              <Sparkles className={`w-4 h-4 mr-2 ${isFetchingSuggestions ? 'animate-spin' : ''}`} />
+              {isFetchingSuggestions ? 'Analyzing...' : 'Get AI Suggestions'}
             </button>
-            <button
-              type="submit"
-              className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
-                }`}
-            >
-              {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
-            </button>
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
+                  }`}
+              >
+                {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
+              </button>
+            </div>
           </div>
+
+          {/* AI Suggestions Panel */}
+          {aiSuggestions.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center">
+                <Sparkles className="w-4 h-4 text-indigo-500 mr-2" />
+                Recommended Assignments
+              </h4>
+              <div className="space-y-3">
+                {aiSuggestions.map((sug, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg hover:border-indigo-300 transition-colors">
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{sug.faculty_name} <span className="text-xs font-normal text-slate-500 ml-1">in {sug.room_name}</span></p>
+                      <p className="text-xs font-medium text-indigo-600 mt-0.5">{sug.day_of_week} • {sug.start_time} - {sug.end_time} • {sug.confidence}% Match</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        faculty_id: sug.faculty_id.toString(),
+                        room_id: sug.room_id.toString(),
+                        day_of_week: sug.day_of_week,
+                        start_time: sug.start_time,
+                        end_time: sug.end_time
+                      })}
+                      className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 text-xs font-bold rounded shadow-sm hover:bg-indigo-50"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </form>
       </Modal>
 
