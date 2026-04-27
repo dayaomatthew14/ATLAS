@@ -149,6 +149,138 @@ def delete_schedule(
     db.commit()
     return None
 
+@router.get("/suggestions")
+def get_schedule_suggestions(
+    subject_id: int,
+    semester_id: Optional[int] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Returns a list of conflict-free scheduling suggestions for a given subject.
+    """
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
+        
+    if current_user.role == 'program_chair':
+        dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
+        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this subject")
+
+    # If semester_id not provided, try to find active semester
+    if not semester_id:
+        active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+        if not active_sem:
+            return []
+        semester_id = active_sem.id
+
+    from datetime import time
+    TIMESLOTS = [
+        (time(8, 0), time(9, 30)),
+        (time(9, 30), time(11, 0)),
+        (time(11, 0), time(12, 30)),
+        (time(13, 0), time(14, 30)),
+        (time(14, 30), time(16, 0)),
+        (time(16, 0), time(17, 30)),
+    ]
+    DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+    # Get valid rooms for the subject type
+    rooms = db.query(models.Room).all()
+    valid_rooms = [r for r in rooms if r.type == subject.type or (r.type == 'computer_lab' and subject.type == 'lab')]
+
+    # Get valid faculties for the subject department
+    faculties = db.query(models.Faculty).filter(models.Faculty.department_id == subject.department_id).all()
+    valid_faculties = []
+    
+    # Calculate current units for faculties
+    for f in faculties:
+        schedules = db.query(models.Schedule).filter(
+            models.Schedule.faculty_id == f.id,
+            models.Schedule.semester_id == semester_id
+        ).all()
+        total_units = sum(
+            db.query(models.Subject).filter(models.Subject.id == s.subject_id).first().units
+            for s in schedules if db.query(models.Subject).filter(models.Subject.id == s.subject_id).first()
+        )
+        if (total_units + subject.units) <= f.max_units:
+            user = db.query(models.User).filter(models.User.id == f.user_id).first()
+            if user:
+                valid_faculties.append({
+                    "faculty": f,
+                    "user": user,
+                    "load_percentage": (total_units + subject.units) / f.max_units
+                })
+
+    suggestions = []
+    
+    # Limit suggestions to top 5 to keep it fast and relevant
+    import random
+    random.shuffle(valid_rooms)
+    
+    # Sort faculties by load percentage (lowest load first)
+    valid_faculties.sort(key=lambda x: x["load_percentage"])
+
+    for f_data in valid_faculties[:3]:  # Try top 3 faculties with lowest load
+        faculty = f_data["faculty"]
+        user = f_data["user"]
+        
+        for room in valid_rooms[:3]:  # Try a few valid rooms
+            for day in DAYS:
+                for start_t, end_t in TIMESLOTS:
+                    # Check DB schedule overlaps
+                    overlap = db.query(models.Schedule).filter(
+                        models.Schedule.semester_id == semester_id,
+                        models.Schedule.day_of_week == day,
+                        models.Schedule.start_time == start_t,
+                        models.Schedule.end_time == end_t
+                    ).filter(
+                        (models.Schedule.room_id == room.id) | 
+                        (models.Schedule.faculty_id == faculty.id)
+                    ).first()
+                    
+                    if overlap:
+                        continue
+                        
+                    # Check faculty unavailability
+                    blocked = db.query(models.FacultyUnavailability).filter(
+                        models.FacultyUnavailability.faculty_id == faculty.id,
+                        models.FacultyUnavailability.day_of_week == day,
+                        models.FacultyUnavailability.start_time < end_t,
+                        models.FacultyUnavailability.end_time > start_t
+                    ).first()
+                    
+                    if blocked:
+                        continue
+                        
+                    # If we reach here, it's a valid slot
+                    # Calculate confidence based on faculty load (lower load = higher confidence, min 70%)
+                    confidence = int(100 - (f_data["load_percentage"] * 30))
+                    
+                    suggestions.append({
+                        "faculty_id": faculty.id,
+                        "faculty_name": f"{user.first_name} {user.last_name}",
+                        "room_id": room.id,
+                        "room_name": room.name,
+                        "day_of_week": day,
+                        "start_time": start_t.strftime("%H:%M"),
+                        "end_time": end_t.strftime("%H:%M"),
+                        "confidence": confidence
+                    })
+                    
+                    if len(suggestions) >= 5:
+                        # Sort suggestions by confidence descending
+                        suggestions.sort(key=lambda x: x["confidence"], reverse=True)
+                        return suggestions
+
+    # Sort suggestions by confidence descending
+    suggestions.sort(key=lambda x: x["confidence"], reverse=True)
+    return suggestions
+
 @router.get("/export/pdf")
 def export_pdf(
     semester_id: int,

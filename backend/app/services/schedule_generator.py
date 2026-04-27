@@ -29,15 +29,14 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
     
     # Helper to check overlaps in current generation pool and DB
     def is_overlap(day, start_t, end_t, room_id, faculty_id):
-        # Check generated
+        # Check against already-generated schedules this run
         for s in generated_schedules:
             if s.day_of_week == day:
-                # Time overlap logic (simplified: exact slot match since we use predefined blocks)
                 if s.start_time == start_t and s.end_time == end_t:
                     if s.room_id == room_id or s.faculty_id == faculty_id:
                         return True
-                        
-        # Check existing db
+                         
+        # Check existing DB schedules for the semester
         existing = db.query(models.Schedule).filter(
             models.Schedule.semester_id == semester_id,
             models.Schedule.day_of_week == day,
@@ -48,7 +47,22 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
             (models.Schedule.faculty_id == faculty_id)
         ).first()
         
-        return existing is not None
+        if existing:
+            return True
+
+        # Check faculty unavailability blocks — respect blocked time windows
+        # A proposed (start_t, end_t) overlaps a block if: start_t < block.end_time AND end_t > block.start_time
+        blocked = db.query(models.FacultyUnavailability).filter(
+            models.FacultyUnavailability.faculty_id == faculty_id,
+            models.FacultyUnavailability.day_of_week == day,
+            models.FacultyUnavailability.start_time < end_t,
+            models.FacultyUnavailability.end_time > start_t
+        ).first()
+
+        if blocked:
+            return True
+
+        return False
 
     for subject in subjects:
         # Match type
@@ -113,14 +127,23 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
     # Save successful generations
     db.add_all(generated_schedules)
     db.commit()
-    
-    # Save conflicts as well if they relate to existing schedules
+
+    # Save unresolvable placement failures to SystemLog as warnings.
+    # The Conflict table requires two schedule IDs (for schedule-vs-schedule conflicts),
+    # so unplaceable subjects are tracked in SystemLog where they surface in the Logs UI.
     for c in unresolved_conflicts:
-        # We just create a dummy conflict entry for the subject since we couldn't place it
-        # Actually models.Conflict expects schedule_id_1 and 2.
-        # So we can't easily save a 'failed to place' conflict to that specific schema without tweaking it.
-        pass # Returning in payload for now
-        
+        subject = db.query(models.Subject).filter(models.Subject.id == c["subject_id"]).first()
+        subject_label = f"{subject.code} — {subject.name}" if subject else f"Subject ID {c['subject_id']}"
+        db.add(models.SystemLog(
+            user_id=None,
+            action="Schedule Generation — Placement Failure",
+            details=f"Could not place '{subject_label}': {c['reason']}",
+            status='warning'
+        ))
+    
+    if unresolved_conflicts:
+        db.commit()
+
     return {
         "generated": len(generated_schedules),
         "conflicts": unresolved_conflicts
