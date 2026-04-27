@@ -100,3 +100,22 @@ class AIRule(Base):
     rule_value = Column(String(500), nullable=False) # JSON or simple value
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class FacultyUnavailability(Base):
+    __tablename__ = "faculty_unavailability"
+    id = Column(Integer, primary_key=True, index=True)
+    faculty_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    day_of_week = Column(Enum('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', name='unavail_days'), nullable=False)
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class Section(Base):
+    __tablename__ = "sections"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    year_level = Column(String(10), nullable=False)
+    student_count = Column(Integer, nullable=False, default=0)
+    curriculum = Column(String(255), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

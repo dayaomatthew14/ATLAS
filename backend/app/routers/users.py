@@ -8,7 +8,7 @@ router = APIRouter(
     tags=["Users"]
 )
 
-@router.get("/", response_model=List[schemas.UserResponse])
+@router.get("/")
 def get_users(
     skip: int = 0, 
     limit: int = 100, 
@@ -32,7 +32,47 @@ def get_users(
     if role:
         query = query.filter(models.User.role == role)
         
-    return query.offset(skip).limit(limit).all()
+    users = query.offset(skip).limit(limit).all()
+    
+    # Enrich each user with faculty load data so the load tracker works
+    result = []
+    for u in users:
+        user_dict = {
+            "id": u.id,
+            "email": u.email,
+            "first_name": u.first_name,
+            "last_name": u.last_name,
+            "name": f"{u.first_name} {u.last_name}",
+            "role": u.role,
+            "department": u.department,
+            "contact_number": u.contact_number,
+            "is_verified": u.is_verified,
+            "created_at": u.created_at,
+            "max_units": 18,
+            "current_units": 0,
+            "department_id": None,
+        }
+        # Look up faculty record for max_units and current load
+        faculty = db.query(models.Faculty).filter(models.Faculty.user_id == u.id).first()
+        if faculty:
+            user_dict["max_units"] = faculty.max_units
+            user_dict["department_id"] = faculty.department_id
+            # Sum units of active scheduled subjects for this faculty
+            active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+            if active_semester:
+                schedules = db.query(models.Schedule).filter(
+                    models.Schedule.faculty_id == faculty.id,
+                    models.Schedule.semester_id == active_semester.id
+                ).all()
+                total_units = 0
+                for s in schedules:
+                    subj = db.query(models.Subject).filter(models.Subject.id == s.subject_id).first()
+                    if subj:
+                        total_units += subj.units
+                user_dict["current_units"] = total_units
+        result.append(user_dict)
+    
+    return result
 
 @router.get("/{user_id}", response_model=schemas.UserResponse)
 def get_user(
@@ -126,5 +166,63 @@ def delete_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
              
     db.delete(db_user)
+    db.commit()
+    return None
+
+# --- Faculty Unavailability Endpoints ---
+
+@router.get("/{user_id}/unavailability", response_model=List[schemas.FacultyUnavailabilityResponse])
+def get_unavailability(
+    user_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    blocks = db.query(models.FacultyUnavailability).filter(
+        models.FacultyUnavailability.faculty_id == user_id
+    ).all()
+    return blocks
+
+@router.post("/{user_id}/unavailability", response_model=schemas.FacultyUnavailabilityResponse, status_code=status.HTTP_201_CREATED)
+def add_unavailability(
+    user_id: int,
+    block: schemas.FacultyUnavailabilityCreate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    new_block = models.FacultyUnavailability(
+        faculty_id=user_id,
+        day_of_week=block.day_of_week,
+        start_time=block.start_time,
+        end_time=block.end_time
+    )
+    db.add(new_block)
+    db.commit()
+    db.refresh(new_block)
+    return new_block
+
+@router.delete("/{user_id}/unavailability/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_unavailability(
+    user_id: int,
+    block_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    block = db.query(models.FacultyUnavailability).filter(
+        models.FacultyUnavailability.id == block_id,
+        models.FacultyUnavailability.faculty_id == user_id
+    ).first()
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blocked time not found")
+    db.delete(block)
     db.commit()
     return None
