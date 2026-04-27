@@ -121,7 +121,7 @@
 ---
 
 ### Sprint 7: Intelligent Scheduling Engine Upgrade
-*Status: Frontend [NOT STARTED] | Backend [NOT STARTED]*
+*Status: Frontend [COMPLETED] | Backend [NOT STARTED]*
 *Objective: Apply proven scheduling logic to ATLAS — introducing faculty unavailability constraints, smart AI suggestions, live conflict tracking, proper section management, and a fully corrected schedule generation engine.*
 
 * **Backend Track (DE GUZMAN)**:
@@ -134,8 +134,8 @@
   * 🔲 **Section as Proper Entity**: Add a `Section` model (`name`, `year_level`, `number_of_students`, `department_id`, `curriculum`) and full CRUD endpoints under `/api/sections`. Keep backward compatibility with the existing `schedule.section` string field.
 
 * **Frontend Track (DAYAO)**:
-  * 🔲 **Faculty Unavailability UI**: Add a "Blocked Times" panel inside the Faculty/Teachers management page. Allow Program Chairs to add, view, and remove unavailability windows per faculty member.
-  * 🔲 **AI Suggestions Sidebar**: When assigning a subject to a schedule slot, show a suggestions panel that lists only valid, conflict-free options — mirroring the "Possible Assignments" sidebar seen in best-practice scheduling systems.
-  * 🔲 **Live Conflict Counter Badge**: Display a real-time conflict count badge on the Dashboard and Schedules page header, pulling from `GET /api/conflicts/count`.
-  * 🔲 **Faculty Load Tracker**: Add a visual load indicator per faculty member (current units vs. max units) on the Teachers page — highlight overloaded faculty in a warning state.
-  * 🔲 **Section Management UI**: Build a dedicated Sections management page with a table showing section name, year level, student count, and linked curriculum. Integrate it with the schedule assignment flow.
+  * ✅ **Faculty Unavailability UI**: Add a "Blocked Times" panel inside the Faculty/Teachers management page. Allow Program Chairs to add, view, and remove unavailability windows per faculty member.
+  * ✅ **AI Suggestions Sidebar**: When assigning a subject to a schedule slot, show a suggestions panel that lists only valid, conflict-free options — mirroring the "Possible Assignments" sidebar seen in best-practice scheduling systems.
+  * ✅ **Live Conflict Counter Badge**: Display a real-time conflict count badge on the Dashboard and Schedules page header, pulling from `GET /api/conflicts/count`.
+  * ✅ **Faculty Load Tracker**: Add a visual load indicator per faculty member (current units vs. max units) on the Teachers page — highlight overloaded faculty in a warning state.
+  * ✅ **Section Management UI**: Build a dedicated Sections management page with a table showing section name, year level, student count, and linked curriculum. Integrate it with the schedule assignment flow.

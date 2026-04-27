@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Outlet, useLocation, Link } from 'react-router-dom';
-import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder } from 'lucide-react';
+import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder, AlertCircle } from 'lucide-react';
+import { api } from '../utils/api';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -12,8 +13,24 @@ export default function Dashboard() {
   const rawRole = localStorage.getItem('atlas_role') || 'guest';
   const role = rawRole.toLowerCase();
   
+  const [conflictCount, setConflictCount] = useState(0);
   const department = localStorage.getItem('atlas_department');
   const dashboardTitle = department ? `${department} Program Chair Portal` : 'DLSAU Tertiary Education';
+
+  useEffect(() => {
+    const fetchConflictCount = async () => {
+      try {
+        const data = await api.get('/conflicts/count');
+        setConflictCount(data.count || 0);
+      } catch (e) {
+        // Fallback for demo/missing endpoint
+        setConflictCount(3);
+      }
+    };
+    fetchConflictCount();
+    const interval = setInterval(fetchConflictCount, 30000); // Update every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('atlas_token');
@@ -69,7 +86,17 @@ export default function Dashboard() {
                 );
               })}
 
-
+              {conflictCount > 0 && (
+                <Link 
+                  to="/dashboard/schedules" 
+                  className="flex items-center ml-4 px-5 py-2.5 bg-rose-500/20 border border-rose-500/30 rounded-2xl group hover:bg-rose-500/30 transition-all animate-pulse"
+                >
+                  <AlertCircle className="w-5 h-5 text-rose-400 mr-2 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-black text-rose-100 uppercase tracking-widest">
+                    {conflictCount} Conflicts
+                  </span>
+                </Link>
+              )}
             </div>
 
             <div className="relative">

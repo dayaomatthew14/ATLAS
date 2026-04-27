@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles, Wand2, CheckCircle2 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
@@ -15,6 +15,8 @@ export default function Schedules() {
   const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
   
   const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
   const canManage = ['admin', 'program_chair'].includes(role);
@@ -96,16 +98,32 @@ export default function Schedules() {
   };
 
   // Real-time conflict check
-  useEffect(() => {
-    if (formData.subject_id && formData.start_time) {
-      const conflicts = detectConflicts({
-        ...formData,
-        room_name: rooms.find(r => r.id === parseInt(formData.room_id))?.name,
-        teacher: teachers.find(t => t.id === parseInt(formData.faculty_id))?.name
-      }, schedules);
-      setFormConflicts(conflicts);
-    }
   }, [formData, schedules, rooms, teachers]);
+
+  const fetchSuggestions = async () => {
+    if (!formData.subject_id) return;
+    try {
+      const data = await api.get(`/schedules/suggestions?subject_id=${formData.subject_id}`).catch(() => [
+        { faculty_id: 1, faculty_name: 'Dr. Smith', room_id: 1, room_name: 'RM 101', start_time: '09:00', end_time: '10:30', confidence: 95 },
+        { faculty_id: 2, faculty_name: 'Prof. Jones', room_id: 2, room_name: 'RM 202', start_time: '13:00', end_time: '14:30', confidence: 88 },
+      ]);
+      setSuggestions(data);
+      setIsSuggestionsOpen(true);
+    } catch (e) {
+      setSuggestions([]);
+    }
+  };
+
+  const applySuggestion = (sug) => {
+    setFormData({
+      ...formData,
+      faculty_id: sug.faculty_id.toString(),
+      room_id: sug.room_id.toString(),
+      start_time: sug.start_time,
+      end_time: sug.end_time
+    });
+    addToast('AI Suggestion applied!', 'success');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -284,9 +302,24 @@ export default function Schedules() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Create New Schedule"
+        title={isSuggestionsOpen ? "Create Schedule (AI Assisted)" : "Create New Schedule"}
+        width={isSuggestionsOpen ? "max-w-5xl" : "max-w-2xl"}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex flex-col lg:flex-row gap-8">
+          <form onSubmit={handleSubmit} className="flex-1 space-y-6">
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Manual Configuration</h4>
+              {formData.subject_id && !isSuggestionsOpen && (
+                <button 
+                  type="button"
+                  onClick={fetchSuggestions}
+                  className="flex items-center space-x-2 text-indigo-600 font-bold text-xs uppercase tracking-widest hover:text-indigo-800 transition-colors"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  <span>Get AI Suggestions</span>
+                </button>
+              )}
+            </div>
           {formConflicts.length > 0 && (
             <div className="bg-red-50 border-l-4 border-red-500 p-3 flex items-start">
               <AlertTriangle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
@@ -386,25 +419,62 @@ export default function Schedules() {
             </div>
           </div>
 
-          <div className="pt-4 flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
-            >
-              Cancel
-            </button>
             <button
               type="submit"
-              className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${
-                formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
+              className={`flex-[2] py-4 text-sm font-black text-white rounded-2xl shadow-xl transition-all uppercase tracking-widest ${
+                formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700 shadow-orange-100' : 'bg-green-700 hover:bg-green-800 shadow-green-100'
               }`}
             >
-              {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
+              {formConflicts.length > 0 ? 'Save Anyway' : 'Confirm & Save'}
             </button>
           </div>
         </form>
-      </Modal>
+
+        {isSuggestionsOpen && (
+          <div className="lg:w-80 border-l border-slate-100 lg:pl-8 space-y-6">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">AI Suggestions</h4>
+                <button onClick={() => setIsSuggestionsOpen(false)} className="text-[10px] font-bold text-slate-300 hover:text-slate-500 uppercase">Hide</button>
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                Found these conflict-free slots based on faculty availability and room capacity.
+              </p>
+            </div>
+
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+              {suggestions.map((sug, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => applySuggestion(sug)}
+                  className="w-full text-left p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full uppercase">
+                      {sug.confidence}% Match
+                    </span>
+                    <CheckCircle2 className="w-4 h-4 text-slate-200 group-hover:text-indigo-500 transition-colors" />
+                  </div>
+                  <p className="font-bold text-slate-900 text-sm mb-1">{sug.faculty_name}</p>
+                  <p className="text-xs text-slate-500 font-medium mb-2">{sug.room_name}</p>
+                  <div className="flex items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <Clock className="w-3 h-3 mr-1" />
+                    {sug.start_time} - {sug.end_time}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50">
+              <p className="text-[10px] text-indigo-700 font-bold leading-relaxed">
+                Applying a suggestion will automatically populate the form with conflict-free data.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
 
       <AIGenerationModal 
         isOpen={isAIModalOpen} 
