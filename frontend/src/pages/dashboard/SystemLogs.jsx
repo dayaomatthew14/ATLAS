@@ -1,10 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../utils/api';
+import { useToast } from '../../components/ToastProvider';
 import { Activity, Shield, Terminal, Search, Filter, Trash2, Download, Clock, User, Zap, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function SystemLogs() {
+  const { addToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
+  const [logs, setLogs] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [filterType, setFilterType] = useState('All Types');
 
-  const mockLogs = [];
+  const fetchLogs = async () => {
+    setIsLoading(true);
+    try {
+      const data = await api.get('/logs');
+      setLogs(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Failed to fetch logs');
+      setLogs([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 15000); // Poll every 15s
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleExport = () => {
+    window.open(`${api.defaults.baseURL}/logs/export`, '_blank');
+    addToast('Downloading system logs...', 'success');
+  };
+
+  const handleClear = async () => {
+    if (window.confirm('Are you sure you want to clear all system logs? This cannot be undone.')) {
+      try {
+        await api.delete('/logs');
+        addToast('System logs cleared', 'success');
+        fetchLogs();
+      } catch (e) {
+        addToast('Failed to clear logs', 'error');
+      }
+    }
+  };
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -24,10 +64,15 @@ export default function SystemLogs() {
     }
   };
 
-  const filteredLogs = mockLogs.filter(log => 
-    log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.user.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredLogs = logs.filter(log => {
+    const matchesSearch = log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (log.user?.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesFilter = filterType === 'All Types' || 
+                         (filterType === 'AI Generation' && log.activity_type?.includes('AI')) ||
+                         (filterType === 'User Activity' && !log.activity_type?.includes('AI')) ||
+                         (filterType === 'Errors' && log.status === 'error');
+    return matchesSearch && matchesFilter;
+  });
 
   return (
     <div className="flex-1 flex flex-col p-6 lg:p-10 space-y-8 animate-in fade-in duration-500">
@@ -41,11 +86,17 @@ export default function SystemLogs() {
           <p className="text-slate-500 font-medium mt-1">Audit trail and AI generation history for the institution.</p>
         </div>
         <div className="flex items-center space-x-3">
-          <button className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center shadow-sm">
+          <button 
+            onClick={handleExport}
+            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center shadow-sm"
+          >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </button>
-          <button className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors flex items-center shadow-sm">
+          <button 
+            onClick={handleClear}
+            className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors flex items-center shadow-sm"
+          >
             <Trash2 className="w-4 h-4 mr-2" />
             Clear All
           </button>
@@ -65,7 +116,11 @@ export default function SystemLogs() {
           />
         </div>
         <div className="flex items-center space-x-2 w-full md:w-auto">
-          <select className="flex-1 md:w-40 px-4 py-3 bg-slate-50 border-transparent rounded-xl text-sm font-bold text-slate-600 outline-none cursor-pointer">
+          <select 
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="flex-1 md:w-40 px-4 py-3 bg-slate-50 border-transparent rounded-xl text-sm font-bold text-slate-600 outline-none cursor-pointer"
+          >
             <option>All Types</option>
             <option>AI Generation</option>
             <option>User Activity</option>

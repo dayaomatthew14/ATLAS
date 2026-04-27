@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles, Wand2, CheckCircle2 } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
@@ -15,9 +15,7 @@ export default function Schedules() {
   const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
-  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState([]);
-  
+
   const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
   const canManage = ['admin', 'program_chair'].includes(role);
 
@@ -109,31 +107,6 @@ export default function Schedules() {
     }
   }, [formData, schedules, rooms, teachers]);
 
-  const fetchSuggestions = async () => {
-    if (!formData.subject_id) return;
-    try {
-      const data = await api.get(`/schedules/suggestions?subject_id=${formData.subject_id}`).catch(() => [
-        { faculty_id: 1, faculty_name: 'Dr. Smith', room_id: 1, room_name: 'RM 101', start_time: '09:00', end_time: '10:30', confidence: 95 },
-        { faculty_id: 2, faculty_name: 'Prof. Jones', room_id: 2, room_name: 'RM 202', start_time: '13:00', end_time: '14:30', confidence: 88 },
-      ]);
-      setSuggestions(data);
-      setIsSuggestionsOpen(true);
-    } catch (e) {
-      setSuggestions([]);
-    }
-  };
-
-  const applySuggestion = (sug) => {
-    setFormData({
-      ...formData,
-      faculty_id: sug.faculty_id.toString(),
-      room_id: sug.room_id.toString(),
-      start_time: sug.start_time,
-      end_time: sug.end_time
-    });
-    addToast('AI Suggestion applied!', 'success');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -167,7 +140,7 @@ export default function Schedules() {
     // Simulate receiving generated schedules from the AI
     const mockGenerated = [
       { id: Date.now() + 1, subject: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
-      { id: Date.now() + 2, subject: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{subject: 'Existing Class'}] }
+      { id: Date.now() + 2, subject: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ subject: 'Existing Class' }] }
     ];
     setSchedules(checkScheduleIntegrity([...schedules, ...mockGenerated]));
   };
@@ -181,12 +154,12 @@ export default function Schedules() {
   return (
     <>
       {/* Page Header */}
-      <div className="bg-green-700 text-white py-6 shadow-inner">
-        <div className="max-w-[1600px] mx-auto px-6 sm:px-10 lg:px-12 flex justify-between items-center">
-          <h2 className="text-3xl font-black tracking-tighter uppercase tracking-[0.1em]">Academic Schedules</h2>
+      <div className="bg-green-700 text-white py-3 shadow-inner">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+          <h2 className="text-lg font-medium">Manage Schedules For Teachers</h2>
           <div className="flex items-center space-x-4">
             {activeConflictsCount > 0 && (
-              <button 
+              <button
                 onClick={() => setIsConflictPanelOpen(true)}
                 className="flex items-center bg-red-600 hover:bg-red-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse transition-colors"
               >
@@ -194,34 +167,34 @@ export default function Schedules() {
                 {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
               </button>
             )}
-            <button className="text-sm font-black uppercase tracking-widest text-green-100 hover:text-white flex items-center bg-white/10 px-4 py-2 rounded-xl transition-colors">
-              <BookOpen className="w-5 h-5 mr-2" /> Manage Sections
+            <button className="text-sm text-green-100 hover:text-white flex items-center">
+              <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
             </button>
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 w-full relative">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          
+
           {/* Calendar Toolbar */}
           <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
             <div className="flex space-x-2">
-              <button 
+              <button
                 onClick={prevMonth}
                 className="px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-600 text-sm hover:bg-gray-50 flex items-center transition-colors"
               >
                 <ChevronLeft className="w-4 h-4 mr-1" /> Previous
               </button>
             </div>
-            
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              {monthNames[currentDate.getMonth()]} <span className="text-green-600">{currentDate.getFullYear()}</span>
+
+            <h3 className="text-xl font-bold text-gray-800">
+              {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
             </h3>
-            
+
             <div className="flex space-x-2 items-center">
-              <button 
+              <button
                 onClick={nextMonth}
                 className="px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-600 text-sm hover:bg-gray-50 flex items-center mr-2 transition-colors"
               >
@@ -229,17 +202,17 @@ export default function Schedules() {
               </button>
               {canManage && (
                 <>
-                  <button 
+                  <button
                     onClick={() => setIsAIModalOpen(true)}
-                    className="px-6 py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center shadow-lg transition-transform transform hover:scale-105 mr-3"
+                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-lg text-sm font-bold flex items-center shadow-md transition-transform transform hover:scale-105 mr-2"
                   >
-                    <Sparkles className="w-5 h-5 mr-2" /> Auto-Generate
+                    <Sparkles className="w-4 h-4 mr-1.5" /> Auto-Generate
                   </button>
-                  <button 
+                  <button
                     onClick={handleOpenModal}
-                    className="px-6 py-3 bg-green-700 hover:bg-green-800 text-white rounded-2xl text-xs font-black uppercase tracking-widest flex items-center shadow-lg transition-all"
+                    className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium flex items-center shadow-sm transition-colors"
                   >
-                    <Plus className="w-5 h-5 mr-2" /> Create Manual
+                    <Plus className="w-4 h-4 mr-1" /> Create Manual
                   </button>
                 </>
               )}
@@ -252,32 +225,31 @@ export default function Schedules() {
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                 <div key={day} className="bg-gray-50 py-2 text-center text-sm font-bold text-gray-600">{day}</div>
               ))}
-              
+
               {renderCalendarDays().map((cell, i) => {
-                const daySchedules = schedules.filter(s => 
-                  cell.date && 
-                  s.date.getDate() === cell.day && 
+                const daySchedules = schedules.filter(s =>
+                  cell.date &&
+                  s.date.getDate() === cell.day &&
                   s.date.getMonth() === currentDate.getMonth() &&
                   s.date.getFullYear() === currentDate.getFullYear()
                 );
 
                 return (
-                  <div key={i} className={`bg-white min-h-[80px] lg:min-h-[110px] p-1.5 relative group transition-colors ${cell.currentMonth ? 'hover:bg-gray-50' : 'bg-gray-50'}`}>
-                    <span className={`absolute top-3 right-3 text-sm font-black ${cell.currentMonth ? 'text-slate-400' : 'text-slate-200'}`}>
+                  <div key={i} className={`bg-white min-h-[100px] p-2 relative group transition-colors ${cell.currentMonth ? 'hover:bg-gray-50' : 'bg-gray-50'}`}>
+                    <span className={`absolute top-2 right-2 text-xs font-medium ${cell.currentMonth ? 'text-gray-400' : 'text-gray-300'}`}>
                       {cell.day}
                     </span>
-                    
+
                     <div className="mt-6 space-y-1">
                       {daySchedules.map(schedule => (
-                        <div 
+                        <div
                           key={schedule.id}
-                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${
-                            schedule.isConflicting 
-                              ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20' 
+                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${schedule.isConflicting
+                              ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
                               : schedule.isAI
                                 ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
                                 : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <div className="font-bold truncate">{schedule.subject}</div>
@@ -298,8 +270,8 @@ export default function Schedules() {
         </div>
       </main>
 
-      <ConflictPanel 
-        isOpen={isConflictPanelOpen} 
+      <ConflictPanel
+        isOpen={isConflictPanelOpen}
         onClose={() => setIsConflictPanelOpen(false)}
         conflicts={schedules.filter(s => s.isConflicting).map(s => ({
           ...s,
@@ -311,24 +283,9 @@ export default function Schedules() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={isSuggestionsOpen ? "Create Schedule (AI Assisted)" : "Create New Schedule"}
-        width={isSuggestionsOpen ? "max-w-5xl" : "max-w-2xl"}
+        title="Create New Schedule"
       >
-        <div className="flex flex-col lg:flex-row gap-8">
-          <form onSubmit={handleSubmit} className="flex-1 space-y-6">
-            <div className="flex justify-between items-center">
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Manual Configuration</h4>
-              {formData.subject_id && !isSuggestionsOpen && (
-                <button 
-                  type="button"
-                  onClick={fetchSuggestions}
-                  className="flex items-center space-x-2 text-indigo-600 font-bold text-xs uppercase tracking-widest hover:text-indigo-800 transition-colors"
-                >
-                  <Wand2 className="w-4 h-4" />
-                  <span>Get AI Suggestions</span>
-                </button>
-              )}
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
           {formConflicts.length > 0 && (
             <div className="bg-red-50 border-l-4 border-red-500 p-3 flex items-start">
               <AlertTriangle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
@@ -428,65 +385,27 @@ export default function Schedules() {
             </div>
           </div>
 
+          <div className="pt-4 flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+            >
+              Cancel
+            </button>
             <button
               type="submit"
-              className={`flex-[2] py-4 text-sm font-black text-white rounded-2xl shadow-xl transition-all uppercase tracking-widest ${
-                formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700 shadow-orange-100' : 'bg-green-700 hover:bg-green-800 shadow-green-100'
-              }`}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
+                }`}
             >
-              {formConflicts.length > 0 ? 'Save Anyway' : 'Confirm & Save'}
+              {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
             </button>
           </div>
         </form>
+      </Modal>
 
-        {isSuggestionsOpen && (
-          <div className="lg:w-80 border-l border-slate-100 lg:pl-8 space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">AI Suggestions</h4>
-                <button onClick={() => setIsSuggestionsOpen(false)} className="text-[10px] font-bold text-slate-300 hover:text-slate-500 uppercase">Hide</button>
-              </div>
-              <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
-                Found these conflict-free slots based on faculty availability and room capacity.
-              </p>
-            </div>
-
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-              {suggestions.map((sug, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => applySuggestion(sug)}
-                  className="w-full text-left p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50/30 transition-all group"
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full uppercase">
-                      {sug.confidence}% Match
-                    </span>
-                    <CheckCircle2 className="w-4 h-4 text-slate-200 group-hover:text-indigo-500 transition-colors" />
-                  </div>
-                  <p className="font-bold text-slate-900 text-sm mb-1">{sug.faculty_name}</p>
-                  <p className="text-xs text-slate-500 font-medium mb-2">{sug.room_name}</p>
-                  <div className="flex items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <Clock className="w-3 h-3 mr-1" />
-                    {sug.start_time} - {sug.end_time}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50">
-              <p className="text-[10px] text-indigo-700 font-bold leading-relaxed">
-                Applying a suggestion will automatically populate the form with conflict-free data.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-    </Modal>
-
-      <AIGenerationModal 
-        isOpen={isAIModalOpen} 
+      <AIGenerationModal
+        isOpen={isAIModalOpen}
         onClose={() => setIsAIModalOpen(false)}
         onGenerate={handleAIGeneration}
       />
