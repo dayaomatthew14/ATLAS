@@ -183,3 +183,42 @@ class ScheduleResponse(ScheduleBase):
 
     class Config:
         from_attributes = True
+
+class SystemLogBase(BaseModel):
+    action: str
+    details: Optional[str] = None
+    status: str = 'success'
+
+class SystemLogCreate(SystemLogBase):
+    user_id: Optional[int] = None
+
+class SystemLogResponse(SystemLogBase):
+    id: int
+    user_id: Optional[int]
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+class AIRuleBase(BaseModel):
+    department_id: int
+    faculty_id: Optional[int] = None
+    rule_type: str
+    rule_value: str
+    is_active: bool = True
+
+class AIRuleCreate(AIRuleBase):
+    pass
+
+class AIRuleUpdate(BaseModel):
+    faculty_id: Optional[int] = None
+    rule_type: Optional[str] = None
+    rule_value: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class AIRuleResponse(AIRuleBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

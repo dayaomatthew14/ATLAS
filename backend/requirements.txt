@@ -12,3 +12,6 @@ requests
 python-dotenv
 bcrypt
 alembic
+reportlab
+pandas
+openpyxl
