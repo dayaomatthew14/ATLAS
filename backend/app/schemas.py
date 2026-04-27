@@ -222,3 +222,42 @@ class AIRuleResponse(AIRuleBase):
 
     class Config:
         from_attributes = True
+
+# --- Faculty Unavailability ---
+class FacultyUnavailabilityCreate(BaseModel):
+    day_of_week: str
+    start_time: time
+    end_time: time
+
+class FacultyUnavailabilityResponse(BaseModel):
+    id: int
+    faculty_id: int
+    day_of_week: str
+    start_time: time
+    end_time: time
+
+    class Config:
+        from_attributes = True
+
+# --- Section ---
+class SectionCreate(BaseModel):
+    name: str
+    year_level: str
+    student_count: int = 0
+    curriculum: str
+
+class SectionUpdate(BaseModel):
+    name: Optional[str] = None
+    year_level: Optional[str] = None
+    student_count: Optional[int] = None
+    curriculum: Optional[str] = None
+
+class SectionResponse(BaseModel):
+    id: int
+    name: str
+    year_level: str
+    student_count: int
+    curriculum: str
+
+    class Config:
+        from_attributes = True

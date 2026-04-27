@@ -40,18 +40,23 @@ def generate_schedule(
     # Run the generator
     results = generate_schedules(db, semester_id, dept.id)
     
+    # Fix: generator returns 'conflicts' list, not 'conflicts_found' int
+    conflicts_count = len(results.get('conflicts', []))
+    
     # Log the activity
     log_activity(
-        db, 
-        current_user.id, 
-        "Generate Schedule", 
-        f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Conflicts found: {results['conflicts_found']}",
-        "success" if results['conflicts_found'] == 0 else "warning"
+        db,
+        current_user.id,
+        "Generate Schedule",
+        f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unresolved conflicts: {conflicts_count}",
+        "success" if conflicts_count == 0 else "warning"
     )
-    
+
     return {
         "msg": "Schedule generation completed",
-        "results": results
+        "generated": results.get('generated', 0),
+        "conflicts_count": conflicts_count,
+        "unresolved_conflicts": results.get('conflicts', [])
     }
 
 @router.get("/conflicts")

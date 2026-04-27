@@ -121,17 +121,17 @@
 ---
 
 ### Sprint 7: Intelligent Scheduling Engine Upgrade
-*Status: Frontend [COMPLETED] | Backend [NOT STARTED]*
+*Status: Frontend [COMPLETED] | Backend [COMPLETED]*
 *Objective: Apply proven scheduling logic to ATLAS — introducing faculty unavailability constraints, smart AI suggestions, live conflict tracking, proper section management, and a fully corrected schedule generation engine.*
 
 * **Backend Track (DE GUZMAN)**:
-  * 🔲 **Bug Fix — Generator Return Key**: Fix the `conflicts_found` key mismatch in `ai_scheduler.py` (generator returns `conflicts` list, not `conflicts_found` integer). This is a critical runtime crash.
-  * 🔲 **Faculty Unavailability Model**: Add a `FacultyUnavailability` table to store per-faculty blocked time windows (day + start/end time). Add full CRUD endpoints under `/api/faculty/{id}/unavailability`.
-  * 🔲 **Generator Upgrade — Respect Unavailability**: Update `schedule_generator.py` to check `FacultyUnavailability` records inside `is_overlap()` so the AI never assigns a faculty to a blocked time slot.
-  * 🔲 **Generator Upgrade — Proper Conflict Saving**: Fix the `pass` placeholder in the generator so unresolvable conflicts are correctly written to the `conflicts` table.
-  * 🔲 **AI Suggestions Endpoint**: Implement `GET /api/schedules/suggestions` that returns a list of valid, conflict-free assignment options (faculty + room + time slot) for a given subject and semester.
-  * 🔲 **Live Conflict Count Endpoint**: Implement `GET /api/conflicts/count` that returns the total number of unresolved conflicts for the active semester — scoped to the Program Chair's department.
-  * 🔲 **Section as Proper Entity**: Add a `Section` model (`name`, `year_level`, `number_of_students`, `department_id`, `curriculum`) and full CRUD endpoints under `/api/sections`. Keep backward compatibility with the existing `schedule.section` string field.
+  * ✅ **Bug Fix — Generator Return Key**: Fix the `conflicts_found` key mismatch in `ai_scheduler.py` (generator returns `conflicts` list, not `conflicts_found` integer). This is a critical runtime crash.
+  * ✅ **Faculty Unavailability Model**: Add a `FacultyUnavailability` table to store per-faculty blocked time windows (day + start/end time). Add full CRUD endpoints under `/api/faculty/{id}/unavailability`.
+  * ✅ **Generator Upgrade — Respect Unavailability**: Update `schedule_generator.py` to check `FacultyUnavailability` records inside `is_overlap()` so the AI never assigns a faculty to a blocked time slot.
+  * ✅ **Generator Upgrade — Proper Conflict Saving**: Fix the `pass` placeholder in the generator so unresolvable conflicts are correctly written to the `conflicts` table.
+  * ✅ **AI Suggestions Endpoint**: Implement `GET /api/schedules/suggestions` that returns a list of valid, conflict-free assignment options (faculty + room + time slot) for a given subject and semester.
+  * ✅ **Live Conflict Count Endpoint**: Implement `GET /api/conflicts/count` that returns the total number of unresolved conflicts for the active semester — scoped to the Program Chair's department.
+  * ✅ **Section as Proper Entity**: Add a `Section` model (`name`, `year_level`, `number_of_students`, `department_id`, `curriculum`) and full CRUD endpoints under `/api/sections`. Keep backward compatibility with the existing `schedule.section` string field.
 
 * **Frontend Track (DAYAO)**:
   * ✅ **Faculty Unavailability UI**: Add a "Blocked Times" panel inside the Faculty/Teachers management page. Allow Program Chairs to add, view, and remove unavailability windows per faculty member.

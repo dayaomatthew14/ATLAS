@@ -5,7 +5,7 @@ from app import models
 from app.routers import (
     auth_router, departments, subjects, rooms, 
     users, schedules, semesters, faculty, ai_scheduler, logs, ai_rules,
-    notifications_router
+    notifications_router, conflicts, sections
 )
 
 # Create the database tables
@@ -39,6 +39,8 @@ app.include_router(ai_scheduler.router)
 app.include_router(logs.router)
 app.include_router(ai_rules.router)
 app.include_router(notifications_router.router)
+app.include_router(conflicts.router)
+app.include_router(sections.router)
 
 @app.get("/api/health")
 def health_check():
