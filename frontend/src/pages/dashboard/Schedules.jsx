@@ -98,6 +98,15 @@ export default function Schedules() {
   };
 
   // Real-time conflict check
+  useEffect(() => {
+    if (formData.subject_id && formData.start_time) {
+      const conflicts = detectConflicts({
+        ...formData,
+        room_name: rooms.find(r => r.id === parseInt(formData.room_id))?.name,
+        teacher: teachers.find(t => t.id === parseInt(formData.faculty_id))?.name
+      }, schedules);
+      setFormConflicts(conflicts);
+    }
   }, [formData, schedules, rooms, teachers]);
 
   const fetchSuggestions = async () => {
