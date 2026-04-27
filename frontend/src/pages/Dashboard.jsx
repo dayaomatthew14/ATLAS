@@ -20,7 +20,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchConflictCount = async () => {
       try {
-        const data = await api.get('/conflicts/count');
+        const data = await api.get('/conflicts/count/');
         setConflictCount(data.count || 0);
       } catch (e) {
         // Fallback for demo/missing endpoint

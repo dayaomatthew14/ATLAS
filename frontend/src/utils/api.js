@@ -13,7 +13,12 @@ async function request(endpoint, options = {}) {
   };
 
   try {
-    const response = await fetch(`${BASE_URL}${endpoint}`, config);
+    let normalizedEndpoint = endpoint;
+    const [path, query] = endpoint.split('?');
+    if (!path.endsWith('/')) {
+      normalizedEndpoint = `${path}/${query ? `?${query}` : ''}`;
+    }
+    const response = await fetch(`${BASE_URL}${normalizedEndpoint}`, config);
     
     if (response.status === 401) {
       localStorage.removeItem('atlas_token');
