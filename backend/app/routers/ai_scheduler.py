@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from typing import List
+from datetime import datetime, timezone
 from .. import models, database, auth
 from ..services.schedule_generator import generate_schedules
 from .logs import log_activity
