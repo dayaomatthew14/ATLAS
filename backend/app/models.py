@@ -81,3 +81,22 @@ class Conflict(Base):
     schedule_id_2 = Column(Integer, ForeignKey("schedules.id"))
     conflict_type = Column(String(50))
     resolved_at = Column(DateTime, nullable=True)
+
+class SystemLog(Base):
+    __tablename__ = "system_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    action = Column(String(255), nullable=False)
+    details = Column(String(1000), nullable=True)
+    status = Column(Enum('success', 'warning', 'error', name='log_status'), default='success')
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class AIRule(Base):
+    __tablename__ = "ai_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"))
+    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
+    rule_type = Column(String(100), nullable=False) # e.g., 'preferred_time', 'max_consecutive_hours'
+    rule_value = Column(String(500), nullable=False) # JSON or simple value
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

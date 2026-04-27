@@ -40,9 +40,6 @@
 * **University Branding**: Tailored the system for De La Salle Araneta University - Tertiary Education.
 * **Role Enforcement**: Implemented dynamic UI filtering for Program Chairs vs Faculty vs Admins.
 * **Data Integration**: Successfully decoupled mock data to prepare for production API consumption.
-* **High-Visibility UI Overhaul**: Implemented a "Big Font" readability system for high-performance management on laptop displays.
-* **System Logs UI**: Created a comprehensive Audit Trail and AI Activity log interface.
-* **Advanced Command Center**: Built the "Quick Action" and "Data Integration" panels for power users.
 
 ---
 
@@ -100,19 +97,20 @@
   * ✅ Conduct final UI testing across devices.
   * ✅ Configure Vite deployment builds and environment variables for production.
 
+
 ---
 
 ### Sprint 6: Advanced Management & AI Operations
-*Status: Frontend [COMPLETED] | Backend [IN PROGRESS]*
+*Status: Frontend [COMPLETED] | Backend [COMPLETED]*
 *Objective: Transition high-fidelity UI actions into fully functional backend services.*
 
 * **Backend Track (DE GUZMAN)**:
-  * 🔲 **System Logs API**: Implement `GET /logs` endpoint with filtering support (Success, Warning, Error) to populate the new System Logs page.
-  * 🔲 **AI Conflict Auto-Resolver**: Develop an endpoint that takes a list of conflicts and automatically attempts to relocate them to the nearest available room/time slot.
-  * 🔲 **Official PDF Export**: Integrate a PDF generation library to convert digital schedules into university-standard printable documents.
-  * 🔲 **Faculty Notification System**: Build a notification dispatcher (Email/Internal) for the "Notify All Faculty" action.
-  * 🔲 **Excel Processing Engine**: Implement an upload handler for the "Import from Excel" feature, including data validation for bulk schedule insertion.
-  * 🔲 **AI Rule Persistence**: Create a schema and API to store and retrieve "AI Scheduling Rules" (e.g., specific faculty time preferences).
+  * ✅ **System Logs API**: Implement `GET /logs` endpoint with filtering support (Success, Warning, Error) to populate the new System Logs page.
+  * ✅ **AI Conflict Auto-Resolver**: Develop an endpoint that takes a list of conflicts and automatically attempts to relocate them to the nearest available room/time slot.
+  * ✅ **Official PDF Export**: Integrate a PDF generation library to convert digital schedules into university-standard printable documents.
+  * ✅ **Faculty Notification System**: Build a notification dispatcher (Email/Internal) for the "Notify All Faculty" action.
+  * ✅ **Excel Processing Engine**: Implement an upload handler for the "Import from Excel" feature, including data validation for bulk schedule insertion.
+  * ✅ **AI Rule Persistence**: Create a schema and API to store and retrieve "AI Scheduling Rules" (e.g., specific faculty time preferences).
 
 * **Frontend Track (DAYAO) [COMPLETED]**:
   * ✅ Upgraded Typography & Readability across all management modules (Big Fonts).
