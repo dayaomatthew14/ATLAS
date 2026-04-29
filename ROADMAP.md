@@ -141,3 +141,20 @@
   * ✅ **Live Conflict Counter Badge**: Display a real-time conflict count badge on the Dashboard and Schedules page header, pulling from `GET /api/conflicts/count`.
   * ✅ **Faculty Load Tracker**: Add a visual load indicator per faculty member (current units vs. max units) on the Teachers page — highlight overloaded faculty in a warning state.
   * ✅ **Section Management UI**: Build a dedicated Sections management page with a table showing section name, year level, student count, and linked curriculum. Integrate it with the schedule assignment flow.
+
+---
+
+### Sprint 8: Curriculum Visual Overhaul & Mapping
+*Status: [IN PROGRESS]*
+*Objective: Upgrade the curriculum management system to support program-specific course mapping (Year Level, Semester), enriched subject details (Lec/Lab units, Prerequisites), and a visually organized grouping interface inspired by standard academic flowcharts.*
+
+* **Backend Track (DE GUZMAN) [COMPLETED]**:
+  * ✅ **Curriculum Schema Upgrade**: Expand the `Curriculum` model to include `program_code`, `year_level`, `semester_term`, `lec_units`, `lab_units`, and `pre_requisites`. Remove the global unique constraint on `code` to allow the same subject across different programs.
+  * ✅ **Import Endpoint Enhancement**: Update `POST /api/curriculum/import` to accept a `program_code` parameter. The parser should attach this program code to all imported subjects.
+  * ✅ **Filtered Fetching**: Update `GET /api/curriculum` to support filtering by `program_code`.
+
+* **Frontend Track (DAYAO) - Pending**:
+  * **Program Filter & Import Target**: Add a Program selection dropdown (e.g., BSCS, BSIT) to the Curriculum page header. The selected program will filter the displayed curriculum and MUST be sent as `program_code` in the FormData when using the "Import Excel" button.
+  * **Grouped UI Layout**: Redesign the main view to match the mockups. Group subjects by `year_level` (e.g., "1ST YEAR") and `semester_term` (e.g., "1ST SEMESTER"). Display them in distinct sections instead of a single flat table.
+  * **Extended Table Columns**: Update the curriculum table headers to match the design: Code, Description, Lec, Lab, Units, Pre-requisite, Actions. Map these to the new API fields (`lec_units`, `lab_units`, `pre_requisite`).
+  * **Add/Edit Modal Update**: Update the curriculum form to capture the new fields (`program_code`, `year_level`, `semester_term`, `lec_units`, `lab_units`, `pre_requisite`) and send them to the backend on save.
