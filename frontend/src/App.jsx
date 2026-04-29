@@ -24,7 +24,7 @@ import { ToastProvider } from './components/ToastProvider';
 function App() {
   return (
     <ToastProvider>
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Router>
         <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />

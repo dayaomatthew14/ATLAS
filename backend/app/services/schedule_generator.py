@@ -17,7 +17,7 @@ DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 def generate_schedules(db: Session, semester_id: int, department_id: int):
     # 1. Fetch data
-    subjects = db.query(models.Subject).filter(models.Subject.department_id == department_id).all()
+    curriculum_items = db.query(models.Curriculum).filter(models.Curriculum.department_id == department_id).all()
     faculties = db.query(models.Faculty).filter(models.Faculty.department_id == department_id).all()
     rooms = db.query(models.Room).all()
     
@@ -64,23 +64,23 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
 
         return False
 
-    for subject in subjects:
+    for curriculum_item in curriculum_items:
         # Match type
-        valid_rooms = [r for r in rooms if r.type == subject.type or (r.type == 'computer_lab' and subject.type == 'lab')]
+        valid_rooms = [r for r in rooms if r.type == curriculum_item.type or (r.type == 'computer_lab' and curriculum_item.type == 'lab')]
         
         if not valid_rooms:
             unresolved_conflicts.append({
-                "subject_id": subject.id,
-                "reason": f"No valid rooms found for type {subject.type}"
+                "curriculum_id": curriculum_item.id,
+                "reason": f"No valid rooms found for type {curriculum_item.type}"
             })
             continue
             
         # Find faculty with available units
-        valid_faculty = [f for f in faculties if (faculty_units[f.id] + subject.units) <= f.max_units]
+        valid_faculty = [f for f in faculties if (faculty_units[f.id] + curriculum_item.units) <= f.max_units]
         
         if not valid_faculty:
             unresolved_conflicts.append({
-                "subject_id": subject.id,
+                "curriculum_id": curriculum_item.id,
                 "reason": "No faculty available with sufficient units"
             })
             continue
@@ -104,7 +104,7 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
                             # Place it
                             new_sched = models.Schedule(
                                 semester_id=semester_id,
-                                subject_id=subject.id,
+                                curriculum_id=curriculum_item.id,
                                 faculty_id=faculty.id,
                                 room_id=room.id,
                                 day_of_week=day,
@@ -114,13 +114,13 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
                                 status='draft'
                             )
                             generated_schedules.append(new_sched)
-                            faculty_units[faculty.id] += subject.units
+                            faculty_units[faculty.id] += curriculum_item.units
                             placed = True
                             break
                             
         if not placed:
             unresolved_conflicts.append({
-                "subject_id": subject.id,
+                "curriculum_id": curriculum_item.id,
                 "reason": "Could not find a conflict-free time slot with available resources"
             })
             
@@ -130,14 +130,14 @@ def generate_schedules(db: Session, semester_id: int, department_id: int):
 
     # Save unresolvable placement failures to SystemLog as warnings.
     # The Conflict table requires two schedule IDs (for schedule-vs-schedule conflicts),
-    # so unplaceable subjects are tracked in SystemLog where they surface in the Logs UI.
+    # so unplaceable curriculum items are tracked in SystemLog where they surface in the Logs UI.
     for c in unresolved_conflicts:
-        subject = db.query(models.Subject).filter(models.Subject.id == c["subject_id"]).first()
-        subject_label = f"{subject.code} — {subject.name}" if subject else f"Subject ID {c['subject_id']}"
+        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == c["curriculum_id"]).first()
+        curriculum_label = f"{curriculum_item.code} — {curriculum_item.name}" if curriculum_item else f"Curriculum ID {c['curriculum_id']}"
         db.add(models.SystemLog(
             user_id=None,
             action="Schedule Generation — Placement Failure",
-            details=f"Could not place '{subject_label}': {c['reason']}",
+            details=f"Could not place '{curriculum_label}': {c['reason']}",
             status='warning'
         ))
     

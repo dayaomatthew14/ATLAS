@@ -16,3 +16,4 @@ atlas.db
 # OS
 .DS_Store
 Thumbs.db
+*.exe

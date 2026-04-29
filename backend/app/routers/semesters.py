@@ -8,7 +8,7 @@ router = APIRouter(
     tags=["Semesters"]
 )
 
-@router.get("", response_model=List[schemas.SemesterResponse])
+@router.get("/", response_model=List[schemas.SemesterResponse])
 def get_semesters(
     skip: int = 0, 
     limit: int = 100, 
@@ -28,7 +28,7 @@ def get_semester(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
     return semester
 
-@router.post("", response_model=schemas.SemesterResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=schemas.SemesterResponse, status_code=status.HTTP_201_CREATED)
 def create_semester(
     semester: schemas.SemesterCreate, 
     db: Session = Depends(database.get_db),

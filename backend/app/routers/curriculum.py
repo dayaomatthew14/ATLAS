@@ -1,365 +1,320 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-import pandas as pd
-import io
-import os
-import re
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import pandas as pd
+import io
 from .. import models, schemas, database, auth
-from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/curriculum",
     tags=["Curriculum"]
 )
 
-@router.get("", response_model=List[schemas.SubjectResponse])
-def get_subjects(
+@router.get("/", response_model=List[schemas.CurriculumResponse])
+def get_curriculum(
     skip: int = 0, 
-    limit: int = 5000, 
+    limit: int = 100, 
     department_id: Optional[int] = None,
-    course: Optional[str] = None,
-    year: Optional[int] = None,
-    semester: Optional[str] = None,
+    program_code: Optional[str] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    query = db.query(models.Subject)
+    query = db.query(models.Curriculum)
     
     if current_user.role == 'program_chair' and current_user.department:
-        # Filter subjects by the program chair's department
+        # Filter curriculum by the program chair's department
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
         ).first()
         if dept:
-            query = query.filter(models.Subject.department_id == dept.id)
+            query = query.filter(models.Curriculum.department_id == dept.id)
         else:
             return [] # No department match means no access
     elif department_id:
-        query = query.filter(models.Subject.department_id == department_id)
-        
-    if course:
-        query = query.filter(models.Subject.course == course)
-    if year:
-        query = query.filter(models.Subject.year == year)
-    if semester:
-        query = query.filter(models.Subject.semester == semester)
+        query = query.filter(models.Curriculum.department_id == department_id)
+
+    if program_code:
+        query = query.filter(models.Curriculum.program_code == program_code)
         
     return query.offset(skip).limit(limit).all()
 
-@router.get("/{subject_id}", response_model=schemas.SubjectResponse)
-def get_subject(
-    subject_id: int, 
+@router.get("/{curriculum_id}", response_model=schemas.CurriculumResponse)
+def get_curriculum_item(
+    curriculum_id: int, 
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
+    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
+    if not curriculum_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
     if current_user.role == 'program_chair' and current_user.department:
-        dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
+        dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this subject")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this curriculum item")
             
-    return subject
+    return curriculum_item
 
-@router.post("", response_model=schemas.SubjectResponse, status_code=status.HTTP_201_CREATED)
-def create_subject(
-    subject: schemas.SubjectCreate, 
+@router.post("/", response_model=schemas.CurriculumResponse, status_code=status.HTTP_201_CREATED)
+def create_curriculum_item(
+    curriculum_item: schemas.CurriculumCreate, 
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    subject_data = subject.model_dump()
-    
     if current_user.role == 'program_chair' and current_user.department:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            subject_data['department_id'] = dept.id
-        else:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Department not found")
-             
-    db_subject = db.query(models.Subject).filter(models.Subject.code == subject.code).first()
-    if db_subject:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Subject code already exists")
-        
-    new_subject = models.Subject(**subject_data)
-    db.add(new_subject)
-    db.commit()
-    db.refresh(new_subject)
-    
-    log_activity(db, current_user.id, "Create Subject", f"Created subject: {new_subject.code} - {new_subject.name}")
-    
-    return new_subject
-
-@router.put("/{subject_id}", response_model=schemas.SubjectResponse)
-def update_subject(
-    subject_id: int, 
-    subject: schemas.SubjectUpdate, 
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    db_subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not db_subject:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
-        
-    if current_user.role == 'program_chair' and current_user.department:
-        dept = db.query(models.Department).filter(models.Department.id == db_subject.department_id).first()
+        dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this subject")
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create curriculum for your department")
              
-    update_data = subject.model_dump(exclude_unset=True)
+    db_curriculum = db.query(models.Curriculum).filter(
+        models.Curriculum.code == curriculum_item.code,
+        models.Curriculum.program_code == curriculum_item.program_code
+    ).first()
+    if db_curriculum:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Curriculum item with this code already exists for this program")
+        
+    new_curriculum = models.Curriculum(**curriculum_item.model_dump())
+    db.add(new_curriculum)
+    db.commit()
+    db.refresh(new_curriculum)
+    return new_curriculum
+
+@router.put("/{curriculum_id}", response_model=schemas.CurriculumResponse)
+def update_curriculum_item(
+    curriculum_id: int, 
+    curriculum_item: schemas.CurriculumUpdate, 
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
+    if not db_curriculum:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
+        
+    if current_user.role == 'program_chair' and current_user.department:
+        dept = db.query(models.Department).filter(models.Department.id == db_curriculum.department_id).first()
+        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this curriculum item")
+             
+    update_data = curriculum_item.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(db_subject, key, value)
+        setattr(db_curriculum, key, value)
         
     db.commit()
-    db.refresh(db_subject)
-    
-    log_activity(db, current_user.id, "Update Subject", f"Updated subject: {db_subject.code}")
-    
-    return db_subject
+    db.refresh(db_curriculum)
+    return db_curriculum
 
-@router.delete("/{subject_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_subject(
-    subject_id: int, 
+@router.delete("/{curriculum_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_curriculum_item(
+    curriculum_id: int, 
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    db_subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not db_subject:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
+    db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
+    if not db_curriculum:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
     if current_user.role == 'program_chair' and current_user.department:
-        dept = db.query(models.Department).filter(models.Department.id == db_subject.department_id).first()
+        dept = db.query(models.Department).filter(models.Department.id == db_curriculum.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this subject")
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this curriculum item")
              
-    code = db_subject.code
-    db.delete(db_subject)
+    db.delete(db_curriculum)
     db.commit()
-    
-    log_activity(db, current_user.id, "Delete Subject", f"Deleted subject: {code}")
-    
     return None
-
-@router.delete("/course/{course_name}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_course_curriculum(
-    course_name: str, 
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    query = db.query(models.Subject).filter(models.Subject.course == course_name)
-    
-    if current_user.role == 'program_chair' and current_user.department:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            query = query.filter(models.Subject.department_id == dept.id)
-        else:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this course")
-             
-    deleted_count = query.delete()
-    if deleted_count == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found or no subjects deleted")
-        
-    db.commit()
-    log_activity(db, current_user.id, "Delete Curriculum", f"Deleted {deleted_count} subjects for course: {course_name}")
-    
-    return None
-
-@router.post("/upload", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def upload_subjects(
+@router.post("/import")
+async def import_curriculum(
     file: UploadFile = File(...),
-    course: Optional[str] = Form(None),
+    department_id: Optional[int] = Form(None),
+    program_code: Optional[str] = Form(None),
+    dry_run: bool = Form(False),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    if not file.filename.endswith('.xlsx') and not file.filename.endswith('.xls'):
-        raise HTTPException(status_code=400, detail="Only Excel files are supported")
-        
-    department_id = None
-    if current_user.role == 'program_chair' and current_user.department:
+
+    # If program chair, force their department
+    if current_user.role == 'program_chair':
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
         ).first()
-        if dept:
-            department_id = dept.id
-        else:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Department not found")
+        if not dept:
+            raise HTTPException(status_code=400, detail="User department not found")
+        target_dept_id = dept.id
+    elif department_id:
+        target_dept_id = department_id
     else:
-        dept = db.query(models.Department).first()
-        if dept:
-            department_id = dept.id
-            
-    if not department_id:
-        raise HTTPException(status_code=400, detail="No department to assign subjects to")
+        # Default to first department or error
+        first_dept = db.query(models.Department).first()
+        if not first_dept:
+             raise HTTPException(status_code=400, detail="No departments found in system")
+        target_dept_id = first_dept.id
 
-    contents = await file.read()
-    
     try:
-        xls = pd.ExcelFile(io.BytesIO(contents))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {e}")
-
-    added_count = 0
-    skipped_count = 0
-    global_codes_seen = set()
-    
-    course_name = "Unknown"
-    if course:
-        course_name = course.upper()
-    else:
-        # Try to extract from Excel contents first
-        for sheet_name in xls.sheet_names:
-            try:
-                df_header = pd.read_excel(xls, sheet_name=sheet_name, nrows=10, header=None)
-                for index, row in df_header.iterrows():
-                    row_str = " ".join([str(x) for x in row.values if pd.notna(x)]).upper()
-                    if "BACHELOR OF" in row_str:
-                        match = re.search(r'\((.*?)\)', row_str)
-                        if match:
-                            extracted = match.group(1).strip()
-                            if extracted:
-                                course_name = extracted
-                                break
-            except Exception:
-                pass
-            if course_name != "Unknown":
-                break
+        contents = await file.read()
+        xl = pd.ExcelFile(io.BytesIO(contents))
+        
+        items_to_add = []
+        skipped_items = []
+        total_parsed = 0
+        found_target_sheet = False
+        
+        for sheet in xl.sheet_names:
+            df_header = pd.read_excel(xl, sheet_name=sheet, nrows=20, header=None)
+            header_text = df_header.to_string().lower()
+            
+            if "de la salle" in header_text or "university" in header_text:
+                found_target_sheet = True
+                full_df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                header_row_idx = -1
+                col_map = {}
                 
-        # Fallback to filename if not found in contents
-        if course_name == "Unknown":
-            base_name = os.path.splitext(file.filename)[0]
-            parts = re.split(r'[\s_\-]+', base_name)
-            if parts and parts[0]:
-                course_name = parts[0].upper()
-
-    # If course is known, clear existing subjects for this course to ensure a fresh import
-    if course_name != "Unknown":
-        db.query(models.Subject).filter(
-            models.Subject.course == course_name,
-            models.Subject.department_id == department_id
-        ).delete()
-        db.commit()
-
-    for sheet_name in xls.sheet_names:
-        try:
-            df = pd.read_excel(xls, sheet_name=sheet_name)
-            current_year = None
-            semester_index = 0
-            
-            for index, row in df.iterrows():
-                row_str = str(row.values).upper()
-                if "FIRST YEAR" in row_str:
-                    if current_year != 1:
-                        current_year = 1
-                        semester_index = 0
-                    else:
-                        semester_index += 1
-                elif "SECOND YEAR" in row_str:
-                    if current_year != 2:
-                        current_year = 2
-                        semester_index = 0
-                    else:
-                        semester_index += 1
-                elif "THIRD YEAR" in row_str:
-                    if current_year != 3:
-                        current_year = 3
-                        semester_index = 0
-                    else:
-                        semester_index += 1
-                elif "FOURTH YEAR" in row_str:
-                    if current_year != 4:
-                        current_year = 4
-                        semester_index = 0
-                    else:
-                        semester_index += 1
-                        
-                sem_mapping = {0: '1st', 1: '2nd', 2: 'summer'}
-                current_sem = sem_mapping.get(semester_index, '1st')
-
-                cleaned = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip() != '']
-                if len(cleaned) >= 5:
-                    found = False
-                    for i in range(2, len(cleaned) - 2):
-                        try:
-                            lec = int(float(cleaned[i]))
-                            lab = int(float(cleaned[i+1]))
-                            units = int(float(cleaned[i+2]))
-                            code = cleaned[i-2]
-                            title = cleaned[i-1]
-                            
-                            # Parse pre-requisite (usually the next column after units)
-                            pre_req = cleaned[i+3] if i+3 < len(cleaned) else ""
-                            if str(pre_req).upper() == 'NONE' or pd.isna(pre_req):
-                                pre_req = ""
-                                
-                            if len(code) > 20 or len(title) < 3:
-                                continue
-                                
-                            found = True
-                            break
-                        except ValueError:
-                            continue
+                for i, row in full_df.iterrows():
+                    row_vals = [str(v).strip().lower() for v in row.values]
+                    if "course code" in row_vals or "code" in row_vals:
+                        header_row_idx = i
+                        for idx, val in enumerate(row_vals):
+                            if "course code" in val or "code" == val: col_map['code'] = idx
+                            if "course title" in val or "title" in val or "subject name" in val: col_map['name'] = idx
+                            if "units" == val or "unit" in val: col_map['units'] = idx
+                            if "lec" in val or "lecture" in val: col_map['lec_units'] = idx
+                            if "lab" in val or "laboratory" in val: col_map['lab_units'] = idx
+                            if "pre-req" in val or "prerequisite" in val: col_map['pre_requisite'] = idx
+                            if "year" in val: col_map['year_level'] = idx
+                            if "sem" in val or "semester" in val: col_map['semester_term'] = idx
+                        break
+                
+                if header_row_idx != -1 and 'code' in col_map and 'name' in col_map:
+                    data_df = full_df.iloc[header_row_idx + 1:]
                     
-                    if found:
-                        subj_type = 'lab' if lab > 0 else 'lecture'
+                    current_year = None
+                    current_sem = None
+                    
+                    for _, row in data_df.iterrows():
+                        total_parsed += 1
                         
-                        # Since we deleted existing for the course, duplicates are only within the file itself
-                        if code in global_codes_seen:
-                            skipped_count += 1
+                        if 'year_level' in col_map and not pd.isna(row[col_map['year_level']]):
+                            current_year = str(row[col_map['year_level']]).strip()
+                        if 'semester_term' in col_map and not pd.isna(row[col_map['semester_term']]):
+                            current_sem = str(row[col_map['semester_term']]).strip()
+                            
+                        code_raw = row[col_map['code']]
+                        if pd.isna(code_raw):
+                            continue
+                            
+                        if isinstance(code_raw, float) and code_raw.is_integer():
+                            code = str(int(code_raw)).strip()
                         else:
-                            new_subj = models.Subject(
+                            code = str(code_raw).strip()
+                            
+                        name_raw = row[col_map['name']]
+                        name = str(name_raw).strip() if not pd.isna(name_raw) else ""
+                        
+                        units_val = row[col_map['units']] if 'units' in col_map else 3
+                        
+                        if not code or code.lower() == 'nan' or len(code) < 3 or code.lower() == 'course code':
+                            skipped_items.append({"code": code, "name": name, "reason": "Invalid or missing course code"})
+                            continue
+                            
+                        try: units = int(float(units_val))
+                        except: units = 3
+                            
+                        lec_units = 0
+                        if 'lec_units' in col_map and not pd.isna(row[col_map['lec_units']]):
+                            try: lec_units = int(float(row[col_map['lec_units']]))
+                            except: pass
+                            
+                        lab_units = 0
+                        if 'lab_units' in col_map and not pd.isna(row[col_map['lab_units']]):
+                            try: lab_units = int(float(row[col_map['lab_units']]))
+                            except: pass
+                            
+                        pre_requisite = None
+                        if 'pre_requisite' in col_map:
+                            val = str(row[col_map['pre_requisite']]).strip()
+                            if val and val.lower() != 'nan' and val.lower() != 'none':
+                                pre_requisite = val
+                                
+                        ctype = 'lecture'
+                        if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
+                            ctype = 'lab'
+                            
+                        # Check if already exists in this department AND program
+                        existing = db.query(models.Curriculum).filter(
+                            models.Curriculum.code == code,
+                            models.Curriculum.department_id == target_dept_id,
+                            models.Curriculum.program_code == program_code
+                        ).first()
+                        
+                        if not existing:
+                            items_to_add.append(models.Curriculum(
                                 code=code,
-                                name=title,
+                                name=name,
                                 units=units,
-                                department_id=department_id,
-                                type=subj_type,
-                                year=current_year,
-                                semester=current_sem,
-                                course=course_name,
-                                lec_units=lec,
-                                lab_units=lab,
-                                pre_requisites=pre_req
-                            )
-                            db.add(new_subj)
-                            global_codes_seen.add(code)
-                            added_count += 1
-        except Exception:
-            continue
+                                type=ctype,
+                                department_id=target_dept_id,
+                                program_code=program_code,
+                                year_level=current_year,
+                                semester_term=current_sem,
+                                lec_units=lec_units,
+                                lab_units=lab_units,
+                                pre_requisite=pre_requisite
+                            ))
+                        else:
+                            skipped_items.append({"code": code, "name": name, "reason": "Already exists for this program"})
+                    break # Only process the first school-related sheet found
+
+        if not found_target_sheet:
+            raise HTTPException(status_code=400, detail="Could not find a sheet with the school name")
+
+        summary = {
+            "total_parsed": total_parsed,
+            "to_add": len(items_to_add),
+            "skipped": len(skipped_items)
+        }
+
+        if dry_run:
+            preview = [item.__dict__ for item in items_to_add]
+            for p in preview:
+                p.pop('_sa_instance_state', None)
             
-    try:
-        db.commit()
-        log_activity(db, current_user.id, "Upload Curriculum", f"Imported {added_count} subjects for {course_name} curriculum")
+            return {
+                "is_dry_run": True,
+                "message": "Dry run complete",
+                "summary": summary,
+                "preview": preview,
+                "errors": skipped_items
+            }
+
+        if items_to_add:
+            db.add_all(items_to_add)
+            db.commit()
+            return {
+                "is_dry_run": False,
+                "message": f"Successfully imported {len(items_to_add)} curriculum items",
+                "summary": summary,
+                "errors": skipped_items
+            }
+        else:
+            return {
+                "is_dry_run": False,
+                "message": "No new curriculum items to import",
+                "summary": summary,
+                "errors": skipped_items
+            }
+
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Database error during commit")
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
-    return {
-        "message": "Success", 
-        "added": added_count, 
-        "skipped": skipped_count,
-        "course": course_name
-    }

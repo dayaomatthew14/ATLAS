@@ -13,7 +13,6 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     department: str
-    max_units: Optional[int] = None
 
 class UserResponse(UserBase):
     id: int
@@ -49,7 +48,6 @@ class UserUpdate(BaseModel):
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: Optional[str] = None
     is_verified: Optional[bool] = None
-    max_units: Optional[int] = None
 
 class DepartmentBase(BaseModel):
     name: str
@@ -70,33 +68,36 @@ class DepartmentResponse(DepartmentBase):
     class Config:
         from_attributes = True
 
-class SubjectBase(BaseModel):
+class CurriculumBase(BaseModel):
     code: str
     name: str
     units: int
-    department_id: Optional[int] = None
+    department_id: int
     type: str
-    year: Optional[int] = None
-    semester: Optional[str] = None
-    course: Optional[str] = None
+    program_code: Optional[str] = None
+    year_level: Optional[str] = None
+    semester_term: Optional[str] = None
     lec_units: int = 0
     lab_units: int = 0
-    pre_requisites: Optional[str] = None
+    pre_requisite: Optional[str] = None
 
-class SubjectCreate(SubjectBase):
+class CurriculumCreate(CurriculumBase):
     pass
 
-class SubjectUpdate(BaseModel):
+class CurriculumUpdate(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     units: Optional[int] = None
     department_id: Optional[int] = None
     type: Optional[str] = None
+    program_code: Optional[str] = None
+    year_level: Optional[str] = None
+    semester_term: Optional[str] = None
     lec_units: Optional[int] = None
     lab_units: Optional[int] = None
-    pre_requisites: Optional[str] = None
+    pre_requisite: Optional[str] = None
 
-class SubjectResponse(SubjectBase):
+class CurriculumResponse(CurriculumBase):
     id: int
 
     class Config:
@@ -164,7 +165,7 @@ from datetime import time
 
 class ScheduleBase(BaseModel):
     semester_id: int
-    subject_id: int
+    curriculum_id: int
     faculty_id: int
     room_id: int
     day_of_week: str
@@ -178,7 +179,7 @@ class ScheduleCreate(ScheduleBase):
 
 class ScheduleUpdate(BaseModel):
     semester_id: Optional[int] = None
-    subject_id: Optional[int] = None
+    curriculum_id: Optional[int] = None
     faculty_id: Optional[int] = None
     room_id: Optional[int] = None
     day_of_week: Optional[str] = None

@@ -8,7 +8,7 @@ router = APIRouter(
     tags=["Departments"]
 )
 
-@router.get("", response_model=List[schemas.DepartmentResponse])
+@router.get("/", response_model=List[schemas.DepartmentResponse])
 def get_departments(
     skip: int = 0, 
     limit: int = 100, 
@@ -29,7 +29,7 @@ def get_department(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
     return department
 
-@router.post("", response_model=schemas.DepartmentResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=schemas.DepartmentResponse, status_code=status.HTTP_201_CREATED)
 def create_department(
     department: schemas.DepartmentCreate, 
     db: Session = Depends(database.get_db),

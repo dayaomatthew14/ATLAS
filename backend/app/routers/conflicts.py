@@ -38,15 +38,15 @@ def get_conflict_count(
         if not current_user.department:
             return {"count": 0}
         
-        # We need to check the department of the subjects in the schedules
+        # We need to check the department of the curriculum items in the schedules
         # Since Conflict links to Schedule 1 and 2, and both are likely in the same dept if they conflict,
-        # checking Schedule 1's subject dept is enough.
+        # checking Schedule 1's curriculum item dept is enough.
         query = query.join(
-            models.Subject,
-            models.Schedule.subject_id == models.Subject.id
+            models.Curriculum,
+            models.Schedule.curriculum_id == models.Curriculum.id
         ).join(
             models.Department,
-            models.Subject.department_id == models.Department.id
+            models.Curriculum.department_id == models.Department.id
         ).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
