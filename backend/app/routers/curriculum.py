@@ -383,3 +383,120 @@ async def import_curriculum(
     contents = await file.read()
     return await _process_curriculum_import(contents, department_id, program_code, dry_run, db, current_user, mapping)
 
+@router.post("/bulk", response_model=schemas.ImportResponse)
+def bulk_create_curriculum(
+    items: List[schemas.CurriculumCreate],
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # 1. Circular Prerequisite Check
+    adj = {i.code: [p.strip().upper() for p in i.pre_requisite.split(',')] if i.pre_requisite else [] for i in items}
+    visited = set()
+    stack = set()
+    cycles = set()
+
+    def dfs(u):
+        visited.add(u)
+        stack.add(u)
+        for v in adj.get(u, []):
+            if v in stack:
+                cycles.add(u)
+                cycles.add(v)
+            elif v not in visited:
+                dfs(v)
+        stack.remove(u)
+
+    for code in adj:
+        if code not in visited:
+            dfs(code)
+    
+    if cycles:
+        raise HTTPException(status_code=400, detail=f"Circular prerequisites detected in these codes: {', '.join(cycles)}")
+
+    # 2. Prerequisite Existence Check
+    # Collect all codes in this batch + all codes in DB for this dept
+    batch_codes = {i.code.lower() for i in items}
+    dept_id = items[0].department_id if items else None
+    db_codes = {c[0].lower() for c in db.query(models.Curriculum.code).filter(models.Curriculum.department_id == dept_id).all()} if dept_id else set()
+    all_known_codes = batch_codes.union(db_codes)
+    
+    broken_links = []
+    for item in items:
+        if item.pre_requisite:
+            prereqs = [p.strip().lower() for p in item.pre_requisite.split(',')]
+            for p in prereqs:
+                if p not in all_known_codes:
+                    broken_links.append(f"{item.code} -> {p}")
+
+    if broken_links:
+        # We'll allow broken links but warn the user in the response
+        pass
+
+    # 3. Final Commit
+    new_items = []
+    skipped_items = []
+    for item in items:
+        existing = db.query(models.Curriculum).filter(
+            func.lower(models.Curriculum.code) == item.code.lower(),
+            models.Curriculum.department_id == item.department_id,
+            func.lower(models.Curriculum.program_code) == item.program_code.lower() if item.program_code else models.Curriculum.program_code.is_(None)
+        ).first()
+        
+        if not existing:
+            new_items.append(models.Curriculum(**item.model_dump()))
+        else:
+            skipped_items.append({"code": item.code, "name": item.name, "reason": "Already exists in database"})
+    
+    if new_items:
+        db.add_all(new_items)
+        db.commit()
+    
+    summary = {
+        "total_rows": len(items),
+        "valid_new_items": len(new_items),
+        "duplicates_skipped": len(skipped_items),
+        "issues_found": len(broken_links)
+    }
+
+    return {
+        "is_dry_run": False,
+        "message": f"Successfully committed {len(new_items)} items. {len(broken_links)} potential broken links found.",
+        "summary": summary,
+        "report": None,
+        "errors": skipped_items
+    }
+
+@router.post("/headers")
+async def get_excel_headers(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    contents = await file.read()
+    try:
+        xl = pd.ExcelFile(io.BytesIO(contents))
+        sheets_data = {}
+        
+        for sheet in xl.sheet_names:
+            df = pd.read_excel(xl, sheet_name=sheet, nrows=10, header=None)
+            if df.empty: continue
+            
+            # Convert first 10 rows to list of lists for preview
+            rows = []
+            for _, row in df.iterrows():
+                rows.append([str(v) if not pd.isna(v) else "" for v in row.values])
+                
+            sheets_data[sheet] = {
+                "sample_rows": rows,
+                "sheet_name": sheet
+            }
+            
+        return sheets_data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {str(e)}")
+
