@@ -273,3 +273,16 @@ class SectionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ImportSummary(BaseModel):
+    total_rows: int
+    valid_new_items: int
+    duplicates_skipped: int
+    issues_found: int
+
+class ImportResponse(BaseModel):
+    is_dry_run: bool
+    message: str
+    summary: ImportSummary
+    report: Optional[list] = None
+    errors: Optional[list] = None
