@@ -31,17 +31,11 @@ class Department(Base):
 class Subject(Base):
     __tablename__ = "subjects"
     id = Column(Integer, primary_key=True, index=True)
-    code = Column(String(50), nullable=False)
+    code = Column(String(50), nullable=False, unique=True)
     name = Column(String(255), nullable=False)
     units = Column(Integer, nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"))
     type = Column(Enum('lecture', 'lab', name='subject_types'), nullable=False)
-    year = Column(Integer, nullable=True)
-    semester = Column(String(20), nullable=True)
-    course = Column(String(50), nullable=True)
-    lec_units = Column(Integer, default=0)
-    lab_units = Column(Integer, default=0)
-    pre_requisites = Column(String(255), nullable=True)
 
 class Room(Base):
     __tablename__ = "rooms"

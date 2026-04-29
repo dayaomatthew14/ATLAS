@@ -9,7 +9,7 @@ router = APIRouter(
     tags=["logs"]
 )
 
-@router.get("", response_model=List[schemas.SystemLogResponse])
+@router.get("/", response_model=List[schemas.SystemLogResponse])
 def get_logs(
     status: Optional[str] = None,
     limit: int = 100,
@@ -35,7 +35,7 @@ def get_logs(
     
     return query.order_by(models.SystemLog.timestamp.desc()).offset(offset).limit(limit).all()
 
-@router.post("", response_model=schemas.SystemLogResponse)
+@router.post("/", response_model=schemas.SystemLogResponse)
 def create_log(
     log: schemas.SystemLogCreate,
     db: Session = Depends(get_db),

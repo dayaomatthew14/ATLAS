@@ -4,7 +4,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Schedules from './pages/dashboard/Schedules';
-import Curriculum from './pages/dashboard/Curriculum';
+import Subjects from './pages/dashboard/Subjects';
 import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
 import Sections from './pages/dashboard/Sections';
@@ -24,7 +24,7 @@ import { ToastProvider } from './components/ToastProvider';
 function App() {
   return (
     <ToastProvider>
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Router>
         <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
@@ -38,7 +38,7 @@ function App() {
         >
           <Route index element={<DashboardHome />} />
           <Route path="schedules" element={<Schedules />} />
-          <Route path="curriculum" element={<Curriculum />} />
+          <Route path="subjects" element={<Subjects />} />
           <Route path="rooms" element={<Rooms />} />
           <Route path="teachers" element={<Teachers />} />
           <Route path="sections" element={<Sections />} />

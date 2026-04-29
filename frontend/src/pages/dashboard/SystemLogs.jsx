@@ -14,15 +14,7 @@ export default function SystemLogs() {
     setIsLoading(true);
     try {
       const data = await api.get('/logs');
-      const mappedLogs = Array.isArray(data) ? data.map(log => ({
-        id: log.id,
-        message: log.details || log.action,
-        type: log.action,
-        user: log.user_id ? `User ${log.user_id}` : 'System',
-        time: new Date(log.timestamp).toLocaleString(),
-        status: log.status
-      })) : [];
-      setLogs(mappedLogs);
+      setLogs(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to fetch logs');
       setLogs([]);
@@ -76,8 +68,8 @@ export default function SystemLogs() {
     const matchesSearch = log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (log.user?.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesFilter = filterType === 'All Types' || 
-                         (filterType === 'AI Generation' && log.type?.includes('AI')) ||
-                         (filterType === 'User Activity' && !log.type?.includes('AI')) ||
+                         (filterType === 'AI Generation' && log.activity_type?.includes('AI')) ||
+                         (filterType === 'User Activity' && !log.activity_type?.includes('AI')) ||
                          (filterType === 'Errors' && log.status === 'error');
     return matchesSearch && matchesFilter;
   });
@@ -161,7 +153,7 @@ export default function SystemLogs() {
                   <td className="px-6 py-5">
                     <div className={`inline-flex items-center px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-widest ${getStatusBg(log.status)}`}>
                       <span className="mr-1.5">{getStatusIcon(log.status)}</span>
-                      {log.type ? log.type.replace('_', ' ') : 'System'}
+                      {log.type.replace('_', ' ')}
                     </div>
                   </td>
                   <td className="px-6 py-5">
