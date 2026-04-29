@@ -23,7 +23,7 @@ export default function Teachers() {
   const columns = [
     {
       key: 'name',
-      label: 'Prof Name',
+      label: 'Teacher Name',
       render: (item) => (
         <div className="flex items-center">
           <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 mr-3">
@@ -33,32 +33,40 @@ export default function Teachers() {
         </div>
       )
     },
-    {
-      key: 'type',
-      label: 'Type',
+    { 
+      key: 'load', 
+      label: 'Teaching Load',
       render: (item) => {
-        const maxUnits = item.max_units || 18;
-        const typeStr = maxUnits >= 18 ? 'Full Time' : 'Part Time';
+        const current = item.current_units || 0;
+        const max = item.max_units || 18;
+        const percentage = Math.min((current / max) * 100, 100);
+        const isOverloaded = current > max;
+        
         return (
-          <span className={`px-3 py-1 rounded-full text-xs font-bold ${typeStr === 'Full Time' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-            }`}>
-            {typeStr}
-          </span>
+          <div className="w-48">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className={`text-xs font-black uppercase ${isOverloaded ? 'text-rose-600' : 'text-slate-500'}`}>
+                {current} / {max} Units
+              </span>
+              {isOverloaded && <ShieldAlert className="w-3.5 h-3.5 text-rose-600 animate-pulse" />}
+            </div>
+            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+              <div 
+                className={`h-full transition-all duration-500 rounded-full ${
+                  isOverloaded ? 'bg-rose-500' : percentage > 80 ? 'bg-amber-500' : 'bg-green-500'
+                }`}
+                style={{ width: `${percentage}%` }}
+              />
+            </div>
+          </div>
         );
       }
     },
     {
-      key: 'load',
-      label: 'Max Load',
-      render: (item) => (
-        <span className="font-bold text-slate-700 text-sm uppercase tracking-widest">{item.max_units || 18} Units</span>
-      )
-    },
-    {
       key: 'availability',
-      label: 'Time Unavailable',
+      label: 'Availability',
       render: (item) => (
-        <button
+        <button 
           onClick={() => handleOpenAvailability(item)}
           className="flex items-center space-x-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all font-bold text-xs uppercase"
         >
@@ -129,46 +137,27 @@ export default function Teachers() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const nameParts = formData.name.trim().split(' ');
-      const firstName = nameParts[0] || 'Unknown';
-      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Professor';
-      
-      const payload = {
-        first_name: firstName,
-        last_name: lastName,
-        email: formData.email,
-        role: formData.role || 'faculty',
-        department: localStorage.getItem('atlas_department') || 'CAST',
-        max_units: parseInt(formData.max_units) || 18,
-      };
-
-      if (!editingTeacher) {
-        payload.password = formData.password;
-      } else if (formData.password) {
-        payload.password = formData.password;
-      }
-
       if (editingTeacher) {
-        await api.put(`/users/${editingTeacher.id}`, payload);
+        await api.put(`/users/${editingTeacher.id}`, formData);
       } else {
-        await api.post('/users/', payload);
+        await api.post('/users', formData);
       }
       fetchTeachers();
       handleCloseModal();
-      addToast(`Professor ${editingTeacher ? 'updated' : 'added'} successfully`, 'success');
+      addToast(`Teacher ${editingTeacher ? 'updated' : 'added'} successfully`, 'success');
     } catch (error) {
-      addToast(error.message || 'Error saving professor', 'error');
+      addToast(error.message || 'Error saving teacher', 'error');
     }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this professor?')) {
+    if (window.confirm('Are you sure you want to delete this teacher?')) {
       try {
         await api.delete(`/users/${id}`);
         fetchTeachers();
-        addToast('Professor removed successfully', 'success');
+        addToast('Teacher removed successfully', 'success');
       } catch (error) {
-        addToast(error.message || 'Error removing professor', 'error');
+        addToast(error.message || 'Error removing teacher', 'error');
       }
     }
   };
@@ -177,14 +166,14 @@ export default function Teachers() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Professors</h2>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Teachers</h2>
           <p className="text-slate-500 text-base font-medium mt-2">Manage faculty members and their teaching loads.</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
           className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
         >
-          <Plus className="w-6 h-6 mr-2" /> Add Professor
+          <Plus className="w-6 h-6 mr-2" /> Add Teacher
         </button>
       </div>
 
@@ -199,7 +188,7 @@ export default function Teachers() {
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingTeacher ? 'Edit Professor' : 'Add New Professor'}
+        title={editingTeacher ? 'Edit Teacher' : 'Add New Teacher'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -258,7 +247,7 @@ export default function Teachers() {
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-md shadow-sm"
             >
-              {editingTeacher ? 'Update Professor' : 'Save Professor'}
+              {editingTeacher ? 'Update Teacher' : 'Save Teacher'}
             </button>
           </div>
         </form>
@@ -290,7 +279,7 @@ export default function Teachers() {
                   <div key={idx} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
                     <div className="flex items-center space-x-4">
                       <div className="w-10 h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center font-black text-xs">
-                        {block.day_of_week?.substring(0, 3)}
+                        {block.day_of_week?.substring(0,3)}
                       </div>
                       <div>
                         <p className="font-bold text-slate-900">{block.day_of_week}</p>

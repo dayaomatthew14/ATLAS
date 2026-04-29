@@ -1,7 +1,7 @@
 @echo off
 echo Starting ATLAS System...
 
-start cmd /k "cd backend && python -m uvicorn main:app --reload"
+start cmd /k "cd backend && .\venv\Scripts\python -m uvicorn main:app --reload"
 start cmd /k "cd frontend && npm run dev"
 
 echo.

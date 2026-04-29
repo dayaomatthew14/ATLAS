@@ -13,7 +13,6 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     department: str
-    max_units: Optional[int] = None
 
 class UserResponse(UserBase):
     id: int
@@ -49,7 +48,6 @@ class UserUpdate(BaseModel):
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: Optional[str] = None
     is_verified: Optional[bool] = None
-    max_units: Optional[int] = None
 
 class DepartmentBase(BaseModel):
     name: str
@@ -74,14 +72,8 @@ class SubjectBase(BaseModel):
     code: str
     name: str
     units: int
-    department_id: Optional[int] = None
+    department_id: int
     type: str
-    year: Optional[int] = None
-    semester: Optional[str] = None
-    course: Optional[str] = None
-    lec_units: int = 0
-    lab_units: int = 0
-    pre_requisites: Optional[str] = None
 
 class SubjectCreate(SubjectBase):
     pass
@@ -92,9 +84,6 @@ class SubjectUpdate(BaseModel):
     units: Optional[int] = None
     department_id: Optional[int] = None
     type: Optional[str] = None
-    lec_units: Optional[int] = None
-    lab_units: Optional[int] = None
-    pre_requisites: Optional[str] = None
 
 class SubjectResponse(SubjectBase):
     id: int

@@ -78,7 +78,7 @@ export default function Schedules() {
   const fetchDropdownData = async () => {
     try {
       const [subjectsData, roomsData, teachersData] = await Promise.all([
-        api.get('/curriculum').catch(() => []),
+        api.get('/subjects').catch(() => []),
         api.get('/rooms').catch(() => []),
         api.get('/users?role=faculty').catch(() => [])
       ]);
@@ -179,7 +179,7 @@ export default function Schedules() {
       {/* Page Header */}
       <div className="bg-green-700 text-white py-3 shadow-inner">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h2 className="text-lg font-medium">Manage Schedules</h2>
+          <h2 className="text-lg font-medium">Manage Schedules For Teachers</h2>
           <div className="flex items-center space-x-4">
             {activeConflictsCount > 0 && (
               <button
@@ -190,6 +190,9 @@ export default function Schedules() {
                 {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
               </button>
             )}
+            <button className="text-sm text-green-100 hover:text-white flex items-center">
+              <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
+            </button>
           </div>
         </div>
       </div>
@@ -265,10 +268,10 @@ export default function Schedules() {
                         <div
                           key={schedule.id}
                           className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${schedule.isConflicting
-                            ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
-                            : schedule.isAI
-                              ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
-                              : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
+                              ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
+                              : schedule.isAI
+                                ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
+                                : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
                             }`}
                         >
                           <div className="flex items-center justify-between">
@@ -346,14 +349,14 @@ export default function Schedules() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Professor</label>
+              <label className="block text-sm font-medium text-gray-700">Teacher</label>
               <select
                 required
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
                 value={formData.faculty_id}
                 onChange={(e) => setFormData({ ...formData, faculty_id: e.target.value })}
               >
-                <option value="">Select Professor</option>
+                <option value="">Select Teacher</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>

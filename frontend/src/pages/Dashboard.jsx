@@ -8,11 +8,11 @@ export default function Dashboard() {
   const location = useLocation();
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-
+  
   // Normalized role check
   const rawRole = localStorage.getItem('atlas_role') || 'guest';
   const role = rawRole.toLowerCase();
-
+  
   const [conflictCount, setConflictCount] = useState(0);
   const department = localStorage.getItem('atlas_department');
   const dashboardTitle = department ? `${department} Program Chair Portal` : 'DLSAU Tertiary Education';
@@ -23,7 +23,8 @@ export default function Dashboard() {
         const data = await api.get('/conflicts/count');
         setConflictCount(data.count || 0);
       } catch (e) {
-        setConflictCount(0);
+        // Fallback for demo/missing endpoint
+        setConflictCount(3);
       }
     };
     fetchConflictCount();
@@ -40,10 +41,10 @@ export default function Dashboard() {
   const navItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'faculty', 'student'] },
     { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'faculty', 'student'] },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum', roles: ['admin', 'program_chair'] },
+    { name: 'Subjects', icon: BookOpen, path: '/dashboard/subjects', roles: ['admin', 'program_chair'] },
     { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'program_chair'] },
     { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
-    { name: 'Professors', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
+    { name: 'Teachers', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
     { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair'] },
   ];
 
@@ -62,32 +63,45 @@ export default function Dashboard() {
                 <span className="font-black text-4xl tracking-tighter block leading-none">ATLAS</span>
               </div>
             </Link>
-
+            
             <div className="hidden md:flex space-x-1 items-center">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = item.path === '/dashboard'
-                  ? location.pathname === '/dashboard'
+                const isActive = item.path === '/dashboard' 
+                  ? location.pathname === '/dashboard' 
                   : location.pathname.startsWith(item.path);
-
+                
                 return (
-                  <Link
-                    key={item.name}
+                  <Link 
+                    key={item.name} 
                     to={item.path}
-                    className={`flex items-center px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${isActive
-                      ? 'bg-white text-green-800 shadow-md transform -translate-y-0.5'
-                      : 'text-green-50 hover:bg-green-700 hover:text-white'
-                      }`}
+                    className={`flex items-center px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${
+                      isActive 
+                        ? 'bg-white text-green-800 shadow-md transform -translate-y-0.5' 
+                        : 'text-green-50 hover:bg-green-700 hover:text-white'
+                    }`}
                   >
                     <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-green-700' : 'text-green-200'}`} />
                     {item.name}
                   </Link>
                 );
               })}
+
+              {conflictCount > 0 && (
+                <Link 
+                  to="/dashboard/schedules" 
+                  className="flex items-center ml-4 px-5 py-2.5 bg-rose-500/20 border border-rose-500/30 rounded-2xl group hover:bg-rose-500/30 transition-all animate-pulse"
+                >
+                  <AlertCircle className="w-5 h-5 text-rose-400 mr-2 group-hover:scale-110 transition-transform" />
+                  <span className="text-sm font-black text-rose-100 uppercase tracking-widest">
+                    {conflictCount} Conflicts
+                  </span>
+                </Link>
+              )}
             </div>
 
             <div className="relative">
-              <button
+              <button 
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="flex items-center space-x-4 bg-green-900/50 px-4 py-2 rounded-2xl border border-white/10 hover:bg-green-700/50 transition-colors"
               >
@@ -107,8 +121,8 @@ export default function Dashboard() {
 
               {isProfileOpen && (
                 <>
-                  <div
-                    className="fixed inset-0 z-40"
+                  <div 
+                    className="fixed inset-0 z-40" 
                     onClick={() => setIsProfileOpen(false)}
                   ></div>
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl py-2 z-50 border border-gray-100 animate-in fade-in slide-in-from-top-2">
@@ -125,7 +139,7 @@ export default function Dashboard() {
                       Settings
                     </button>
                     <div className="border-t border-gray-50 mt-1 pt-1">
-                      <button
+                      <button 
                         onClick={handleLogout}
                         className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 font-bold transition-colors"
                       >

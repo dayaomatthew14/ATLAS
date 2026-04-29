@@ -8,7 +8,7 @@ router = APIRouter(
     tags=["Users"]
 )
 
-@router.get("")
+@router.get("/")
 def get_users(
     skip: int = 0, 
     limit: int = 100, 
@@ -92,7 +92,7 @@ def get_user(
             
     return user
 
-@router.post("", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     user: schemas.UserCreate, 
     db: Session = Depends(database.get_db),
@@ -113,8 +113,6 @@ def create_user(
         
     user_data = user.model_dump()
     password = user_data.pop('password')
-    max_units = user_data.pop('max_units', 18)
-    
     user_data['password_hash'] = auth.get_password_hash(password)
     user_data['is_verified'] = True # Created by admin/PC so pre-verify
     
@@ -122,14 +120,6 @@ def create_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
-    if new_user.role == 'faculty':
-        dept = db.query(models.Department).filter(models.Department.code == new_user.department).first()
-        if dept:
-            faculty = models.Faculty(user_id=new_user.id, max_units=max_units or 18, department_id=dept.id)
-            db.add(faculty)
-            db.commit()
-            
     return new_user
 
 @router.put("/{user_id}", response_model=schemas.UserResponse)
@@ -152,25 +142,11 @@ def update_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     update_data = user.model_dump(exclude_unset=True)
-    max_units = update_data.pop('max_units', None)
-    
     for key, value in update_data.items():
         setattr(db_user, key, value)
         
     db.commit()
     db.refresh(db_user)
-    
-    if db_user.role == 'faculty' and max_units is not None:
-        faculty = db.query(models.Faculty).filter(models.Faculty.user_id == db_user.id).first()
-        if faculty:
-            faculty.max_units = max_units
-        else:
-            dept = db.query(models.Department).filter(models.Department.code == db_user.department).first()
-            if dept:
-                faculty = models.Faculty(user_id=db_user.id, max_units=max_units, department_id=dept.id)
-                db.add(faculty)
-        db.commit()
-        
     return db_user
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
