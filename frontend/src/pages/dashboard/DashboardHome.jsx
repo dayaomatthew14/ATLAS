@@ -24,31 +24,28 @@ import { useToast } from '../../components/ToastProvider';
 export default function DashboardHome() {
   const { addToast } = useToast();
   const [stats, setStats] = useState([
-    { name: 'Curriculum Flow Chart', value: '0', icon: BookOpen, color: 'text-cyan-600', trend: '---' },
+    { name: 'Subjects', value: '0', icon: BookOpen, color: 'text-cyan-600', trend: '---' },
     { name: 'Rooms', value: '0', icon: MapPin, color: 'text-purple-600', trend: '---' },
     { name: 'Faculty', value: '0', icon: Users, color: 'text-emerald-600', trend: '---' },
     { name: 'Conflicts', value: '0', icon: AlertTriangle, color: 'text-rose-600', trend: '---' },
   ]);
-  const [recentLogs, setRecentLogs] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchStats = async () => {
     try {
-      const [subjects, rooms, faculty, conflicts, logs] = await Promise.all([
-        api.get('/curriculum').catch(() => []),
+      const [subjects, rooms, faculty, conflicts] = await Promise.all([
+        api.get('/subjects').catch(() => []),
         api.get('/rooms').catch(() => []),
         api.get('/users?role=faculty').catch(() => []),
-        api.get('/conflicts/count').catch(() => ({ count: 0 })),
-        api.get('/logs?limit=4').catch(() => [])
+        api.get('/conflicts/count').catch(() => ({ count: 0 }))
       ]);
 
       setStats([
-        { name: 'Curriculum Flow Chart', value: subjects.length.toString(), icon: BookOpen, color: 'text-cyan-600', trend: '+12%' },
+        { name: 'Subjects', value: subjects.length.toString(), icon: BookOpen, color: 'text-cyan-600', trend: '+12%' },
         { name: 'Rooms', value: rooms.length.toString(), icon: MapPin, color: 'text-purple-600', trend: 'Active' },
         { name: 'Faculty', value: faculty.length.toString(), icon: Users, color: 'text-emerald-600', trend: 'Verified' },
         { name: 'Conflicts', value: (conflicts.count || 0).toString(), icon: AlertTriangle, color: 'text-rose-600', trend: conflicts.count > 0 ? 'CRITICAL' : 'CLEAN' },
       ]);
-      setRecentLogs(Array.isArray(logs) ? logs : []);
     } catch (e) {
       console.error('Failed to fetch stats');
     }
@@ -125,6 +122,9 @@ export default function DashboardHome() {
                 <Link to="/dashboard/schedules" className="px-8 py-4 bg-green-700 hover:bg-green-800 text-white rounded-2xl font-black transition-all transform hover:scale-105 shadow-lg shadow-green-700/20 flex items-center">
                   Launch Calendar <ChevronRight className="w-4 h-4 ml-2" />
                 </Link>
+                <Link to="/dashboard/logs" className="px-8 py-4 bg-white/40 hover:bg-white/80 backdrop-blur-md text-slate-700 rounded-2xl font-bold transition-all border border-slate-200 flex items-center group shadow-sm">
+                  System Logs <Activity className="w-4 h-4 ml-2 group-hover:rotate-12 transition-transform text-slate-400" />
+                </Link>
               </div>
             </div>
             
@@ -173,29 +173,10 @@ export default function DashboardHome() {
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Updates</span>
               </div>
             </div>
-            <div className="space-y-4 py-4">
-              {recentLogs.length > 0 ? (
-                recentLogs.map(log => (
-                  <div key={log.id} className="flex items-start p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-colors hover:bg-white hover:shadow-md">
-                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center mr-4 shrink-0">
-                      <Activity className="w-5 h-5 text-green-700" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="text-sm font-bold text-slate-800">{log.action}</p>
-                      <p className="text-xs font-medium text-slate-500 mt-1">{log.details}</p>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-2">
-                        {new Date(log.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-6">
-                  <Activity className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                  <p className="text-sm font-black text-slate-300 uppercase tracking-[0.2em]">No Recent Activity</p>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Everything is up to date.</p>
-                </div>
-              )}
+            <div className="space-y-8 py-10 text-center">
+              <Activity className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+              <p className="text-sm font-black text-slate-300 uppercase tracking-[0.2em]">No Recent Activity</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Everything is up to date.</p>
             </div>
           </div>
 
