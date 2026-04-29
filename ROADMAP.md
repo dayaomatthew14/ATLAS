@@ -145,7 +145,7 @@
 ---
 
 ### Sprint 8: Curriculum Visual Overhaul & Mapping
-*Status: [IN PROGRESS]*
+*Status: [COMPLETED]*
 *Objective: Upgrade the curriculum management system to support program-specific course mapping (Year Level, Semester), enriched subject details (Lec/Lab units, Prerequisites), and a visually organized grouping interface inspired by standard academic flowcharts.*
 
 * **Backend Track (DE GUZMAN) [COMPLETED]**:
@@ -153,8 +153,22 @@
   * ✅ **Import Endpoint Enhancement**: Update `POST /api/curriculum/import` to accept a `program_code` parameter. The parser should attach this program code to all imported subjects.
   * ✅ **Filtered Fetching**: Update `GET /api/curriculum` to support filtering by `program_code`.
 
-* **Frontend Track (DAYAO) - Pending**:
-  * **Program Filter & Import Target**: Add a Program selection dropdown (e.g., BSCS, BSIT) to the Curriculum page header. The selected program will filter the displayed curriculum and MUST be sent as `program_code` in the FormData when using the "Import Excel" button.
-  * **Grouped UI Layout**: Redesign the main view to match the mockups. Group subjects by `year_level` (e.g., "1ST YEAR") and `semester_term` (e.g., "1ST SEMESTER"). Display them in distinct sections instead of a single flat table.
-  * **Extended Table Columns**: Update the curriculum table headers to match the design: Code, Description, Lec, Lab, Units, Pre-requisite, Actions. Map these to the new API fields (`lec_units`, `lab_units`, `pre_requisite`).
-  * **Add/Edit Modal Update**: Update the curriculum form to capture the new fields (`program_code`, `year_level`, `semester_term`, `lec_units`, `lab_units`, `pre_requisite`) and send them to the backend on save.
+* **Frontend Track (DAYAO) [COMPLETED]**:
+  * ✅ **Program Filter & Import Target**: Add a Program selection dropdown (e.g., BSCS, BSIT) to the Curriculum page header. The selected program will filter the displayed curriculum and MUST be sent as `program_code` in the FormData when using the "Import Excel" button.
+  * ✅ **Grouped UI Layout**: Redesign the main view to match the mockups. Group subjects by `year_level` (e.g., "1ST YEAR") and `semester_term` (e.g., "1ST SEMESTER"). Display them in distinct sections instead of a single flat table.
+  * ✅ **Extended Table Columns**: Update the curriculum table headers to match the design: Code, Description, Lec, Lab, Units, Pre-requisite, Actions. Map these to the new API fields (`lec_units`, `lab_units`, `pre_requisite`).
+  * ✅ **Add/Edit Modal Update**: Update the curriculum form to capture the new fields (`program_code`, `year_level`, `semester_term`, `lec_units`, `lab_units`, `pre_requisite`) and send them to the backend on save.
+
+---
+
+### Sprint 9: System Stabilization & UI Harmonization
+*Status: [PENDING]*
+*Objective: Resolve critical backend import bugs discovered during testing and propagate the high-fidelity design language across the entire platform.*
+
+* **Backend Track (DE GUZMAN)**:
+  * **Bug Fix — Excel Import Logic**: Resolve runtime errors during the "Import from Excel" process, specifically handling edge cases in subject code parsing and department mapping.
+  * **Import Verification API**: Implement a "Dry Run" endpoint for Excel imports that returns a summary of what will be added/skipped before committing to the database.
+
+* **Frontend Track (DAYAO)**:
+  * **Global UI Modernization**: Scale the "ATLAS Premium" design language (introduced in the Curriculum module) to the Teachers, Rooms, Sections, and Schedules pages for a consistent, state-of-the-art user experience.
+  * **Import Error Handling**: Implement detailed error reporting in the UI for failed Excel imports, showing exactly which rows caused issues.

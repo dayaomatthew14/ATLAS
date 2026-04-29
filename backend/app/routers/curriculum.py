@@ -15,6 +15,7 @@ def get_curriculum(
     skip: int = 0, 
     limit: int = 100, 
     department_id: Optional[int] = None,
+    program_code: Optional[str] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -32,6 +33,9 @@ def get_curriculum(
             return [] # No department match means no access
     elif department_id:
         query = query.filter(models.Curriculum.department_id == department_id)
+
+    if program_code:
+        query = query.filter(models.Curriculum.program_code == program_code)
         
     return query.offset(skip).limit(limit).all()
 
@@ -66,9 +70,12 @@ def create_curriculum_item(
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create curriculum for your department")
              
-    db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.code == curriculum_item.code).first()
+    db_curriculum = db.query(models.Curriculum).filter(
+        models.Curriculum.code == curriculum_item.code,
+        models.Curriculum.program_code == curriculum_item.program_code
+    ).first()
     if db_curriculum:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Curriculum code already exists")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Curriculum item with this code already exists for this program")
         
     new_curriculum = models.Curriculum(**curriculum_item.model_dump())
     db.add(new_curriculum)
@@ -128,6 +135,7 @@ def delete_curriculum_item(
 async def import_curriculum(
     file: UploadFile = File(...),
     department_id: Optional[int] = Form(None),
+    program_code: Optional[str] = Form(None),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -198,10 +206,11 @@ async def import_curriculum(
                         if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B'):
                             ctype = 'lab'
                             
-                        # Check if already exists in this department
+                        # Check if already exists in this department AND program
                         existing = db.query(models.Curriculum).filter(
                             models.Curriculum.code == code,
-                            models.Curriculum.department_id == target_dept_id
+                            models.Curriculum.department_id == target_dept_id,
+                            models.Curriculum.program_code == program_code
                         ).first()
                         
                         if not existing:
@@ -210,7 +219,8 @@ async def import_curriculum(
                                 name=name,
                                 units=units,
                                 type=ctype,
-                                department_id=target_dept_id
+                                department_id=target_dept_id,
+                                program_code=program_code
                             ))
                     break # Only process the first school-related sheet found
 
