@@ -30,6 +30,9 @@ export default function Curriculum() {
     pre_requisite: ''
   });
   const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState(null);
+  const [showImportVerification, setShowImportVerification] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
   const fileInputRef = React.useRef(null);
 
   const columns = [
@@ -151,24 +154,49 @@ export default function Curriculum() {
     const file = e.target.files[0];
     if (!file) return;
 
+    setPendingFile(file);
     const formDataImport = new FormData();
     formDataImport.append('file', file);
     formDataImport.append('program_code', selectedProgram);
+    formDataImport.append('dry_run', 'true');
 
     setIsImporting(true);
     try {
       const response = await api.post('/curriculum/import', formDataImport, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      addToast(response.message, 'success');
-      fetchCurriculum();
+      setImportSummary(response);
+      setShowImportVerification(true);
     } catch (error) {
-      addToast(error.message || 'Failed to import curriculum', 'error');
+      addToast(error.message || 'Failed to analyze Excel file', 'error');
     } finally {
       setIsImporting(false);
       e.target.value = ''; // Reset input
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!pendingFile) return;
+
+    const formDataImport = new FormData();
+    formDataImport.append('file', pendingFile);
+    formDataImport.append('program_code', selectedProgram);
+    formDataImport.append('dry_run', 'false');
+
+    setIsImporting(true);
+    try {
+      const response = await api.post('/curriculum/import', formDataImport, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      addToast(response.message, 'success');
+      setShowImportVerification(false);
+      setImportSummary(null);
+      setPendingFile(null);
+      fetchCurriculum();
+    } catch (error) {
+      addToast(error.message || 'Failed to finalize import', 'error');
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -230,7 +258,7 @@ export default function Curriculum() {
             className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-6 py-4 rounded-2xl flex items-center shadow-sm transition-all font-black text-sm uppercase tracking-widest disabled:opacity-50"
           >
             <Upload className={`w-5 h-5 mr-2 ${isImporting ? 'animate-bounce' : ''}`} />
-            {isImporting ? 'Importing...' : 'Import Excel'}
+            {isImporting ? 'Processing...' : 'Import Excel'}
           </button>
           
           <button
@@ -321,6 +349,84 @@ export default function Curriculum() {
           </div>
         )}
       </div>
+
+      {/* Import Verification Modal */}
+      <Modal
+        isOpen={showImportVerification}
+        onClose={() => setShowImportVerification(false)}
+        title="Verify Curriculum Import"
+      >
+        {importSummary && (
+          <div className="space-y-8">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-slate-50 p-6 rounded-3xl text-center border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Parsed</p>
+                <p className="text-3xl font-black text-slate-900">{importSummary.summary.total_parsed}</p>
+              </div>
+              <div className="bg-green-50 p-6 rounded-3xl text-center border border-green-100">
+                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">New Subjects</p>
+                <p className="text-3xl font-black text-green-700">{importSummary.summary.to_add}</p>
+              </div>
+              <div className="bg-amber-50 p-6 rounded-3xl text-center border border-amber-100">
+                <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Skipped Rows</p>
+                <p className="text-3xl font-black text-amber-700">{importSummary.summary.skipped}</p>
+              </div>
+            </div>
+
+            {importSummary.errors && importSummary.errors.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Reason for Skipping</h4>
+                <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                  {importSummary.errors.map((err, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                      <div>
+                        <p className="text-sm font-black text-slate-800">{err.code || 'N/A'}</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">{err.name || 'Unknown Subject'}</p>
+                      </div>
+                      <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black uppercase tracking-tight">
+                        {err.reason}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {importSummary.preview && importSummary.preview.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Items to be Added</h4>
+                <div className="max-h-[200px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                   {importSummary.preview.slice(0, 5).map((item, idx) => (
+                     <div key={idx} className="p-4 bg-green-50/30 border border-green-100 rounded-2xl flex justify-between items-center">
+                        <p className="text-xs font-bold text-green-800">{item.code} — {item.name}</p>
+                        <span className="text-[10px] font-black text-green-600 uppercase">{item.year_level}</span>
+                     </div>
+                   ))}
+                   {importSummary.preview.length > 5 && (
+                     <p className="text-center text-[10px] font-black text-slate-400 uppercase">And {importSummary.preview.length - 5} more items...</p>
+                   )}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-6 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowImportVerification(false)}
+                className="px-6 py-4 text-sm font-black text-slate-500 hover:bg-slate-50 rounded-2xl uppercase tracking-widest transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmImport}
+                disabled={importSummary.summary.to_add === 0 || isImporting}
+                className="px-10 py-4 text-sm font-black text-white bg-green-700 hover:bg-green-800 rounded-2xl shadow-xl uppercase tracking-widest transition-all transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+              >
+                {isImporting ? 'Importing...' : 'Confirm & Ingest'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={isModalOpen}
@@ -463,3 +569,4 @@ export default function Curriculum() {
     </div>
   );
 }
+

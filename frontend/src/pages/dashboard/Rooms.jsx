@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, MapPin, Users, Monitor, BookOpen } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
@@ -19,19 +19,47 @@ export default function Rooms() {
   });
 
   const columns = [
-    { key: 'name', label: 'Room Name' },
-    { key: 'building', label: 'Building' },
-    { key: 'capacity', label: 'Capacity' },
+    { 
+      key: 'name', 
+      label: 'Room Name',
+      render: (item) => (
+        <div className="flex items-center">
+          <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 mr-4 shadow-sm">
+            <MapPin className="w-5 h-5" />
+          </div>
+          <span className="font-black text-slate-900">{item.name}</span>
+        </div>
+      )
+    },
+    { 
+      key: 'building', 
+      label: 'Location',
+      render: (item) => (
+        <span className="font-bold text-slate-600">{item.building}</span>
+      )
+    },
+    { 
+      key: 'capacity', 
+      label: 'Capacity',
+      render: (item) => (
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-slate-400" />
+          <span className="font-black text-slate-700">{item.capacity} Pax</span>
+        </div>
+      )
+    },
     { 
       key: 'type', 
-      label: 'Type',
+      label: 'Usage Type',
       render: (item) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          item.type === 'lecture' ? 'bg-blue-100 text-blue-800' : 
-          item.type === 'lab' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+        <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest border ${
+          item.type === 'lecture' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
+          item.type === 'lab' ? 'bg-purple-50 text-purple-700 border-purple-100' : 
+          'bg-indigo-50 text-indigo-700 border-indigo-100'
         }`}>
-          {item.type}
-        </span>
+          {item.type === 'computer_lab' ? <Monitor className="w-3 h-3" /> : <BookOpen className="w-3 h-3" />}
+          {item.type.replace('_', ' ')}
+        </div>
       )
     },
   ];
@@ -104,89 +132,105 @@ export default function Rooms() {
   };
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-8 animate-in fade-in duration-700">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Rooms</h2>
-          <p className="text-slate-500 text-base font-medium mt-2">Add, edit, or remove classrooms and labs.</p>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="bg-blue-100 p-2.5 rounded-xl shadow-sm">
+              <MapPin className="w-6 h-6 text-blue-700" />
+            </div>
+            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Campus Resources</h2>
+          </div>
+          <p className="text-slate-500 text-base font-medium">Manage physical spaces, laboratories, and classroom capacities for scheduling.</p>
         </div>
+        
         <button
           onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
+          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
         >
           <Plus className="w-6 h-6 mr-2" /> Add Room
         </button>
       </div>
 
-      <Table 
-        columns={columns} 
-        data={rooms} 
-        isLoading={isLoading} 
-        onEdit={handleOpenModal}
-        onDelete={handleDelete}
-      />
+      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-2">
+        <Table 
+          columns={columns} 
+          data={rooms} 
+          isLoading={isLoading} 
+          onEdit={handleOpenModal}
+          onDelete={handleDelete}
+        />
+      </div>
 
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingRoom ? 'Edit Room' : 'Add New Room'}
+        title={editingRoom ? 'Edit Room Configuration' : 'Register New Resource'}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Room Name</label>
-            <input
-              type="text"
-              required
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            />
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Room Name</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Room 302"
+                className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Capacity</label>
+              <input
+                type="number"
+                required
+                placeholder="40"
+                className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700"
+                value={formData.capacity}
+                onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+              />
+            </div>
           </div>
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700">Building</label>
+            <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Building / Floor</label>
             <input
               type="text"
               required
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              placeholder="e.g. Main Building - 3rd Floor"
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
               value={formData.building}
               onChange={(e) => setFormData({ ...formData, building: e.target.value })}
             />
           </div>
+
           <div>
-            <label className="block text-sm font-medium text-gray-700">Capacity</label>
-            <input
-              type="number"
-              required
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-              value={formData.capacity}
-              onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Room Type</label>
+            <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Room Type</label>
             <select
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-black text-slate-700 appearance-none cursor-pointer"
               value={formData.type}
               onChange={(e) => setFormData({ ...formData, type: e.target.value })}
             >
-              <option value="lecture">Lecture</option>
-              <option value="lab">Lab</option>
-              <option value="computer_lab">Computer Lab</option>
+              <option value="lecture">Lecture Room</option>
+              <option value="lab">Science Laboratory</option>
+              <option value="computer_lab">Computer Laboratory</option>
             </select>
           </div>
-          <div className="pt-4 flex justify-end space-x-3">
+
+          <div className="pt-6 flex justify-end gap-3">
             <button
               type="button"
               onClick={handleCloseModal}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+              className="px-6 py-3.5 text-sm font-black text-slate-500 hover:bg-slate-50 rounded-2xl uppercase tracking-widest transition-all"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-md shadow-sm"
+              className="px-10 py-3.5 text-sm font-black text-white bg-green-700 hover:bg-green-800 rounded-2xl shadow-lg uppercase tracking-widest transition-all transform hover:scale-105 active:scale-95"
             >
-              {editingRoom ? 'Update Room' : 'Save Room'}
+              {editingRoom ? 'Update Resource' : 'Create Resource'}
             </button>
           </div>
         </form>
