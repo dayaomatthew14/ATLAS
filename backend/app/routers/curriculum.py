@@ -208,10 +208,17 @@ async def _process_curriculum_import(
                             current_sem = str(row[col_map['semester_term']]).strip()
                             
                         code_raw = row[col_map['code']]
-                        if pd.isna(code_raw): continue
+                        if pd.isna(code_raw):
+                            continue
                             
-                        code = str(int(code_raw)).strip() if isinstance(code_raw, float) and code_raw.is_integer() else str(code_raw).strip()
-                        name = str(row[col_map['name']]).strip() if not pd.isna(row[col_map['name']]) else ""
+                        # Handle numeric codes (convert to string)
+                        if isinstance(code_raw, float) and code_raw.is_integer():
+                            code = str(int(code_raw)).strip()
+                        else:
+                            code = str(code_raw).strip()
+                            
+                        name_raw = row[col_map['name']]
+                        name = str(name_raw).strip() if not pd.isna(name_raw) else ""
                         
                         if not code or code.lower() == 'nan' or len(code) < 3 or code.lower() == 'course code':
                             skipped_items.append({"code": code, "name": name, "reason": "Invalid or missing course code"})
@@ -232,15 +239,18 @@ async def _process_curriculum_import(
                             try: lab_units = int(float(row[col_map['lab_units']]))
                             except: pass
                             
-                        pre_requisite = str(row[col_map['pre_requisite']]).strip() if 'pre_requisite' in col_map and not pd.isna(row[col_map['pre_requisite']]) else None
-                        if pre_requisite and (pre_requisite.lower() == 'nan' or pre_requisite.lower() == 'none'):
-                            pre_requisite = None
-                            
+                        # Handle pre-requisites
+                        pre_requisite = None
+                        if 'pre_requisite' in col_map:
+                            val = str(row[col_map['pre_requisite']]).strip()
+                            if val and val.lower() != 'nan' and val.lower() != 'none':
+                                pre_requisite = val
+                                
                         ctype = 'lecture'
                         if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
                             ctype = 'lab'
                             
-                        # Duplicate check
+                        # Duplicate check (Case-insensitive)
                         existing = db.query(models.Curriculum).filter(
                             func.lower(models.Curriculum.code) == code.lower(),
                             models.Curriculum.department_id == target_dept_id,
