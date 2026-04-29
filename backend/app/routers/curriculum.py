@@ -227,6 +227,9 @@ async def _process_curriculum_import(
             if 'semester_term' in col_map:
                 data_df.iloc[:, col_map['semester_term']] = data_df.iloc[:, col_map['semester_term']].ffill()
             
+            current_year_context = "1"
+            current_sem_context = "1st Semester"
+
             for _, row in data_df.iterrows():
                 code_raw = row[col_map['code']]
                 if pd.isna(code_raw): continue
@@ -241,32 +244,56 @@ async def _process_curriculum_import(
                 if not name or name.lower() in ['nan', 'none', 'course title', 'title']:
                     continue
 
-                # Parsing helper for numbers
+                # Parsing helper for numbers (Handle (2), [3], etc.)
                 def parse_num(val, default=0):
-                    try: return int(float(val)) if not pd.isna(val) else default
-                    except: return default
+                    if pd.isna(val): return default
+                    s = str(val).strip()
+                    # Remove parentheses, brackets, and non-numeric suffixes
+                    s = re.sub(r'[\(\)\[\]\*\s]', '', s)
+                    try: 
+                        return int(float(s))
+                    except: 
+                        return default
 
-                units = parse_num(row[col_map.get('units')], 3)
+                # CONTEXT-AWARE TRACKING (Sprint 9 Optimization)
+                # If the row contains "YEAR" or "SEMESTER" but is not a subject row, update context
+                row_text = " ".join([str(v).strip().upper() for v in row.values if pd.notna(v)])
+                
+                # Check for Year Level
+                if "YEAR" in row_text:
+                    if "FIRST" in row_text or "1ST" in row_text: current_year_context = "1"
+                    elif "SECOND" in row_text or "2ND" in row_text: current_year_context = "2"
+                    elif "THIRD" in row_text or "3RD" in row_text: current_year_context = "3"
+                    elif "FOURTH" in row_text or "4TH" in row_text: current_year_context = "4"
+                    elif "FIFTH" in row_text or "5TH" in row_text: current_year_context = "5"
+                
+                # Check for Semester
+                if "SEMESTER" in row_text or "TERM" in row_text:
+                    if "FIRST" in row_text or "1ST" in row_text: current_sem_context = "1st Semester"
+                    elif "SECOND" in row_text or "2ND" in row_text: current_sem_context = "2nd Semester"
+                    elif "SUMMER" in row_text or "MIDYEAR" in row_text: current_sem_context = "Summer"
+
+                units = parse_num(row[col_map.get('units')], 0)
                 lec_units = parse_num(row[col_map.get('lec_units')], 0)
                 lab_units = parse_num(row[col_map.get('lab_units')], 0)
                 
                 if units == 0 and (lec_units > 0 or lab_units > 0):
                     units = lec_units + lab_units
 
-                # Structured Prerequisite Mapper (Task 4)
+                # Structured Prerequisite Mapper
                 def clean_prereqs(val):
                     if not val or pd.isna(val): return None
                     s = str(val).lower().strip()
                     if s in ['none', 'n/a', '0', 'nan', 'none.', 'no']: return None
-                    # Normalize separators and clean codes
                     parts = str(val).replace('&', ',').replace(';', ',').replace(' and ', ',').replace('/', ',')
                     codes = [c.strip().upper() for c in parts.split(',') if len(c.strip()) > 2]
                     return ",".join(codes) if codes else None
 
                 pre_req = clean_prereqs(row[col_map.get('pre_requisite')])
 
-                year = str(row[col_map['year_level']]).strip() if 'year_level' in col_map and not pd.isna(row[col_map['year_level']]) else None
-                sem = str(row[col_map['semester_term']]).strip() if 'semester_term' in col_map and not pd.isna(row[col_map['semester_term']]) else None
+                # Use context if columns are empty
+                year = str(row[col_map['year_level']]).strip() if 'year_level' in col_map and not pd.isna(row[col_map['year_level']]) else current_year_context
+                sem = str(row[col_map['semester_term']]).strip() if 'semester_term' in col_map and not pd.isna(row[col_map['semester_term']]) else current_sem_context
 
                 ctype = 'lecture'
                 if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
