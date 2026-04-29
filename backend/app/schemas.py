@@ -74,6 +74,12 @@ class SubjectBase(BaseModel):
     units: int
     department_id: int
     type: str
+    program_code: Optional[str] = None
+    year_level: Optional[str] = None
+    semester_term: Optional[str] = None
+    lec_units: int = 0
+    lab_units: int = 0
+    pre_requisite: Optional[str] = None
 
 class SubjectCreate(SubjectBase):
     pass
@@ -84,6 +90,12 @@ class SubjectUpdate(BaseModel):
     units: Optional[int] = None
     department_id: Optional[int] = None
     type: Optional[str] = None
+    program_code: Optional[str] = None
+    year_level: Optional[str] = None
+    semester_term: Optional[str] = None
+    lec_units: Optional[int] = None
+    lab_units: Optional[int] = None
+    pre_requisite: Optional[str] = None
 
 class SubjectResponse(SubjectBase):
     id: int

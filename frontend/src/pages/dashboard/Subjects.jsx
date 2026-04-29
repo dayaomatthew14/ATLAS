@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
@@ -18,6 +18,8 @@ export default function Subjects() {
     type: 'lecture',
     department_id: ''
   });
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef(null);
 
   const columns = [
     { key: 'code', label: 'Code' },
@@ -104,6 +106,34 @@ export default function Subjects() {
     }
   };
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setIsImporting(true);
+    try {
+      const response = await api.post('/subjects/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      addToast(response.message, 'success');
+      fetchSubjects();
+    } catch (error) {
+      addToast(error.message || 'Failed to import subjects', 'error');
+    } finally {
+      setIsImporting(false);
+      e.target.value = ''; // Reset input
+    }
+  };
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
@@ -111,12 +141,29 @@ export default function Subjects() {
           <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Subjects</h2>
           <p className="text-slate-500 text-base font-medium mt-2">Configure the academic subjects and unit requirements.</p>
         </div>
-        <button
-          onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
-        >
-          <Plus className="w-6 h-6 mr-2" /> Add Subject
-        </button>
+        <div className="flex space-x-3">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept=".xlsx,.xls"
+          />
+          <button
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-6 py-4 rounded-2xl flex items-center shadow-sm transition-all font-black text-sm uppercase tracking-widest disabled:opacity-50"
+          >
+            <Upload className={`w-5 h-5 mr-2 ${isImporting ? 'animate-bounce' : ''}`} />
+            {isImporting ? 'Importing...' : 'Import Excel'}
+          </button>
+          <button
+            onClick={() => handleOpenModal()}
+            className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
+          >
+            <Plus className="w-6 h-6 mr-2" /> Add Subject
+          </button>
+        </div>
       </div>
 
       <Table 
