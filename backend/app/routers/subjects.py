@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 import pandas as pd
 import io
@@ -133,13 +134,13 @@ def delete_subject(
     db.commit()
     return None
 
-@router.post("/import")
-async def import_subjects(
-    file: UploadFile = File(...),
-    department_id: Optional[int] = Form(None),
-    program_code: Optional[str] = Form(None),
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
+async def _process_import_logic(
+    contents: bytes,
+    department_id: Optional[int],
+    program_code: Optional[str],
+    dry_run: bool,
+    db: Session,
+    current_user: models.User
 ):
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
@@ -161,10 +162,11 @@ async def import_subjects(
         target_dept_id = first_dept.id
 
     try:
-        contents = await file.read()
         xl = pd.ExcelFile(io.BytesIO(contents))
         
         items_to_add = []
+        skipped_items = []
+        total_parsed = 0
         found_target_sheet = False
         
         for sheet in xl.sheet_names:
@@ -199,46 +201,66 @@ async def import_subjects(
                     current_sem = None
                     
                     for _, row in data_df.iterrows():
-                        if 'year_level' in col_map and str(row[col_map['year_level']]).strip() != 'nan':
+                        total_parsed += 1
+                        
+                        if 'year_level' in col_map and not pd.isna(row[col_map['year_level']]):
                             current_year = str(row[col_map['year_level']]).strip()
-                        if 'semester_term' in col_map and str(row[col_map['semester_term']]).strip() != 'nan':
+                        if 'semester_term' in col_map and not pd.isna(row[col_map['semester_term']]):
                             current_sem = str(row[col_map['semester_term']]).strip()
                             
-                        code = str(row[col_map['code']]).strip()
-                        name = str(row[col_map['name']]).strip()
+                        code_raw = row[col_map['code']]
+                        if pd.isna(code_raw):
+                            continue
+                            
+                        if isinstance(code_raw, float) and code_raw.is_integer():
+                            code = str(int(code_raw)).strip()
+                        else:
+                            code = str(code_raw).strip()
+                            
+                        name_raw = row[col_map['name']]
+                        name = str(name_raw).strip() if not pd.isna(name_raw) else ""
+                        
                         units_val = row[col_map['units']] if 'units' in col_map else 3
                         
-                        if not code or code == 'nan' or len(code) < 3 or code.lower() == 'course code':
+                        if not code or code.lower() == 'nan' or len(code) < 3 or code.lower() == 'course code':
+                            skipped_items.append({"code": code, "name": name, "reason": "Invalid or missing course code"})
                             continue
                             
                         try: units = int(float(units_val))
                         except: units = 3
                             
                         lec_units = 0
-                        if 'lec_units' in col_map and str(row[col_map['lec_units']]).strip() != 'nan':
+                        if 'lec_units' in col_map and not pd.isna(row[col_map['lec_units']]):
                             try: lec_units = int(float(row[col_map['lec_units']]))
                             except: pass
                             
                         lab_units = 0
-                        if 'lab_units' in col_map and str(row[col_map['lab_units']]).strip() != 'nan':
+                        if 'lab_units' in col_map and not pd.isna(row[col_map['lab_units']]):
                             try: lab_units = int(float(row[col_map['lab_units']]))
                             except: pass
                             
                         pre_requisite = None
                         if 'pre_requisite' in col_map:
                             val = str(row[col_map['pre_requisite']]).strip()
-                            if val and val != 'nan' and val.lower() != 'none':
+                            if val and val.lower() != 'nan' and val.lower() != 'none':
                                 pre_requisite = val
                                 
                         ctype = 'lecture'
                         if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
                             ctype = 'lab'
                             
+                        prog_code_check = program_code.lower() if program_code else None
                         existing = db.query(models.Subject).filter(
-                            models.Subject.code == code,
-                            models.Subject.department_id == target_dept_id,
-                            models.Subject.program_code == program_code
-                        ).first()
+                            func.lower(models.Subject.code) == code.lower(),
+                            models.Subject.department_id == target_dept_id
+                        )
+                        
+                        if prog_code_check:
+                            existing = existing.filter(func.lower(models.Subject.program_code) == prog_code_check)
+                        else:
+                            existing = existing.filter(models.Subject.program_code.is_(None))
+                            
+                        existing = existing.first()
                         
                         if not existing:
                             items_to_add.append(models.Subject(
@@ -254,18 +276,63 @@ async def import_subjects(
                                 lab_units=lab_units,
                                 pre_requisite=pre_requisite
                             ))
+                        else:
+                            skipped_items.append({"code": code, "name": name, "reason": "Already exists for this program"})
                     break
 
         if not found_target_sheet:
             raise HTTPException(status_code=400, detail="Could not find a sheet with the school name")
 
+        summary = {
+            "total_parsed": total_parsed,
+            "to_add": len(items_to_add),
+            "skipped": len(skipped_items)
+        }
+
+        if dry_run:
+            preview = [item.__dict__ for item in items_to_add]
+            for p in preview:
+                p.pop('_sa_instance_state', None)
+            
+            return {
+                "is_dry_run": True,
+                "message": "Dry run complete",
+                "summary": summary,
+                "preview": preview,
+                "errors": skipped_items
+            }
+
         if items_to_add:
             db.add_all(items_to_add)
             db.commit()
-            return {"message": f"Successfully imported {len(items_to_add)} subjects", "count": len(items_to_add)}
+            return {
+                "is_dry_run": False,
+                "message": f"Successfully imported {len(items_to_add)} subjects",
+                "summary": summary,
+                "errors": skipped_items
+            }
         else:
-            return {"message": "No new subjects to import", "count": 0}
+            return {
+                "is_dry_run": False,
+                "message": "No new subjects to import",
+                "summary": summary,
+                "errors": skipped_items
+            }
 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+@router.post("/import")
+async def import_subjects(
+    file: UploadFile = File(...),
+    department_id: Optional[int] = Form(None),
+    program_code: Optional[str] = Form(None),
+    dry_run: bool = Form(False),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    contents = await file.read()
+    return await _process_import_logic(contents, department_id, program_code, dry_run, db, current_user)
+
+
