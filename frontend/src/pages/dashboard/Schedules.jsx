@@ -178,7 +178,7 @@ export default function Schedules() {
     <>
       {/* Page Header */}
       <div className="bg-green-700 text-white py-3 shadow-inner">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+        <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12 flex justify-between items-center">
           <h2 className="text-lg font-medium">Manage Schedules</h2>
           <div className="flex items-center space-x-4">
             {activeConflictsCount > 0 && (
@@ -195,7 +195,7 @@ export default function Schedules() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative">
+      <main className="flex-1 max-w-full mx-auto px-6 sm:px-10 lg:px-12 py-8 w-full relative">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
           {/* Calendar Toolbar */}

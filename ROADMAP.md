@@ -140,4 +140,40 @@
   * ✅ **AI Suggestions Sidebar**: When assigning a subject to a schedule slot, show a suggestions panel that lists only valid, conflict-free options — mirroring the "Possible Assignments" sidebar seen in best-practice scheduling systems.
   * ✅ **Live Conflict Counter Badge**: Display a real-time conflict count badge on the Dashboard and Schedules page header, pulling from `GET /api/conflicts/count`.
   * ✅ **Faculty Load Tracker**: Add a visual load indicator per faculty member (current units vs. max units) on the Teachers page — highlight overloaded faculty in a warning state.
-  * ✅ **Section Management UI**: Build a dedicated Sections management page with a table showing section name, year level, student count, and linked curriculum. Integrate it with the schedule assignment flow.
+
+---
+
+### Sprint 8: High-Fidelity UI Harmonization
+*Status: In Progress*
+*Objective: Propagate the "ATLAS Premium" design language across all management modules and stabilize core administrative CRUD operations.*
+
+* **Backend Track (DE GUZMAN)**:
+  * ✅ **CRUD Stability Audit**: Finalize and verify delete/edit logic for Rooms, Sections, and Teachers to ensure cascading integrity.
+  * ✅ **Departmental Metadata**: Enhance the Login/Auth response to include more granular departmental info for UI personalization.
+  * ✅ **Log Enrichment**: Expand activity logging to capture detailed state changes (old value vs. new value).
+
+* **Frontend Track (DAYAO)**:
+  * ✅ **Premium Design Propagation**: Apply the glassmorphic, high-contrast UI style from the Dashboard to the Sections, Rooms, and Professors pages.
+  * ✅ **Layout Maximization**: (COMPLETED) Overhaul the header and page containers to support ultra-wide displays and improved spacing.
+  * ✅ **Enhanced Feedback System**: Standardize toast notifications and loading states across all bulk operations.
+
+---
+
+### Sprint 9: Curriculum Precision & Data Stabilization
+*Status: Planned*
+*Objective: Ensure 100% accuracy in curriculum imports and provide a high-fidelity visual representation of academic flowcharts.*
+
+* **Backend Track (DE GUZMAN)**:
+  * **Robust Excel Parsing Engine**: Overhaul the current heuristic parser in `curriculum.py` to support complex university layouts, including merged cells and non-standard header positions.
+  * **Import Validation & "Dry Run" API**: Implement a validation service that checks for missing units, duplicate codes, and circular prerequisites. Return a structured "Review Report" instead of immediate saving.
+  * **Dynamic Mapping Support**: Allow for flexible column identification to accommodate different departmental Excel templates.
+  * **Structured Prerequisite Mapper**: Improve the parsing of `pre_requisites` strings into a relational format suitable for flowchart rendering.
+
+* **Frontend Track (DAYAO)**:
+  * **Multi-Step Import Wizard**: Replace the "instant upload" with a guided workflow:
+    1. **Upload & Parse**: Initial file processing.
+    2. **Review & Edit**: Display a "Data Review Grid" where users can visually verify and manually correct parsed data before saving.
+    3. **Commit**: Final bulk insertion into the database.
+  * **Flowchart Visual Accuracy**: Refine the `Curriculum` page to correctly group subjects by Year/Semester and accurately reflect Lecture vs. Lab unit splits.
+  * **Prerequisite Flow Visualization**: Implement a visual highlighting system that shows prerequisite "paths" when a subject is hovered or selected.
+  * **Data Integrity Flags**: Add visual "Warning" icons in the curriculum table for subjects missing critical metadata (e.g., year level or units).

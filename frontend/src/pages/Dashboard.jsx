@@ -54,16 +54,16 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       {/* Top Navbar */}
       <nav className="bg-green-800 text-white shadow-lg sticky top-0 z-50">
-        <div className="max-w-[1600px] mx-auto px-6 sm:px-10 lg:px-12">
-          <div className="flex items-center justify-between h-24">
-            <Link to="/dashboard" className="flex items-center space-x-4 group">
+        <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12">
+          <div className="flex items-center justify-start h-24 space-x-12">
+            <Link to="/dashboard" className="flex items-center space-x-4 group shrink-0">
               <img src="/atlas_logo.png" alt="Atlas Logo" className="w-14 h-14 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
               <div className="hidden sm:block">
                 <span className="font-black text-4xl tracking-tighter block leading-none">ATLAS</span>
               </div>
             </Link>
 
-            <div className="hidden md:flex space-x-1 items-center">
+            <div className="hidden md:flex space-x-2 items-center">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.path === '/dashboard'
@@ -86,7 +86,7 @@ export default function Dashboard() {
               })}
             </div>
 
-            <div className="relative">
+            <div className="relative ml-auto">
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="flex items-center space-x-4 bg-green-900/50 px-4 py-2 rounded-2xl border border-white/10 hover:bg-green-700/50 transition-colors"

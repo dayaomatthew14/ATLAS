@@ -260,8 +260,8 @@ export default function Curriculum() {
   };
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+    <div className="px-12 py-12 w-full">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-20 gap-12">
         <div>
           <div className="flex items-center space-x-3 mb-2">
             <div className="p-3 bg-green-600 rounded-2xl shadow-lg shadow-green-200">
@@ -322,7 +322,7 @@ export default function Curriculum() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
       ) : selectedCourse === 'All' && availableCourses.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {availableCourses.map(course => {
             const courseSubjects = curriculum.filter(s => s.course === course);
             const totalUnits = courseSubjects.reduce((sum, s) => sum + (s.units || 0), 0);
@@ -330,22 +330,22 @@ export default function Curriculum() {
               <div 
                 key={course}
                 onClick={() => setSelectedCourse(course)}
-                className="bg-white rounded-[2rem] border border-slate-200 p-8 cursor-pointer hover:shadow-2xl shadow-sm hover:shadow-green-900/5 hover:border-green-200 transition-all duration-300 transform hover:-translate-y-2 group relative overflow-hidden"
+                className="bg-white rounded-[2.5rem] border border-slate-200 p-10 cursor-pointer hover:shadow-2xl shadow-sm hover:shadow-green-900/5 hover:border-green-200 transition-all duration-300 transform hover:-translate-y-2 group relative overflow-hidden"
               >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-green-50 to-transparent rounded-bl-full opacity-50 transition-transform group-hover:scale-110"></div>
+                <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-green-50 to-transparent rounded-bl-full opacity-50 transition-transform group-hover:scale-110"></div>
                 
                 <button
                   onClick={(e) => handleDeleteCourse(course, e)}
-                  className="absolute top-6 right-6 z-20 p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-all opacity-0 group-hover:opacity-100 transform hover:scale-110"
+                  className="absolute top-8 right-8 z-20 p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-all opacity-0 group-hover:opacity-100 transform hover:scale-110"
                   title="Delete Curriculum"
                 >
-                  <Trash2 className="w-5 h-5" />
+                  <Trash2 className="w-6 h-6" />
                 </button>
 
-                <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-green-50 group-hover:border-green-100 transition-colors relative z-10 shadow-sm group-hover:shadow-green-100">
-                  <BookOpen className="w-8 h-8 text-slate-400 group-hover:text-green-600 transition-colors" />
+                <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-green-50 group-hover:border-green-100 transition-colors relative z-10 shadow-sm group-hover:shadow-green-100">
+                  <BookOpen className="w-10 h-10 text-slate-400 group-hover:text-green-600 transition-colors" />
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-4 tracking-tight relative z-10 group-hover:text-green-700 transition-colors">{course} Curriculum</h3>
+                <h3 className="text-3xl font-black text-slate-800 mb-6 tracking-tight relative z-10 group-hover:text-green-700 transition-colors">{course} Curriculum</h3>
                 <div className="flex items-center space-x-3 text-xs font-black text-slate-500 uppercase tracking-wider relative z-10">
                   <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{courseSubjects.length} Subjects</span>
                   <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{totalUnits} Units</span>
