@@ -168,7 +168,6 @@
 * **Backend Track (DE GUZMAN) [COMPLETED]**:
   * ✅ **Bug Fix — Excel Import Logic**: Resolve runtime errors during the "Import from Excel" process, specifically handling edge cases in subject code parsing and department mapping.
   * ✅ **Import Verification API**: Implement a "Dry Run" endpoint for Excel imports that returns a summary of what will be added/skipped before committing to the database.
-  * ✅ **Local Path Import API**: Created `POST /api/subjects/import/local` to allow direct, programmatic importing of local files (e.g. `C:\Users\Domz\Downloads\BSCS CURRICULUM AY 2026.xlsx`) to bypass the UI form upload for easy backend testing and seeding.
 
 * **Frontend Track (DAYAO)**:
   * **Global UI Modernization**: Scale the "ATLAS Premium" design language (introduced in the Curriculum module) to the Teachers, Rooms, Sections, and Schedules pages for a consistent, state-of-the-art user experience.

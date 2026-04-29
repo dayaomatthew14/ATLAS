@@ -335,20 +335,4 @@ async def import_subjects(
     contents = await file.read()
     return await _process_import_logic(contents, department_id, program_code, dry_run, db, current_user)
 
-import os
-@router.post("/import/local")
-async def import_subjects_local(
-    file_path: str = Form(r"C:\Users\Domz\Downloads\BSCS CURRICULUM AY 2026.xlsx"),
-    department_id: Optional[int] = Form(None),
-    program_code: Optional[str] = Form(None),
-    dry_run: bool = Form(False),
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=400, detail=f"File not found at path: {file_path}")
-        
-    with open(file_path, "rb") as f:
-        contents = f.read()
-        
-    return await _process_import_logic(contents, department_id, program_code, dry_run, db, current_user)
+
