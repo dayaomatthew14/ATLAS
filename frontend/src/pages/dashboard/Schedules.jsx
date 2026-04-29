@@ -62,11 +62,11 @@ export default function Schedules() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
-  const [curriculumItems, setCurriculumItems] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [formData, setFormData] = useState({
-    curriculum_id: '',
+    subject_id: '',
     room_id: '',
     faculty_id: '',
     day_of_week: 'Mon',
@@ -77,12 +77,12 @@ export default function Schedules() {
 
   const fetchDropdownData = async () => {
     try {
-      const [curriculumData, roomsData, teachersData] = await Promise.all([
+      const [subjectsData, roomsData, teachersData] = await Promise.all([
         api.get('/curriculum').catch(() => []),
         api.get('/rooms').catch(() => []),
         api.get('/users?role=faculty').catch(() => [])
       ]);
-      setCurriculumItems(curriculumData || []);
+      setSubjects(subjectsData || []);
       setRooms(roomsData || []);
       setTeachers(teachersData || []);
     } catch (error) {
@@ -98,13 +98,13 @@ export default function Schedules() {
   };
 
   const handleGetSuggestions = async () => {
-    if (!formData.curriculum_id) {
-      addToast('Please select a curriculum item first', 'error');
+    if (!formData.subject_id) {
+      addToast('Please select a subject first', 'error');
       return;
     }
     setIsFetchingSuggestions(true);
     try {
-      const data = await api.get('/schedules/suggestions', { params: { curriculum_id: formData.curriculum_id } });
+      const data = await api.get('/schedules/suggestions', { params: { subject_id: formData.subject_id } });
       setAiSuggestions(data);
       if (data.length === 0) {
         addToast('No suggestions found. Faculty might be overloaded.', 'warning');
@@ -120,7 +120,7 @@ export default function Schedules() {
 
   // Real-time conflict check
   useEffect(() => {
-    if (formData.curriculum_id && formData.start_time) {
+    if (formData.subject_id && formData.start_time) {
       const conflicts = detectConflicts({
         ...formData,
         room_name: rooms.find(r => r.id === parseInt(formData.room_id))?.name,
@@ -162,8 +162,8 @@ export default function Schedules() {
   const handleAIGeneration = (params) => {
     // Simulate receiving generated schedules from the AI
     const mockGenerated = [
-      { id: Date.now() + 1, curriculum: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
-      { id: Date.now() + 2, curriculum: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ curriculum: 'Existing Class' }] }
+      { id: Date.now() + 1, subject: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
+      { id: Date.now() + 2, subject: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ subject: 'Existing Class' }] }
     ];
     setSchedules(checkScheduleIntegrity([...schedules, ...mockGenerated]));
   };
@@ -178,8 +178,8 @@ export default function Schedules() {
     <>
       {/* Page Header */}
       <div className="bg-green-700 text-white py-3 shadow-inner">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h2 className="text-lg font-medium">Manage Schedules For Teachers</h2>
+        <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12 flex justify-between items-center">
+          <h2 className="text-lg font-medium">Manage Schedules</h2>
           <div className="flex items-center space-x-4">
             {activeConflictsCount > 0 && (
               <button
@@ -190,15 +190,12 @@ export default function Schedules() {
                 {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
               </button>
             )}
-            <button className="text-sm text-green-100 hover:text-white flex items-center">
-              <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
-            </button>
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative">
+      <main className="flex-1 max-w-full mx-auto px-6 sm:px-10 lg:px-12 py-8 w-full relative">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
           {/* Calendar Toolbar */}
@@ -268,14 +265,14 @@ export default function Schedules() {
                         <div
                           key={schedule.id}
                           className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${schedule.isConflicting
-                              ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
-                              : schedule.isAI
-                                ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
-                                : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
+                            ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
+                            : schedule.isAI
+                              ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
+                              : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
                             }`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="font-bold truncate">{schedule.curriculum}</div>
+                            <div className="font-bold truncate">{schedule.subject}</div>
                             <div className="flex items-center">
                               {schedule.isAI && <Sparkles className="w-2.5 h-2.5 text-indigo-500 mr-1" />}
                               {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
@@ -323,15 +320,15 @@ export default function Schedules() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Curriculum</label>
+              <label className="block text-sm font-medium text-gray-700">Subject</label>
               <select
                 required
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.curriculum_id}
-                onChange={(e) => setFormData({ ...formData, curriculum_id: e.target.value })}
+                value={formData.subject_id}
+                onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
               >
-                <option value="">Select Curriculum</option>
-                {curriculumItems.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+                <option value="">Select Subject</option>
+                {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
               </select>
             </div>
             <div>
@@ -349,14 +346,14 @@ export default function Schedules() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Teacher</label>
+              <label className="block text-sm font-medium text-gray-700">Professor</label>
               <select
                 required
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
                 value={formData.faculty_id}
                 onChange={(e) => setFormData({ ...formData, faculty_id: e.target.value })}
               >
-                <option value="">Select Teacher</option>
+                <option value="">Select Professor</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>

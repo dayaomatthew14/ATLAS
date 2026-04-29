@@ -132,7 +132,6 @@ def delete_curriculum_item(
     db.delete(db_curriculum)
     db.commit()
     return None
-
 async def _process_curriculum_import(
     contents: bytes,
     department_id: Optional[int],
@@ -305,3 +304,4 @@ async def import_curriculum(
 ):
     contents = await file.read()
     return await _process_curriculum_import(contents, department_id, program_code, dry_run, db, current_user)
+

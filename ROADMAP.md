@@ -140,35 +140,40 @@
   * ✅ **AI Suggestions Sidebar**: When assigning a subject to a schedule slot, show a suggestions panel that lists only valid, conflict-free options — mirroring the "Possible Assignments" sidebar seen in best-practice scheduling systems.
   * ✅ **Live Conflict Counter Badge**: Display a real-time conflict count badge on the Dashboard and Schedules page header, pulling from `GET /api/conflicts/count`.
   * ✅ **Faculty Load Tracker**: Add a visual load indicator per faculty member (current units vs. max units) on the Teachers page — highlight overloaded faculty in a warning state.
-  * ✅ **Section Management UI**: Build a dedicated Sections management page with a table showing section name, year level, student count, and linked curriculum. Integrate it with the schedule assignment flow.
 
 ---
 
-### Sprint 8: Curriculum Visual Overhaul & Mapping
-*Status: [COMPLETED]*
-*Objective: Upgrade the curriculum management system to support program-specific course mapping (Year Level, Semester), enriched subject details (Lec/Lab units, Prerequisites), and a visually organized grouping interface inspired by standard academic flowcharts.*
+### Sprint 8: High-Fidelity UI Harmonization
+*Status: In Progress*
+*Objective: Propagate the "ATLAS Premium" design language across all management modules and stabilize core administrative CRUD operations.*
 
-* **Backend Track (DE GUZMAN) [COMPLETED]**:
-  * ✅ **Curriculum Schema Upgrade**: Expand the `Curriculum` model to include `program_code`, `year_level`, `semester_term`, `lec_units`, `lab_units`, and `pre_requisites`. Remove the global unique constraint on `code` to allow the same subject across different programs.
-  * ✅ **Import Endpoint Enhancement**: Update `POST /api/curriculum/import` to accept a `program_code` parameter. The parser should attach this program code to all imported subjects.
-  * ✅ **Filtered Fetching**: Update `GET /api/curriculum` to support filtering by `program_code`.
-
-* **Frontend Track (DAYAO) [COMPLETED]**:
-  * ✅ **Program Filter & Import Target**: Add a Program selection dropdown (e.g., BSCS, BSIT) to the Curriculum page header. The selected program will filter the displayed curriculum and MUST be sent as `program_code` in the FormData when using the "Import Excel" button.
-  * ✅ **Grouped UI Layout**: Redesign the main view to match the mockups. Group subjects by `year_level` (e.g., "1ST YEAR") and `semester_term` (e.g., "1ST SEMESTER"). Display them in distinct sections instead of a single flat table.
-  * ✅ **Extended Table Columns**: Update the curriculum table headers to match the design: Code, Description, Lec, Lab, Units, Pre-requisite, Actions. Map these to the new API fields (`lec_units`, `lab_units`, `pre_requisite`).
-  * ✅ **Add/Edit Modal Update**: Update the curriculum form to capture the new fields (`program_code`, `year_level`, `semester_term`, `lec_units`, `lab_units`, `pre_requisite`) and send them to the backend on save.
-
----
-
-### Sprint 9: System Stabilization & UI Harmonization
-*Status: [PENDING]*
-*Objective: Resolve critical backend import bugs discovered during testing and propagate the high-fidelity design language across the entire platform.*
-
-* **Backend Track (DE GUZMAN) [COMPLETED]**:
-  * ✅ **Bug Fix — Excel Import Logic**: Resolve runtime errors during the "Import from Excel" process, specifically handling edge cases in subject code parsing and department mapping.
-  * ✅ **Import Verification API**: Implement a "Dry Run" endpoint for Excel imports that returns a summary of what will be added/skipped before committing to the database.
+* **Backend Track (DE GUZMAN)**:
+  * ✅ **CRUD Stability Audit**: Finalize and verify delete/edit logic for Rooms, Sections, and Teachers to ensure cascading integrity.
+  * ✅ **Departmental Metadata**: Enhance the Login/Auth response to include more granular departmental info for UI personalization.
+  * ✅ **Log Enrichment**: Expand activity logging to capture detailed state changes (old value vs. new value).
 
 * **Frontend Track (DAYAO)**:
-  * **Global UI Modernization**: Scale the "ATLAS Premium" design language (introduced in the Curriculum module) to the Teachers, Rooms, Sections, and Schedules pages for a consistent, state-of-the-art user experience.
-  * **Import Error Handling**: Implement detailed error reporting in the UI for failed Excel imports, showing exactly which rows caused issues.
+  * ✅ **Premium Design Propagation**: Apply the glassmorphic, high-contrast UI style from the Dashboard to the Sections, Rooms, and Professors pages.
+  * ✅ **Layout Maximization**: (COMPLETED) Overhaul the header and page containers to support ultra-wide displays and improved spacing.
+  * ✅ **Enhanced Feedback System**: Standardize toast notifications and loading states across all bulk operations.
+
+---
+
+### Sprint 9: Curriculum Precision & Data Stabilization
+*Status: Planned*
+*Objective: Ensure 100% accuracy in curriculum imports and provide a high-fidelity visual representation of academic flowcharts.*
+
+* **Backend Track (DE GUZMAN)**:
+  * **Robust Excel Parsing Engine**: Overhaul the current heuristic parser in `curriculum.py` to support complex university layouts, including merged cells and non-standard header positions.
+  * **Import Validation & "Dry Run" API**: Implement a validation service that checks for missing units, duplicate codes, and circular prerequisites. Return a structured "Review Report" instead of immediate saving.
+  * **Dynamic Mapping Support**: Allow for flexible column identification to accommodate different departmental Excel templates.
+  * **Structured Prerequisite Mapper**: Improve the parsing of `pre_requisites` strings into a relational format suitable for flowchart rendering.
+
+* **Frontend Track (DAYAO)**:
+  * **Multi-Step Import Wizard**: Replace the "instant upload" with a guided workflow:
+    1. **Upload & Parse**: Initial file processing.
+    2. **Review & Edit**: Display a "Data Review Grid" where users can visually verify and manually correct parsed data before saving.
+    3. **Commit**: Final bulk insertion into the database.
+  * **Flowchart Visual Accuracy**: Refine the `Curriculum` page to correctly group subjects by Year/Semester and accurately reflect Lecture vs. Lab unit splits.
+  * **Prerequisite Flow Visualization**: Implement a visual highlighting system that shows prerequisite "paths" when a subject is hovered or selected.
+  * **Data Integrity Flags**: Add visual "Warning" icons in the curriculum table for subjects missing critical metadata (e.g., year level or units).

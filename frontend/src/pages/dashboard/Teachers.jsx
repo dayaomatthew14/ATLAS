@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users as UsersIcon, Clock, Calendar, ShieldAlert } from 'lucide-react';
+import { Plus, Users as UsersIcon, Clock, Calendar, ShieldAlert, UserCheck } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
@@ -26,10 +26,13 @@ export default function Teachers() {
       label: 'Teacher Name',
       render: (item) => (
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 mr-3">
-            <UsersIcon className="w-4 h-4" />
+          <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 mr-4 shadow-sm">
+            <UsersIcon className="w-5 h-5" />
           </div>
-          <span className="font-medium text-gray-900">{item.name}</span>
+          <div>
+            <span className="font-black text-slate-900 block">{item.name}</span>
+            <span className="text-xs text-slate-500 font-medium">{item.email}</span>
+          </div>
         </div>
       )
     },
@@ -50,10 +53,10 @@ export default function Teachers() {
               </span>
               {isOverloaded && <ShieldAlert className="w-3.5 h-3.5 text-rose-600 animate-pulse" />}
             </div>
-            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+            <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5">
               <div 
-                className={`h-full transition-all duration-500 rounded-full ${
-                  isOverloaded ? 'bg-rose-500' : percentage > 80 ? 'bg-amber-500' : 'bg-green-500'
+                className={`h-full transition-all duration-700 rounded-full ${
+                  isOverloaded ? 'bg-rose-500' : percentage > 80 ? 'bg-amber-500' : 'bg-green-600'
                 }`}
                 style={{ width: `${percentage}%` }}
               />
@@ -68,9 +71,9 @@ export default function Teachers() {
       render: (item) => (
         <button 
           onClick={() => handleOpenAvailability(item)}
-          className="flex items-center space-x-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all font-bold text-xs uppercase"
+          className="flex items-center space-x-2 px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-200 shadow-sm transition-all font-black text-xs uppercase tracking-widest active:scale-95"
         >
-          <Clock className="w-3.5 h-3.5" />
+          <Clock className="w-4 h-4 text-green-600" />
           <span>Set Blocked Times</span>
         </button>
       )
@@ -84,7 +87,6 @@ export default function Teachers() {
   const handleOpenAvailability = async (teacher) => {
     setSelectedTeacher(teacher);
     setIsAvailabilityModalOpen(true);
-    // In a real scenario, we would fetch unavailability here
     try {
       const data = await api.get(`/users/${teacher.id}/unavailability`).catch(() => []);
       setUnavailability(data);
@@ -163,91 +165,105 @@ export default function Teachers() {
   };
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-8 animate-in fade-in duration-700">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Teachers</h2>
-          <p className="text-slate-500 text-base font-medium mt-2">Manage faculty members and their teaching loads.</p>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="bg-orange-100 p-2.5 rounded-xl shadow-sm">
+              <UserCheck className="w-6 h-6 text-orange-700" />
+            </div>
+            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Teachers</h2>
+          </div>
+          <p className="text-slate-500 text-base font-medium">Configure faculty profiles, track teaching loads, and manage schedule constraints.</p>
         </div>
+        
         <button
           onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
+          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
         >
           <Plus className="w-6 h-6 mr-2" /> Add Teacher
         </button>
       </div>
 
-      <Table
-        columns={columns}
-        data={teachers}
-        isLoading={isLoading}
-        onEdit={handleOpenModal}
-        onDelete={handleDelete}
-      />
+      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-2">
+        <Table
+          columns={columns}
+          data={teachers}
+          isLoading={isLoading}
+          onEdit={handleOpenModal}
+          onDelete={handleDelete}
+        />
+      </div>
 
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingTeacher ? 'Edit Teacher' : 'Add New Teacher'}
+        title={editingTeacher ? 'Edit Teacher Profile' : 'Add New Faculty Member'}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Full Name</label>
+              <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Full Name</label>
               <input
                 type="text"
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                placeholder="e.g. Juan Dela Cruz"
+                className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Max Units</label>
+              <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Max Units</label>
               <input
                 type="number"
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700"
                 value={formData.max_units}
                 onChange={(e) => setFormData({ ...formData, max_units: e.target.value })}
               />
             </div>
           </div>
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700">Email Address</label>
+            <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Email Address</label>
             <input
               type="email"
               required
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              placeholder="faculty@dlsau.edu.ph"
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
           </div>
+
           <div>
-            <label className="block text-sm font-medium text-gray-700">
-              {editingTeacher ? 'New Password (leave blank to keep current)' : 'Password'}
+            <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">
+              {editingTeacher ? 'New Password' : 'Password'}
             </label>
             <input
               type="password"
+              placeholder={editingTeacher ? 'Leave blank to keep current' : '••••••••'}
               required={!editingTeacher}
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
             />
           </div>
-          <div className="pt-4 flex justify-end space-x-3">
+
+          <div className="pt-6 flex justify-end gap-3">
             <button
               type="button"
               onClick={handleCloseModal}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+              className="px-6 py-3.5 text-sm font-black text-slate-500 hover:bg-slate-50 rounded-2xl uppercase tracking-widest transition-all"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-md shadow-sm"
+              className="px-10 py-3.5 text-sm font-black text-white bg-green-700 hover:bg-green-800 rounded-2xl shadow-lg uppercase tracking-widest transition-all transform hover:scale-105 active:scale-95"
             >
-              {editingTeacher ? 'Update Teacher' : 'Save Teacher'}
+              {editingTeacher ? 'Update Profile' : 'Register Faculty'}
             </button>
           </div>
         </form>
@@ -259,42 +275,50 @@ export default function Teachers() {
         title={`Availability: ${selectedTeacher?.name}`}
       >
         <div className="space-y-6">
-          <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-start space-x-3">
-            <Clock className="w-5 h-5 text-amber-600 mt-0.5" />
-            <p className="text-sm text-amber-800 font-medium leading-relaxed">
-              Define time windows where this faculty is <strong>unavailable</strong>. The AI Scheduling Engine will strictly avoid assigning classes during these hours.
+          <div className="bg-amber-50/50 border border-amber-200 p-5 rounded-3xl flex items-start space-x-4">
+            <div className="bg-white p-2 rounded-xl shadow-sm">
+              <Clock className="w-5 h-5 text-amber-600" />
+            </div>
+            <p className="text-sm text-amber-900 font-medium leading-relaxed">
+              Define time windows where this faculty is <span className="font-black text-amber-700">unavailable</span>. The AI Scheduling Engine will strictly avoid assigning classes during these hours.
             </p>
           </div>
 
-          <div className="space-y-3">
-            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Currently Blocked</h4>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Currently Blocked</h4>
+              <div className="h-px flex-1 bg-slate-100"></div>
+            </div>
+
             {unavailability.length === 0 ? (
-              <div className="py-8 text-center border-2 border-dashed border-slate-100 rounded-3xl">
-                <Calendar className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                <p className="text-slate-400 text-sm font-bold uppercase tracking-tight">No blocked times set</p>
+              <div className="py-12 text-center border-2 border-dashed border-slate-100 rounded-[2.5rem]">
+                <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Calendar className="w-8 h-8 text-slate-200" />
+                </div>
+                <p className="text-slate-400 text-sm font-black uppercase tracking-widest">No blocked times set</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {unavailability.map((block, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                  <div key={idx} className="group flex items-center justify-between p-4 bg-white border border-slate-200 rounded-[1.5rem] shadow-sm hover:border-green-200 transition-all">
                     <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center font-black text-xs">
-                        {block.day_of_week?.substring(0,3)}
+                      <div className="w-12 h-12 bg-slate-50 text-slate-900 rounded-2xl flex items-center justify-center font-black text-xs shadow-inner">
+                        {block.day_of_week?.substring(0,3).toUpperCase()}
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900">{block.day_of_week}</p>
-                        <p className="text-xs text-slate-500 font-medium">{block.start_time} - {block.end_time}</p>
+                        <p className="font-black text-slate-900">{block.day_of_week}</p>
+                        <p className="text-xs text-slate-500 font-bold tracking-tight">{block.start_time} — {block.end_time}</p>
                       </div>
                     </div>
-                    <button className="text-rose-600 hover:text-rose-800 font-bold text-xs uppercase tracking-widest p-2">Remove</button>
+                    <button className="text-slate-400 hover:text-rose-600 font-black text-xs uppercase tracking-widest p-3 transition-colors opacity-0 group-hover:opacity-100">Remove</button>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          <div className="pt-4 border-t border-slate-100">
-            <button className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center space-x-2 hover:bg-slate-800 transition-all">
+          <div className="pt-6 border-t border-slate-100">
+            <button className="w-full bg-slate-900 hover:bg-slate-800 text-white py-4.5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center space-x-2 transition-all transform hover:-translate-y-1 shadow-xl active:scale-95">
               <Plus className="w-5 h-5" />
               <span>Add Blocked Window</span>
             </button>
