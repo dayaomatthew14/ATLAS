@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Upload, Edit, Trash2, BookOpen, GraduationCap } from 'lucide-react';
+import { Plus, Upload, Edit, Trash2, BookOpen, GraduationCap, AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -24,6 +24,9 @@ export default function Curriculum() {
     lab_units: 0,
     pre_requisites: ''
   });
+  const [isImportReviewOpen, setIsImportReviewOpen] = useState(false);
+  const [importReport, setImportReport] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const columns = [
     { key: 'code', label: 'Code' },
@@ -61,22 +64,48 @@ export default function Curriculum() {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('dry_run', 'true');
 
     try {
-      addToast('Uploading and processing curriculum file...', 'info');
-      const response = await api.post('/curriculum/upload', formData);
-      addToast(`Successfully added ${response.added} subjects. Previous data for ${response.course} was cleared.`, 'success');
+      setIsImporting(true);
+      addToast('Analyzing curriculum file...', 'info');
+      // Using /import instead of /upload for dry-run support
+      const response = await api.post('/curriculum/import', formData);
       
+      setImportReport(response);
+      setIsImportReviewOpen(true);
+      addToast('Analysis complete. Please review the data.', 'success');
+    } catch (error) {
+      addToast(error.message || 'Error analyzing file', 'error');
+    } finally {
+      setIsImporting(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importReport || !importReport.report) return;
+
+    try {
+      setIsImporting(true);
+      addToast('Committing curriculum to database...', 'info');
+      
+      // Send the parsed and validated items to the bulk endpoint
+      await api.post('/curriculum/bulk', { items: importReport.report });
+      
+      addToast(`Successfully imported ${importReport.report.length} subjects.`, 'success');
+      setIsImportReviewOpen(false);
+      setImportReport(null);
       await fetchCurriculum();
       
-      if (response.course && response.course !== 'Unknown') {
-        setSelectedCourse(response.course);
+      if (importReport.course && importReport.course !== 'Unknown') {
+        setSelectedCourse(importReport.course);
       }
     } catch (error) {
-      addToast(error.message || 'Error uploading file', 'error');
+      addToast(error.message || 'Error committing import', 'error');
+    } finally {
+      setIsImporting(false);
     }
-    // Clear the input
-    event.target.value = '';
   };
 
   useEffect(() => {
@@ -531,6 +560,111 @@ export default function Curriculum() {
           </div>
         </form>
       </Modal>
+
+      {/* Import Review Modal */}
+      <Modal
+        isOpen={isImportReviewOpen}
+        onClose={() => setIsImportReviewOpen(false)}
+        title="Curriculum Import Review"
+        maxWidth="max-w-6xl"
+      >
+        <div className="space-y-6">
+          <div className="flex items-center justify-between bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-blue-100 rounded-2xl text-blue-600">
+                <Info className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-black text-slate-900 text-xl tracking-tight">Review Your Data</h4>
+                <p className="text-slate-500 text-sm font-medium">Verify the subjects found in your Excel file before saving.</p>
+              </div>
+            </div>
+            <div className="flex space-x-6 text-right">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Found</p>
+                <p className="text-2xl font-black text-slate-900">{importReport?.summary?.total_rows || 0}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Issues</p>
+                <p className={`text-2xl font-black ${importReport?.summary?.issues_found > 0 ? 'text-amber-500' : 'text-green-500'}`}>
+                  {importReport?.summary?.issues_found || 0}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="max-h-[50vh] overflow-y-auto border border-slate-100 rounded-3xl shadow-inner bg-slate-50/30">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 bg-white border-b border-slate-100 z-10">
+                <tr>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Code</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Yr/Sem</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">L/L/U</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {importReport?.report?.map((item, idx) => (
+                  <tr key={idx} className={`hover:bg-white transition-colors ${item.validation_issues?.length > 0 ? 'bg-amber-50/30' : ''}`}>
+                    <td className="px-6 py-4 font-bold text-slate-900">{item.code}</td>
+                    <td className="px-6 py-4 font-medium text-slate-600">{item.name}</td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-[10px] font-black bg-slate-100 px-2 py-1 rounded-lg">
+                        Y{item.year_level} - {item.semester_term}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">
+                      {item.lec_units}/{item.lab_units}/{item.units}
+                    </td>
+                    <td className="px-6 py-4">
+                      {item.validation_issues?.length > 0 ? (
+                        <div className="flex flex-col space-y-1">
+                          {item.validation_issues.map((issue, i) => (
+                            <span key={i} className="flex items-center text-[10px] font-bold text-amber-600 bg-amber-100/50 px-2 py-1 rounded-lg">
+                              <AlertCircle className="w-3 h-3 mr-1" /> {issue}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="flex items-center text-[10px] font-bold text-green-600 bg-green-100/50 px-2 py-1 rounded-lg w-fit">
+                          <CheckCircle2 className="w-3 h-3 mr-1" /> Ready
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between pt-4">
+             <button
+              onClick={() => setIsImportReviewOpen(false)}
+              className="px-8 py-4 text-sm font-black text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-widest"
+            >
+              Cancel Import
+            </button>
+            <button
+              onClick={handleConfirmImport}
+              disabled={isImporting}
+              className={`bg-slate-900 text-white px-10 py-4 rounded-2xl flex items-center shadow-xl font-black text-sm uppercase tracking-widest transition-all ${isImporting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800 transform hover:scale-105 active:scale-95'}`}
+            >
+              {isImporting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-3"></div>
+                  Committing...
+                </>
+              ) : (
+                <>
+                  Confirm & Commit to Database
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
+
   );
 }

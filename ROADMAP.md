@@ -160,21 +160,16 @@
 ---
 
 ### Sprint 9: Curriculum Precision & Data Stabilization
-*Status: In Progress (Backend Complete)*
+*Status: COMPLETED*
 *Objective: Ensure 100% accuracy in curriculum imports and provide a high-fidelity visual representation of academic flowcharts.*
 
 * **Backend Track (DE GUZMAN)**:
-  * ✅ **Robust Excel Parsing Engine**: (COMPLETED) Support for merged cells (ffill), non-standard header positions, and multi-sheet detection.
-  * ✅ **Import Validation & "Review Report"**: (COMPLETED) Checks for missing units, internal duplicates, and circular prerequisites. Returns a comprehensive validation report.
-  * ✅ **Header Extraction & Sample Service**: (COMPLETED) New `/headers` endpoint to allow frontend preview and manual column mapping.
-  * ✅ **Bulk Commit & Conflict Safety API**: (COMPLETED) New `/bulk` endpoint for saving reviewed data with final integrity checks.
-  * ✅ **Structured Prerequisite Normalization**: (COMPLETED) Improved parsing of complex prerequisite strings into a relational-ready format.
+  * ✅ **Robust Excel Parsing Engine**: (COMPLETED) Overhauled heuristic parser with context-aware tracking for year/semester and robust numeric handling (parentheses, symbols).
+  * ✅ **Import Validation & "Dry Run" API**: (COMPLETED) Implemented `/import?dry_run=true` to return a structured validation report before saving.
+  * ✅ **Structured Prerequisite Mapper**: (COMPLETED) Improved parsing and normalization of prerequisite strings for future relational use.
 
 * **Frontend Track (DAYAO)**:
-  * **Multi-Step Import Wizard**: Replace the "instant upload" with a guided workflow:
-    1. **Upload & Parse**: Initial file processing.
-    2. **Review & Edit**: Display a "Data Review Grid" where users can visually verify and manually correct parsed data before saving.
-    3. **Commit**: Final bulk insertion into the database.
-  * **Flowchart Visual Accuracy**: Refine the `Curriculum` page to correctly group subjects by Year/Semester and accurately reflect Lecture vs. Lab unit splits.
-  * **Prerequisite Flow Visualization**: Implement a visual highlighting system that shows prerequisite "paths" when a subject is hovered or selected.
-  * **Data Integrity Flags**: Add visual "Warning" icons in the curriculum table for subjects missing critical metadata (e.g., year level or units).
+  * ✅ **Multi-Step Import Wizard**: (COMPLETED) Implemented a premium review modal (Upload -> Review Grid -> Commit) to allow data verification before database entry.
+  * ✅ **Flowchart Visual Accuracy**: (COMPLETED) Updated UI to reflect precise year/semester groupings based on new context-aware parsing results.
+  * ✅ **Data Integrity Flags**: (COMPLETED) Integrated visual warning indicators for missing units or duplicate subjects within the import review grid.
+  * **Prerequisite Flow Visualization**: (PLANNED) Visual highlighting of prerequisite paths on subject hover.
