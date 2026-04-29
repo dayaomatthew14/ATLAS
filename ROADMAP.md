@@ -164,10 +164,11 @@
 *Objective: Ensure 100% accuracy in curriculum imports and provide a high-fidelity visual representation of academic flowcharts.*
 
 * **Backend Track (DE GUZMAN)**:
-  * ✅ **Robust Excel Parsing Engine**: Overhaul the current heuristic parser in `curriculum.py` to support complex university layouts, including merged cells and non-standard header positions.
-  * ✅ **Import Validation & "Dry Run" API**: Implement a validation service that checks for missing units, duplicate codes, and circular prerequisites. Return a structured "Review Report" instead of immediate saving.
-  * ✅ **Dynamic Mapping Support**: Allow for flexible column identification to accommodate different departmental Excel templates.
-  * ✅ **Structured Prerequisite Mapper**: Improve the parsing of `pre_requisites` strings into a relational format suitable for flowchart rendering.
+  * ✅ **Robust Excel Parsing Engine**: (COMPLETED) Support for merged cells (ffill), non-standard header positions, and multi-sheet detection.
+  * ✅ **Import Validation & "Review Report"**: (COMPLETED) Checks for missing units, internal duplicates, and circular prerequisites. Returns a comprehensive validation report.
+  * ✅ **Header Extraction & Sample Service**: (COMPLETED) New `/headers` endpoint to allow frontend preview and manual column mapping.
+  * ✅ **Bulk Commit & Conflict Safety API**: (COMPLETED) New `/bulk` endpoint for saving reviewed data with final integrity checks.
+  * ✅ **Structured Prerequisite Normalization**: (COMPLETED) Improved parsing of complex prerequisite strings into a relational-ready format.
 
 * **Frontend Track (DAYAO)**:
   * **Multi-Step Import Wizard**: Replace the "instant upload" with a guided workflow:
