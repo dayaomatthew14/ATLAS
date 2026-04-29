@@ -275,13 +275,14 @@ class SectionResponse(BaseModel):
         from_attributes = True
 
 class ImportSummary(BaseModel):
-    total_parsed: int
-    to_add: int
-    skipped: int
+    total_rows: int
+    valid_new_items: int
+    duplicates_skipped: int
+    issues_found: int
 
 class ImportResponse(BaseModel):
     is_dry_run: bool
     message: str
     summary: ImportSummary
-    preview: Optional[list] = None
+    report: Optional[list] = None
     errors: Optional[list] = None

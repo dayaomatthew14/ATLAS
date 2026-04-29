@@ -160,14 +160,14 @@
 ---
 
 ### Sprint 9: Curriculum Precision & Data Stabilization
-*Status: Planned*
+*Status: In Progress (Backend Complete)*
 *Objective: Ensure 100% accuracy in curriculum imports and provide a high-fidelity visual representation of academic flowcharts.*
 
 * **Backend Track (DE GUZMAN)**:
-  * **Robust Excel Parsing Engine**: Overhaul the current heuristic parser in `curriculum.py` to support complex university layouts, including merged cells and non-standard header positions.
-  * **Import Validation & "Dry Run" API**: Implement a validation service that checks for missing units, duplicate codes, and circular prerequisites. Return a structured "Review Report" instead of immediate saving.
-  * **Dynamic Mapping Support**: Allow for flexible column identification to accommodate different departmental Excel templates.
-  * **Structured Prerequisite Mapper**: Improve the parsing of `pre_requisites` strings into a relational format suitable for flowchart rendering.
+  * ✅ **Robust Excel Parsing Engine**: Overhaul the current heuristic parser in `curriculum.py` to support complex university layouts, including merged cells and non-standard header positions.
+  * ✅ **Import Validation & "Dry Run" API**: Implement a validation service that checks for missing units, duplicate codes, and circular prerequisites. Return a structured "Review Report" instead of immediate saving.
+  * ✅ **Dynamic Mapping Support**: Allow for flexible column identification to accommodate different departmental Excel templates.
+  * ✅ **Structured Prerequisite Mapper**: Improve the parsing of `pre_requisites` strings into a relational format suitable for flowchart rendering.
 
 * **Frontend Track (DAYAO)**:
   * **Multi-Step Import Wizard**: Replace the "instant upload" with a guided workflow:
