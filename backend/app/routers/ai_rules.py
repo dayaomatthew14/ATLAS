@@ -9,7 +9,7 @@ router = APIRouter(
     tags=["AI Rules"]
 )
 
-@router.get("/", response_model=List[schemas.AIRuleResponse])
+@router.get("", response_model=List[schemas.AIRuleResponse])
 def get_rules(
     department_id: Optional[int] = None,
     db: Session = Depends(get_db),
@@ -33,7 +33,7 @@ def get_rules(
         
     return query.all()
 
-@router.post("/", response_model=schemas.AIRuleResponse)
+@router.post("", response_model=schemas.AIRuleResponse)
 def create_rule(
     rule: schemas.AIRuleCreate,
     db: Session = Depends(get_db),

@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from .. import models, schemas, database, auth
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/rooms",
     tags=["Rooms"]
 )
 
-@router.get("/", response_model=List[schemas.RoomResponse])
+@router.get("", response_model=List[schemas.RoomResponse])
 def get_rooms(
     skip: int = 0, 
     limit: int = 100, 
@@ -28,14 +29,14 @@ def get_room(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
     return room
 
-@router.post("/", response_model=schemas.RoomResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.RoomResponse, status_code=status.HTTP_201_CREATED)
 def create_room(
     room: schemas.RoomCreate, 
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can manage rooms")
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to manage rooms")
         
     db_room = db.query(models.Room).filter(
         models.Room.name == room.name, 
@@ -48,6 +49,9 @@ def create_room(
     db.add(new_room)
     db.commit()
     db.refresh(new_room)
+    
+    log_activity(db, current_user.id, "Create Room", f"Created room: {new_room.name} in {new_room.building}")
+    
     return new_room
 
 @router.put("/{room_id}", response_model=schemas.RoomResponse)
@@ -57,8 +61,8 @@ def update_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can manage rooms")
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to manage rooms")
         
     db_room = db.query(models.Room).filter(models.Room.id == room_id).first()
     if not db_room:
@@ -70,6 +74,9 @@ def update_room(
         
     db.commit()
     db.refresh(db_room)
+    
+    log_activity(db, current_user.id, "Update Room", f"Updated room: {db_room.name}")
+    
     return db_room
 
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -78,13 +85,17 @@ def delete_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can manage rooms")
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to manage rooms")
         
     db_room = db.query(models.Room).filter(models.Room.id == room_id).first()
     if not db_room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
         
+    name = db_room.name
     db.delete(db_room)
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete Room", f"Deleted room: {name}")
+    
     return None
