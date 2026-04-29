@@ -39,7 +39,7 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
                 </span>
               </div>
               <h4 className="font-bold text-gray-800 text-sm group-hover:text-red-700 transition-colors">
-                {item.subject} vs {item.conflictWith?.subject || 'Another Class'}
+                {item.curriculum} vs {item.conflictWith?.curriculum || 'Another Class'}
               </h4>
               <p className="text-[11px] text-gray-500 mt-1 italic">
                 Reason: {item.reason || 'Overlapping schedules in the same location or teacher.'}

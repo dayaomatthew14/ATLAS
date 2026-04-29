@@ -209,11 +209,11 @@ export default function Login() {
     const Icon = icon;
     const hasError = fieldErrors[name];
     return (
-      <div className="mb-4">
-        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+      <div className="mb-4 text-left">
+        <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
         <div className="relative group">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
+            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-400 group-focus-within:text-green-600'}`} />
           </div>
           <input
             name={name}
@@ -223,13 +223,13 @@ export default function Login() {
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
             {...extraProps}
-            className={`block w-full pl-11 pr-4 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
+            className={`block w-full pl-11 pr-4 py-3 bg-white border rounded-xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
+              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-gray-200 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600/20'}
             `}
             placeholder={placeholder}
           />
         </div>
-        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+        {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
       </div>
     );
   };
@@ -238,11 +238,11 @@ export default function Login() {
     const Icon = icon;
     const hasError = fieldErrors[name];
     return (
-      <div className="mb-4">
-        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+      <div className="mb-4 text-left">
+        <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
         <div className="relative group">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
+            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-400 group-focus-within:text-green-600'}`} />
           </div>
           <select
             name={name}
@@ -250,8 +250,8 @@ export default function Login() {
             value={value}
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
-            className={`block w-full pl-11 pr-4 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium appearance-none shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
+            className={`block w-full pl-11 pr-4 py-3 bg-white border rounded-xl outline-none transition-all text-gray-700 font-medium appearance-none shadow-sm
+              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-gray-200 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600/20'}
               ${!value ? 'text-gray-300' : ''}
             `}
           >
@@ -266,7 +266,7 @@ export default function Login() {
             </svg>
           </div>
         </div>
-        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+        {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
       </div>
     );
   };
@@ -274,11 +274,11 @@ export default function Login() {
   const renderPasswordField = (name, value, setter, label, placeholder = "••••••••") => {
     const hasError = fieldErrors[name];
     return (
-      <div className="mb-4">
-        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+      <div className="mb-4 text-left">
+        <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
         <div className="relative group">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Key className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
+            <Key className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-400 group-focus-within:text-green-600'}`} />
           </div>
           <input
             name={name}
@@ -288,8 +288,8 @@ export default function Login() {
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
             onKeyUp={handleKeyUp}
-            className={`block w-full pl-11 pr-10 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
+            className={`block w-full pl-11 pr-10 py-3 bg-white border rounded-xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
+              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-gray-200 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600/20'}
             `}
             placeholder={placeholder}
           />
@@ -301,7 +301,7 @@ export default function Login() {
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
-        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+        {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
       </div>
     );
   };
@@ -309,26 +309,22 @@ export default function Login() {
   return (
     <div className="min-h-screen relative flex items-center justify-center font-sans p-4">
       <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: `url('/dlsau_bg.jpg')`, backgroundColor: '#052e16' }}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+        <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]"></div>
       </div>
 
       <div className="relative z-10 w-full max-w-lg">
-        <Link to="/" className="inline-flex items-center text-white/70 hover:text-white mb-6 text-sm font-medium transition-colors group">
-          <ArrowLeft className="w-4 h-4 mr-2 transform group-hover:-translate-x-1 transition-transform" /> Back to Home
-        </Link>
-
-        <div className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-hidden border-t-[10px] border-green-700">
-          <div className="pt-10 pb-6 px-8 text-center bg-gray-50/50">
-            <div className="w-24 h-24 bg-white/10 backdrop-blur-sm p-1 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl border border-white/20 transform hover:scale-110 transition-transform">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-2xl" />
+        <div className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] overflow-hidden border border-white/20">
+          <div className="pt-12 pb-6 px-10 text-center">
+            <div className="w-28 h-28 flex items-center justify-center mx-auto mb-6 transform hover:scale-105 transition-transform">
+              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-xl" />
             </div>
-            <h2 className="text-3xl font-black text-gray-900 tracking-tight">
+            <h2 className="text-4xl font-bold text-green-800 tracking-tight mb-1">
               {mode === 'login' ? 'ATLAS' :
                 mode === 'register' ? 'Join ATLAS' :
                   mode === 'verify' ? 'Verify Account' :
                     'Reset Password'}
             </h2>
-            <p className="text-gray-500 mt-1 text-[10px] font-black uppercase tracking-widest opacity-60">DLSAU Tertiary Education Portal</p>
+            <p className="text-gray-500 text-sm font-medium">DLSAU Tertiary Education Portal</p>
           </div>
 
           <div className="px-8 pb-10 pt-6">
@@ -362,11 +358,11 @@ export default function Login() {
                         type="checkbox"
                         checked={rememberMe}
                         onChange={(e) => setRememberMe(e.target.checked)}
-                        className="rounded-lg text-green-600 focus:ring-green-500 h-5 w-5 border-gray-200 cursor-pointer transition-all"
+                        className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 border-gray-300 cursor-pointer transition-all"
                       />
-                      <span className="ml-3 text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">Remember Me</span>
+                      <span className="ml-2 text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">Remember me</span>
                     </label>
-                    <button type="button" onClick={() => setMode('forgot_email')} className="text-xs font-black text-green-700 hover:text-green-600 uppercase tracking-tighter">Forgot password?</button>
+                    <button type="button" onClick={() => setMode('forgot_email')} className="text-sm font-semibold text-green-700 hover:text-green-800">Forgot password?</button>
                   </div>
                 </>
               )}
@@ -439,7 +435,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center py-4 px-6 rounded-2xl shadow-[0_10px_20px_rgba(21,128,61,0.2)] text-xs font-black uppercase tracking-[0.2em] text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-all transform active:scale-[0.98] disabled:opacity-70 mt-4"
+                className="w-full flex justify-center items-center py-3.5 px-6 rounded-xl shadow-lg text-sm font-bold text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-all transform active:scale-[0.98] disabled:opacity-70 mt-6"
               >
                 {loading ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -459,15 +455,15 @@ export default function Login() {
               </button>
             </form>
 
-            <div className="mt-8 text-center">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+            <div className="mt-10 text-center">
+              <p className="text-sm font-semibold text-gray-500 mb-4">
                 {mode === 'login' ? "First time using ATLAS?" : "Already have an account?"}
               </p>
               {mode === 'login' ? (
                 <button
                   type="button"
                   onClick={() => setMode('register')}
-                  className="w-full py-4 px-6 rounded-2xl border-2 border-gray-100 font-black text-xs uppercase tracking-widest text-gray-600 hover:bg-gray-50 hover:border-gray-200 transition-all"
+                  className="w-full py-3 px-6 rounded-xl border border-gray-200 font-bold text-sm text-gray-700 hover:bg-gray-50/50 transition-all"
                 >
                   Create Account
                 </button>
@@ -475,7 +471,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => { setMode('login'); setError(''); setSuccess(''); }}
-                  className="w-full py-4 px-6 rounded-2xl border-2 border-green-50 font-black text-xs uppercase tracking-widest text-green-700 hover:bg-green-50 transition-all"
+                  className="w-full py-3 px-6 rounded-xl border border-green-100 font-bold text-sm text-green-700 hover:bg-green-50/50 transition-all"
                 >
                   Return to Login
                 </button>

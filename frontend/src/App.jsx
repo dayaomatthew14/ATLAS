@@ -4,7 +4,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Schedules from './pages/dashboard/Schedules';
-import Subjects from './pages/dashboard/Subjects';
+import Curriculum from './pages/dashboard/Curriculum';
 import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
 import Sections from './pages/dashboard/Sections';
@@ -38,7 +38,7 @@ function App() {
         >
           <Route index element={<DashboardHome />} />
           <Route path="schedules" element={<Schedules />} />
-          <Route path="subjects" element={<Subjects />} />
+          <Route path="curriculum" element={<Curriculum />} />
           <Route path="rooms" element={<Rooms />} />
           <Route path="teachers" element={<Teachers />} />
           <Route path="sections" element={<Sections />} />

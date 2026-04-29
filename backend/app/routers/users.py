@@ -57,7 +57,7 @@ def get_users(
         if faculty:
             user_dict["max_units"] = faculty.max_units
             user_dict["department_id"] = faculty.department_id
-            # Sum units of active scheduled subjects for this faculty
+            # Sum units of active scheduled curriculum items for this faculty
             active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
             if active_semester:
                 schedules = db.query(models.Schedule).filter(
@@ -66,9 +66,9 @@ def get_users(
                 ).all()
                 total_units = 0
                 for s in schedules:
-                    subj = db.query(models.Subject).filter(models.Subject.id == s.subject_id).first()
-                    if subj:
-                        total_units += subj.units
+                    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
+                    if curriculum_item:
+                        total_units += curriculum_item.units
                 user_dict["current_units"] = total_units
         result.append(user_dict)
     

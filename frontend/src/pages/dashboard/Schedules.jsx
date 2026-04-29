@@ -62,11 +62,11 @@ export default function Schedules() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
-  const [subjects, setSubjects] = useState([]);
+  const [curriculumItems, setCurriculumItems] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [formData, setFormData] = useState({
-    subject_id: '',
+    curriculum_id: '',
     room_id: '',
     faculty_id: '',
     day_of_week: 'Mon',
@@ -77,12 +77,12 @@ export default function Schedules() {
 
   const fetchDropdownData = async () => {
     try {
-      const [subjectsData, roomsData, teachersData] = await Promise.all([
-        api.get('/subjects').catch(() => []),
+      const [curriculumData, roomsData, teachersData] = await Promise.all([
+        api.get('/curriculum').catch(() => []),
         api.get('/rooms').catch(() => []),
         api.get('/users?role=faculty').catch(() => [])
       ]);
-      setSubjects(subjectsData || []);
+      setCurriculumItems(curriculumData || []);
       setRooms(roomsData || []);
       setTeachers(teachersData || []);
     } catch (error) {
@@ -98,13 +98,13 @@ export default function Schedules() {
   };
 
   const handleGetSuggestions = async () => {
-    if (!formData.subject_id) {
-      addToast('Please select a subject first', 'error');
+    if (!formData.curriculum_id) {
+      addToast('Please select a curriculum item first', 'error');
       return;
     }
     setIsFetchingSuggestions(true);
     try {
-      const data = await api.get('/schedules/suggestions', { params: { subject_id: formData.subject_id } });
+      const data = await api.get('/schedules/suggestions', { params: { curriculum_id: formData.curriculum_id } });
       setAiSuggestions(data);
       if (data.length === 0) {
         addToast('No suggestions found. Faculty might be overloaded.', 'warning');
@@ -120,7 +120,7 @@ export default function Schedules() {
 
   // Real-time conflict check
   useEffect(() => {
-    if (formData.subject_id && formData.start_time) {
+    if (formData.curriculum_id && formData.start_time) {
       const conflicts = detectConflicts({
         ...formData,
         room_name: rooms.find(r => r.id === parseInt(formData.room_id))?.name,
@@ -162,8 +162,8 @@ export default function Schedules() {
   const handleAIGeneration = (params) => {
     // Simulate receiving generated schedules from the AI
     const mockGenerated = [
-      { id: Date.now() + 1, subject: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
-      { id: Date.now() + 2, subject: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ subject: 'Existing Class' }] }
+      { id: Date.now() + 1, curriculum: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
+      { id: Date.now() + 2, curriculum: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ curriculum: 'Existing Class' }] }
     ];
     setSchedules(checkScheduleIntegrity([...schedules, ...mockGenerated]));
   };
@@ -275,7 +275,7 @@ export default function Schedules() {
                             }`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="font-bold truncate">{schedule.subject}</div>
+                            <div className="font-bold truncate">{schedule.curriculum}</div>
                             <div className="flex items-center">
                               {schedule.isAI && <Sparkles className="w-2.5 h-2.5 text-indigo-500 mr-1" />}
                               {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
@@ -323,15 +323,15 @@ export default function Schedules() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Subject</label>
+              <label className="block text-sm font-medium text-gray-700">Curriculum</label>
               <select
                 required
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.subject_id}
-                onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
+                value={formData.curriculum_id}
+                onChange={(e) => setFormData({ ...formData, curriculum_id: e.target.value })}
               >
-                <option value="">Select Subject</option>
-                {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+                <option value="">Select Curriculum</option>
+                {curriculumItems.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
               </select>
             </div>
             <div>

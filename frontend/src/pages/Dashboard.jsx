@@ -41,11 +41,10 @@ export default function Dashboard() {
   const navItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'faculty', 'student'] },
     { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'faculty', 'student'] },
-    { name: 'Subjects', icon: BookOpen, path: '/dashboard/subjects', roles: ['admin', 'program_chair'] },
+    { name: 'Curriculum', icon: BookOpen, path: '/dashboard/curriculum', roles: ['admin', 'program_chair'] },
     { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'program_chair'] },
     { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
     { name: 'Teachers', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair'] },
   ];
 
   // Filter items based on normalized role
@@ -64,7 +63,7 @@ export default function Dashboard() {
               </div>
             </Link>
             
-            <div className="hidden md:flex space-x-1 items-center">
+            <div className="hidden md:flex space-x-2 lg:space-x-4 items-center">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.path === '/dashboard' 
@@ -75,7 +74,7 @@ export default function Dashboard() {
                   <Link 
                     key={item.name} 
                     to={item.path}
-                    className={`flex items-center px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${
+                    className={`flex items-center px-4 lg:px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${
                       isActive 
                         ? 'bg-white text-green-800 shadow-md transform -translate-y-0.5' 
                         : 'text-green-50 hover:bg-green-700 hover:text-white'
