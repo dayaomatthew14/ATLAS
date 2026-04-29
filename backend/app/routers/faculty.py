@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/faculty",
     tags=["Faculty"]
 )
 
-@router.get("/", response_model=List[schemas.FacultyResponse])
+@router.get("", response_model=List[schemas.FacultyResponse])
 def get_faculties(
     skip: int = 0, 
     limit: int = 100, 
@@ -51,7 +52,7 @@ def get_faculty(
             
     return faculty
 
-@router.post("/", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED)
 def create_faculty(
     faculty: schemas.FacultyCreate, 
     db: Session = Depends(database.get_db),
@@ -73,6 +74,9 @@ def create_faculty(
     db.add(new_faculty)
     db.commit()
     db.refresh(new_faculty)
+    
+    log_activity(db, current_user.id, "Create Faculty", f"Created faculty record for user ID {new_faculty.user_id}")
+    
     return new_faculty
 
 @router.put("/{faculty_id}", response_model=schemas.FacultyResponse)
@@ -100,6 +104,9 @@ def update_faculty(
         
     db.commit()
     db.refresh(db_faculty)
+    
+    log_activity(db, current_user.id, "Update Faculty", f"Updated faculty record ID {db_faculty.id}")
+    
     return db_faculty
 
 @router.delete("/{faculty_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -122,4 +129,7 @@ def delete_faculty(
                 
     db.delete(db_faculty)
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete Faculty", f"Deleted faculty record ID {faculty_id}")
+    
     return None

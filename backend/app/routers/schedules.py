@@ -13,12 +13,54 @@ from reportlab.lib.styles import getSampleStyleSheet
 from .. import models, schemas, database, auth
 from .logs import log_activity
 
+def check_and_create_conflicts(db: Session, schedule: models.Schedule):
+    """
+    Checks for conflicts with existing schedules and records them in the Conflicts table.
+    """
+    # 1. Check for Room Overlaps (Same room, same day, overlapping time)
+    room_conflict = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == schedule.semester_id,
+        models.Schedule.room_id == schedule.room_id,
+        models.Schedule.day_of_week == schedule.day_of_week,
+        models.Schedule.id != (schedule.id or 0),
+        models.Schedule.start_time < schedule.end_time,
+        models.Schedule.end_time > schedule.start_time
+    ).first()
+    
+    if room_conflict:
+        conflict = models.Conflict(
+            schedule_id_1=schedule.id,
+            schedule_id_2=room_conflict.id,
+            conflict_type="Room Overlap"
+        )
+        db.add(conflict)
+
+    # 2. Check for Faculty Overlaps (Same faculty, same day, overlapping time)
+    faculty_conflict = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == schedule.semester_id,
+        models.Schedule.faculty_id == schedule.faculty_id,
+        models.Schedule.day_of_week == schedule.day_of_week,
+        models.Schedule.id != (schedule.id or 0),
+        models.Schedule.start_time < schedule.end_time,
+        models.Schedule.end_time > schedule.start_time
+    ).first()
+
+    if faculty_conflict:
+        conflict = models.Conflict(
+            schedule_id_1=schedule.id,
+            schedule_id_2=faculty_conflict.id,
+            conflict_type="Faculty Overlap"
+        )
+        db.add(conflict)
+    
+    db.commit()
+
 router = APIRouter(
     prefix="/api/schedules",
     tags=["Schedules"]
 )
 
-@router.get("/", response_model=List[schemas.ScheduleResponse])
+@router.get("", response_model=List[schemas.ScheduleResponse])
 def get_schedules(
     skip: int = 0, 
     limit: int = 100, 
@@ -53,101 +95,6 @@ def get_schedules(
         query = query.filter(models.Schedule.room_id == room_id)
         
     return query.offset(skip).limit(limit).all()
-
-@router.get("/{schedule_id}", response_model=schemas.ScheduleResponse)
-def get_schedule(
-    schedule_id: int, 
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
-    if not schedule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
-        
-    if current_user.role == 'program_chair':
-        subject = db.query(models.Subject).filter(models.Subject.id == schedule.subject_id).first()
-        if subject:
-            dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
-            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-                
-    return schedule
-
-@router.post("/", response_model=schemas.ScheduleResponse, status_code=status.HTTP_201_CREATED)
-def create_schedule(
-    schedule: schemas.ScheduleCreate, 
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    if current_user.role == 'program_chair':
-        subject = db.query(models.Subject).filter(models.Subject.id == schedule.subject_id).first()
-        if not subject:
-             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
-        dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
-        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create schedules for your department's subjects")
-             
-    new_schedule = models.Schedule(**schedule.model_dump())
-    db.add(new_schedule)
-    db.commit()
-    db.refresh(new_schedule)
-    return new_schedule
-
-@router.put("/{schedule_id}", response_model=schemas.ScheduleResponse)
-def update_schedule(
-    schedule_id: int, 
-    schedule: schemas.ScheduleUpdate, 
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    db_schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
-    if not db_schedule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
-        
-    if current_user.role == 'program_chair':
-        subject = db.query(models.Subject).filter(models.Subject.id == db_schedule.subject_id).first()
-        if subject:
-            dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
-            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this schedule")
-                
-    update_data = schedule.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_schedule, key, value)
-        
-    db.commit()
-    db.refresh(db_schedule)
-    return db_schedule
-
-@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_schedule(
-    schedule_id: int, 
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    db_schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
-    if not db_schedule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
-        
-    if current_user.role == 'program_chair':
-        subject = db.query(models.Subject).filter(models.Subject.id == db_schedule.subject_id).first()
-        if subject:
-            dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
-            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this schedule")
-                
-    db.delete(db_schedule)
-    db.commit()
-    return None
 
 @router.get("/suggestions")
 def get_schedule_suggestions(
@@ -423,3 +370,114 @@ async def import_excel(
         "message": f"Successfully imported {success_count} schedules",
         "errors": errors
     }
+
+@router.get("/{schedule_id}", response_model=schemas.ScheduleResponse)
+def get_schedule(
+    schedule_id: int, 
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        
+    if current_user.role == 'program_chair':
+        subject = db.query(models.Subject).filter(models.Subject.id == schedule.subject_id).first()
+        if subject:
+            dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
+            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+                
+    return schedule
+
+@router.post("", response_model=schemas.ScheduleResponse, status_code=status.HTTP_201_CREATED)
+def create_schedule(
+    schedule: schemas.ScheduleCreate, 
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    if current_user.role == 'program_chair':
+        subject = db.query(models.Subject).filter(models.Subject.id == schedule.subject_id).first()
+        if not subject:
+             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
+        dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
+        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create schedules for your department's subjects")
+             
+    new_schedule = models.Schedule(**schedule.model_dump())
+    db.add(new_schedule)
+    db.commit()
+    db.refresh(new_schedule)
+    
+    # Check for conflicts after creation
+    check_and_create_conflicts(db, new_schedule)
+    
+    return new_schedule
+
+@router.put("/{schedule_id}", response_model=schemas.ScheduleResponse)
+def update_schedule(
+    schedule_id: int, 
+    schedule: schemas.ScheduleUpdate, 
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    db_schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
+    if not db_schedule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        
+    if current_user.role == 'program_chair':
+        subject = db.query(models.Subject).filter(models.Subject.id == db_schedule.subject_id).first()
+        if subject:
+            dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
+            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this schedule")
+                
+    update_data = schedule.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_schedule, key, value)
+        
+    db.commit()
+    db.refresh(db_schedule)
+    
+    # Clear old conflicts for this schedule and re-check
+    db.query(models.Conflict).filter(
+        (models.Conflict.schedule_id_1 == schedule_id) | 
+        (models.Conflict.schedule_id_2 == schedule_id)
+    ).delete()
+    db.commit()
+    
+    check_and_create_conflicts(db, db_schedule)
+    
+    return db_schedule
+
+@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_schedule(
+    schedule_id: int, 
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    db_schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
+    if not db_schedule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+        
+    if current_user.role == 'program_chair':
+        subject = db.query(models.Subject).filter(models.Subject.id == db_schedule.subject_id).first()
+        if subject:
+            dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
+            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this schedule")
+                
+    db.delete(db_schedule)
+    db.commit()
+    return None
+
+    return None

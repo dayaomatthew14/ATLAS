@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { CheckCircle, XCircle, X } from 'lucide-react';
+import { CheckCircle, XCircle, X, Info, AlertTriangle } from 'lucide-react';
 
 const ToastContext = createContext();
 
@@ -30,11 +30,19 @@ export const ToastProvider = ({ children }) => {
             className={`flex items-center p-4 rounded-lg shadow-lg border-l-4 transform transition-all duration-300 animate-in slide-in-from-right ${
               toast.type === 'success' 
                 ? 'bg-white border-green-500 text-gray-800' 
+                : toast.type === 'info'
+                ? 'bg-white border-blue-500 text-gray-800'
+                : toast.type === 'warning'
+                ? 'bg-white border-yellow-500 text-gray-800'
                 : 'bg-white border-red-500 text-gray-800'
             }`}
           >
             {toast.type === 'success' ? (
               <CheckCircle className="w-5 h-5 text-green-500 mr-3" />
+            ) : toast.type === 'info' ? (
+              <Info className="w-5 h-5 text-blue-500 mr-3" />
+            ) : toast.type === 'warning' ? (
+              <AlertTriangle className="w-5 h-5 text-yellow-500 mr-3" />
             ) : (
               <XCircle className="w-5 h-5 text-red-500 mr-3" />
             )}

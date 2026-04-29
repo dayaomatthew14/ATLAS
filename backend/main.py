@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine
 from app import models
 from app.routers import (
-    auth_router, departments, subjects, rooms, 
+    auth_router, departments, curriculum, rooms, 
     users, schedules, semesters, faculty, ai_scheduler, logs, ai_rules,
     notifications_router, conflicts, sections
 )
@@ -29,7 +29,7 @@ app.add_middleware(
 
 app.include_router(auth_router.router)
 app.include_router(departments.router)
-app.include_router(subjects.router)
+app.include_router(curriculum.router)
 app.include_router(rooms.router)
 app.include_router(users.router)
 app.include_router(schedules.router)

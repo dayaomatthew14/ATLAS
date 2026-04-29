@@ -6,5 +6,7 @@
     {
       "root": "backend"
     }
-  ]
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none"
 }

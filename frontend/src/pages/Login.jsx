@@ -15,15 +15,15 @@ export default function Login() {
   const [mode, setMode] = useState(location.state?.mode === 'register' ? 'register' : 'login');
 
   // Form Fields
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(localStorage.getItem('atlas_saved_email') || '');
+  const [password, setPassword] = useState(localStorage.getItem('atlas_saved_password') || '');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [department, setDepartment] = useState('');
   const [otp, setOtp] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(!!localStorage.getItem('atlas_saved_email'));
 
   // Validation Errors
   const [fieldErrors, setFieldErrors] = useState({});
@@ -100,6 +100,15 @@ export default function Login() {
         if (response.data.department) {
           localStorage.setItem('atlas_department', response.data.department);
         }
+        
+        if (rememberMe) {
+          localStorage.setItem('atlas_saved_email', email);
+          localStorage.setItem('atlas_saved_password', password);
+        } else {
+          localStorage.removeItem('atlas_saved_email');
+          localStorage.removeItem('atlas_saved_password');
+        }
+        
         navigate('/dashboard');
       }
       else if (mode === 'register') {
@@ -145,6 +154,15 @@ export default function Login() {
         if (response.data.department) {
           localStorage.setItem('atlas_department', response.data.department);
         }
+
+        if (rememberMe) {
+          localStorage.setItem('atlas_saved_email', email);
+          localStorage.setItem('atlas_saved_password', password);
+        } else {
+          localStorage.removeItem('atlas_saved_email');
+          localStorage.removeItem('atlas_saved_password');
+        }
+
         navigate('/dashboard');
       }
       else if (mode === 'forgot_email') {
@@ -210,7 +228,7 @@ export default function Login() {
     const hasError = fieldErrors[name];
     return (
       <div className="mb-4">
-        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5 ml-1">{label}</label>
         <div className="relative group">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
             <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
@@ -223,13 +241,13 @@ export default function Login() {
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
             {...extraProps}
-            className={`block w-full pl-11 pr-4 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
+            className={`block w-full pl-11 pr-4 py-3 bg-white border rounded-md outline-none transition-colors text-gray-900 font-medium placeholder:text-gray-400 shadow-sm
+              ${hasError ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-green-500 focus:border-green-500'}
             `}
             placeholder={placeholder}
           />
         </div>
-        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+        {hasError && <p className="text-xs text-red-500 font-medium mt-1.5 ml-1">{hasError}</p>}
       </div>
     );
   };
@@ -239,7 +257,7 @@ export default function Login() {
     const hasError = fieldErrors[name];
     return (
       <div className="mb-4">
-        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5 ml-1">{label}</label>
         <div className="relative group">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
             <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
@@ -250,9 +268,9 @@ export default function Login() {
             value={value}
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
-            className={`block w-full pl-11 pr-4 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium appearance-none shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
-              ${!value ? 'text-gray-300' : ''}
+            className={`block w-full pl-11 pr-4 py-3 bg-white border rounded-md outline-none transition-colors text-gray-900 font-medium appearance-none shadow-sm
+              ${hasError ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-green-500 focus:border-green-500'}
+              ${!value ? 'text-gray-400' : ''}
             `}
           >
             <option value="" disabled hidden>Select Department</option>
@@ -266,7 +284,7 @@ export default function Login() {
             </svg>
           </div>
         </div>
-        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+        {hasError && <p className="text-xs text-red-500 font-medium mt-1.5 ml-1">{hasError}</p>}
       </div>
     );
   };
@@ -275,7 +293,7 @@ export default function Login() {
     const hasError = fieldErrors[name];
     return (
       <div className="mb-4">
-        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1.5 ml-1">{label}</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5 ml-1">{label}</label>
         <div className="relative group">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
             <Key className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-300 group-focus-within:text-green-600'}`} />
@@ -288,8 +306,8 @@ export default function Login() {
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
             onKeyUp={handleKeyUp}
-            className={`block w-full pl-11 pr-10 py-3.5 bg-gray-50 border-2 rounded-2xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-transparent focus:bg-white focus:border-green-600'}
+            className={`block w-full pl-11 pr-10 py-3 bg-white border rounded-md outline-none transition-colors text-gray-900 font-medium placeholder:text-gray-400 shadow-sm
+              ${hasError ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-green-500 focus:border-green-500'}
             `}
             placeholder={placeholder}
           />
@@ -301,7 +319,7 @@ export default function Login() {
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
-        {hasError && <p className="text-[10px] text-rose-500 font-bold mt-1.5 ml-1">{hasError}</p>}
+        {hasError && <p className="text-xs text-red-500 font-medium mt-1.5 ml-1">{hasError}</p>}
       </div>
     );
   };
@@ -309,7 +327,7 @@ export default function Login() {
   return (
     <div className="min-h-screen relative flex items-center justify-center font-sans p-4">
       <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: `url('/dlsau_bg.jpg')`, backgroundColor: '#052e16' }}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+        <div className="absolute inset-0 bg-white/10"></div>
       </div>
 
       <div className="relative z-10 w-full max-w-lg">
@@ -317,18 +335,18 @@ export default function Login() {
           <ArrowLeft className="w-4 h-4 mr-2 transform group-hover:-translate-x-1 transition-transform" /> Back to Home
         </Link>
 
-        <div className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-hidden border-t-[10px] border-green-700">
-          <div className="pt-10 pb-6 px-8 text-center bg-gray-50/50">
-            <div className="w-24 h-24 bg-white/10 backdrop-blur-sm p-1 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl border border-white/20 transform hover:scale-110 transition-transform">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-2xl" />
+        <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-xl overflow-hidden">
+          <div className="pt-10 pb-4 px-8 text-center bg-transparent">
+            <div className="w-24 h-24 flex items-center justify-center mx-auto mb-2">
+              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-md" />
             </div>
-            <h2 className="text-3xl font-black text-gray-900 tracking-tight">
+            <h2 className="text-2xl font-bold text-green-800">
               {mode === 'login' ? 'ATLAS' :
                 mode === 'register' ? 'Join ATLAS' :
                   mode === 'verify' ? 'Verify Account' :
                     'Reset Password'}
             </h2>
-            <p className="text-gray-500 mt-1 text-[10px] font-black uppercase tracking-widest opacity-60">DLSAU Tertiary Education Portal</p>
+            <p className="text-gray-500 mt-2 text-sm font-medium">DLSAU Tertiary Education Portal</p>
           </div>
 
           <div className="px-8 pb-10 pt-6">
@@ -356,17 +374,17 @@ export default function Login() {
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center justify-between pt-1 pb-2">
                     <label className="flex items-center cursor-pointer group">
                       <input
                         type="checkbox"
                         checked={rememberMe}
                         onChange={(e) => setRememberMe(e.target.checked)}
-                        className="rounded-lg text-green-600 focus:ring-green-500 h-5 w-5 border-gray-200 cursor-pointer transition-all"
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500 h-4 w-4 cursor-pointer"
                       />
-                      <span className="ml-3 text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">Remember Me</span>
+                      <span className="ml-2 text-xs font-medium text-gray-600 transition-colors">Remember me</span>
                     </label>
-                    <button type="button" onClick={() => setMode('forgot_email')} className="text-xs font-black text-green-700 hover:text-green-600 uppercase tracking-tighter">Forgot password?</button>
+                    <button type="button" onClick={() => setMode('forgot_email')} className="text-xs font-medium text-green-700 hover:text-green-800">Forgot password?</button>
                   </div>
                 </>
               )}
@@ -439,7 +457,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center py-4 px-6 rounded-2xl shadow-[0_10px_20px_rgba(21,128,61,0.2)] text-xs font-black uppercase tracking-[0.2em] text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-all transform active:scale-[0.98] disabled:opacity-70 mt-4"
+                className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-colors disabled:opacity-70 mt-6"
               >
                 {loading ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -460,14 +478,14 @@ export default function Login() {
             </form>
 
             <div className="mt-8 text-center">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+              <p className="text-sm font-medium text-gray-600 mb-4">
                 {mode === 'login' ? "First time using ATLAS?" : "Already have an account?"}
               </p>
               {mode === 'login' ? (
                 <button
                   type="button"
                   onClick={() => setMode('register')}
-                  className="w-full py-4 px-6 rounded-2xl border-2 border-gray-100 font-black text-xs uppercase tracking-widest text-gray-600 hover:bg-gray-50 hover:border-gray-200 transition-all"
+                  className="w-full py-3 px-4 rounded-md border border-gray-300 font-medium text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
                 >
                   Create Account
                 </button>
@@ -475,7 +493,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => { setMode('login'); setError(''); setSuccess(''); }}
-                  className="w-full py-4 px-6 rounded-2xl border-2 border-green-50 font-black text-xs uppercase tracking-widest text-green-700 hover:bg-green-50 transition-all"
+                  className="w-full py-3 px-4 rounded-md border border-green-200 font-medium text-sm text-green-700 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
                 >
                   Return to Login
                 </button>
@@ -484,7 +502,7 @@ export default function Login() {
           </div>
         </div>
 
-        <p className="mt-8 text-center text-white/40 text-[10px] font-bold uppercase tracking-[0.3em]">
+        <p className="mt-8 text-center text-white/60 text-xs font-medium">
           &copy; 2026 ATLAS Academic Timetabling System
         </p>
       </div>

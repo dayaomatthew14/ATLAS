@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/sections",
     tags=["Sections"]
 )
 
-@router.get("/", response_model=List[schemas.SectionResponse])
+@router.get("", response_model=List[schemas.SectionResponse])
 def get_sections(
     skip: int = 0, 
     limit: int = 100, 
@@ -53,7 +54,7 @@ def get_section(
             
     return section
 
-@router.post("/", response_model=schemas.SectionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.SectionResponse, status_code=status.HTTP_201_CREATED)
 def create_section(
     section: schemas.SectionCreate, 
     db: Session = Depends(database.get_db),
@@ -77,6 +78,9 @@ def create_section(
     db.add(new_section)
     db.commit()
     db.refresh(new_section)
+    
+    log_activity(db, current_user.id, "Create Section", f"Created section: {new_section.name}")
+    
     return new_section
 
 @router.put("/{section_id}", response_model=schemas.SectionResponse)
@@ -104,6 +108,9 @@ def update_section(
         
     db.commit()
     db.refresh(db_section)
+    
+    log_activity(db, current_user.id, "Update Section", f"Updated section: {db_section.name}")
+    
     return db_section
 
 @router.delete("/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -124,6 +131,10 @@ def delete_section(
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this section")
                 
+    name = db_section.name
     db.delete(db_section)
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete Section", f"Deleted section: {name}")
+    
     return None
