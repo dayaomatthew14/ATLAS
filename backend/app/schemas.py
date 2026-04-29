@@ -68,24 +68,24 @@ class DepartmentResponse(DepartmentBase):
     class Config:
         from_attributes = True
 
-class SubjectBase(BaseModel):
+class CurriculumBase(BaseModel):
     code: str
     name: str
     units: int
     department_id: int
     type: str
 
-class SubjectCreate(SubjectBase):
+class CurriculumCreate(CurriculumBase):
     pass
 
-class SubjectUpdate(BaseModel):
+class CurriculumUpdate(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     units: Optional[int] = None
     department_id: Optional[int] = None
     type: Optional[str] = None
 
-class SubjectResponse(SubjectBase):
+class CurriculumResponse(CurriculumBase):
     id: int
 
     class Config:
@@ -153,7 +153,7 @@ from datetime import time
 
 class ScheduleBase(BaseModel):
     semester_id: int
-    subject_id: int
+    curriculum_id: int
     faculty_id: int
     room_id: int
     day_of_week: str
@@ -167,7 +167,7 @@ class ScheduleCreate(ScheduleBase):
 
 class ScheduleUpdate(BaseModel):
     semester_id: Optional[int] = None
-    subject_id: Optional[int] = None
+    curriculum_id: Optional[int] = None
     faculty_id: Optional[int] = None
     room_id: Optional[int] = None
     day_of_week: Optional[str] = None

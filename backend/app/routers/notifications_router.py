@@ -51,9 +51,9 @@ def notify_faculty(
         # Format schedule for email
         schedule_text = "Your schedule for the upcoming semester:\n\n"
         for s in schedules:
-            subject = db.query(models.Subject).filter(models.Subject.id == s.subject_id).first()
+            curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
             room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
-            schedule_text += f"- {subject.name if subject else 'N/A'} ({s.section}): {s.day_of_week} {s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')} @ {room.name if room else 'N/A'}\n"
+            schedule_text += f"- {curriculum_item.name if curriculum_item else 'N/A'} ({s.section}): {s.day_of_week} {s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')} @ {room.name if room else 'N/A'}\n"
             
         # Send email
         success_email = notifications.send_email_notification(

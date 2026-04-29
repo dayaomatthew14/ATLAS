@@ -83,7 +83,7 @@ export default function AIGenerationModal({ isOpen, onClose, onGenerate }) {
                 value={formData.targetAudience}
                 onChange={e => setFormData({...formData, targetAudience: e.target.value})}
               >
-                <option>All Unassigned Subjects</option>
+                <option>All Unassigned Curriculum</option>
                 <option>1st Year Only</option>
                 <option>Missing Faculty Only</option>
               </select>

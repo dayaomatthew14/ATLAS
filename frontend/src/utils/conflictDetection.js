@@ -31,7 +31,7 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
         conflicts.push({ type: 'Teacher', with: existing });
       }
 
-      // Subject/Section Conflict (Same section shouldn't have two classes at once)
+      // Curriculum/Section Conflict (Same section shouldn't have two classes at once)
       if (existing.section === newSchedule.section) {
         conflicts.push({ type: 'Section', with: existing });
       }

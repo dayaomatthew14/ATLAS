@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 
-export default function Subjects() {
+export default function Curriculum() {
   const { addToast } = useToast();
-  const [subjects, setSubjects] = useState([]);
+  const [curriculumItems, setCurriculumItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSubject, setEditingSubject] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -18,10 +18,12 @@ export default function Subjects() {
     type: 'lecture',
     department_id: ''
   });
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef(null);
 
   const columns = [
     { key: 'code', label: 'Code' },
-    { key: 'name', label: 'Subject Name' },
+    { key: 'name', label: 'Curriculum Name' },
     { key: 'units', label: 'Units' },
     { 
       key: 'type', 
@@ -36,36 +38,36 @@ export default function Subjects() {
     },
   ];
 
-  const fetchSubjects = async () => {
+  const fetchCurriculum = async () => {
     setIsLoading(true);
     try {
-      const data = await api.get('/subjects');
-      setSubjects(Array.isArray(data) ? data : []);
+      const data = await api.get('/curriculum');
+      setCurriculumItems(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Failed to fetch subjects', error);
-      setSubjects([]);
-      addToast('Failed to load subjects', 'error');
+      console.error('Failed to fetch curriculum', error);
+      setCurriculumItems([]);
+      addToast('Failed to load curriculum', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSubjects();
+    fetchCurriculum();
   }, []);
 
-  const handleOpenModal = (subject = null) => {
-    if (subject) {
-      setEditingSubject(subject);
+  const handleOpenModal = (item = null) => {
+    if (item) {
+      setEditingItem(item);
       setFormData({
-        code: subject.code,
-        name: subject.name,
-        units: subject.units,
-        type: subject.type,
-        department_id: subject.department_id || ''
+        code: item.code,
+        name: item.name,
+        units: item.units,
+        type: item.type,
+        department_id: item.department_id || ''
       });
     } else {
-      setEditingSubject(null);
+      setEditingItem(null);
       setFormData({ code: '', name: '', units: '', type: 'lecture', department_id: '' });
     }
     setIsModalOpen(true);
@@ -73,34 +75,62 @@ export default function Subjects() {
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setEditingSubject(null);
+    setEditingItem(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingSubject) {
-        await api.put(`/subjects/${editingSubject.id}`, formData);
+      if (editingItem) {
+        await api.put(`/curriculum/${editingItem.id}`, formData);
       } else {
-        await api.post('/subjects', formData);
+        await api.post('/curriculum', formData);
       }
-      fetchSubjects();
+      fetchCurriculum();
       handleCloseModal();
-      addToast(`Subject ${editingSubject ? 'updated' : 'created'} successfully`, 'success');
+      addToast(`Curriculum item ${editingItem ? 'updated' : 'created'} successfully`, 'success');
     } catch (error) {
-      addToast(error.message || 'Error saving subject', 'error');
+      addToast(error.message || 'Error saving curriculum item', 'error');
     }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this subject?')) {
+    if (window.confirm('Are you sure you want to delete this curriculum item?')) {
       try {
-        await api.delete(`/subjects/${id}`);
-        fetchSubjects();
-        addToast('Subject deleted successfully', 'success');
+        await api.delete(`/curriculum/${id}`);
+        fetchCurriculum();
+        addToast('Curriculum item deleted successfully', 'success');
       } catch (error) {
-        addToast(error.message || 'Error deleting subject', 'error');
+        addToast(error.message || 'Error deleting curriculum item', 'error');
       }
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setIsImporting(true);
+    try {
+      const response = await api.post('/curriculum/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      addToast(response.message, 'success');
+      fetchCurriculum();
+    } catch (error) {
+      addToast(error.message || 'Failed to import curriculum', 'error');
+    } finally {
+      setIsImporting(false);
+      e.target.value = ''; // Reset input
     }
   };
 
@@ -108,20 +138,37 @@ export default function Subjects() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Subjects</h2>
-          <p className="text-slate-500 text-base font-medium mt-2">Configure the academic subjects and unit requirements.</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Curriculum</h2>
+          <p className="text-slate-500 text-base font-medium mt-2">Configure the academic curriculum items and unit requirements.</p>
         </div>
-        <button
-          onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
-        >
-          <Plus className="w-6 h-6 mr-2" /> Add Subject
-        </button>
+        <div className="flex space-x-3">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept=".xlsx,.xls"
+          />
+          <button
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-6 py-4 rounded-2xl flex items-center shadow-sm transition-all font-black text-sm uppercase tracking-widest disabled:opacity-50"
+          >
+            <Upload className={`w-5 h-5 mr-2 ${isImporting ? 'animate-bounce' : ''}`} />
+            {isImporting ? 'Importing...' : 'Import Excel'}
+          </button>
+          <button
+            onClick={() => handleOpenModal()}
+            className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105"
+          >
+            <Plus className="w-6 h-6 mr-2" /> Add Curriculum
+          </button>
+        </div>
       </div>
 
       <Table 
         columns={columns} 
-        data={subjects} 
+        data={curriculumItems} 
         isLoading={isLoading} 
         onEdit={handleOpenModal}
         onDelete={handleDelete}
@@ -130,7 +177,7 @@ export default function Subjects() {
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingSubject ? 'Edit Subject' : 'Add New Subject'}
+        title={editingItem ? 'Edit Curriculum' : 'Add New Curriculum'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -157,7 +204,7 @@ export default function Subjects() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Subject Name</label>
+            <label className="block text-sm font-medium text-gray-700">Curriculum Name</label>
             <input
               type="text"
               required
@@ -189,7 +236,7 @@ export default function Subjects() {
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-md shadow-sm"
             >
-              {editingSubject ? 'Update Subject' : 'Save Subject'}
+              {editingItem ? 'Update Curriculum' : 'Save Curriculum'}
             </button>
           </div>
         </form>

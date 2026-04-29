@@ -28,8 +28,8 @@ class Department(Base):
     code = Column(String(50), nullable=False, unique=True)
     description = Column(String(500), nullable=True)
 
-class Subject(Base):
-    __tablename__ = "subjects"
+class Curriculum(Base):
+    __tablename__ = "curriculum"
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(50), nullable=False, unique=True)
     name = Column(String(255), nullable=False)
@@ -63,7 +63,7 @@ class Schedule(Base):
     __tablename__ = "schedules"
     id = Column(Integer, primary_key=True, index=True)
     semester_id = Column(Integer, ForeignKey("semesters.id"), index=True)
-    subject_id = Column(Integer, ForeignKey("subjects.id"))
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id"))
     faculty_id = Column(Integer, ForeignKey("faculty.id"), index=True)
     room_id = Column(Integer, ForeignKey("rooms.id"), index=True)
     day_of_week = Column(Enum('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', name='days'), index=True)

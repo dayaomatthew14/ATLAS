@@ -24,7 +24,7 @@ import { useToast } from '../../components/ToastProvider';
 export default function DashboardHome() {
   const { addToast } = useToast();
   const [stats, setStats] = useState([
-    { name: 'Subjects', value: '0', icon: BookOpen, color: 'text-cyan-600', trend: '---' },
+    { name: 'Curriculum', value: '0', icon: BookOpen, color: 'text-cyan-600', trend: '---' },
     { name: 'Rooms', value: '0', icon: MapPin, color: 'text-purple-600', trend: '---' },
     { name: 'Faculty', value: '0', icon: Users, color: 'text-emerald-600', trend: '---' },
     { name: 'Conflicts', value: '0', icon: AlertTriangle, color: 'text-rose-600', trend: '---' },
@@ -33,15 +33,15 @@ export default function DashboardHome() {
 
   const fetchStats = async () => {
     try {
-      const [subjects, rooms, faculty, conflicts] = await Promise.all([
-        api.get('/subjects').catch(() => []),
+      const [curriculumItems, rooms, faculty, conflicts] = await Promise.all([
+        api.get('/curriculum').catch(() => []),
         api.get('/rooms').catch(() => []),
         api.get('/users?role=faculty').catch(() => []),
         api.get('/conflicts/count').catch(() => ({ count: 0 }))
       ]);
 
       setStats([
-        { name: 'Subjects', value: subjects.length.toString(), icon: BookOpen, color: 'text-cyan-600', trend: '+12%' },
+        { name: 'Curriculum', value: curriculumItems.length.toString(), icon: BookOpen, color: 'text-cyan-600', trend: '+12%' },
         { name: 'Rooms', value: rooms.length.toString(), icon: MapPin, color: 'text-purple-600', trend: 'Active' },
         { name: 'Faculty', value: faculty.length.toString(), icon: Users, color: 'text-emerald-600', trend: 'Verified' },
         { name: 'Conflicts', value: (conflicts.count || 0).toString(), icon: AlertTriangle, color: 'text-rose-600', trend: conflicts.count > 0 ? 'CRITICAL' : 'CLEAN' },
@@ -121,9 +121,6 @@ export default function DashboardHome() {
               <div className="flex flex-wrap gap-4 justify-center lg:justify-start">
                 <Link to="/dashboard/schedules" className="px-8 py-4 bg-green-700 hover:bg-green-800 text-white rounded-2xl font-black transition-all transform hover:scale-105 shadow-lg shadow-green-700/20 flex items-center">
                   Launch Calendar <ChevronRight className="w-4 h-4 ml-2" />
-                </Link>
-                <Link to="/dashboard/logs" className="px-8 py-4 bg-white/40 hover:bg-white/80 backdrop-blur-md text-slate-700 rounded-2xl font-bold transition-all border border-slate-200 flex items-center group shadow-sm">
-                  System Logs <Activity className="w-4 h-4 ml-2 group-hover:rotate-12 transition-transform text-slate-400" />
                 </Link>
               </div>
             </div>
