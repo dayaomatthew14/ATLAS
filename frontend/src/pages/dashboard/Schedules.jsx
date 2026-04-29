@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles, Calendar as CalendarIcon, Clock, Filter, MapPin, User, Layout } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
@@ -160,12 +160,7 @@ export default function Schedules() {
   };
 
   const handleAIGeneration = (params) => {
-    // Simulate receiving generated schedules from the AI
-    const mockGenerated = [
-      { id: Date.now() + 1, curriculum: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
-      { id: Date.now() + 2, curriculum: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ curriculum: 'Existing Class' }] }
-    ];
-    setSchedules(checkScheduleIntegrity([...schedules, ...mockGenerated]));
+    fetchSchedules();
   };
 
   useEffect(() => {
@@ -175,123 +170,143 @@ export default function Schedules() {
   const activeConflictsCount = schedules.filter(s => s.isConflicting).length;
 
   return (
-    <>
+    <div className="p-8 animate-in fade-in duration-700">
       {/* Page Header */}
-      <div className="bg-green-700 text-white py-3 shadow-inner">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h2 className="text-lg font-medium">Manage Schedules For Teachers</h2>
-          <div className="flex items-center space-x-4">
-            {activeConflictsCount > 0 && (
-              <button
-                onClick={() => setIsConflictPanelOpen(true)}
-                className="flex items-center bg-red-600 hover:bg-red-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse transition-colors"
-              >
-                <AlertTriangle className="w-3 h-3 mr-1.5" />
-                {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
-              </button>
-            )}
-            <button className="text-sm text-green-100 hover:text-white flex items-center">
-              <BookOpen className="w-4 h-4 mr-1" /> Manage Student Schedules
-            </button>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="bg-indigo-100 p-2.5 rounded-xl shadow-sm">
+              <CalendarIcon className="w-6 h-6 text-indigo-700" />
+            </div>
+            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Academic Schedules</h2>
           </div>
+          <p className="text-slate-500 text-base font-medium">Manage faculty assignments, room allocations, and resolve scheduling conflicts.</p>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-3">
+          {activeConflictsCount > 0 && (
+            <button
+              onClick={() => setIsConflictPanelOpen(true)}
+              className="bg-rose-50 text-rose-700 border border-rose-200 px-6 py-4 rounded-2xl flex items-center shadow-sm transition-all font-black text-sm uppercase tracking-widest animate-pulse"
+            >
+              <AlertTriangle className="w-5 h-5 mr-2" />
+              {activeConflictsCount} Conflicts
+            </button>
+          )}
+
+          {canManage && (
+            <>
+              <button
+                onClick={() => setIsAIModalOpen(true)}
+                className="bg-amber-100 hover:bg-amber-200 text-amber-700 px-6 py-4 rounded-2xl flex items-center shadow-sm transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
+              >
+                <Sparkles className="w-5 h-5 mr-2" /> Auto-Generate
+              </button>
+              <button
+                onClick={handleOpenModal}
+                className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
+              >
+                <Plus className="w-6 h-6 mr-2" /> Create Manual
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full relative">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-
-          {/* Calendar Toolbar */}
-          <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-            <div className="flex space-x-2">
-              <button
-                onClick={prevMonth}
-                className="px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-600 text-sm hover:bg-gray-50 flex items-center transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4 mr-1" /> Previous
-              </button>
+      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-[800px]">
+        {/* Calendar Toolbar */}
+        <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={prevMonth}
+              className="p-3 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 shadow-sm transition-all active:scale-90"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="text-center min-w-[200px]">
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
+                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+              </h3>
             </div>
-
-            <h3 className="text-xl font-bold text-gray-800">
-              {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-            </h3>
-
-            <div className="flex space-x-2 items-center">
-              <button
-                onClick={nextMonth}
-                className="px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-600 text-sm hover:bg-gray-50 flex items-center mr-2 transition-colors"
-              >
-                Next <ChevronRight className="w-4 h-4 ml-1" />
-              </button>
-              {canManage && (
-                <>
-                  <button
-                    onClick={() => setIsAIModalOpen(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-lg text-sm font-bold flex items-center shadow-md transition-transform transform hover:scale-105 mr-2"
-                  >
-                    <Sparkles className="w-4 h-4 mr-1.5" /> Auto-Generate
-                  </button>
-                  <button
-                    onClick={handleOpenModal}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium flex items-center shadow-sm transition-colors"
-                  >
-                    <Plus className="w-4 h-4 mr-1" /> Create Manual
-                  </button>
-                </>
-              )}
-            </div>
+            <button
+              onClick={nextMonth}
+              className="p-3 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 shadow-sm transition-all active:scale-90"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
 
-          {/* Calendar Grid */}
-          <div className="p-4">
-            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="bg-gray-50 py-2 text-center text-sm font-bold text-gray-600">{day}</div>
-              ))}
-
-              {renderCalendarDays().map((cell, i) => {
-                const daySchedules = schedules.filter(s =>
-                  cell.date &&
-                  s.date.getDate() === cell.day &&
-                  s.date.getMonth() === currentDate.getMonth() &&
-                  s.date.getFullYear() === currentDate.getFullYear()
-                );
-
-                return (
-                  <div key={i} className={`bg-white min-h-[100px] p-2 relative group transition-colors ${cell.currentMonth ? 'hover:bg-gray-50' : 'bg-gray-50'}`}>
-                    <span className={`absolute top-2 right-2 text-xs font-medium ${cell.currentMonth ? 'text-gray-400' : 'text-gray-300'}`}>
-                      {cell.day}
-                    </span>
-
-                    <div className="mt-6 space-y-1">
-                      {daySchedules.map(schedule => (
-                        <div
-                          key={schedule.id}
-                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${schedule.isConflicting
-                              ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
-                              : schedule.isAI
-                                ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
-                                : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
-                            }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="font-bold truncate">{schedule.curriculum}</div>
-                            <div className="flex items-center">
-                              {schedule.isAI && <Sparkles className="w-2.5 h-2.5 text-indigo-500 mr-1" />}
-                              {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
-                            </div>
-                          </div>
-                          <div className="text-[10px] opacity-80">({schedule.startTime} - {schedule.endTime})</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="flex items-center gap-3">
+             <button className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-all flex items-center gap-2">
+               <Filter className="w-4 h-4" /> Filter View
+             </button>
+             <button className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-all flex items-center gap-2">
+               <Layout className="w-4 h-4" /> List View
+             </button>
           </div>
         </div>
-      </main>
+
+        {/* Calendar Grid */}
+        <div className="flex-1 p-8">
+          <div className="grid grid-cols-7 gap-4">
+            {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => (
+              <div key={day} className="pb-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{day}</div>
+            ))}
+
+            {renderCalendarDays().map((cell, i) => {
+              const daySchedules = schedules.filter(s =>
+                cell.date &&
+                s.date.getDate() === cell.day &&
+                s.date.getMonth() === currentDate.getMonth() &&
+                s.date.getFullYear() === currentDate.getFullYear()
+              );
+
+              return (
+                <div 
+                  key={i} 
+                  className={`min-h-[140px] p-4 rounded-3xl border transition-all relative group ${
+                    cell.currentMonth 
+                      ? 'bg-white border-slate-100 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-500/5' 
+                      : 'bg-slate-50/50 border-transparent opacity-40'
+                  }`}
+                >
+                  <span className={`absolute top-4 right-5 text-sm font-black ${cell.currentMonth ? 'text-slate-900' : 'text-slate-300'}`}>
+                    {cell.day}
+                  </span>
+
+                  <div className="mt-6 space-y-2">
+                    {daySchedules.map(schedule => (
+                      <div
+                        key={schedule.id}
+                        className={`text-[10px] p-3 rounded-2xl shadow-sm border transition-all ${
+                          schedule.isConflicting
+                            ? 'bg-rose-50 border-rose-100 text-rose-900 ring-2 ring-rose-500/10'
+                            : schedule.isAI
+                              ? 'bg-indigo-50 border-indigo-100 text-indigo-900'
+                              : 'bg-amber-50 border-amber-100 text-amber-900'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-black uppercase truncate pr-1">{schedule.curriculum}</span>
+                          {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-rose-600 flex-shrink-0" />}
+                        </div>
+                        <div className="flex items-center gap-1 opacity-70 font-bold mb-1">
+                          <Clock className="w-2.5 h-2.5" />
+                          <span>{schedule.startTime} - {schedule.endTime}</span>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-70 font-bold">
+                          <MapPin className="w-2.5 h-2.5" />
+                          <span>{schedule.room_id ? `Room ${schedule.room_id}` : 'No Room'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       <ConflictPanel
         isOpen={isConflictPanelOpen}
@@ -306,80 +321,82 @@ export default function Schedules() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Create New Schedule"
+        title="Initialize Schedule Record"
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
           {formConflicts.length > 0 && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-3 flex items-start">
-              <AlertTriangle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
+            <div className="bg-rose-50 border border-rose-200 p-5 rounded-3xl flex items-start gap-4">
+              <div className="bg-white p-2 rounded-xl shadow-sm">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
               <div>
-                <p className="text-xs font-bold text-red-800">Potential Conflict Detected!</p>
-                <p className="text-[11px] text-red-700 mt-0.5">
-                  This time slot overlaps with another class in the same {formConflicts[0].type.toLowerCase()}.
+                <p className="text-sm font-black text-rose-900 uppercase tracking-tight">Critical Conflict Detected</p>
+                <p className="text-xs text-rose-700 mt-1 font-medium leading-relaxed">
+                  The selected time window overlaps with an existing assignment for the same {formConflicts[0].type.toLowerCase()}.
                 </p>
               </div>
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Curriculum</label>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="col-span-2 md:col-span-1">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Subject / Course</label>
               <select
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900 appearance-none cursor-pointer"
                 value={formData.curriculum_id}
                 onChange={(e) => setFormData({ ...formData, curriculum_id: e.target.value })}
               >
-                <option value="">Select Curriculum</option>
-                {curriculumItems.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+                <option value="">Select Curriculum Item</option>
+                {curriculumItems.map(s => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Section</label>
+            <div className="col-span-2 md:col-span-1">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Target Section</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. BSCS-3A"
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900"
                 value={formData.section}
                 onChange={(e) => setFormData({ ...formData, section: e.target.value })}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Teacher</label>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="col-span-2 md:col-span-1">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Assigned Faculty</label>
               <select
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900 appearance-none cursor-pointer"
                 value={formData.faculty_id}
                 onChange={(e) => setFormData({ ...formData, faculty_id: e.target.value })}
               >
-                <option value="">Select Teacher</option>
+                <option value="">Choose Teacher</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Room</label>
+            <div className="col-span-2 md:col-span-1">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Room Allocation</label>
               <select
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900 appearance-none cursor-pointer"
                 value={formData.room_id}
                 onChange={(e) => setFormData({ ...formData, room_id: e.target.value })}
               >
-                <option value="">Select Room</option>
+                <option value="">Choose Room</option>
                 {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.building})</option>)}
               </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Day</label>
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Day</label>
               <select
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900 appearance-none cursor-pointer"
                 value={formData.day_of_week}
                 onChange={(e) => setFormData({ ...formData, day_of_week: e.target.value })}
               >
@@ -387,68 +404,81 @@ export default function Schedules() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Start Time</label>
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Start</label>
               <input
                 type="time"
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900"
                 value={formData.start_time}
                 onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">End Time</label>
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">End</label>
               <input
                 type="time"
                 required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 transition-all font-black text-slate-900"
                 value={formData.end_time}
                 onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
               />
             </div>
           </div>
 
-          <div className="pt-4 flex justify-between items-center">
+          <div className="pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
             <button
               type="button"
               onClick={handleGetSuggestions}
               disabled={isFetchingSuggestions}
-              className="px-4 py-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md shadow-sm flex items-center transition-colors disabled:opacity-50"
+              className="w-full md:w-auto px-6 py-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center transition-all disabled:opacity-50"
             >
               <Sparkles className={`w-4 h-4 mr-2 ${isFetchingSuggestions ? 'animate-spin' : ''}`} />
-              {isFetchingSuggestions ? 'Analyzing...' : 'Get AI Suggestions'}
+              {isFetchingSuggestions ? 'AI Processing...' : 'Get AI Suggestions'}
             </button>
-            <div className="flex space-x-3">
+            <div className="flex gap-4 w-full md:w-auto">
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+                className="flex-1 md:flex-none px-8 py-4 text-xs font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
-                  }`}
+                className={`flex-1 md:flex-none px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all transform hover:scale-105 active:scale-95 text-white ${
+                  formConflicts.length > 0 ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-100' : 'bg-green-700 hover:bg-green-800 shadow-green-100'
+                }`}
               >
-                {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
+                {formConflicts.length > 0 ? 'Override & Save' : 'Confirm Schedule'}
               </button>
             </div>
           </div>
 
           {/* AI Suggestions Panel */}
           {aiSuggestions.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center">
-                <Sparkles className="w-4 h-4 text-indigo-500 mr-2" />
-                Recommended Assignments
-              </h4>
-              <div className="space-y-3">
+            <div className="mt-8 pt-8 border-t border-slate-100 animate-in slide-in-from-top-4 duration-500">
+              <div className="flex items-center gap-3 mb-6">
+                <Sparkles className="w-5 h-5 text-indigo-600" />
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Recommended Optimizations</h4>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
                 {aiSuggestions.map((sug, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg hover:border-indigo-300 transition-colors">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{sug.faculty_name} <span className="text-xs font-normal text-slate-500 ml-1">in {sug.room_name}</span></p>
-                      <p className="text-xs font-medium text-indigo-600 mt-0.5">{sug.day_of_week} • {sug.start_time} - {sug.end_time} • {sug.confidence}% Match</p>
+                  <div key={idx} className="group flex items-center justify-between p-5 bg-indigo-50/30 border border-indigo-100 rounded-3xl hover:bg-white hover:border-indigo-300 hover:shadow-xl hover:shadow-indigo-500/5 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-indigo-50">
+                        <User className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-slate-800">{sug.faculty_name}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-indigo-600">
+                            <Clock className="w-3 h-3" /> {sug.day_of_week} {sug.start_time} - {sug.end_time}
+                          </span>
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
+                            <MapPin className="w-3 h-3" /> {sug.room_name}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -460,9 +490,9 @@ export default function Schedules() {
                         start_time: sug.start_time,
                         end_time: sug.end_time
                       })}
-                      className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 text-xs font-bold rounded shadow-sm hover:bg-indigo-50"
+                      className="px-6 py-3 bg-white text-indigo-600 border border-indigo-200 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-sm hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all active:scale-95"
                     >
-                      Apply
+                      Apply Recommendation
                     </button>
                   </div>
                 ))}
@@ -477,6 +507,6 @@ export default function Schedules() {
         onClose={() => setIsAIModalOpen(false)}
         onGenerate={handleAIGeneration}
       />
-    </>
+    </div>
   );
 }
