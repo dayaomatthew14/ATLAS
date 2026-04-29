@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 import pandas as pd
 import io
@@ -131,18 +132,18 @@ def delete_curriculum_item(
     db.delete(db_curriculum)
     db.commit()
     return None
-@router.post("/import")
-async def import_curriculum(
-    file: UploadFile = File(...),
-    department_id: Optional[int] = Form(None),
-    program_code: Optional[str] = Form(None),
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
+
+async def _process_curriculum_import(
+    contents: bytes,
+    department_id: Optional[int],
+    program_code: Optional[str],
+    dry_run: bool,
+    db: Session,
+    current_user: models.User
 ):
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    # If program chair, force their department
     if current_user.role == 'program_chair':
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
@@ -154,17 +155,17 @@ async def import_curriculum(
     elif department_id:
         target_dept_id = department_id
     else:
-        # Default to first department or error
         first_dept = db.query(models.Department).first()
         if not first_dept:
              raise HTTPException(status_code=400, detail="No departments found in system")
         target_dept_id = first_dept.id
 
     try:
-        contents = await file.read()
         xl = pd.ExcelFile(io.BytesIO(contents))
         
         items_to_add = []
+        skipped_items = []
+        total_parsed = 0
         found_target_sheet = False
         
         for sheet in xl.sheet_names:
@@ -185,55 +186,112 @@ async def import_curriculum(
                             if "course code" in val or "code" == val: col_map['code'] = idx
                             if "course title" in val or "title" in val or "subject name" in val: col_map['name'] = idx
                             if "units" == val or "unit" in val: col_map['units'] = idx
+                            if "lec" in val or "lecture" in val: col_map['lec_units'] = idx
+                            if "lab" in val or "laboratory" in val: col_map['lab_units'] = idx
+                            if "pre-req" in val or "prerequisite" in val: col_map['pre_requisite'] = idx
+                            if "year" in val: col_map['year_level'] = idx
+                            if "sem" in val or "semester" in val: col_map['semester_term'] = idx
                         break
                 
                 if header_row_idx != -1 and 'code' in col_map and 'name' in col_map:
                     data_df = full_df.iloc[header_row_idx + 1:]
+                    
+                    current_year = None
+                    current_sem = None
+                    
                     for _, row in data_df.iterrows():
-                        code = str(row[col_map['code']]).strip()
-                        name = str(row[col_map['name']]).strip()
-                        units_val = row[col_map['units']] if 'units' in col_map else 3
+                        total_parsed += 1
                         
-                        if not code or code == 'nan' or len(code) < 3 or code.lower() == 'course code':
+                        if 'year_level' in col_map and not pd.isna(row[col_map['year_level']]):
+                            current_year = str(row[col_map['year_level']]).strip()
+                        if 'semester_term' in col_map and not pd.isna(row[col_map['semester_term']]):
+                            current_sem = str(row[col_map['semester_term']]).strip()
+                            
+                        code_raw = row[col_map['code']]
+                        if pd.isna(code_raw): continue
+                            
+                        code = str(int(code_raw)).strip() if isinstance(code_raw, float) and code_raw.is_integer() else str(code_raw).strip()
+                        name = str(row[col_map['name']]).strip() if not pd.isna(row[col_map['name']]) else ""
+                        
+                        if not code or code.lower() == 'nan' or len(code) < 3 or code.lower() == 'course code':
+                            skipped_items.append({"code": code, "name": name, "reason": "Invalid or missing course code"})
                             continue
                             
-                        try:
-                            units = int(float(units_val))
-                        except:
-                            units = 3
+                        # Handle units
+                        units_val = row[col_map['units']] if 'units' in col_map else 3
+                        try: units = int(float(units_val))
+                        except: units = 3
+                            
+                        lec_units = 0
+                        if 'lec_units' in col_map and not pd.isna(row[col_map['lec_units']]):
+                            try: lec_units = int(float(row[col_map['lec_units']]))
+                            except: pass
+                            
+                        lab_units = 0
+                        if 'lab_units' in col_map and not pd.isna(row[col_map['lab_units']]):
+                            try: lab_units = int(float(row[col_map['lab_units']]))
+                            except: pass
+                            
+                        pre_requisite = str(row[col_map['pre_requisite']]).strip() if 'pre_requisite' in col_map and not pd.isna(row[col_map['pre_requisite']]) else None
+                        if pre_requisite and (pre_requisite.lower() == 'nan' or pre_requisite.lower() == 'none'):
+                            pre_requisite = None
                             
                         ctype = 'lecture'
-                        if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B'):
+                        if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
                             ctype = 'lab'
                             
-                        # Check if already exists in this department AND program
+                        # Duplicate check
                         existing = db.query(models.Curriculum).filter(
-                            models.Curriculum.code == code,
+                            func.lower(models.Curriculum.code) == code.lower(),
                             models.Curriculum.department_id == target_dept_id,
-                            models.Curriculum.program_code == program_code
+                            func.lower(models.Curriculum.program_code) == program_code.lower() if program_code else models.Curriculum.program_code.is_(None)
                         ).first()
                         
                         if not existing:
                             items_to_add.append(models.Curriculum(
-                                code=code,
-                                name=name,
-                                units=units,
-                                type=ctype,
-                                department_id=target_dept_id,
-                                program_code=program_code
+                                code=code, name=name, units=units, type=ctype,
+                                department_id=target_dept_id, program_code=program_code,
+                                year_level=current_year, semester_term=current_sem,
+                                lec_units=lec_units, lab_units=lab_units, pre_requisite=pre_requisite
                             ))
-                    break # Only process the first school-related sheet found
+                        else:
+                            skipped_items.append({"code": code, "name": name, "reason": "Already exists in this program"})
+                    break
 
         if not found_target_sheet:
-            raise HTTPException(status_code=400, detail="Could not find a sheet with the school name")
+            raise HTTPException(status_code=400, detail="Could not find a valid curriculum sheet (missing school name header)")
+
+        summary = {"total_parsed": total_parsed, "to_add": len(items_to_add), "skipped": len(skipped_items)}
+
+        if dry_run:
+            preview = [{"code": i.code, "name": i.name, "units": i.units, "year": i.year_level, "sem": i.semester_term} for i in items_to_add[:10]]
+            return {
+                "is_dry_run": True,
+                "message": f"Dry run complete. {len(items_to_add)} items ready for import.",
+                "summary": summary,
+                "preview": preview,
+                "errors": skipped_items
+            }
 
         if items_to_add:
             db.add_all(items_to_add)
             db.commit()
-            return {"message": f"Successfully imported {len(items_to_add)} curriculum items", "count": len(items_to_add)}
+            return {"is_dry_run": False, "message": f"Successfully imported {len(items_to_add)} curriculum items", "summary": summary, "errors": skipped_items}
         else:
-            return {"message": "No new curriculum items to import", "count": 0}
+            return {"is_dry_run": False, "message": "No new items to import", "summary": summary, "errors": skipped_items}
 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+@router.post("/import", response_model=schemas.ImportResponse)
+async def import_curriculum(
+    file: UploadFile = File(...),
+    department_id: Optional[int] = Form(None),
+    program_code: Optional[str] = Form(None),
+    dry_run: bool = Form(False),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    contents = await file.read()
+    return await _process_curriculum_import(contents, department_id, program_code, dry_run, db, current_user)

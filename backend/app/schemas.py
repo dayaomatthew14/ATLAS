@@ -273,3 +273,15 @@ class SectionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ImportSummary(BaseModel):
+    total_parsed: int
+    to_add: int
+    skipped: int
+
+class ImportResponse(BaseModel):
+    is_dry_run: bool
+    message: str
+    summary: ImportSummary
+    preview: Optional[list] = None
+    errors: Optional[list] = None
