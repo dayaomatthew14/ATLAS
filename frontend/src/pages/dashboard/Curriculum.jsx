@@ -44,11 +44,48 @@ export default function Curriculum() {
     },
   ];
 
+  const normalizeYear = (value) => {
+    if (value === null || value === undefined) return '';
+    const s = String(value).trim().toUpperCase();
+    if (!s || s === 'NAN' || s === 'NONE' || s === 'N/A') return '';
+    const m = s.match(/\b([1-5])\b/);
+    if (m) return m[1];
+    if (s.includes('FIRST')) return '1';
+    if (s.includes('SECOND')) return '2';
+    if (s.includes('THIRD')) return '3';
+    if (s.includes('FOURTH')) return '4';
+    if (s.includes('FIFTH')) return '5';
+    return '';
+  };
+
+  const normalizeSemester = (value) => {
+    if (value === null || value === undefined) return '1st';
+    const s = String(value).trim().toUpperCase();
+    if (!s || s === 'NAN' || s === 'NONE' || s === 'N/A') return '1st';
+    if (s.includes('SUMMER') || s.includes('MIDYEAR')) return 'summer';
+    const m = s.match(/\b([123])\b/);
+    if (m) return ({ '1': '1st', '2': '2nd', '3': '3rd' }[m[1]]);
+    if (s.includes('III')) return '3rd';
+    if (s.includes('II')) return '2nd';
+    if (s.match(/\bI\b/)) return '1st';
+    if (s.includes('1ST') || s.includes('FIRST')) return '1st';
+    if (s.includes('2ND') || s.includes('SECOND')) return '2nd';
+    if (s.includes('3RD') || s.includes('THIRD')) return '3rd';
+    return '1st';
+  };
+
   const fetchCurriculum = async () => {
     setIsLoading(true);
     try {
       const data = await api.get('/curriculum');
-      setCurriculum(Array.isArray(data) ? data : []);
+      const mappedData = (Array.isArray(data) ? data : []).map(item => ({
+        ...item,
+        course: item.program_code || item.course,
+        year: normalizeYear(item.year_level || item.year),
+        semester: normalizeSemester(item.semester_term || item.semester),
+        pre_requisites: item.pre_requisite || item.pre_requisites
+      }));
+      setCurriculum(mappedData);
     } catch (error) {
       console.error('Failed to fetch curriculum', error);
       setCurriculum([]);
@@ -65,6 +102,10 @@ export default function Curriculum() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('dry_run', 'true');
+    
+    // Assign imported subjects to the currently selected course, or default to BSCS
+    const targetProgram = selectedCourse !== 'All' ? selectedCourse : 'BSCS';
+    formData.append('program_code', targetProgram);
 
     try {
       setIsImporting(true);
@@ -90,8 +131,14 @@ export default function Curriculum() {
       setIsImporting(true);
       addToast('Committing curriculum to database...', 'info');
       
-      // Send the parsed and validated items to the bulk endpoint
-      await api.post('/curriculum/bulk', { items: importReport.report });
+      // Send the parsed and validated items to the bulk endpoint using the new Block Isolation payload
+      const payload = {
+        program_name: importReport.summary.program_name || 'Unknown Program',
+        academic_year: importReport.summary.academic_year || 'Unknown AY',
+        department_id: importReport.report[0]?.department_id || 1,
+        items: importReport.report
+      };
+      await api.post('/curriculum/bulk', payload);
       
       addToast(`Successfully imported ${importReport.report.length} subjects.`, 'success');
       setIsImportReviewOpen(false);
@@ -155,10 +202,18 @@ export default function Curriculum() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const backendPayload = {
+        ...formData,
+        program_code: formData.course,
+        year_level: formData.year ? String(formData.year) : null,
+        semester_term: formData.semester,
+        pre_requisite: formData.pre_requisites
+      };
+
       if (editingItem) {
-        await api.put(`/curriculum/${editingItem.id}`, formData);
+        await api.put(`/curriculum/${editingItem.id}`, backendPayload);
       } else {
-        await api.post('/curriculum', formData);
+        await api.post('/curriculum', backendPayload);
       }
       await fetchCurriculum();
       handleCloseModal();
@@ -223,7 +278,7 @@ export default function Curriculum() {
       <div className="flex-1 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col hover:shadow-md transition-shadow">
         <div className="bg-slate-50/80 backdrop-blur-sm px-5 py-4 border-b border-slate-200 flex justify-between items-center">
           <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${semester === '1st' ? 'bg-blue-500' : semester === '2nd' ? 'bg-indigo-500' : 'bg-amber-500'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${semester === '1st' ? 'bg-blue-500' : semester === '2nd' ? 'bg-indigo-500' : semester === '3rd' ? 'bg-purple-500' : 'bg-amber-500'}`}></div>
             <h4 className="font-black text-slate-800 uppercase tracking-[0.1em] text-xs">
               {semester === 'summer' ? 'Summer Term' : `${semester} Semester`}
             </h4>
@@ -393,7 +448,14 @@ export default function Curriculum() {
         </div>
       ) : (
         <div className="space-y-12">
-          {Object.keys(groupedByYear).sort().map(yearKey => (
+          {Object.keys(groupedByYear).sort((a, b) => {
+            if (a === 'Unassigned') return 1;
+            if (b === 'Unassigned') return -1;
+            const na = Number(a);
+            const nb = Number(b);
+            if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+            return String(a).localeCompare(String(b));
+          }).map(yearKey => (
             <div key={yearKey} className="relative">
               <div className="flex items-center space-x-4 mb-6">
                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent"></div>
@@ -409,6 +471,9 @@ export default function Curriculum() {
                 )}
                 {groupedByYear[yearKey]['2nd'] && (
                   <SemesterTable semester="2nd" data={groupedByYear[yearKey]['2nd']} />
+                )}
+                {groupedByYear[yearKey]['3rd'] && (
+                  <SemesterTable semester="3rd" data={groupedByYear[yearKey]['3rd']} />
                 )}
                 {groupedByYear[yearKey]['summer'] && (
                   <div className="xl:col-span-2">

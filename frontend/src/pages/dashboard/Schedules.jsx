@@ -159,13 +159,37 @@ export default function Schedules() {
     }
   };
 
-  const handleAIGeneration = (params) => {
-    // Simulate receiving generated schedules from the AI
-    const mockGenerated = [
-      { id: Date.now() + 1, subject: 'AI Algo 101', startTime: '09:00', endTime: '10:30', dayOfWeek: 'Mon', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 10), isAI: true, room_id: 1, faculty_id: 1, section: 'A' },
-      { id: Date.now() + 2, subject: 'Machine Learning 201', startTime: '11:00', endTime: '12:30', dayOfWeek: 'Tue', date: new Date(currentDate.getFullYear(), currentDate.getMonth(), 11), isAI: true, room_id: 1, faculty_id: 1, section: 'A', isConflicting: true, conflictDetails: [{ subject: 'Existing Class' }] }
-    ];
-    setSchedules(checkScheduleIntegrity([...schedules, ...mockGenerated]));
+  const handleAIGeneration = (response) => {
+    // Refresh schedules from server after generation
+    fetchSchedules();
+  };
+
+  const handleAutoResolveAll = async () => {
+    // Note: In our current implementation, conflicts are detected on-the-fly or logged in the DB.
+    // The backend /resolve-conflicts expects models.Conflict IDs.
+    // If we want to resolve schedule IDs directly, we'd need a different endpoint or wrap them.
+    // For now, we'll fetch the unresolved conflict logs from the backend first.
+    try {
+      const dbConflicts = await api.get('/ai-scheduler/conflicts');
+      const unresolvedIds = dbConflicts.filter(c => !c.resolved_at).map(c => c.id);
+      
+      if (unresolvedIds.length === 0) {
+        addToast('No unresolved system conflicts found.', 'info');
+        return;
+      }
+
+      addToast('ATLAS AI is finding alternative slots...', 'info');
+      const res = await api.post('/ai-scheduler/resolve-conflicts', unresolvedIds);
+      
+      if (res.resolved_count > 0) {
+        addToast(`Successfully resolved ${res.resolved_count} conflicts!`, 'success');
+        fetchSchedules();
+      } else {
+        addToast('AI could not find conflict-free slots for the remaining items.', 'warning');
+      }
+    } catch (e) {
+      addToast('Failed to execute AI Auto-Resolution', 'error');
+    }
   };
 
   useEffect(() => {
@@ -298,6 +322,7 @@ export default function Schedules() {
           type: 'General',
           conflictWith: s.conflictDetails?.[0]
         }))}
+        onAutoResolveAll={handleAutoResolveAll}
       />
 
       <Modal

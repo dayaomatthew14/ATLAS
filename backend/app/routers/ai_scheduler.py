@@ -89,10 +89,15 @@ def resolve_conflicts(
     resolved_count = 0
     results = []
 
+    # Pre-fetch rooms and faculty to avoid repetitive DB hits
+    all_rooms = db.query(models.Room).all()
+    
+    # Timeslots and Days for relocation
+    from ..services.schedule_generator import TIMESLOTS, DAYS
+
     for conflict_id in conflict_ids:
         conflict = db.query(models.Conflict).filter(models.Conflict.id == conflict_id).first()
-        if not conflict:
-            results.append({"conflict_id": conflict_id, "status": "not_found"})
+        if not conflict or conflict.resolved_at:
             continue
         
         # Get the schedules involved
@@ -100,15 +105,20 @@ def resolve_conflicts(
         s2 = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_2).first()
 
         if not s1 or not s2:
-            results.append({"conflict_id": conflict_id, "status": "schedule_missing"})
             continue
 
-        # Try to relocate s2
-        from ..services.schedule_generator import TIMESLOTS, DAYS
+        # Strategy 1: Relocate s2 while keeping room and faculty
+        # Strategy 2: Swap room for s2
+        # Strategy 3: Swap faculty for s2 (if curriculum allows)
         
-        # Helper to check overlaps (simplified)
-        def check_overlap(day, start_t, end_t, room_id, faculty_id, exclude_id):
-            return db.query(models.Schedule).filter(
+        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s2.curriculum_id).first()
+        valid_rooms = [r for r in all_rooms if r.type == curriculum_item.type or (r.type == 'computer_lab' and curriculum_item.type == 'lab')]
+        
+        found = False
+        
+        # Helper to check for ALL types of overlaps (Room, Faculty, Section)
+        def is_really_free(day, start_t, end_t, room_id, faculty_id, section, exclude_id):
+            overlap = db.query(models.Schedule).filter(
                 models.Schedule.semester_id == s2.semester_id,
                 models.Schedule.day_of_week == day,
                 models.Schedule.start_time == start_t,
@@ -116,33 +126,43 @@ def resolve_conflicts(
                 models.Schedule.id != exclude_id
             ).filter(
                 (models.Schedule.room_id == room_id) | 
-                (models.Schedule.faculty_id == faculty_id)
-            ).first() is not None
+                (models.Schedule.faculty_id == faculty_id) |
+                (models.Schedule.section == section)
+            ).first()
+            if overlap: return False
+            
+            # Also check faculty unavailability
+            blocked = db.query(models.FacultyUnavailability).filter(
+                models.FacultyUnavailability.faculty_id == faculty_id,
+                models.FacultyUnavailability.day_of_week == day,
+                models.FacultyUnavailability.start_time < end_t,
+                models.FacultyUnavailability.end_time > start_t
+            ).first()
+            return blocked is None
 
-        found = False
-        for day in DAYS:
+        # Try to find a new slot
+        for r in valid_rooms:
             if found: break
-            for start_t, end_t in TIMESLOTS:
-                if not check_overlap(day, start_t, end_t, s2.room_id, s2.faculty_id, s2.id):
-                    # Found a slot!
-                    s2.day_of_week = day
-                    s2.start_time = start_t
-                    s2.end_time = end_t
-                    conflict.resolved_at = datetime.now(timezone.utc)
-                    db.commit()
-                    resolved_count += 1
-                    found = True
-                    results.append({"conflict_id": conflict_id, "status": "resolved", "new_slot": f"{day} {start_t}-{end_t}"})
-                    
-                    # Log the resolution
-                    log_activity(
-                        db,
-                        current_user.id,
-                        "Resolve Conflict",
-                        f"Automatically resolved conflict #{conflict_id} by moving schedule #{s2.id} to {day} {start_t}",
-                        "success"
-                    )
-                    break
+            for day in DAYS:
+                if found: break
+                for start_t, end_t in TIMESLOTS:
+                    if is_really_free(day, start_t, end_t, r.id, s2.faculty_id, s2.section, s2.id):
+                        s2.day_of_week = day
+                        s2.start_time = start_t
+                        s2.end_time = end_t
+                        s2.room_id = r.id
+                        conflict.resolved_at = datetime.now(timezone.utc)
+                        db.commit()
+                        resolved_count += 1
+                        found = True
+                        results.append({
+                            "conflict_id": conflict_id, 
+                            "status": "resolved", 
+                            "message": f"Moved to {r.name} on {day} {start_t.strftime('%H:%M')}"
+                        })
+                        
+                        log_activity(db, current_user.id, "Resolve Conflict", f"Auto-resolved conflict #{conflict_id} by relocating {curriculum_item.code}")
+                        break
         
         if not found:
             results.append({"conflict_id": conflict_id, "status": "unresolvable"})

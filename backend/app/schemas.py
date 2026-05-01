@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -68,7 +68,24 @@ class DepartmentResponse(DepartmentBase):
     class Config:
         from_attributes = True
 
+class CurriculumBlockBase(BaseModel):
+    program_name: str
+    academic_year: str
+    filename: Optional[str] = None
+    department_id: int
+
+class CurriculumBlockCreate(CurriculumBlockBase):
+    pass
+
+class CurriculumBlockResponse(CurriculumBlockBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class CurriculumBase(BaseModel):
+    block_id: Optional[int] = None
     code: str
     name: str
     units: int
@@ -85,6 +102,7 @@ class CurriculumCreate(CurriculumBase):
     pass
 
 class CurriculumUpdate(BaseModel):
+    block_id: Optional[int] = None
     code: Optional[str] = None
     name: Optional[str] = None
     units: Optional[int] = None
@@ -173,6 +191,7 @@ class ScheduleBase(BaseModel):
     end_time: time
     section: str
     status: str = 'draft'
+    is_locked: bool = False
 
 class ScheduleCreate(ScheduleBase):
     pass
@@ -187,6 +206,7 @@ class ScheduleUpdate(BaseModel):
     end_time: Optional[time] = None
     section: Optional[str] = None
     status: Optional[str] = None
+    is_locked: Optional[bool] = None
 
 class ScheduleResponse(ScheduleBase):
     id: int
@@ -274,15 +294,44 @@ class SectionResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class BulkImportRequest(BaseModel):
+    program_name: str
+    academic_year: str
+    department_id: int
+    items: List[CurriculumCreate]
+
 class ImportSummary(BaseModel):
+    program_name: Optional[str] = None
+    academic_year: Optional[str] = None
     total_rows: int
     valid_new_items: int
     duplicates_skipped: int
     issues_found: int
+    unit_validation: Optional[str] = None
+    excel_total: Optional[float] = None
+    parser_total: Optional[float] = None
+    summary_details: Optional[list] = None
 
 class ImportResponse(BaseModel):
     is_dry_run: bool
     message: str
     summary: ImportSummary
+    zones: Optional[list] = None
     report: Optional[list] = None
     errors: Optional[list] = None
+
+# --- Conflict Validation ---
+class ConflictValidate(BaseModel):
+    semester_id: int
+    day_of_week: str
+    start_time: time
+    end_time: time
+    room_id: Optional[int] = None
+    faculty_id: Optional[int] = None
+    section: Optional[str] = None
+    ignore_schedule_id: Optional[int] = None
+
+class ConflictDetail(BaseModel):
+    type: str # 'room', 'faculty', 'section'
+    existing_schedule: ScheduleResponse
+    message: str

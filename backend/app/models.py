@@ -28,9 +28,19 @@ class Department(Base):
     code = Column(String(50), nullable=False, unique=True)
     description = Column(String(500), nullable=True)
 
+class CurriculumBlock(Base):
+    __tablename__ = "curriculum_blocks"
+    id = Column(Integer, primary_key=True, index=True)
+    program_name = Column(String(255), nullable=False)
+    academic_year = Column(String(50), nullable=False)
+    filename = Column(String(255), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id"))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 class Curriculum(Base):
     __tablename__ = "curriculum"
     id = Column(Integer, primary_key=True, index=True)
+    block_id = Column(Integer, ForeignKey("curriculum_blocks.id"), nullable=True)
     code = Column(String(50), nullable=False)
     name = Column(String(255), nullable=False)
     units = Column(Integer, nullable=False)
@@ -77,6 +87,7 @@ class Schedule(Base):
     end_time = Column(Time, index=True)
     section = Column(String(20))
     status = Column(Enum('draft', 'published', name='schedule_status'), default='draft')
+    is_locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

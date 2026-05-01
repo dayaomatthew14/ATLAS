@@ -116,6 +116,9 @@ def update_schedule(
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
             if not dept or (dept.code != current_user.department and dept.name != current_user.department):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this schedule")
+    
+    if db_schedule.is_locked and schedule.is_locked is not False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule is locked and cannot be modified")
                 
     update_data = schedule.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -144,6 +147,9 @@ def delete_schedule(
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
             if not dept or (dept.code != current_user.department and dept.name != current_user.department):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this schedule")
+    
+    if db_schedule.is_locked:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Locked schedules cannot be deleted")
                 
     db.delete(db_schedule)
     db.commit()
@@ -423,3 +429,71 @@ async def import_excel(
         "message": f"Successfully imported {success_count} schedules",
         "errors": errors
     }
+ 
+@router.get("/export/excel")
+def export_excel(
+    semester_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Export the current department's schedule for a semester to Excel.
+    """
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+ 
+    # Fetch data
+    query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
+    
+    dept_name = "All Departments"
+    if current_user.role == 'program_chair':
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
+            dept_name = dept.name
+            
+    schedules = query.all()
+    
+    # Prepare data for DataFrame
+    export_data = []
+    for s in schedules:
+        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
+        faculty = db.query(models.Faculty).filter(models.Faculty.id == s.faculty_id).first()
+        user = db.query(models.User).filter(models.User.id == faculty.user_id).first() if faculty else None
+        room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
+        
+        export_data.append({
+            "Curriculum Code": curriculum_item.code if curriculum_item else "N/A",
+            "Subject Name": curriculum_item.name if curriculum_item else "N/A",
+            "Section": s.section,
+            "Faculty": f"{user.first_name} {user.last_name}" if user else "TBA",
+            "Room": room.name if room else "N/A",
+            "Day": s.day_of_week,
+            "Start Time": s.start_time.strftime('%I:%M %p'),
+            "End Time": s.end_time.strftime('%I:%M %p'),
+            "Status": s.status,
+            "Locked": s.is_locked
+        })
+    
+    df = pd.DataFrame(export_data)
+    
+    # Create Excel in memory
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Schedules')
+        # Add some formatting if needed
+        
+    output.seek(0)
+    
+    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel")
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=schedule_{dept_name.replace(' ', '_')}.xlsx"
+        }
+    )

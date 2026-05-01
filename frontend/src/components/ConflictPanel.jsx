@@ -56,7 +56,7 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
       </div>
 
       <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-3">
-        <button 
+        <button
           disabled={conflicts.length === 0}
           className="w-full py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold flex items-center justify-center transition-colors shadow-sm"
         >
