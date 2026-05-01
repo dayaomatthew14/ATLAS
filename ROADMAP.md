@@ -173,3 +173,54 @@
   * ✅ **Flowchart Visual Accuracy**: (COMPLETED) Updated UI to reflect precise year/semester groupings based on new context-aware parsing results.
   * ✅ **Data Integrity Flags**: (COMPLETED) Integrated visual warning indicators for missing units or duplicate subjects within the import review grid.
   * **Prerequisite Flow Visualization**: (PLANNED) Visual highlighting of prerequisite paths on subject hover.
+ 
+ 
+### Sprint 10: Advanced Zonal Parsing & Structural Integrity
+*Status: COMPLETED*
+*Objective: Implement the definitive Backend Logic v1.4 to achieve absolute precision in curriculum extraction across heterogeneous department formats.*
+ 
+* **Backend Track (DE GUZMAN)**:
+  * ✅ **Curriculum Block Isolation (Step 0)**: (COMPLETED) Implemented strict one-file-one-block logic with automated Program Name + AY identity detection.
+  * ✅ **Strict Zonal Parser v1.4**: (COMPLETED) Implemented surgical merged-cell handling using openpyxl metadata to eliminate "None" hallucinations.
+  * ✅ **Scoped Deduplication Engine**: (COMPLETED) Added consecutive-only deduplication to collapse artifacts while preserving legitimate repeats across academic terms.
+  * ✅ **Grand Total Cross-Validation**: (COMPLETED) Automated comparison between parsed subject totals and Excel Summary tables with explicit discrepancy reporting.
+  * ✅ **Diagnostic Hardening**: (COMPLETED) Integrated real-time row-level logging for structural transparency and rapid troubleshooting.
+ 
+* **Integration Track (DE GUZMAN & DAYAO)**:
+  * ✅ **Zero-Conflict Handshake**: (COMPLETED) Aliased backend field keys (pre_requisites, year, semester) to match frontend state perfectly.
+  * ✅ **Schema-Perfect Reporting**: (COMPLETED) Expanded ImportSummary model to surface categorical unit breakdowns in the Review UI.
+ 
+ 
+### Sprint 11: Intelligent Scheduling & Conflict Automation
+*Status: COMPLETED*
+*Objective: Stabilize the automated scheduling engine and provide high-fidelity interactive controls for conflict resolution.*
+ 
+* **Backend Track (DE GUZMAN)**:
+  * ✅ **Real-time Conflict API**: (COMPLETED) Implemented a high-performance POST endpoint for live overlap detection across faculty, rooms, and sections.
+  * ✅ **Intelligent Auto-Resolver**: (COMPLETED) Enhanced the recommendation engine with multi-strategy resolution (relocation, room-swapping, and faculty validation).
+  * ✅ **Schedule Snapshot & Locking**: (COMPLETED) Implemented an is_locked state for schedules with strict API enforcement to prevent accidental edits.
+  * ✅ **Official Schedule Export**: (COMPLETED) Developed university-standard PDF and Excel export endpoints for finalized class programs.
+ 
+* **Frontend Track (DAYAO)**:
+  * ✅ **Interactive Calendar Drag-and-Drop**: (COMPLETED) Enabled fluid manual adjustments directly on the schedule grid with instant conflict validation.
+  * ✅ **Conflict Resolution Sidebar**: (COMPLETED) Built a dedicated workspace for addressing overlapping slots with AI-assisted move suggestions.
+  * ✅ **Official Schedule Export UI**: (COMPLETED) Integrated high-fidelity PDF/Excel download controls into the Schedules dashboard.
+ 
+ 
+### Sprint 11: Intelligent Scheduling & Conflict Automation
+*Status: COMPLETED*
+*Objective: Stabilize the automated scheduling engine and provide high-fidelity interactive controls for conflict resolution.*
+ 
+* **Backend Track (DE GUZMAN)**:
+  * ✅ **Real-time Conflict API**: (COMPLETED) Implemented a high-performance POST endpoint for live overlap detection across faculty, rooms, and sections.
+  * ✅ **Intelligent Auto-Resolver**: (COMPLETED) Enhanced the recommendation engine with multi-strategy resolution (relocation, room-swapping, and faculty validation).
+  * ✅ **Schedule Snapshot & Locking**: (COMPLETED) Implemented an is_locked state for schedules with strict API enforcement to prevent accidental edits.
+  * ✅ **Official Schedule Export**: (COMPLETED) Developed university-standard PDF and Excel export endpoints for finalized class programs.
+ 
+* **Frontend Track (DAYAO)**:
+  * ✅ **Interactive Calendar Drag-and-Drop**: (COMPLETED) Enabled fluid manual adjustments directly on the schedule grid with instant conflict validation.
+  * ✅ **Conflict Resolution Sidebar**: (COMPLETED) Built a dedicated workspace for addressing overlapping slots with AI-assisted move suggestions.
+  * ✅ **Official Schedule Export UI**: (COMPLETED) Integrated high-fidelity PDF/Excel download controls into the Schedules dashboard.
+
+
+

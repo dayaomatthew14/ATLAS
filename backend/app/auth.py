@@ -43,6 +43,7 @@ def get_current_user(request: Request, db: Session = Depends(database.get_db)):
     )
     
     if not token:
+        print("DEBUG AUTH: No token found in cookies or headers")
         raise credentials_exception
 
     try:
@@ -50,16 +51,20 @@ def get_current_user(request: Request, db: Session = Depends(database.get_db)):
         email: str = payload.get("sub")
         session_version: int = payload.get("sv")
         if email is None:
+            print(f"DEBUG AUTH: Email missing in payload for token: {token[:10]}...")
             raise credentials_exception
         token_data = schemas.TokenData(email=email)
-    except JWTError:
+    except JWTError as e:
+        print(f"DEBUG AUTH: JWT Decode Error: {str(e)} for token: {token[:10]}...")
         raise credentials_exception
         
     user = db.query(models.User).filter(models.User.email == token_data.email).first()
     if user is None:
+        print(f"DEBUG AUTH: User not found in DB: {token_data.email}")
         raise credentials_exception
         
     if session_version is not None and user.session_version != session_version:
+        print(f"DEBUG AUTH: Session version mismatch: DB={user.session_version}, Token={session_version}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session expired or invalidated. Please log in again."

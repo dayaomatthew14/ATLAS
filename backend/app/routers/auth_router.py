@@ -47,12 +47,13 @@ def login_for_access_token(
     )
     
     # Set HttpOnly Cookie
+    print(f"DEBUG AUTH: Setting atlas_token cookie for user {user.email}")
     response.set_cookie(
         key="atlas_token",
         value=access_token,
         httponly=True,
-        secure=True, 
-        samesite="strict",
+        secure=False, 
+        samesite="lax",
         max_age=30*24*60*60 if remember_me else None
     )
     
@@ -190,14 +191,14 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie("atlas_token", samesite="strict", secure=True)
+    response.delete_cookie("atlas_token", samesite="lax", secure=False)
     return {"msg": "Logged out successfully"}
 
 @router.post("/logout-all")
 def logout_all(response: Response, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
     current_user.session_version += 1
     db.commit()
-    response.delete_cookie("atlas_token", samesite="strict", secure=True)
+    response.delete_cookie("atlas_token", samesite="lax", secure=False)
     return {"msg": "Logged out of all devices successfully"}
 
 @router.get("/seed")

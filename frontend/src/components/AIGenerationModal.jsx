@@ -14,16 +14,27 @@ export default function AIGenerationModal({ isOpen, onClose, onGenerate }) {
     avoidGaps: true,
   });
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setIsGenerating(true);
-    // Simulate AI generation delay
-    setTimeout(() => {
+    try {
+      // In a production environment, we would fetch the active semester ID. 
+      // For now, we target the first created semester (ID 1).
+      const response = await api.post('/ai-scheduler/generate/1', formData);
+      
+      addToast(
+        response.msg || `Generated ${response.generated} schedules.`, 
+        response.conflicts_count === 0 ? 'success' : 'warning'
+      );
+      
+      if (onGenerate) onGenerate(response);
+      onClose();
+    } catch (error) {
+      console.error('AI Generation Error:', error);
+      addToast(error.message || 'Failed to generate schedules. Ensure rooms and faculty are assigned.', 'error');
+    } finally {
       setIsGenerating(false);
       setStep(1);
-      onGenerate(formData);
-      addToast('AI generated an optimal schedule!', 'success');
-      onClose();
-    }, 4500);
+    }
   };
 
   const resetAndClose = () => {
