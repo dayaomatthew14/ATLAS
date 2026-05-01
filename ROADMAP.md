@@ -222,5 +222,16 @@
   * ✅ **Conflict Resolution Sidebar**: (COMPLETED) Built a dedicated workspace for addressing overlapping slots with AI-assisted move suggestions.
   * ✅ **Official Schedule Export UI**: (COMPLETED) Integrated high-fidelity PDF/Excel download controls into the Schedules dashboard.
 
+### Sprint 12: Faculty Management Enhancements
+*Status: COMPLETED*
+*Objective: Streamline faculty onboarding and availability management with a high-fidelity integrated interface.*
 
+* **Frontend Track (DAYAO)**:
+  * ✅ **Integrated "Add Faculty" Modal**: (COMPLETED) Implemented a comprehensive modal combining profile creation with integrated availability management.
+  * ✅ **Dynamic Availability Controls**: (COMPLETED) Developed multi-day toggles, custom time-range panels, and live summary chips for conflict prevention.
+  * ✅ **Faculty Type Integration**: (COMPLETED) Added support for Full-time/Part-time designation with an aligned 2x2 grid layout.
+  * ✅ **UI/UX Refinement**: (COMPLETED) Standardized the "ATLAS Premium" footer design and adopted surgical typography for all faculty actions.
 
+* **Backend Track (DE GUZMAN)**:
+  * ✅ **Faculty Model Extension**: (COMPLETED) Added `type` Enum and associated persistence logic to the Faculty database model.
+  * 🔄 **Bulk Availability Persistence**: (IN PROGRESS) Optimizing the user creation endpoint to handle atomic multi-window unavailability commits.

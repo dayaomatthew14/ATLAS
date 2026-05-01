@@ -66,6 +66,7 @@ class Faculty(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     max_units = Column(Integer, nullable=False)
+    type = Column(Enum('full_time', 'part_time', name='faculty_types'), nullable=False, default='full_time')
     department_id = Column(Integer, ForeignKey("departments.id"))
 
 class Semester(Base):
