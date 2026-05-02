@@ -13,12 +13,39 @@ router = APIRouter(
     tags=["Curriculum"]
 )
 
+@router.get("/blocks", response_model=List[schemas.CurriculumBlockWithCount])
+def get_curriculum_blocks(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    blocks = db.query(models.CurriculumBlock).all()
+    results = []
+    
+    for block in blocks:
+        subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
+        subject_count = len(subjects)
+        total_units = sum(s.units for s in subjects)
+        
+        results.append({
+            "id": block.id,
+            "program_name": block.program_name,
+            "academic_year": block.academic_year,
+            "filename": block.filename,
+            "department_id": block.department_id,
+            "created_at": block.created_at,
+            "subject_count": subject_count,
+            "total_units": total_units
+        })
+        
+    return results
+
 @router.get("/", response_model=List[schemas.CurriculumResponse])
 def get_curriculum(
     skip: int = 0, 
     limit: int = 100, 
     department_id: Optional[int] = None,
     program_code: Optional[str] = None,
+    block_id: Optional[int] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -39,6 +66,9 @@ def get_curriculum(
 
     if program_code:
         query = query.filter(models.Curriculum.program_code == program_code)
+    
+    if block_id:
+        query = query.filter(models.Curriculum.block_id == block_id)
         
     return query.offset(skip).limit(limit).all()
 
@@ -693,6 +723,23 @@ async def delete_curriculum_course(
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     db.query(models.Curriculum).filter(models.Curriculum.program_code == course_name).delete(synchronize_session=False)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.delete("/block/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_curriculum_block(
+    block_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    
+    # Delete all subjects in the block first
+    db.query(models.Curriculum).filter(models.Curriculum.block_id == block_id).delete(synchronize_session=False)
+    # Then delete the block itself
+    db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).delete(synchronize_session=False)
+    
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

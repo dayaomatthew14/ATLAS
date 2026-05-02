@@ -84,6 +84,10 @@ class CurriculumBlockResponse(CurriculumBlockBase):
     class Config:
         from_attributes = True
 
+class CurriculumBlockWithCount(CurriculumBlockResponse):
+    subject_count: int
+    total_units: int
+
 class CurriculumBase(BaseModel):
     block_id: Optional[int] = None
     code: str
