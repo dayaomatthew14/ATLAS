@@ -7,10 +7,12 @@ import { useToast } from '../../components/ToastProvider';
 export default function Curriculum() {
   const { addToast } = useToast();
   const [curriculum, setCurriculum] = useState([]);
+  const [blocks, setBlocks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [selectedCourse, setSelectedCourse] = useState('All');
+  const [selectedBlock, setSelectedBlock] = useState(null);
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -77,18 +79,24 @@ export default function Curriculum() {
   const fetchCurriculum = async () => {
     setIsLoading(true);
     try {
-      const data = await api.get('/curriculum');
-      const mappedData = (Array.isArray(data) ? data : []).map(item => ({
-        ...item,
-        course: item.program_code || item.course,
-        year: normalizeYear(item.year_level || item.year),
-        semester: normalizeSemester(item.semester_term || item.semester),
-        pre_requisites: item.pre_requisite || item.pre_requisites
-      }));
-      setCurriculum(mappedData);
+      if (selectedCourse === 'All') {
+        const data = await api.get('/curriculum/blocks');
+        setBlocks(Array.isArray(data) ? data : []);
+      } else if (selectedBlock) {
+        const data = await api.get(`/curriculum?block_id=${selectedBlock.id}`);
+        const mappedData = (Array.isArray(data) ? data : []).map(item => ({
+          ...item,
+          course: item.program_code || item.course,
+          year: normalizeYear(item.year_level || item.year),
+          semester: normalizeSemester(item.semester_term || item.semester),
+          pre_requisites: item.pre_requisite || item.pre_requisites
+        }));
+        setCurriculum(mappedData);
+      }
     } catch (error) {
       console.error('Failed to fetch curriculum', error);
       setCurriculum([]);
+      setBlocks([]);
       addToast('Failed to load curriculum', 'error');
     } finally {
       setIsLoading(false);
@@ -103,9 +111,19 @@ export default function Curriculum() {
     formData.append('file', file);
     formData.append('dry_run', 'true');
     
-    // Assign imported subjects to the currently selected course, or default to BSCS
-    const targetProgram = selectedCourse !== 'All' ? selectedCourse : 'BSCS';
-    formData.append('program_code', targetProgram);
+    // Fix 1 — Ask for program name before importing
+    let targetProgram = selectedCourse !== 'All' ? selectedCourse : null;
+    
+    if (!targetProgram) {
+      targetProgram = window.prompt("Please enter the Program Name (e.g., BSIT, BSCE, BSCS):", "BSCS");
+      if (!targetProgram) {
+        addToast('Import cancelled: Program name is required.', 'warning');
+        event.target.value = '';
+        return;
+      }
+    }
+    
+    formData.append('program_code', targetProgram.toUpperCase());
 
     try {
       setIsImporting(true);
@@ -143,10 +161,15 @@ export default function Curriculum() {
       addToast(`Successfully imported ${importReport.report.length} subjects.`, 'success');
       setIsImportReviewOpen(false);
       setImportReport(null);
-      await fetchCurriculum();
-      
       if (importReport.course && importReport.course !== 'Unknown') {
         setSelectedCourse(importReport.course);
+        // We'll need to find the new block ID after re-fetching
+        const updatedBlocks = await api.get('/curriculum/blocks');
+        setBlocks(updatedBlocks);
+        const newBlock = updatedBlocks.find(b => b.program_name.includes(importReport.course) || b.program_name === importReport.summary.program_name);
+        if (newBlock) setSelectedBlock(newBlock);
+      } else {
+        await fetchCurriculum();
       }
     } catch (error) {
       addToast(error.message || 'Error committing import', 'error');
@@ -157,7 +180,7 @@ export default function Curriculum() {
 
   useEffect(() => {
     fetchCurriculum();
-  }, []);
+  }, [selectedCourse, selectedBlock]);
 
   const handleOpenModal = (item = null) => {
     if (item) {
@@ -240,27 +263,26 @@ export default function Curriculum() {
     }
   };
 
-  const handleDeleteCourse = async (courseName, e) => {
+  const handleDeleteCourse = async (blockId, programName, e) => {
     e.stopPropagation();
-    if (window.confirm(`Are you sure you want to completely delete the ${courseName} curriculum? This will remove all subjects and cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to completely delete the ${programName} curriculum? This will remove all subjects and cannot be undone.`)) {
       try {
-        await api.delete(`/curriculum/course/${courseName}`);
+        await api.delete(`/curriculum/block/${blockId}`);
         await fetchCurriculum();
-        if (selectedCourse === courseName) {
+        if (selectedBlock?.id === blockId) {
           setSelectedCourse('All');
+          setSelectedBlock(null);
         }
-        addToast(`Curriculum ${courseName} deleted successfully`, 'success');
+        addToast(`Curriculum ${programName} deleted successfully`, 'success');
       } catch (error) {
         addToast(error.message || 'Error deleting curriculum', 'error');
       }
     }
   };
 
-  const availableCourses = [...new Set(curriculum.map(s => s.course).filter(Boolean))].sort();
+  const availableCourses = [...new Set(blocks.map(b => b.program_name).filter(Boolean))].sort();
 
-  const filteredCurriculum = selectedCourse === 'All' 
-    ? curriculum 
-    : curriculum.filter(s => s.course === selectedCourse);
+  const filteredCurriculum = curriculum;
 
   const groupedByYear = {};
   filteredCurriculum.forEach(s => {
@@ -405,21 +427,22 @@ export default function Curriculum() {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
-      ) : selectedCourse === 'All' && availableCourses.length > 0 ? (
+      ) : selectedCourse === 'All' && blocks.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {availableCourses.map(course => {
-            const courseSubjects = curriculum.filter(s => s.course === course);
-            const totalUnits = courseSubjects.reduce((sum, s) => sum + (s.units || 0), 0);
+          {blocks.map(block => {
             return (
               <div 
-                key={course}
-                onClick={() => setSelectedCourse(course)}
+                key={block.id}
+                onClick={() => {
+                  setSelectedBlock(block);
+                  setSelectedCourse(block.program_name);
+                }}
                 className="bg-white rounded-[2.5rem] border border-slate-200 p-10 cursor-pointer hover:shadow-2xl shadow-sm hover:shadow-green-900/5 hover:border-green-200 transition-all duration-300 transform hover:-translate-y-2 group relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-green-50 to-transparent rounded-bl-full opacity-50 transition-transform group-hover:scale-110"></div>
                 
                 <button
-                  onClick={(e) => handleDeleteCourse(course, e)}
+                  onClick={(e) => handleDeleteCourse(block.id, block.program_name, e)}
                   className="absolute top-8 right-8 z-20 p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-all opacity-0 group-hover:opacity-100 transform hover:scale-110"
                   title="Delete Curriculum"
                 >
@@ -429,10 +452,13 @@ export default function Curriculum() {
                 <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-green-50 group-hover:border-green-100 transition-colors relative z-10 shadow-sm group-hover:shadow-green-100">
                   <BookOpen className="w-10 h-10 text-slate-400 group-hover:text-green-600 transition-colors" />
                 </div>
-                <h3 className="text-3xl font-black text-slate-800 mb-6 tracking-tight relative z-10 group-hover:text-green-700 transition-colors">{course} Curriculum</h3>
+                <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight relative z-10 group-hover:text-green-700 transition-colors truncate" title={block.program_name}>
+                  {block.program_name}
+                </h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 relative z-10">{block.academic_year}</p>
                 <div className="flex items-center space-x-3 text-xs font-black text-slate-500 uppercase tracking-wider relative z-10">
-                  <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{courseSubjects.length} Subjects</span>
-                  <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{totalUnits} Units</span>
+                  <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{block.subject_count} Subjects</span>
+                  <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{block.total_units} Units</span>
                 </div>
               </div>
             );
