@@ -4,8 +4,8 @@ from datetime import datetime
 
 class UserBase(BaseModel):
     email: EmailStr
-    first_name: str = Field(pattern=r'^[A-Za-z\s]+$')
-    last_name: str = Field(pattern=r'^[A-Za-z\s]+$')
+    first_name: str = Field(pattern=r'^[A-Za-z\s.]+$')
+    last_name: str = Field(pattern=r'^[A-Za-z\s.]+$')
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: str
     department: Optional[str] = None
@@ -13,10 +13,17 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     department: str
+    max_units: Optional[int] = 18
+    faculty_type: Optional[str] = 'full_time'
 
 class UserResponse(UserBase):
     id: int
     created_at: datetime
+    type: Optional[str] = None
+    faculty_type: Optional[str] = None
+    max_units: Optional[int] = None
+    current_units: Optional[int] = None
+    department_id: Optional[int] = None
     
     class Config:
         from_attributes = True
@@ -43,11 +50,13 @@ class ResetPassword(BaseModel):
     new_password: str
 
 class UserUpdate(BaseModel):
-    first_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s]+$')
-    last_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s]+$')
+    first_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s.]+$')
+    last_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s.]+$')
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: Optional[str] = None
     is_verified: Optional[bool] = None
+    max_units: Optional[int] = None
+    faculty_type: Optional[str] = None
 
 class DepartmentBase(BaseModel):
     name: str

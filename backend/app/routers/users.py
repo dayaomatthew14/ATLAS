@@ -57,6 +57,8 @@ def get_users(
         if faculty:
             user_dict["max_units"] = faculty.max_units
             user_dict["department_id"] = faculty.department_id
+            user_dict["type"] = faculty.type
+            user_dict["faculty_type"] = faculty.type
             # Sum units of active scheduled curriculum items for this faculty
             active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
             if active_semester:
@@ -70,6 +72,19 @@ def get_users(
                     if curriculum_item:
                         total_units += curriculum_item.units
                 user_dict["current_units"] = total_units
+        
+        # Include unavailability for the visual summary in the table
+        unavail = db.query(models.FacultyUnavailability).filter(
+            models.FacultyUnavailability.faculty_id == u.id
+        ).all()
+        user_dict["unavailability"] = [
+            {
+                "day_of_week": b.day_of_week,
+                "start_time": b.start_time.strftime("%H:%M") if b.start_time else None,
+                "end_time": b.end_time.strftime("%H:%M") if b.end_time else None
+            } for b in unavail
+        ]
+        
         result.append(user_dict)
     
     return result
@@ -113,6 +128,9 @@ def create_user(
         
     user_data = user.model_dump()
     password = user_data.pop('password')
+    max_units = user_data.pop('max_units', 18)
+    faculty_type = user_data.pop('faculty_type', 'full_time')
+    
     user_data['password_hash'] = auth.get_password_hash(password)
     user_data['is_verified'] = True # Created by admin/PC so pre-verify
     
@@ -120,6 +138,24 @@ def create_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    # Handle Faculty record creation
+    if new_user.role == 'faculty':
+        dept = db.query(models.Department).filter(
+            (models.Department.code == new_user.department) | 
+            (models.Department.name == new_user.department)
+        ).first()
+        
+        if dept:
+            new_faculty = models.Faculty(
+                user_id=new_user.id,
+                department_id=dept.id,
+                max_units=max_units if max_units else 18,
+                type=faculty_type if faculty_type else 'full_time'
+            )
+            db.add(new_faculty)
+            db.commit()
+
     return new_user
 
 @router.put("/{user_id}", response_model=schemas.UserResponse)
@@ -142,10 +178,24 @@ def update_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     update_data = user.model_dump(exclude_unset=True)
+    max_units = update_data.pop('max_units', None)
+    faculty_type = update_data.pop('faculty_type', None)
+
     for key, value in update_data.items():
         setattr(db_user, key, value)
         
     db.commit()
+
+    # Handle Faculty record update
+    if db_user.role == 'faculty':
+        faculty = db.query(models.Faculty).filter(models.Faculty.user_id == db_user.id).first()
+        if faculty:
+            if max_units is not None:
+                faculty.max_units = max_units
+            if faculty_type is not None:
+                faculty.type = faculty_type
+            db.commit()
+
     db.refresh(db_user)
     return db_user
 
