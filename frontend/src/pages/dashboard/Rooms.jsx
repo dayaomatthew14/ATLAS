@@ -139,7 +139,7 @@ export default function Rooms() {
             <div className="bg-blue-100 p-2.5 rounded-xl shadow-sm">
               <MapPin className="w-6 h-6 text-blue-700" />
             </div>
-            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Campus Resources</h2>
+            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Campus Rooms</h2>
           </div>
           <p className="text-slate-500 text-base font-medium">Manage physical spaces, laboratories, and classroom capacities for scheduling.</p>
         </div>
@@ -165,7 +165,7 @@ export default function Rooms() {
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingRoom ? 'Edit Room Configuration' : 'Register New Resource'}
+        title={editingRoom ? 'Edit Room Configuration' : 'Register New Room'}
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
@@ -230,7 +230,7 @@ export default function Rooms() {
               type="submit"
               className="px-10 py-3.5 text-sm font-black text-white bg-green-700 hover:bg-green-800 rounded-2xl shadow-lg uppercase tracking-widest transition-all transform hover:scale-105 active:scale-95"
             >
-              {editingRoom ? 'Update Resource' : 'Create Resource'}
+              {editingRoom ? 'Update Room' : 'Create Room'}
             </button>
           </div>
         </form>

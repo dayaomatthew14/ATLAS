@@ -31,9 +31,11 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('atlas_token');
+  const handleLogout = async () => {
+    try { await api.post('/auth/logout', {}); } catch {}
     localStorage.removeItem('atlas_role');
+    localStorage.removeItem('atlas_user_name');
+    localStorage.removeItem('atlas_department');
     navigate('/login');
   };
 
@@ -41,7 +43,6 @@ export default function Dashboard() {
     { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'faculty', 'student'] },
     { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'faculty', 'student'] },
     { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum', roles: ['admin', 'program_chair'] },
-    { name: 'Sections', icon: Layers, path: '/dashboard/sections', roles: ['admin', 'program_chair'] },
     { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
     { name: 'Professors', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
     { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair'] },
@@ -116,11 +117,11 @@ export default function Dashboard() {
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Account</p>
                       <p className="text-sm font-bold text-gray-700 truncate">{localStorage.getItem('atlas_user_name') || 'Program Chair'}</p>
                     </div>
-                    <button className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
+                    <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/profile'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
                       <Users className="w-4 h-4 mr-3 text-gray-400" />
                       View Profile
                     </button>
-                    <button className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
+                    <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/settings'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
                       <Folder className="w-4 h-4 mr-3 text-gray-400" />
                       Settings
                     </button>

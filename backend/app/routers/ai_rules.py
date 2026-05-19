@@ -3,13 +3,14 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, auth
 from ..database import get_db
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/ai-rules",
     tags=["AI Rules"]
 )
 
-@router.get("/", response_model=List[schemas.AIRuleResponse])
+@router.get("", response_model=List[schemas.AIRuleResponse])
 def get_rules(
     department_id: Optional[int] = None,
     db: Session = Depends(get_db),
@@ -33,19 +34,25 @@ def get_rules(
         
     return query.all()
 
-@router.post("/", response_model=schemas.AIRuleResponse)
+@router.post("", response_model=schemas.AIRuleResponse, status_code=status.HTTP_201_CREATED)
 def create_rule(
     rule: schemas.AIRuleCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'program_chair' and current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Not authorized")
-        
+    if current_user.role == 'program_chair':
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        if not dept or rule.department_id != dept.id:
+            raise HTTPException(status_code=403, detail="Can only create rules for your department")
+
     db_rule = models.AIRule(**rule.model_dump())
     db.add(db_rule)
     db.commit()
     db.refresh(db_rule)
+    log_activity(db, current_user.id, "Create AI Rule", f"Created rule: {db_rule.rule_type}", "success", department_id=db_rule.department_id) # type: ignore
     return db_rule
 
 @router.put("/{rule_id}", response_model=schemas.AIRuleResponse)
@@ -73,6 +80,7 @@ def update_rule(
         
     db.commit()
     db.refresh(db_rule)
+    log_activity(db, current_user.id, "Update AI Rule", f"Updated rule: {db_rule.rule_type}", "success", department_id=db_rule.department_id) # type: ignore
     return db_rule
 
 @router.delete("/{rule_id}")
@@ -96,4 +104,7 @@ def delete_rule(
             
     db.delete(db_rule)
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete AI Rule", f"Deleted rule: {db_rule.rule_type}", "success", department_id=db_rule.department_id) # type: ignore
+    
     return {"message": "Rule deleted successfully"}

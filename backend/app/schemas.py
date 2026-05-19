@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, computed_field
 from typing import Optional, List
 from datetime import datetime
 
@@ -12,21 +12,11 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
-    department: str
-    max_units: Optional[int] = 18
-    faculty_type: Optional[str] = 'full_time'
 
 class UserResponse(UserBase):
     id: int
     created_at: datetime
-    type: Optional[str] = None
-    faculty_type: Optional[str] = None
-    max_units: Optional[int] = None
-    current_units: Optional[int] = None
-    department_id: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):
     access_token: str
@@ -55,8 +45,6 @@ class UserUpdate(BaseModel):
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: Optional[str] = None
     is_verified: Optional[bool] = None
-    max_units: Optional[int] = None
-    faculty_type: Optional[str] = None
 
 class DepartmentBase(BaseModel):
     name: str
@@ -73,9 +61,7 @@ class DepartmentUpdate(BaseModel):
 
 class DepartmentResponse(DepartmentBase):
     id: int
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CurriculumBlockBase(BaseModel):
     program_name: str
@@ -89,9 +75,7 @@ class CurriculumBlockCreate(CurriculumBlockBase):
 class CurriculumBlockResponse(CurriculumBlockBase):
     id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CurriculumBlockWithCount(CurriculumBlockResponse):
     subject_count: int
@@ -110,6 +94,7 @@ class CurriculumBase(BaseModel):
     lec_units: int = 0
     lab_units: int = 0
     pre_requisite: Optional[str] = None
+    is_major: bool = True
 
 class CurriculumCreate(CurriculumBase):
     pass
@@ -127,12 +112,11 @@ class CurriculumUpdate(BaseModel):
     lec_units: Optional[int] = None
     lab_units: Optional[int] = None
     pre_requisite: Optional[str] = None
+    is_major: Optional[bool] = None
 
 class CurriculumResponse(CurriculumBase):
     id: int
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RoomBase(BaseModel):
     name: str
@@ -151,27 +135,33 @@ class RoomUpdate(BaseModel):
 
 class RoomResponse(RoomBase):
     id: int
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class FacultyBase(BaseModel):
-    user_id: int
-    max_units: int
-    department_id: int
+    first_name: str
+    last_name: str
+    email: Optional[EmailStr] = None
+    contact_number: Optional[str] = None
+    max_units: int = 18
+    type: str = 'full_time'
+    department_id: Optional[int] = None
 
 class FacultyCreate(FacultyBase):
     pass
 
 class FacultyUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    contact_number: Optional[str] = None
     max_units: Optional[int] = None
+    type: Optional[str] = None
     department_id: Optional[int] = None
 
 class FacultyResponse(FacultyBase):
     id: int
-
-    class Config:
-        from_attributes = True
+    current_units: Optional[int] = 0
+    model_config = ConfigDict(from_attributes=True)
 
 class SemesterBase(BaseModel):
     academic_year: str
@@ -188,9 +178,7 @@ class SemesterUpdate(BaseModel):
 
 class SemesterResponse(SemesterBase):
     id: int
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 from datetime import time
 
@@ -225,9 +213,27 @@ class ScheduleResponse(ScheduleBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    
+    # Relationships for UI display
+    curriculum: Optional[CurriculumResponse] = None
+    room: Optional[RoomResponse] = None
+    
+    @computed_field
+    @property
+    def subject(self) -> str:
+        return self.curriculum.name if self.curriculum else "Unknown"
+        
+    @computed_field
+    @property
+    def startTime(self) -> str:
+        return self.start_time.strftime("%H:%M") if self.start_time else "00:00"
+        
+    @computed_field
+    @property
+    def endTime(self) -> str:
+        return self.end_time.strftime("%H:%M") if self.end_time else "00:00"
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SystemLogBase(BaseModel):
     action: str
@@ -236,14 +242,30 @@ class SystemLogBase(BaseModel):
 
 class SystemLogCreate(SystemLogBase):
     user_id: Optional[int] = None
+    department_id: Optional[int] = None
 
 class SystemLogResponse(SystemLogBase):
     id: int
     user_id: Optional[int]
+    department_id: Optional[int]
     timestamp: datetime
+    
+    @computed_field
+    @property
+    def message(self) -> str:
+        return self.action
+        
+    @computed_field
+    @property
+    def time(self) -> str:
+        return self.timestamp.strftime("%Y-%m-%d %H:%M")
+        
+    @computed_field
+    @property
+    def type(self) -> str:
+        return "USER_ACTIVITY" # Default type for UI mapping
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class AIRuleBase(BaseModel):
     department_id: int
@@ -264,9 +286,7 @@ class AIRuleUpdate(BaseModel):
 class AIRuleResponse(AIRuleBase):
     id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- Faculty Unavailability ---
 class FacultyUnavailabilityCreate(BaseModel):
@@ -280,32 +300,9 @@ class FacultyUnavailabilityResponse(BaseModel):
     day_of_week: str
     start_time: time
     end_time: time
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
 
-# --- Section ---
-class SectionCreate(BaseModel):
-    name: str
-    year_level: str
-    student_count: int = 0
-    curriculum: str
-
-class SectionUpdate(BaseModel):
-    name: Optional[str] = None
-    year_level: Optional[str] = None
-    student_count: Optional[int] = None
-    curriculum: Optional[str] = None
-
-class SectionResponse(BaseModel):
-    id: int
-    name: str
-    year_level: str
-    student_count: int
-    curriculum: str
-
-    class Config:
-        from_attributes = True
 
 class BulkImportRequest(BaseModel):
     program_name: str
@@ -332,6 +329,7 @@ class ImportResponse(BaseModel):
     zones: Optional[list] = None
     report: Optional[list] = None
     errors: Optional[list] = None
+    course: Optional[str] = None
 
 # --- Conflict Validation ---
 class ConflictValidate(BaseModel):
@@ -346,5 +344,17 @@ class ConflictValidate(BaseModel):
 
 class ConflictDetail(BaseModel):
     type: str # 'room', 'faculty', 'section'
-    existing_schedule: ScheduleResponse
+    existing_schedule: Optional[ScheduleResponse] = None
     message: str
+
+class SubjectOfferingCreate(BaseModel):
+    faculty_id: int
+    curriculum_id: int
+    semester_id: int
+
+class SubjectOfferingResponse(BaseModel):
+    id: int
+    faculty_id: int
+    curriculum_id: int
+    semester_id: int
+    model_config = ConfigDict(from_attributes=True)

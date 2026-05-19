@@ -66,11 +66,11 @@ export default function SystemLogs() {
 
   const filteredLogs = logs.filter(log => {
     const matchesSearch = log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (log.user?.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesFilter = filterType === 'All Types' || 
-                         (filterType === 'AI Generation' && log.activity_type?.includes('AI')) ||
-                         (filterType === 'User Activity' && !log.activity_type?.includes('AI')) ||
-                         (filterType === 'Errors' && log.status === 'error');
+      (log.user?.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesFilter = filterType === 'All Types' ||
+      (filterType === 'AI Generation' && log.activity_type?.includes('AI')) ||
+      (filterType === 'User Activity' && !log.activity_type?.includes('AI')) ||
+      (filterType === 'Errors' && log.status === 'error');
     return matchesSearch && matchesFilter;
   });
 
@@ -86,14 +86,14 @@ export default function SystemLogs() {
           <p className="text-slate-500 font-medium mt-1">Audit trail and AI generation history for the institution.</p>
         </div>
         <div className="flex items-center space-x-3">
-          <button 
+          <button
             onClick={handleExport}
             className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center shadow-sm"
           >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </button>
-          <button 
+          <button
             onClick={handleClear}
             className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors flex items-center shadow-sm"
           >
@@ -107,16 +107,16 @@ export default function SystemLogs() {
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Search logs by message or user..." 
+          <input
+            type="text"
+            placeholder="Search logs by message or user..."
             className="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent focus:bg-white focus:border-green-600 rounded-xl outline-none transition-all text-sm font-medium"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
         <div className="flex items-center space-x-2 w-full md:w-auto">
-          <select 
+          <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
             className="flex-1 md:w-40 px-4 py-3 bg-slate-50 border-transparent rounded-xl text-sm font-bold text-slate-600 outline-none cursor-pointer"
@@ -185,7 +185,7 @@ export default function SystemLogs() {
             </tbody>
           </table>
         </div>
-        
+
         {filteredLogs.length === 0 && (
           <div className="py-20 text-center">
             <Activity className="w-16 h-16 text-slate-100 mx-auto mb-4" />

@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
@@ -18,8 +18,13 @@ async function request(endpoint, options = {}) {
     const response = await fetch(`${BASE_URL}${endpoint}`, config);
     
     if (response.status === 401) {
-      localStorage.removeItem('atlas_token');
       localStorage.removeItem('atlas_role');
+      localStorage.removeItem('atlas_user_name');
+      localStorage.removeItem('atlas_department');
+      // Don't try to removeItem('atlas_token') — it's an HttpOnly cookie
+      try {
+        await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+      } catch (e) {}
       window.location.href = '/login';
       return;
     }
@@ -37,7 +42,10 @@ async function request(endpoint, options = {}) {
       } else if (data.detail) {
         errorMessage = data.detail;
       }
-      throw new Error(errorMessage);
+      const errorObj = new Error(errorMessage);
+      errorObj.status = response.status;
+      errorObj.response = { status: response.status, data };
+      throw errorObj;
     }
     
     return data;
@@ -49,6 +57,7 @@ async function request(endpoint, options = {}) {
 
 export const api = {
   get: (endpoint) => request(endpoint, { method: 'GET' }),
+  postForm: (endpoint, formData) => request(endpoint, { method: 'POST', body: formData }),
   post: (endpoint, body) => {
     const isFormData = body instanceof FormData;
     return request(endpoint, { 

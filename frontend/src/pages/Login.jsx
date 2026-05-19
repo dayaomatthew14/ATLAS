@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import { api } from '../utils/api';
 import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-axios.defaults.withCredentials = true; // Send HttpOnly cookies automatically
 
 export default function Login() {
   const location = useLocation();
@@ -86,19 +84,17 @@ export default function Login() {
 
     try {
       if (mode === 'login') {
-        const formData = new URLSearchParams();
+        const formData = new FormData();
         formData.append('username', email);
         formData.append('password', password);
         formData.append('remember_me', rememberMe);
 
-        const response = await axios.post(`${API_URL}/auth/login`, formData, {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
+        const response = await api.postForm('/auth/login', formData);
 
-        localStorage.setItem('atlas_role', response.data.role);
-        localStorage.setItem('atlas_user_name', response.data.name);
-        if (response.data.department) {
-          localStorage.setItem('atlas_department', response.data.department);
+        localStorage.setItem('atlas_role', response.role);
+        localStorage.setItem('atlas_user_name', response.name);
+        if (response.department) {
+          localStorage.setItem('atlas_department', response.department);
         }
         navigate('/dashboard');
       }
@@ -123,33 +119,31 @@ export default function Login() {
           email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role: 'program_chair', department
         };
 
-        await axios.post(`${API_URL}/auth/register`, payload);
+        await api.post('/auth/register', payload);
         setSuccess('A verification code has been sent to your email and phone. Please confirm before logging in.');
         setMode('verify');
       }
       else if (mode === 'verify') {
-        await axios.post(`${API_URL}/auth/verify-email`, { email, otp });
+        await api.post('/auth/verify-email', { email, otp });
 
         // Auto-login after successful verification
-        const formData = new URLSearchParams();
+        const formData = new FormData();
         formData.append('username', email);
         formData.append('password', password);
         formData.append('remember_me', rememberMe);
 
-        const response = await axios.post(`${API_URL}/auth/login`, formData, {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
+        const response = await api.postForm('/auth/login', formData);
 
-        localStorage.setItem('atlas_role', response.data.role);
-        localStorage.setItem('atlas_user_name', response.data.name);
-        if (response.data.department) {
-          localStorage.setItem('atlas_department', response.data.department);
+        localStorage.setItem('atlas_role', response.role);
+        localStorage.setItem('atlas_user_name', response.name);
+        if (response.department) {
+          localStorage.setItem('atlas_department', response.department);
         }
         navigate('/dashboard');
       }
       else if (mode === 'forgot_email') {
-        const response = await axios.post(`${API_URL}/auth/forgot-password`, { email });
-        setSuccess(response.data.msg);
+        const response = await api.post('/auth/forgot-password', { email });
+        setSuccess(response.msg);
         setMode('forgot_otp');
       }
       else if (mode === 'forgot_otp') {
@@ -162,7 +156,7 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        await axios.post(`${API_URL}/auth/reset-password`, { email, otp, new_password: password });
+        await api.post('/auth/reset-password', { email, otp, new_password: password });
         setSuccess('Password reset successfully! You can now log in.');
         setMode('login');
       }
@@ -180,7 +174,7 @@ export default function Login() {
           </div>
         );
       } else {
-        setError(err.response?.data?.detail || 'An error occurred. Please try again.');
+        setError(err.response?.data?.detail || err.message || 'An error occurred. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -196,8 +190,8 @@ export default function Login() {
     setError('');
     setSuccess('');
     try {
-      const response = await axios.post(`${API_URL}/auth/resend-verification`, { email });
-      setSuccess(response.data.msg);
+      const response = await api.post('/auth/resend-verification', { email });
+      setSuccess(response.msg);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to resend code.');
     } finally {

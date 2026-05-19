@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
+
+const formatSemesterTerm = (term) => {
+  if (!term) return '';
+  if (term === '1st') return '1st Semester';
+  if (term === '2nd') return '2nd Semester';
+  if (term === '3rd semester') return '3rd Semester';
+  return term;
+};
 
 export default function Schedules() {
   const { addToast } = useToast();
@@ -15,6 +23,87 @@ export default function Schedules() {
   const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
+
+  const [activeSemesterId, setActiveSemesterId] = useState(null);
+  
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [semesters, setSemesters] = useState([]);
+  const [departmentSections, setDepartmentSections] = useState([]);
+  const [selectedGenSemester, setSelectedGenSemester] = useState('');
+  const [selectedGenProfessors, setSelectedGenProfessors] = useState([]);
+  const [generationResults, setGenerationResults] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const [globalSchedules, setGlobalSchedules] = useState([]);
+  const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+
+  const fetchGenerateData = async () => {
+    try {
+      const [sems, secs] = await Promise.all([
+        api.get('/semesters').catch(() => []),
+        api.get('/sections').catch(() => [])
+      ]);
+      setSemesters(sems || []);
+      const active = sems.find(s => s.is_active);
+      if (active) {
+        setSelectedGenSemester(active.id);
+      }
+      setDepartmentSections(secs || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchGlobalSchedules = async (semesterId) => {
+    if (!semesterId) return;
+    setIsGlobalLoading(true);
+    try {
+      const data = await api.get(`/ai-scheduler/global-schedule?semester_id=${semesterId}`);
+      setGlobalSchedules(data);
+    } catch (e) {
+      addToast('Failed to fetch global schedule', 'error');
+    } finally {
+      setIsGlobalLoading(false);
+    }
+  };
+
+  const [selectedProfessorFilter, setSelectedProfessorFilter] = useState('');
+  const [allTeachers, setAllTeachers] = useState([]);
+
+  useEffect(() => {
+    api.get('/semesters').then(sems => {
+      const active = sems.find(s => s.is_active);
+      if (active) {
+        setActiveSemesterId(active.id);
+        fetchGlobalSchedules(active.id);
+      }
+    }).catch(console.error);
+
+    api.get('/professors').then(data => {
+      setAllTeachers(Array.isArray(data) ? data : []);
+    }).catch(console.error);
+  }, []);
+
+  const handleGenerateSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedGenSemester) return addToast('Select a semester', 'error');
+    if (selectedGenProfessors.length === 0) return addToast('Select at least one professor', 'error');
+
+    setIsGenerating(true);
+    try {
+      const res = await api.post(`/ai-scheduler/generate/${selectedGenSemester}`, {
+        faculty_ids: selectedGenProfessors
+      });
+      setGenerationResults(res);
+      addToast('Generation complete', 'success');
+      fetchSchedules();
+      fetchGlobalSchedules(selectedGenSemester);
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Generation failed', 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
   const canManage = ['admin', 'program_chair'].includes(role);
@@ -80,7 +169,7 @@ export default function Schedules() {
       const [subjectsData, roomsData, teachersData] = await Promise.all([
         api.get('/curriculum').catch(() => []),
         api.get('/rooms').catch(() => []),
-        api.get('/users?role=faculty').catch(() => [])
+        api.get('/professors').catch(() => [])
       ]);
       setSubjects(subjectsData || []);
       setRooms(roomsData || []);
@@ -132,8 +221,22 @@ export default function Schedules() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!activeSemesterId) {
+      addToast('No active semester found', 'error');
+      return;
+    }
     try {
-      await api.post('/schedules', formData);
+      const submissionData = {
+        semester_id: activeSemesterId,
+        curriculum_id: parseInt(formData.subject_id),
+        room_id: parseInt(formData.room_id),
+        faculty_id: parseInt(formData.faculty_id),
+        day_of_week: formData.day_of_week,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        section: formData.section
+      };
+      await api.post('/schedules', submissionData);
       fetchSchedules();
       setIsModalOpen(false);
       addToast('Schedule created successfully', 'success');
@@ -220,97 +323,123 @@ export default function Schedules() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-full mx-auto px-6 sm:px-10 lg:px-12 py-8 w-full relative">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-
-          {/* Calendar Toolbar */}
-          <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-            <div className="flex space-x-2">
-              <button
-                onClick={prevMonth}
-                className="px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-600 text-sm hover:bg-gray-50 flex items-center transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4 mr-1" /> Previous
-              </button>
+        
+        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden p-8">
+          <div className="flex justify-between items-center mb-8">
+            <div className="flex-1">
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter leading-none mb-2">Department Faculty Schedules</h3>
+              <p className="text-slate-400 font-medium text-sm">Weekly view of schedules for the professors in your department.</p>
             </div>
+            <div className="flex gap-4 items-center">
+              {/* Professor Filter */}
+              <div className="min-w-[280px] relative group">
+                <select
+                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200/50 rounded-2xl text-[11px] font-black text-slate-700 focus:ring-2 focus:ring-green-500 uppercase tracking-[0.2em] shadow-sm appearance-none cursor-pointer transition-all hover:bg-slate-100/50 pr-12"
+                  value={selectedProfessorFilter}
+                  onChange={(e) => setSelectedProfessorFilter(e.target.value)}
+                >
+                  <option value="">All Faculty</option>
+                  {allTeachers.map(t => (
+                    <option key={t.id} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-slate-600 transition-colors">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
+              </div>
 
-            <h3 className="text-xl font-bold text-gray-800">
-              {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-            </h3>
-
-            <div className="flex space-x-2 items-center">
-              <button
-                onClick={nextMonth}
-                className="px-3 py-1.5 border border-gray-200 rounded bg-white text-gray-600 text-sm hover:bg-gray-50 flex items-center mr-2 transition-colors"
-              >
-                Next <ChevronRight className="w-4 h-4 ml-1" />
-              </button>
               {canManage && (
-                <>
+                <div className="flex gap-3 items-center ml-2">
                   <button
-                    onClick={() => setIsAIModalOpen(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white rounded-lg text-sm font-bold flex items-center shadow-md transition-transform transform hover:scale-105 mr-2"
+                    onClick={() => {
+                      fetchGenerateData();
+                      setIsGenerateModalOpen(true);
+                      setGenerationResults(null);
+                    }}
+                    className="bg-green-700 hover:bg-green-800 text-white px-8 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
                   >
-                    <Sparkles className="w-4 h-4 mr-1.5" /> Auto-Generate
+                    <Sparkles className="w-4 h-4 mr-2" /> Generate
                   </button>
                   <button
                     onClick={handleOpenModal}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium flex items-center shadow-sm transition-colors"
+                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[11px] font-black flex items-center shadow-sm transition-colors uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
                   >
-                    <Plus className="w-4 h-4 mr-1" /> Create Manual
+                    <Plus className="w-4 h-4 mr-1" /> Create
                   </button>
-                </>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Calendar Grid */}
-          <div className="p-4">
-            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="bg-gray-50 py-2 text-center text-sm font-bold text-gray-600">{day}</div>
-              ))}
 
-              {renderCalendarDays().map((cell, i) => {
-                const daySchedules = schedules.filter(s =>
-                  cell.date &&
-                  s.date.getDate() === cell.day &&
-                  s.date.getMonth() === currentDate.getMonth() &&
-                  s.date.getFullYear() === currentDate.getFullYear()
-                );
+          <div className="mt-12 mb-8"></div>
 
-                return (
-                  <div key={i} className={`bg-white min-h-[100px] p-2 relative group transition-colors ${cell.currentMonth ? 'hover:bg-gray-50' : 'bg-gray-50'}`}>
-                    <span className={`absolute top-2 right-2 text-xs font-medium ${cell.currentMonth ? 'text-gray-400' : 'text-gray-300'}`}>
-                      {cell.day}
-                    </span>
+          {isGlobalLoading ? (
+            <div className="flex justify-center py-20"><Sparkles className="w-8 h-8 text-indigo-400 animate-spin" /></div>
+          ) : (
+            <div className="flex relative mt-16">
+              {/* Time column */}
+              <div className="w-16 flex flex-col relative border-r border-slate-100 pr-6" style={{ height: '1100px' }}>
+                {Array.from({length: 11}).map((_, i) => (
+                  <div key={i} className="absolute w-full text-right text-xs font-black text-slate-400" style={{ top: `${(i/10)*100}%`, transform: 'translateY(-50%)' }}>
+                    {7 + i}:30
+                  </div>
+                ))}
+              </div>
+              
+              {/* Days columns */}
+              <div className="flex-1 flex relative" style={{ height: '1100px' }}>
+                {/* Grid lines */}
+                {Array.from({length: 11}).map((_, i) => (
+                  <div key={`line-${i}`} className="absolute w-full border-t border-slate-100/50" style={{ top: `${(i/10)*100}%` }} />
+                ))}
+                
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
+                  let dayScheds = globalSchedules.filter(s => s.day_of_week === day || s.day_of_week === day.substring(0,3));
+                  if (selectedProfessorFilter) {
+                      dayScheds = dayScheds.filter(s => s.faculty_name === selectedProfessorFilter);
+                  }
 
-                    <div className="mt-6 space-y-1">
-                      {daySchedules.map(schedule => (
-                        <div
-                          key={schedule.id}
-                          className={`text-xs p-1.5 rounded shadow-sm cursor-pointer transition-all border ${schedule.isConflicting
-                            ? 'bg-red-50 border-red-300 text-red-800 hover:bg-red-100 ring-2 ring-red-500/20'
-                            : schedule.isAI
-                              ? 'bg-indigo-50 border-indigo-300 text-indigo-800 hover:bg-indigo-100 ring-1 ring-indigo-400/50'
-                              : 'bg-yellow-100 border-yellow-300 text-yellow-800 hover:bg-yellow-200'
-                            }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="font-bold truncate">{schedule.subject}</div>
-                            <div className="flex items-center">
-                              {schedule.isAI && <Sparkles className="w-2.5 h-2.5 text-indigo-500 mr-1" />}
-                              {schedule.isConflicting && <AlertTriangle className="w-3 h-3 text-red-600 ml-1" />}
+                  return (
+                    <div key={day} className="flex-1 relative border-r border-slate-100/50 last:border-r-0">
+                      <div className="absolute -top-12 w-full text-center text-xs font-black text-slate-400 uppercase tracking-[0.3em]">{day}</div>
+                      {dayScheds.map(sched => {
+                        const [h, m] = sched.start_time.split(':').map(Number);
+                        const [eh, em] = sched.end_time.split(':').map(Number);
+                        const start = h + m / 60;
+                        const end = eh + em / 60;
+                        if (start < 7.5 || start > 17.5) return null;
+                        const top = ((start - 7.5) / 10) * 100;
+                        const height = ((end - start) / 10) * 100;
+                        
+                        let colorClass = 'bg-slate-50 border-slate-200 text-slate-700';
+                        const dName = (sched.department_name || '').toUpperCase();
+                        if (dName.includes('CAST')) colorClass = 'bg-green-50 border-green-200 text-green-700';
+                        else if (dName.includes('CBMA')) colorClass = 'bg-blue-50 border-blue-200 text-blue-700';
+                        else if (dName.includes('CVMAS')) colorClass = 'bg-amber-50 border-amber-200 text-amber-700';
+                        else if (dName.includes('COED')) colorClass = 'bg-purple-50 border-purple-200 text-purple-700';
+
+                        return (
+                          <div 
+                            key={sched.id}
+                            className={`absolute w-[calc(100%-12px)] mx-[6px] p-4 rounded-3xl border shadow-sm flex flex-col gap-2 overflow-hidden transition-all hover:scale-[1.02] hover:z-10 hover:shadow-xl cursor-default ${colorClass}`}
+                            style={{ top: `${top}%`, height: `${height}%` }}
+                          >
+                            <div className="text-[11px] font-black uppercase tracking-[0.15em] opacity-80 leading-none">{sched.subject_code}</div>
+                            <div className="font-black text-sm leading-tight tracking-tighter truncate mt-0.5">{sched.section}</div>
+                            <div className="text-[10px] font-black mt-auto opacity-70 flex items-center justify-between tracking-wide">
+                              <span className="truncate max-w-[55%]">{sched.room_name}</span>
+                              <span className="truncate max-w-[45%] text-right">{sched.faculty_name}</span>
                             </div>
                           </div>
-                          <div className="text-[10px] opacity-80">({schedule.startTime} - {schedule.endTime})</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </main>
 
@@ -494,11 +623,137 @@ export default function Schedules() {
         </form>
       </Modal>
 
-      <AIGenerationModal
-        isOpen={isAIModalOpen}
-        onClose={() => setIsAIModalOpen(false)}
-        onGenerate={handleAIGeneration}
-      />
+      <Modal
+        isOpen={isGenerateModalOpen}
+        onClose={() => setIsGenerateModalOpen(false)}
+        title="AI Schedule Generation"
+      >
+        <form onSubmit={handleGenerateSubmit} className="space-y-6">
+          {!generationResults ? (
+            <>
+              <div>
+                <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Select Semester</label>
+                <select
+                  required
+                  className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 font-bold text-slate-700"
+                  value={selectedGenSemester}
+                  onChange={e => setSelectedGenSemester(e.target.value)}
+                >
+                  <option value="">Choose a semester...</option>
+                  {semesters.map(s => <option key={s.id} value={s.id}>{s.academic_year} - {formatSemesterTerm(s.term)}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Select Professors to Schedule</label>
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl max-h-60 overflow-y-auto p-2">
+                  {allTeachers.map(prof => (
+                    <label key={prof.id} className="flex items-center p-3 hover:bg-white rounded-xl cursor-pointer transition-all gap-3 group">
+                      <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                        selectedGenProfessors.includes(prof.id) ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300 group-hover:border-slate-400'
+                      }`}>
+                        {selectedGenProfessors.includes(prof.id) && <span className="text-white text-xs font-black">✓</span>}
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        className="hidden"
+                        checked={selectedGenProfessors.includes(prof.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedGenProfessors([...selectedGenProfessors, prof.id]);
+                          else setSelectedGenProfessors(selectedGenProfessors.filter(id => id !== prof.id));
+                        }}
+                      />
+                      <span className={`text-sm font-bold ${selectedGenProfessors.includes(prof.id) ? 'text-slate-800' : 'text-slate-600'}`}>
+                        {prof.name}
+                      </span>
+                    </label>
+                  ))}
+                  {allTeachers.length === 0 && (
+                    <div className="p-4 text-center text-xs font-bold text-slate-400">No professors found.</div>
+                  )}
+                </div>
+                <div className="flex justify-end mt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setSelectedGenProfessors(allTeachers.map(t => t.id))}
+                    className="text-[10px] font-black text-green-600 uppercase tracking-widest hover:underline"
+                  >
+                    Select All
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end items-center gap-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsGenerateModalOpen(false)}
+                  className="text-[11px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-[0.25em] transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isGenerating}
+                  className="px-10 py-3 text-[13px] font-black text-white bg-[#1a6b3a] hover:bg-[#14522d] rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all disabled:opacity-50 flex items-center"
+                >
+                  {isGenerating ? <Sparkles className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                  {isGenerating ? 'Generating...' : 'Start Engine'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-6 animate-in zoom-in-95 duration-300">
+              <div className="text-center bg-green-50 rounded-[2rem] p-8 border border-green-100">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm text-green-600 mb-4">
+                  <Sparkles className="w-8 h-8" />
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-2">Generation Complete</h3>
+                <p className="text-sm font-bold text-slate-600">
+                  <span className="text-green-700 text-lg font-black">{generationResults.generated}</span> schedules generated successfully.
+                </p>
+                <p className="text-sm font-bold text-slate-600">
+                  <span className="text-rose-600 text-lg font-black">{generationResults.unplaced_count}</span> subjects unplaced.
+                </p>
+                <p className="text-xs font-bold text-slate-500 mt-2">
+                  Skipped GenEd: {generationResults.skipped_gened}
+                </p>
+              </div>
+
+              {generationResults.unplaced_items?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-black text-rose-600 uppercase tracking-[0.2em] mb-4">Unplaced Subjects</h4>
+                  <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                    {generationResults.unplaced_items.map((item, idx) => (
+                      <div key={idx} className="bg-rose-50/50 border border-rose-100 rounded-2xl p-4 flex gap-4">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-rose-500 shadow-sm shrink-0 font-black text-xs">
+                          {item.subject}
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-slate-900 leading-tight">{item.section}</p>
+                          <p className="text-xs font-bold text-rose-600 mt-1">{item.reason}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex justify-center border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGenerateModalOpen(false);
+                    setGenerationResults(null);
+                  }}
+                  className="px-10 py-3 text-[13px] font-black text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-full uppercase tracking-[0.15em] transition-all"
+                >
+                  Close & View Schedule
+                </button>
+              </div>
+            </div>
+          )}
+        </form>
+      </Modal>
     </>
   );
 }

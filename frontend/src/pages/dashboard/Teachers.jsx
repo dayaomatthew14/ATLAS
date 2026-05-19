@@ -29,6 +29,14 @@ export default function Teachers() {
   });
   const [selectedDays, setSelectedDays] = useState([]);
   const [customRanges, setCustomRanges] = useState({}); // { 'Mon': { start: '07:30', end: '17:30', active: false } }
+  
+  const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
+  const [selectedTeacherForSubjects, setSelectedTeacherForSubjects] = useState(null);
+  const [curriculumSubjects, setCurriculumSubjects] = useState([]);
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
+  const [courseCodeFilter, setCourseCodeFilter] = useState('All');
+  const [semesterFilter, setSemesterFilter] = useState('1st');
+  const [activeSemester, setActiveSemester] = useState(null);
 
   const columns = [
     {
@@ -88,6 +96,23 @@ export default function Teachers() {
       )
     },
     {
+      key: 'subject_offerings',
+      label: 'Subject Offerings',
+      render: (item) => (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-black text-slate-800">
+            {item.subject_offerings?.length || 0} Subjects
+          </span>
+          <button 
+            onClick={() => handleOpenSubjectModal(item)}
+            className="text-[9px] bg-green-50 text-green-700 px-2 py-1 rounded font-black uppercase tracking-widest hover:bg-green-100 transition-colors w-fit"
+          >
+            Manage Subjects
+          </button>
+        </div>
+      )
+    },
+    {
       key: 'availability',
       label: 'Availability Status',
       render: (item) => {
@@ -141,18 +166,106 @@ export default function Teachers() {
     setIsAvailabilityModalOpen(true);
     setIsAddingUnavailability(false);
     try {
-      const data = await api.get(`/users/${teacher.id}/unavailability`).catch(() => []);
+      const data = await api.get(`/professors/${teacher.id}/unavailability`).catch(() => []);
       setUnavailability(data);
     } catch (e) {
       setUnavailability([]);
     }
   };
 
+  const handleOpenSubjectModal = async (teacher) => {
+    setSelectedTeacherForSubjects(teacher);
+    setIsSubjectModalOpen(true);
+    setCourseCodeFilter('All');
+    setSemesterFilter('1st');
+    try {
+      const semData = await api.get('/semesters');
+      const active = semData.find(s => s.is_active);
+      setActiveSemester(active || null);
+      
+      if (active) {
+        const offerings = await api.get(`/subject-offerings?semester_id=${active.id}`).catch(() => []);
+        const teacherOfferings = offerings.filter(o => o.faculty_id === (teacher.faculty_id || teacher.id));
+        setTeacherSubjects(teacherOfferings);
+      }
+
+      const curData = await api.get('/curriculum');
+      setCurriculumSubjects(Array.isArray(curData) ? curData : []);
+    } catch (e) {
+      console.error(e);
+      addToast('Error fetching data for subjects', 'error');
+    }
+  };
+
+  const handleToggleSubject = async (subject) => {
+    if (!activeSemester) {
+      addToast('No active semester found. Please set an active semester first.', 'error');
+      return;
+    }
+
+    const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === subject.id);
+    
+    try {
+      if (isAssigned) {
+        const offering = teacherSubjects.find(ts => ts.curriculum_id === subject.id);
+        if (offering) {
+          await api.delete(`/subject-offerings/${offering.id}`);
+          setTeacherSubjects(teacherSubjects.filter(ts => ts.id !== offering.id));
+          
+          setTeachers(teachers.map(t => {
+            if (t.id === selectedTeacherForSubjects.id) {
+              const newOfferings = (t.subject_offerings || []).filter(o => o.id !== offering.id);
+              const updatedUnits = Math.max(0, (t.current_units || 0) - subject.units);
+              return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
+            }
+            return t;
+          }));
+          addToast('Subject removed', 'success');
+        }
+      } else {
+        const res = await api.post('/subject-offerings', {
+          faculty_id: selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id,
+          curriculum_id: subject.id,
+          semester_id: activeSemester.id
+        });
+        setTeacherSubjects([...teacherSubjects, res]);
+        
+        setTeachers(teachers.map(t => {
+            if (t.id === selectedTeacherForSubjects.id) {
+              const newOfferings = [...(t.subject_offerings || []), res];
+              const updatedUnits = (t.current_units || 0) + subject.units;
+              return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
+            }
+            return t;
+        }));
+        addToast('Subject added', 'success');
+      }
+    } catch (error) {
+      addToast(error.message || 'Failed to toggle subject', 'error');
+    }
+  };
+
   const fetchTeachers = async () => {
     setIsLoading(true);
     try {
-      const data = await api.get('/users/?role=faculty');
-      setTeachers(Array.isArray(data) ? data : []);
+      const data = await api.get('/professors');
+      
+      let offerings = [];
+      try {
+          const sems = await api.get('/semesters');
+          const activeSem = sems.find(s => s.is_active);
+          if (activeSem) {
+            offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(()=>[]);
+          }
+      } catch (e) {
+          console.error('Could not fetch offerings', e);
+      }
+      
+      const enrichedData = (Array.isArray(data) ? data : []).map(t => ({
+         ...t,
+         subject_offerings: offerings.filter(o => o.faculty_id === (t.faculty_id || t.id))
+      }));
+      setTeachers(enrichedData);
     } catch (error) {
       console.error('Failed to fetch teachers', error);
       setTeachers([]);
@@ -237,31 +350,36 @@ export default function Teachers() {
     try {
       let newUser;
       if (editingTeacher) {
-        newUser = await api.put(`/users/${editingTeacher.id}/`, submissionData);
+        newUser = await api.put(`/professors/${editingTeacher.id}/`, submissionData);
         
         // Clear existing unavailability for this teacher to sync with new selection
-        const existing = await api.get(`/users/${editingTeacher.id}/unavailability`);
+        const existing = await api.get(`/professors/${editingTeacher.id}/unavailability`);
         if (Array.isArray(existing)) {
           for (const item of existing) {
             try {
-              await api.delete(`/users/${editingTeacher.id}/unavailability/${item.id}`);
+              await api.delete(`/professors/${editingTeacher.id}/unavailability/${item.id}`);
             } catch (err) {
               console.error('Failed to clear old availability block', item.id, err);
             }
           }
         }
       } else {
-        newUser = await api.post('/users/', submissionData);
+        newUser = await api.post('/professors/', submissionData);
       }
 
       // Save the new set of unavailability records
       if (finalUnavailability.length > 0) {
-        for (const block of finalUnavailability) {
+        for (const u of finalUnavailability) {
           try {
-            await api.post(`/users/${newUser.id}/unavailability`, block);
+            await api.post(
+              `/professors/${newUser.id}/unavailability`, 
+              { day_of_week: u.day_of_week,
+                start_time: u.start_time, 
+                end_time: u.end_time }
+            );
           } catch (err) {
-            console.error('Failed to save unavailability block', block, err);
-            addToast(`Failed to save unavailability for ${block.day_of_week}`, 'error');
+            console.error('Failed to save unavailability block', u, err);
+            addToast(`Failed to save unavailability for ${u.day_of_week}`, 'error');
           }
         }
       }
@@ -277,7 +395,7 @@ export default function Teachers() {
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this teacher?')) {
       try {
-        await api.delete(`/users/${id}`);
+        await api.delete(`/professors/${id}`);
         fetchTeachers();
         addToast('Teacher removed successfully', 'success');
       } catch (error) {
@@ -288,7 +406,7 @@ export default function Teachers() {
 
   const handleRemoveUnavailability = async (blockId) => {
     try {
-      await api.delete(`/users/${selectedTeacher.id}/unavailability/${blockId}`);
+      await api.delete(`/professors/${selectedTeacher.id}/unavailability/${blockId}`);
       setUnavailability(prev => prev.filter(b => b.id !== blockId));
       addToast('Blocked time removed', 'success');
     } catch (error) {
@@ -299,7 +417,7 @@ export default function Teachers() {
   const handleAddUnavailability = async (e) => {
     e.preventDefault();
     try {
-      const data = await api.post(`/users/${selectedTeacher.id}/unavailability`, newUnavail);
+      const data = await api.post(`/professors/${selectedTeacher.id}/unavailability`, newUnavail);
       setUnavailability(prev => [...prev, data]);
       setIsAddingUnavailability(false);
       addToast('Blocked time added', 'success');
@@ -649,6 +767,12 @@ export default function Teachers() {
                           </p>
                         </div>
                       </div>
+                      <button 
+                        onClick={() => handleRemoveUnavailability(block.id)}
+                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -656,14 +780,182 @@ export default function Teachers() {
             </div>
           </div>
 
-          {/* Read-only view footer */}
-          <div className="pt-6 border-t border-slate-100 text-center">
-            <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">
-              To edit availability, use the action menu in the main list
-            </p>
+          <div className="pt-6 border-t border-slate-100">
+            {!isAddingUnavailability ? (
+              <button
+                type="button"
+                onClick={() => setIsAddingUnavailability(true)}
+                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-slate-500 font-black text-xs uppercase tracking-widest hover:border-green-400 hover:text-green-600 hover:bg-green-50 transition-all flex items-center justify-center"
+              >
+                <Plus className="w-4 h-4 mr-2" /> Add Blocked Window
+              </button>
+            ) : (
+              <form onSubmit={handleAddUnavailability} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4 animate-in slide-in-from-top-2">
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Day</label>
+                    <select 
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
+                      value={newUnavail.day_of_week}
+                      onChange={(e) => setNewUnavail({...newUnavail, day_of_week: e.target.value})}
+                    >
+                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">From</label>
+                    <input 
+                      type="time" 
+                      required
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
+                      value={newUnavail.start_time}
+                      onChange={(e) => setNewUnavail({...newUnavail, start_time: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">To</label>
+                    <input 
+                      type="time" 
+                      required
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
+                      value={newUnavail.end_time}
+                      onChange={(e) => setNewUnavail({...newUnavail, end_time: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-1 bg-green-700 hover:bg-green-800 text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                  >
+                    Save Window
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingUnavailability(false)}
+                    className="flex-1 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       </Modal>
+      {/* Subject Offerings Modal */}
+      <Modal
+        isOpen={isSubjectModalOpen}
+        onClose={() => setIsSubjectModalOpen(false)}
+        title={`Assign Subjects: ${selectedTeacherForSubjects?.name}`}
+        maxWidth="max-w-4xl"
+      >
+        <div className="space-y-6 max-h-[80vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
+          
+          {/* Filters */}
+          <div className="flex gap-4 mb-4">
+             <div className="flex-1">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Semester</label>
+                <select 
+                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                  value={semesterFilter}
+                  onChange={(e) => setSemesterFilter(e.target.value)}
+                >
+                  <option value="1st">1st Semester</option>
+                  <option value="2nd">2nd Semester</option>
+                  <option value="3rd">3rd Semester</option>
+                </select>
+             </div>
+             <div className="flex-1">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Course Code (Type)</label>
+                <select 
+                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                  value={courseCodeFilter}
+                  onChange={(e) => setCourseCodeFilter(e.target.value)}
+                >
+                  <option value="All">All Course Codes</option>
+                  <option value="A">A - Lecture</option>
+                  <option value="B">B - Laboratory</option>
+                  <option value="C">C - Combination</option>
+                </select>
+             </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <table className="w-full text-left text-sm border-collapse">
+               <thead>
+                 <tr className="bg-slate-50">
+                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest w-12 text-center">Assign</th>
+                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Code</th>
+                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Subject Name</th>
+                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Type</th>
+                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest text-center">Units</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-slate-100">
+                 {curriculumSubjects.filter(sub => {
+                    const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
+                    let matchType = true;
+                    if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
+                    else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
+                    else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
+                    
+                    return matchSem && matchType && sub.is_major;
+                 }).map(sub => {
+                   const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === sub.id);
+                   return (
+                     <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-5 py-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={isAssigned}
+                            onChange={() => handleToggleSubject(sub)}
+                            className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-5 py-4 font-bold text-slate-900">{sub.code}</td>
+                        <td className="px-5 py-4 font-medium text-slate-600">{sub.name}</td>
+                        <td className="px-5 py-4">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${sub.type === 'lecture' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                            {sub.type}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-center font-black text-slate-700">{sub.units}</td>
+                     </tr>
+                   )
+                 })}
+               </tbody>
+            </table>
+            
+            {curriculumSubjects.filter(sub => {
+               const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
+               let matchType = true;
+               if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
+               else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
+               else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
+               
+               return matchSem && matchType && sub.is_major;
+            }).length === 0 && (
+               <div className="p-8 text-center text-slate-500 font-bold text-sm">
+                 No subjects found for the selected filters.
+               </div>
+            )}
+          </div>
+          
+          <div className="pt-4 flex justify-end">
+             <button
+                onClick={() => {
+                  setIsSubjectModalOpen(false);
+                  fetchTeachers();
+                }}
+                className="px-8 py-3 text-sm font-black text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-lg uppercase tracking-widest transition-all"
+             >
+                Done
+             </button>
+          </div>
+        </div>
+      </Modal>
+
     </div>
   );
 }

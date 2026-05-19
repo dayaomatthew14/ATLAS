@@ -64,7 +64,7 @@ export default function Curriculum() {
     if (value === null || value === undefined) return '1st';
     const s = String(value).trim().toUpperCase();
     if (!s || s === 'NAN' || s === 'NONE' || s === 'N/A') return '1st';
-    if (s.includes('SUMMER') || s.includes('MIDYEAR')) return 'summer';
+    if (s.includes('3RD SEMESTER') || s.includes('MIDYEAR')) return '3rd semester';
     const m = s.match(/\b([123])\b/);
     if (m) return ({ '1': '1st', '2': '2nd', '3': '3rd' }[m[1]]);
     if (s.includes('III')) return '3rd';
@@ -302,7 +302,7 @@ export default function Curriculum() {
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${semester === '1st' ? 'bg-blue-500' : semester === '2nd' ? 'bg-indigo-500' : semester === '3rd' ? 'bg-purple-500' : 'bg-amber-500'}`}></div>
             <h4 className="font-black text-slate-800 uppercase tracking-[0.1em] text-xs">
-              {semester === 'summer' ? 'Summer Term' : `${semester} Semester`}
+              {semester === '3rd semester' ? '3rd Semester Term' : `${semester} Semester`}
             </h4>
           </div>
           <span className="bg-slate-200/50 text-slate-700 text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-wider">
@@ -501,9 +501,9 @@ export default function Curriculum() {
                 {groupedByYear[yearKey]['3rd'] && (
                   <SemesterTable semester="3rd" data={groupedByYear[yearKey]['3rd']} />
                 )}
-                {groupedByYear[yearKey]['summer'] && (
+                {groupedByYear[yearKey]['3rd semester'] && (
                   <div className="xl:col-span-2">
-                    <SemesterTable semester="summer" data={groupedByYear[yearKey]['summer']} />
+                    <SemesterTable semester="3rd semester" data={groupedByYear[yearKey]['3rd semester']} />
                   </div>
                 )}
               </div>
@@ -630,7 +630,7 @@ export default function Curriculum() {
               >
                 <option value="1st">1st Semester</option>
                 <option value="2nd">2nd Semester</option>
-                <option value="summer">Summer</option>
+                <option value="3rd semester">3rd Semester</option>
               </select>
             </div>
           </div>

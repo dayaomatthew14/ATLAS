@@ -8,7 +8,7 @@ router = APIRouter(
     tags=["Users"]
 )
 
-@router.get("/")
+@router.get("")
 def get_users(
     skip: int = 0, 
     limit: int = 100, 
@@ -33,8 +33,6 @@ def get_users(
         query = query.filter(models.User.role == role)
         
     users = query.offset(skip).limit(limit).all()
-    
-    # Enrich each user with faculty load data so the load tracker works
     result = []
     for u in users:
         user_dict = {
@@ -48,43 +46,7 @@ def get_users(
             "contact_number": u.contact_number,
             "is_verified": u.is_verified,
             "created_at": u.created_at,
-            "max_units": 18,
-            "current_units": 0,
-            "department_id": None,
         }
-        # Look up faculty record for max_units and current load
-        faculty = db.query(models.Faculty).filter(models.Faculty.user_id == u.id).first()
-        if faculty:
-            user_dict["max_units"] = faculty.max_units
-            user_dict["department_id"] = faculty.department_id
-            user_dict["type"] = faculty.type
-            user_dict["faculty_type"] = faculty.type
-            # Sum units of active scheduled curriculum items for this faculty
-            active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
-            if active_semester:
-                schedules = db.query(models.Schedule).filter(
-                    models.Schedule.faculty_id == faculty.id,
-                    models.Schedule.semester_id == active_semester.id
-                ).all()
-                total_units = 0
-                for s in schedules:
-                    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-                    if curriculum_item:
-                        total_units += curriculum_item.units
-                user_dict["current_units"] = total_units
-        
-        # Include unavailability for the visual summary in the table
-        unavail = db.query(models.FacultyUnavailability).filter(
-            models.FacultyUnavailability.faculty_id == u.id
-        ).all()
-        user_dict["unavailability"] = [
-            {
-                "day_of_week": b.day_of_week,
-                "start_time": b.start_time.strftime("%H:%M") if b.start_time else None,
-                "end_time": b.end_time.strftime("%H:%M") if b.end_time else None
-            } for b in unavail
-        ]
-        
         result.append(user_dict)
     
     return result
@@ -107,7 +69,7 @@ def get_user(
             
     return user
 
-@router.post("/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     user: schemas.UserCreate, 
     db: Session = Depends(database.get_db),
@@ -127,34 +89,10 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
         
     user_data = user.model_dump()
-    password = user_data.pop('password')
-    max_units = user_data.pop('max_units', 18)
-    faculty_type = user_data.pop('faculty_type', 'full_time')
-    
-    user_data['password_hash'] = auth.get_password_hash(password)
-    user_data['is_verified'] = True # Created by admin/PC so pre-verify
-    
     new_user = models.User(**user_data)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-
-    # Handle Faculty record creation
-    if new_user.role == 'faculty':
-        dept = db.query(models.Department).filter(
-            (models.Department.code == new_user.department) | 
-            (models.Department.name == new_user.department)
-        ).first()
-        
-        if dept:
-            new_faculty = models.Faculty(
-                user_id=new_user.id,
-                department_id=dept.id,
-                max_units=max_units if max_units else 18,
-                type=faculty_type if faculty_type else 'full_time'
-            )
-            db.add(new_faculty)
-            db.commit()
 
     return new_user
 
@@ -176,25 +114,12 @@ def update_user(
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign this role")
     elif current_user.role != 'admin' and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
     update_data = user.model_dump(exclude_unset=True)
-    max_units = update_data.pop('max_units', None)
-    faculty_type = update_data.pop('faculty_type', None)
 
     for key, value in update_data.items():
         setattr(db_user, key, value)
         
     db.commit()
-
-    # Handle Faculty record update
-    if db_user.role == 'faculty':
-        faculty = db.query(models.Faculty).filter(models.Faculty.user_id == db_user.id).first()
-        if faculty:
-            if max_units is not None:
-                faculty.max_units = max_units
-            if faculty_type is not None:
-                faculty.type = faculty_type
-            db.commit()
 
     db.refresh(db_user)
     return db_user
@@ -214,65 +139,6 @@ def delete_user(
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
     elif current_user.role != 'admin':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-             
     db.delete(db_user)
-    db.commit()
-    return None
-
-# --- Faculty Unavailability Endpoints ---
-
-@router.get("/{user_id}/unavailability", response_model=List[schemas.FacultyUnavailabilityResponse])
-def get_unavailability(
-    user_id: int,
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    blocks = db.query(models.FacultyUnavailability).filter(
-        models.FacultyUnavailability.faculty_id == user_id
-    ).all()
-    return blocks
-
-@router.post("/{user_id}/unavailability", response_model=schemas.FacultyUnavailabilityResponse, status_code=status.HTTP_201_CREATED)
-def add_unavailability(
-    user_id: int,
-    block: schemas.FacultyUnavailabilityCreate,
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    new_block = models.FacultyUnavailability(
-        faculty_id=user_id,
-        day_of_week=block.day_of_week,
-        start_time=block.start_time,
-        end_time=block.end_time
-    )
-    db.add(new_block)
-    db.commit()
-    db.refresh(new_block)
-    return new_block
-
-@router.delete("/{user_id}/unavailability/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_unavailability(
-    user_id: int,
-    block_id: int,
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-    block = db.query(models.FacultyUnavailability).filter(
-        models.FacultyUnavailability.id == block_id,
-        models.FacultyUnavailability.faculty_id == user_id
-    ).first()
-    if not block:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blocked time not found")
-    db.delete(block)
     db.commit()
     return None

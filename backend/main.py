@@ -8,9 +8,9 @@ load_dotenv()
 from app.database import engine
 from app import models
 from app.routers import (
-    auth_router, departments, curriculum, rooms, 
+    auth_router, curriculum, rooms, 
     users, schedules, semesters, faculty, ai_scheduler, logs, ai_rules,
-    notifications_router, conflicts, sections
+    notifications_router, conflicts, subject_offerings, professors
 )
 
 # Create the database tables
@@ -25,7 +25,9 @@ app.add_middleware(
         "http://localhost:5173", 
         "http://127.0.0.1:5173",
         "http://localhost:5174",
-        "http://127.0.0.1:5174"
+        "http://127.0.0.1:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ], 
     allow_credentials=True,
     allow_methods=["*"],
@@ -33,7 +35,6 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
-app.include_router(departments.router)
 app.include_router(curriculum.router)
 app.include_router(rooms.router)
 app.include_router(users.router)
@@ -45,7 +46,8 @@ app.include_router(logs.router)
 app.include_router(ai_rules.router)
 app.include_router(notifications_router.router)
 app.include_router(conflicts.router)
-app.include_router(sections.router)
+app.include_router(subject_offerings.router)
+app.include_router(professors.router)
 
 @app.get("/api/health")
 def health_check():
