@@ -122,9 +122,11 @@ def validate_schedule_conflict(
             models.FacultyUnavailability.end_time > validation_data.start_time
         ).first()
         if unavail:
-            # We don't have a schedule for unavailability, so we create a dummy Response if needed or just a message
-            # For now, let's just focus on schedule-to-schedule conflicts or handle unavail differently
-            pass # FacultyUnavailability check should probably return a different structure or we add it to messages
+            conflicts.append(schemas.ConflictDetail(
+                type="faculty_unavailability",
+                existing_schedule=None,
+                message=f"Faculty is marked unavailable on {validation_data.day_of_week} from {unavail.start_time} to {unavail.end_time}"
+            ))
 
     # C. Section Conflict
     if validation_data.section:

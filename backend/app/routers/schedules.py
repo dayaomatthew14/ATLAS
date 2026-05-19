@@ -18,7 +18,7 @@ router = APIRouter(
     tags=["Schedules"]
 )
 
-@router.get("/", response_model=List[schemas.ScheduleResponse])
+@router.get("", response_model=List[schemas.ScheduleResponse])
 def get_schedules(
     skip: int = 0, 
     limit: int = 100, 
@@ -31,7 +31,7 @@ def get_schedules(
 ):
     query = db.query(models.Schedule).join(models.Curriculum)
     
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'faculty', 'student']:
         if not current_user.department:
             return []
         dept = db.query(models.Department).filter(
@@ -64,7 +64,7 @@ def get_schedule(
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'faculty', 'student']:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
         if curriculum_item:
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
@@ -73,7 +73,7 @@ def get_schedule(
                 
     return schedule
 
-@router.post("/", response_model=schemas.ScheduleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.ScheduleResponse, status_code=status.HTTP_201_CREATED)
 def create_schedule(
     schedule: schemas.ScheduleCreate, 
     db: Session = Depends(database.get_db),
@@ -94,6 +94,9 @@ def create_schedule(
     db.add(new_schedule)
     db.commit()
     db.refresh(new_schedule)
+    
+    log_activity(db, current_user.id, "Create Schedule", f"Created schedule for {curriculum_item.code} in {new_schedule.section}", "success", department_id=curriculum_item.department_id) # type: ignore
+    
     return new_schedule
 
 @router.put("/{schedule_id}", response_model=schemas.ScheduleResponse)
@@ -126,6 +129,11 @@ def update_schedule(
         
     db.commit()
     db.refresh(db_schedule)
+    
+    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
+    item_code = curriculum_item.code if curriculum_item else "Unknown"
+    log_activity(db, current_user.id, "Update Schedule", f"Updated schedule for {item_code} in {db_schedule.section}", "success", department_id=curriculum_item.department_id if curriculum_item else None) # type: ignore
+    
     return db_schedule
 
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -151,8 +159,17 @@ def delete_schedule(
     if db_schedule.is_locked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Locked schedules cannot be deleted")
                 
+    # Get details for logging before deletion
+    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
+    section = db_schedule.section
+    dept_id = curriculum_item.department_id if curriculum_item else None
+    code = curriculum_item.code if curriculum_item else "Unknown"
+
     db.delete(db_schedule)
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete Schedule", f"Deleted schedule for {code} in {section}", "success", department_id=dept_id) # type: ignore
+    
     return None
 
 @router.get("/suggestions")
@@ -182,7 +199,7 @@ def get_schedule_suggestions(
         active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
         if not active_sem:
             return []
-        semester_id = active_sem.id
+        semester_id = active_sem.id # type: ignore
 
     from datetime import time
     TIMESLOTS = [
@@ -209,18 +226,16 @@ def get_schedule_suggestions(
             models.Schedule.faculty_id == f.id,
             models.Schedule.semester_id == semester_id
         ).all()
-        total_units = sum(
-            db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first().units
-            for s in schedules if db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-        )
+        total_units = 0
+        for s in schedules:
+            curr = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
+            if curr:
+                total_units += int(curr.units)  # type: ignore
         if (total_units + curriculum_item.units) <= f.max_units:
-            user = db.query(models.User).filter(models.User.id == f.user_id).first()
-            if user:
-                valid_faculties.append({
-                    "faculty": f,
-                    "user": user,
-                    "load_percentage": (total_units + curriculum_item.units) / f.max_units
-                })
+            valid_faculties.append({
+                "faculty": f,
+                "load_percentage": (total_units + curriculum_item.units) / f.max_units
+            })
 
     suggestions = []
     
@@ -233,7 +248,6 @@ def get_schedule_suggestions(
 
     for f_data in valid_faculties[:3]:  # Try top 3 faculties with lowest load
         faculty = f_data["faculty"]
-        user = f_data["user"]
         
         for room in valid_rooms[:3]:  # Try a few valid rooms
             for day in DAYS:
@@ -269,7 +283,7 @@ def get_schedule_suggestions(
                     
                     suggestions.append({
                         "faculty_id": faculty.id,
-                        "faculty_name": f"{user.first_name} {user.last_name}",
+                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
                         "room_id": room.id,
                         "room_name": room.name,
                         "day_of_week": day,
@@ -330,15 +344,14 @@ def export_pdf(
     for s in schedules:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
         faculty = db.query(models.Faculty).filter(models.Faculty.id == s.faculty_id).first()
-        user = db.query(models.User).filter(models.User.id == faculty.user_id).first() if faculty else None
         room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
         
         data.append([
-            curriculum_item.name if curriculum_item else "N/A",
-            s.section,
-            f"{user.first_name} {user.last_name}" if user else "TBA",
-            room.name if room else "N/A",
-            s.day_of_week,
+            str(curriculum_item.name) if curriculum_item else "N/A",
+            str(s.section),
+            f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA",
+            str(room.name) if room else "N/A",
+            str(s.day_of_week),
             f"{s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')}"
         ])
     
@@ -357,7 +370,7 @@ def export_pdf(
     doc.build(elements)
     buffer.seek(0)
     
-    log_activity(db, current_user.id, "Export PDF", f"Exported schedule for {dept_name} to PDF")
+    log_activity(db, current_user.id, "Export PDF", f"Exported schedule for {dept_name} to PDF", department_id=dept.id if current_user.role == 'program_chair' and dept else None) # type: ignore
     
     return StreamingResponse(buffer, media_type="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=schedule_{dept_name.replace(' ', '_')}.pdf"
@@ -393,12 +406,11 @@ async def import_excel(
         try:
             # Look up entities
             curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.code == row['CurriculumCode']).first()
-            user = db.query(models.User).filter(models.User.email == row['FacultyEmail']).first()
-            faculty = db.query(models.Faculty).filter(models.Faculty.user_id == user.id).first() if user else None
+            faculty = db.query(models.Faculty).filter(models.Faculty.email == row['FacultyEmail']).first()
             room = db.query(models.Room).filter(models.Room.name == row['RoomName']).first()
             
             if not curriculum_item or not faculty or not room:
-                errors.append(f"Row {index+2}: Entity not found (Curriculum: {curriculum_item is not None}, Faculty: {faculty is not None}, Room: {room is not None})")
+                errors.append(f"Row {int(index)+2}: Entity not found (Curriculum: {curriculum_item is not None}, Faculty: {faculty is not None}, Room: {room is not None})") # type: ignore
                 continue
                 
             # Convert times
@@ -419,11 +431,15 @@ async def import_excel(
             db.add(new_sched)
             success_count += 1
         except Exception as e:
-            errors.append(f"Row {index+2}: {str(e)}")
+            errors.append(f"Row {int(index)+2}: {str(e)}") # type: ignore
             
     db.commit()
     
-    log_activity(db, current_user.id, "Import Excel", f"Imported {success_count} schedules from Excel. Errors: {len(errors)}")
+    dept = db.query(models.Department).filter(
+        (models.Department.code == current_user.department) | 
+        (models.Department.name == current_user.department)
+    ).first()
+    log_activity(db, current_user.id, "Import Excel", f"Imported {success_count} schedules from Excel. Errors: {len(errors)}", department_id=dept.id if dept else None) # type: ignore
     
     return {
         "message": f"Successfully imported {success_count} schedules",
@@ -462,14 +478,13 @@ def export_excel(
     for s in schedules:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
         faculty = db.query(models.Faculty).filter(models.Faculty.id == s.faculty_id).first()
-        user = db.query(models.User).filter(models.User.id == faculty.user_id).first() if faculty else None
         room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
         
         export_data.append({
             "Curriculum Code": curriculum_item.code if curriculum_item else "N/A",
             "Subject Name": curriculum_item.name if curriculum_item else "N/A",
             "Section": s.section,
-            "Faculty": f"{user.first_name} {user.last_name}" if user else "TBA",
+            "Faculty": f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA",
             "Room": room.name if room else "N/A",
             "Day": s.day_of_week,
             "Start Time": s.start_time.strftime('%I:%M %p'),
@@ -488,7 +503,7 @@ def export_excel(
         
     output.seek(0)
     
-    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel")
+    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel", department_id=dept.id if current_user.role == 'program_chair' and dept else None) # type: ignore
     
     return StreamingResponse(
         output,

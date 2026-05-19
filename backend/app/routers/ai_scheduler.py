@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time
 from .. import models, database, auth
-from ..services.schedule_generator import generate_schedules
+from ..services.schedule_generator import generate_schedules, TIMESLOTS, DAYS
 from .logs import log_activity
 
 router = APIRouter(
@@ -11,9 +11,15 @@ router = APIRouter(
     tags=["AI Scheduler"]
 )
 
+from pydantic import BaseModel
+
+class GenerateRequest(BaseModel):
+    faculty_ids: List[int]
+
 @router.post("/generate/{semester_id}")
 def generate_schedule(
     semester_id: int,
+    request: GenerateRequest,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -37,26 +43,32 @@ def generate_schedule(
     if not semester:
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
          
+    # Map input User IDs to Faculty IDs
+    faculty_records = db.query(models.Faculty).filter(models.Faculty.user_id.in_(request.faculty_ids)).all()
+    resolved_faculty_ids = [f.id for f in faculty_records]
+
     # Run the generator
-    results = generate_schedules(db, semester_id, dept.id)
+    results = generate_schedules(db, semester_id, dept.id, resolved_faculty_ids) # type: ignore
     
-    # Fix: generator returns 'conflicts' list, not 'conflicts_found' int
-    conflicts_count = len(results.get('conflicts', []))
+    unplaced_data = results.get('unplaced', [])
+    unplaced_count = len(unplaced_data) if isinstance(unplaced_data, list) else 0
     
     # Log the activity
     log_activity(
         db,
-        current_user.id,
+        int(current_user.id),
         "Generate Schedule",
-        f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unresolved conflicts: {conflicts_count}",
-        "success" if conflicts_count == 0 else "warning"
+        f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}",
+        "success" if unplaced_count == 0 else "warning",
+        department_id=dept.id # type: ignore
     )
 
     return {
         "msg": "Schedule generation completed",
         "generated": results.get('generated', 0),
-        "conflicts_count": conflicts_count,
-        "unresolved_conflicts": results.get('conflicts', [])
+        "unplaced_count": unplaced_count,
+        "unplaced_items": unplaced_data,
+        "skipped_gened": results.get('skipped_gened', 0)
     }
 
 @router.get("/conflicts")
@@ -69,14 +81,91 @@ def get_conflicts(
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    # In a full implementation, this would query models.Conflict
-    # and join with Schedule to enforce department scoping.
-    conflicts = db.query(models.Conflict).offset(skip).limit(limit).all()
+    query = db.query(models.Conflict).join(models.Schedule, models.Conflict.schedule_id_1 == models.Schedule.id).join(models.Curriculum)
+    
+    if current_user.role in ['program_chair', 'faculty', 'student']:
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            query = query.filter(models.Curriculum.department_id == dept.id)
+        else:
+            return []
+
+    conflicts = query.offset(skip).limit(limit).all()
     return conflicts
+
+@router.get("/global-schedule")
+def get_global_schedule(
+    semester_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = db.query(
+        models.Schedule.id,
+        models.Curriculum.code.label("subject_code"),
+        models.Curriculum.name.label("subject_name"),
+        models.Faculty.first_name,
+        models.Faculty.last_name,
+        models.Room.name.label("room_name"),
+        models.Room.building.label("room_building"),
+        models.Schedule.day_of_week,
+        models.Schedule.start_time,
+        models.Schedule.end_time,
+        models.Schedule.section,
+        models.Department.name.label("department_name"),
+        models.Schedule.status
+    ).join(
+        models.Curriculum, models.Schedule.curriculum_id == models.Curriculum.id
+    ).join(
+        models.Faculty, models.Schedule.faculty_id == models.Faculty.id
+    ).join(
+        models.Room, models.Schedule.room_id == models.Room.id
+    ).join(
+        models.Department, models.Curriculum.department_id == models.Department.id
+    ).filter(
+        models.Schedule.semester_id == semester_id
+    )
+
+    # Program chairs, faculty and students only see their department
+    if current_user.role in ['program_chair', 'faculty', 'student']:
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            query = query.filter(models.Curriculum.department_id == dept.id)
+    
+    schedules = query.all()
+    
+    response = []
+    for s in schedules:
+        response.append({
+            "id": s.id,
+            "subject_code": s.subject_code,
+            "subject_name": s.subject_name,
+            "faculty_name": f"{s.first_name} {s.last_name}",
+            "room_name": s.room_name,
+            "room_building": s.room_building,
+            "day_of_week": s.day_of_week,
+            "start_time": s.start_time.strftime("%H:%M") if s.start_time else "00:00",
+            "end_time": s.end_time.strftime("%H:%M") if s.end_time else "00:00",
+            "section": s.section,
+            "department_name": s.department_name,
+            "status": s.status
+        })
+
+    return response
+
+from fastapi import Body
 
 @router.post("/resolve-conflicts")
 def resolve_conflicts(
-    conflict_ids: List[int],
+    conflict_ids: List[int] = Body(...),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -112,6 +201,9 @@ def resolve_conflicts(
         # Strategy 3: Swap faculty for s2 (if curriculum allows)
         
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s2.curriculum_id).first()
+        if not curriculum_item:
+            continue
+            
         valid_rooms = [r for r in all_rooms if r.type == curriculum_item.type or (r.type == 'computer_lab' and curriculum_item.type == 'lab')]
         
         found = False
@@ -147,11 +239,11 @@ def resolve_conflicts(
                 if found: break
                 for start_t, end_t in TIMESLOTS:
                     if is_really_free(day, start_t, end_t, r.id, s2.faculty_id, s2.section, s2.id):
-                        s2.day_of_week = day
-                        s2.start_time = start_t
-                        s2.end_time = end_t
-                        s2.room_id = r.id
-                        conflict.resolved_at = datetime.now(timezone.utc)
+                        s2.day_of_week = day # type: ignore
+                        s2.start_time = start_t # type: ignore
+                        s2.end_time = end_t # type: ignore
+                        s2.room_id = r.id # type: ignore
+                        conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
                         db.commit()
                         resolved_count += 1
                         found = True
@@ -161,7 +253,7 @@ def resolve_conflicts(
                             "message": f"Moved to {r.name} on {day} {start_t.strftime('%H:%M')}"
                         })
                         
-                        log_activity(db, current_user.id, "Resolve Conflict", f"Auto-resolved conflict #{conflict_id} by relocating {curriculum_item.code}")
+                        log_activity(db, current_user.id, "Resolve Conflict", f"Auto-resolved conflict #{conflict_id} by relocating {curriculum_item.code}", department_id=curriculum_item.department_id) # type: ignore
                         break
         
         if not found:

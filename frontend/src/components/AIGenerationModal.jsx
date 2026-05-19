@@ -84,7 +84,7 @@ export default function AIGenerationModal({ isOpen, onClose, onGenerate }) {
               >
                 <option>1st Semester 2026-2027</option>
                 <option>2nd Semester 2026-2027</option>
-                <option>Summer 2026</option>
+                <option>3rd Semester 2026</option>
               </select>
             </div>
             <div>

@@ -9,7 +9,7 @@ router = APIRouter(
     tags=["logs"]
 )
 
-@router.get("/", response_model=List[schemas.SystemLogResponse])
+@router.get("", response_model=List[schemas.SystemLogResponse])
 def get_logs(
     status: Optional[str] = None,
     limit: int = 100,
@@ -29,13 +29,22 @@ def get_logs(
     if status:
         query = query.filter(models.SystemLog.status == status)
     
-    # If Program Chair, only show logs relevant to their department or general logs
-    # Note: SystemLog doesn't have department_id, but we could add it.
-    # For now, we'll return all logs to admins and program chairs.
+    if current_user.role == 'program_chair':
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            query = query.filter(
+                (models.SystemLog.department_id == dept.id) | 
+                (models.SystemLog.department_id == None)
+            )
+        else:
+            query = query.filter(models.SystemLog.user_id == current_user.id)
     
     return query.order_by(models.SystemLog.timestamp.desc()).offset(offset).limit(limit).all()
 
-@router.post("/", response_model=schemas.SystemLogResponse)
+@router.post("", response_model=schemas.SystemLogResponse)
 def create_log(
     log: schemas.SystemLogCreate,
     db: Session = Depends(get_db),
@@ -46,6 +55,7 @@ def create_log(
     """
     db_log = models.SystemLog(
         user_id=current_user.id if not log.user_id else log.user_id,
+        department_id=log.department_id,
         action=log.action,
         details=log.details,
         status=log.status
@@ -56,12 +66,27 @@ def create_log(
     return db_log
 
 # Utility function for internal logging
-def log_activity(db: Session, user_id: Optional[int], action: str, details: str = None, status: str = 'success'):
+def log_activity(db: Session, user_id: Optional[int], action: str, details: Optional[str] = None, status: str = 'success', department_id: Optional[int] = None):
     db_log = models.SystemLog(
         user_id=user_id,
+        department_id=department_id,
         action=action,
         details=details,
         status=status
     )
     db.add(db_log)
     db.commit()
+
+@router.delete("", status_code=204)
+def clear_logs(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Clear all system logs.
+    """
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=403, detail="Only admins and program chairs can clear logs")
+    db.query(models.SystemLog).delete()
+    db.commit()
+    return None

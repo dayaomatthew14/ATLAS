@@ -7,6 +7,7 @@ import io
 import json
 import re
 from .. import models, schemas, database, auth
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/curriculum",
@@ -18,7 +19,19 @@ def get_curriculum_blocks(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    blocks = db.query(models.CurriculumBlock).all()
+    query = db.query(models.CurriculumBlock)
+    
+    if current_user.role == 'program_chair':
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            query = query.filter(models.CurriculumBlock.department_id == dept.id)
+        else:
+            return []
+
+    blocks = query.all()
     results = []
     
     for block in blocks:
@@ -39,7 +52,7 @@ def get_curriculum_blocks(
         
     return results
 
-@router.get("/", response_model=List[schemas.CurriculumResponse])
+@router.get("", response_model=List[schemas.CurriculumResponse])
 def get_curriculum(
     skip: int = 0, 
     limit: int = 100, 
@@ -89,7 +102,7 @@ def get_curriculum_item(
             
     return curriculum_item
 
-@router.post("/", response_model=schemas.CurriculumResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.CurriculumResponse, status_code=status.HTTP_201_CREATED)
 def create_curriculum_item(
     curriculum_item: schemas.CurriculumCreate, 
     db: Session = Depends(database.get_db),
@@ -114,6 +127,9 @@ def create_curriculum_item(
     db.add(new_curriculum)
     db.commit()
     db.refresh(new_curriculum)
+    
+    log_activity(db, current_user.id, "Create Curriculum", f"Created subject: {new_curriculum.code}", "success", department_id=new_curriculum.department_id) # type: ignore
+    
     return new_curriculum
 
 @router.put("/{curriculum_id}", response_model=schemas.CurriculumResponse)
@@ -141,6 +157,9 @@ def update_curriculum_item(
         
     db.commit()
     db.refresh(db_curriculum)
+    
+    log_activity(db, current_user.id, "Update Curriculum", f"Updated subject: {db_curriculum.code}", "success", department_id=db_curriculum.department_id) # type: ignore
+    
     return db_curriculum
 
 @router.delete("/{curriculum_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -163,6 +182,9 @@ def delete_curriculum_item(
              
     db.delete(db_curriculum)
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete Curriculum", f"Deleted subject: {db_curriculum.code}", "success", department_id=db_curriculum.department_id) # type: ignore
+    
     return None
 
 async def _process_curriculum_import(
@@ -251,7 +273,7 @@ async def _process_curriculum_import(
                         prog_name = match.group(0).strip()
                         break
                 
-                score = (int(ay_match.group(1)) * 10 if ay_match else 0) + (5 if 'UPDATED' in sheet_name.upper() else 0)
+                score = (int(ay_match.group(1)) * 10 if ay_match else 0) + (5 if 'UPDATED' in str(sheet_name).upper() else 0)
                 if not ay_match: score += 1
                 
                 if score > max_score:
@@ -262,6 +284,9 @@ async def _process_curriculum_import(
 
         if not best_sheet:
             raise HTTPException(status_code=400, detail="Could not identify the curriculum sheet. Ensure it contains 'DE LA SALLE ARANETA UNIVERSITY'.")
+
+        if program_code:
+            extracted_program_name = program_code
 
         print(f"DEBUG: Identity Detected -> Program: {extracted_program_name}, Year: {extracted_ay}")
 
@@ -308,7 +333,7 @@ async def _process_curriculum_import(
         if best_sheet not in wb.sheetnames:
             raise HTTPException(status_code=400, detail="Identified sheet not found in workbook.")
             
-        ws = wb[best_sheet]
+        ws = wb[str(best_sheet)] # type: ignore
         
         # Explicitly unmerge and fill ONLY within actual merged regions
         # This preserves genuinely empty cells (like identifier columns in totals rows)
@@ -319,7 +344,7 @@ async def _process_curriculum_import(
             ws.unmerge_cells(str(merged_range))
             for r in range(min_row, max_row + 1):
                 for c in range(min_col, max_col + 1):
-                    ws.cell(row=r, column=c).value = top_left_value
+                    ws.cell(row=r, column=c).value = top_left_value # type: ignore
         
         # Convert the precisely-filled sheet to a DataFrame
         data = list(ws.values)
@@ -345,7 +370,7 @@ async def _process_curriculum_import(
                 return None
             s = str(value).strip().upper()
             if not s or s in {"NAN", "NONE", "N/A"}: return None
-            if "SUMMER" in s or "MIDYEAR" in s: return "summer"
+            if "3RD SEMESTER" in s or "MIDYEAR" in s: return "3rd semester"
             m = re.search(r"\b([123])\b", s)
             if m: return {"1": "1st", "2": "2nd", "3": "3rd"}[m.group(1)]
             if re.search(r"\bI\b", s): return "1st"
@@ -370,7 +395,7 @@ async def _process_curriculum_import(
 
             # 1. Zone Header Detection
             y_match = re.search(r'(1ST|2ND|3RD|4TH|5TH|FIRST|SECOND|THIRD|FOURTH|FIFTH)\s+YEAR|YEAR\s+([1-5])', row_text)
-            s_match = re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(SUMMER|MIDYEAR)', row_text)
+            s_match = re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)', row_text)
             
             if y_match and s_match:
                 y_raw = y_match.group(1) or y_match.group(2)
@@ -489,6 +514,8 @@ async def _process_curriculum_import(
             if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
                 ctype = 'lab'
 
+            is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE'))
+
             item_data = {
                 "block_id": curriculum_block.id if curriculum_block else None,
                 "code": code, "name": name, "units": units, "type": ctype,
@@ -496,6 +523,7 @@ async def _process_curriculum_import(
                 "year_level": current_year_context, "semester_term": current_sem_context,
                 "lec_units": lec_units, "lab_units": lab_units, "pre_requisite": pre_req,
                 "pre_requisites": pre_req, "year": current_year_context, "semester": current_sem_context, "course": program_code,
+                "is_major": is_major_val,
                 "validation_issues": []
             }
             
@@ -511,7 +539,8 @@ async def _process_curriculum_import(
                     code=code, name=name, units=units, type=ctype,
                     department_id=target_dept_id, program_code=program_code,
                     year_level=current_year_context, semester_term=current_sem_context,
-                    lec_units=lec_units, lab_units=lab_units, pre_requisite=pre_req
+                    lec_units=lec_units, lab_units=lab_units, pre_requisite=pre_req,
+                    is_major=is_major_val
                 ))
             all_parsed_data.append(item_data)
             print(f"DEBUG: Successfully captured subject: {code}")
@@ -525,7 +554,7 @@ async def _process_curriculum_import(
         for i, row in df.iterrows():
             row_text = " ".join([str(v).strip().upper() for v in row.values if pd.notna(v)])
             if "SUMMARY OF UNITS" in row_text or "TOTAL UNITS" in row_text:
-                found_summary_start = i
+                found_summary_start = int(i)
                 break
         
         if found_summary_start != -1:
@@ -533,7 +562,7 @@ async def _process_curriculum_import(
                 s_row = df.iloc[i]
                 s_row_text = " ".join([str(v).strip().upper() for v in s_row.values if pd.notna(v)])
                 numeric_vals = [v for v in s_row.values if isinstance(v, (int, float)) and v > 0]
-                label_vals = [str(v).strip() for v in s_row.values if isinstance(v, str) and len(v) > 2]
+                label_vals = [v.strip() for v in s_row.values if isinstance(v, str) and len(v) > 2]
                 if numeric_vals:
                     val = numeric_vals[-1]
                     label = label_vals[0] if label_vals else "Unnamed Category"
@@ -583,18 +612,23 @@ async def _process_curriculum_import(
                 "summary": summary,
                 "zones": structured_zones, # Structured output (Step 8)
                 "report": all_parsed_data, # Flat list for Dayao's Frontend compatibility
-                "errors": skipped_items
+                "errors": skipped_items,
+                "course": program_code
             }
 
         if items_to_add:
             db.add_all(items_to_add)
             db.commit()
+            
+            log_activity(db, current_user.id, "Import Curriculum", f"Imported {len(items_to_add)} items for {extracted_program_name}", "success", department_id=target_dept_id) # type: ignore
+            
             return {
                 "is_dry_run": False, 
                 "message": f"Successfully imported {len(items_to_add)} items", 
                 "summary": summary, 
                 "zones": structured_zones,
-                "errors": skipped_items
+                "errors": skipped_items,
+                "course": program_code
             }
         else:
             return {
@@ -602,7 +636,8 @@ async def _process_curriculum_import(
                 "message": "No new items to import", 
                 "summary": summary, 
                 "zones": structured_zones,
-                "errors": skipped_items
+                "errors": skipped_items,
+                "course": program_code
             }
 
     except Exception as e:
@@ -635,6 +670,14 @@ def bulk_create_curriculum(
 
     try:
         # Step 0: Ensure Curriculum Block exists or create it
+        if current_user.role == 'program_chair':
+            dept = db.query(models.Department).filter(
+                (models.Department.code == current_user.department) | 
+                (models.Department.name == current_user.department)
+            ).first()
+            if not dept or dept.id != payload.department_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to import for this department")
+
         block = db.query(models.CurriculumBlock).filter(
             models.CurriculumBlock.program_name == payload.program_name,
             models.CurriculumBlock.academic_year == payload.academic_year,
@@ -670,6 +713,8 @@ def bulk_create_curriculum(
         if new_items:
             db.add_all(new_items)
             db.commit()
+            
+            log_activity(db, current_user.id, "Bulk Create Curriculum", f"Bulk created {len(new_items)} items for {payload.program_name}", "success", department_id=payload.department_id)
         
         summary = {
             "program_name": payload.program_name,
@@ -724,6 +769,14 @@ async def delete_curriculum_course(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     db.query(models.Curriculum).filter(models.Curriculum.program_code == course_name).delete(synchronize_session=False)
     db.commit()
+    
+    # Get department for logging
+    dept = db.query(models.Department).filter(
+        (models.Department.code == current_user.department) | 
+        (models.Department.name == current_user.department)
+    ).first()
+    log_activity(db, current_user.id, "Delete Course", f"Deleted all items for course: {course_name}", "success", department_id=dept.id if dept else None) # type: ignore
+    
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.delete("/block/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -735,12 +788,20 @@ async def delete_curriculum_block(
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
+    # Get block details for logging before deletion
+    block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
+    block_name = block.program_name if block else str(block_id)
+    dept_id = block.department_id if block else None
+
     # Delete all subjects in the block first
     db.query(models.Curriculum).filter(models.Curriculum.block_id == block_id).delete(synchronize_session=False)
     # Then delete the block itself
     db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).delete(synchronize_session=False)
     
     db.commit()
+    
+    log_activity(db, current_user.id, "Delete Block", f"Deleted curriculum block: {block_name}", "success", department_id=dept_id) # type: ignore
+    
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)

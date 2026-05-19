@@ -12,37 +12,52 @@ import {
   Zap,
   ShieldCheck,
   Activity,
-  School,
   Sparkles,
   Upload,
-  Sliders
+  Sliders,
+  Trash2
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
+
+const formatSemesterTerm = (term) => {
+  if (!term) return '';
+  if (term === '1st') return '1st Semester';
+  if (term === '2nd') return '2nd Semester';
+  if (term === '3rd semester') return '3rd Semester';
+  return term;
+};
 
 export default function DashboardHome() {
   const { addToast } = useToast();
   const [stats, setStats] = useState([
-    { name: 'Curriculum', value: '0', icon: BookOpen, color: 'text-cyan-600', trend: '---' },
-    { name: 'Rooms', value: '0', icon: MapPin, color: 'text-purple-600', trend: '---' },
+    { name: 'Schedules', value: '0', icon: Calendar, color: 'text-cyan-600', trend: '---' },
+    { name: 'Active Semester', value: 'None', icon: Clock, color: 'text-purple-600', trend: '---' },
     { name: 'Faculty', value: '0', icon: Users, color: 'text-emerald-600', trend: '---' },
     { name: 'Conflicts', value: '0', icon: AlertTriangle, color: 'text-rose-600', trend: '---' },
   ]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSemesterModalOpen, setIsSemesterModalOpen] = useState(false);
+  const [allSemesters, setAllSemesters] = useState([]);
+  const [newSemesterData, setNewSemesterData] = useState({ academic_year: '', term: '1st Semester' });
 
   const fetchStats = async () => {
     try {
-      const [curriculumItems, rooms, faculty, conflicts] = await Promise.all([
-        api.get('/curriculum').catch(() => []),
-        api.get('/rooms').catch(() => []),
-        api.get('/users?role=faculty').catch(() => []),
+      const [schedules, semesters, faculty, conflicts] = await Promise.all([
+        api.get('/schedules').catch(() => []),
+        api.get('/semesters').catch(() => []),
+        api.get('/professors').catch(() => []),
         api.get('/conflicts/count').catch(() => ({ count: 0 }))
       ]);
 
+      setAllSemesters(semesters);
+      const activeSemester = semesters.find(s => s.is_active);
+
       setStats([
-        { name: 'Curriculum', value: curriculumItems.length.toString(), icon: BookOpen, color: 'text-cyan-600', trend: '+12%' },
-        { name: 'Rooms', value: rooms.length.toString(), icon: MapPin, color: 'text-purple-600', trend: 'Active' },
+        { name: 'Schedules', value: schedules.length.toString(), icon: Calendar, color: 'text-cyan-600', trend: '+12%' },
+        { name: 'Active Semester', value: activeSemester ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}` : 'None', icon: Clock, color: 'text-purple-600', trend: 'Active' },
         { name: 'Faculty', value: faculty.length.toString(), icon: Users, color: 'text-emerald-600', trend: 'Verified' },
         { name: 'Conflicts', value: (conflicts.count || 0).toString(), icon: AlertTriangle, color: 'text-rose-600', trend: conflicts.count > 0 ? 'CRITICAL' : 'CLEAN' },
       ]);
@@ -55,6 +70,51 @@ export default function DashboardHome() {
     fetchStats();
   }, []);
 
+  const handleSetActiveSemester = async (id) => {
+    setIsProcessing(true);
+    try {
+      await api.put(`/semesters/${id}`, { is_active: true });
+      addToast('Active semester updated', 'success');
+      fetchStats();
+      setIsSemesterModalOpen(false);
+    } catch (e) {
+      addToast('Failed to update active semester', 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteSemester = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this semester? Associated records may be affected.')) return;
+    setIsProcessing(true);
+    try {
+      await api.delete(`/semesters/${id}`);
+      addToast('Semester deleted successfully', 'success');
+      fetchStats();
+      // Only close if it's empty now? Let's just fetchStats so they see it disappear.
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Failed to delete semester', 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCreateSemester = async (e) => {
+    e.preventDefault();
+    setIsProcessing(true);
+    try {
+      await api.post('/semesters', { ...newSemesterData, is_active: true });
+      addToast('New semester created and set to active', 'success');
+      setNewSemesterData({ academic_year: '', term: '1st Semester' });
+      fetchStats();
+      setIsSemesterModalOpen(false);
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Failed to create semester', 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleQuickAction = async (action) => {
     setIsProcessing(true);
     try {
@@ -63,12 +123,18 @@ export default function DashboardHome() {
         window.open(`${api.defaults.baseURL}/schedules/export/pdf?semester_id=1`, '_blank');
         addToast('Generating official PDF schedule...', 'success');
       } else if (action === 'resolve') {
-        const result = await api.post('/ai-scheduler/resolve-conflicts', { conflict_ids: [] }); // Dummy resolve all for now
+        const result = await api.post('/ai-scheduler/resolve-conflicts', []); // Dummy resolve all for now
         addToast('AI resolution sequence completed!', 'success');
         fetchStats();
       } else if (action === 'notify') {
-        await api.post('/notifications/faculty/notify-all', { message: 'The official schedule for the current semester has been released.' });
-        addToast('All faculty members notified!', 'success');
+        const sems = await api.get('/semesters');
+        const active = sems.find(s => s.is_active);
+        if (active) {
+          await api.post(`/notifications/notify-faculty?semester_id=${active.id}`);
+          addToast('All faculty members notified!', 'success');
+        } else {
+          addToast('No active semester found', 'error');
+        }
       }
     } catch (e) {
       addToast('Action failed: Backend service unavailable', 'error');
@@ -139,18 +205,35 @@ export default function DashboardHome() {
         {/* Stats Grid - Crystal Panes */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat) => (
-            <div key={stat.name} className={`relative group`}>
-              <div className="relative bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2rem] transition-all duration-300 group-hover:bg-white group-hover:shadow-2xl group-hover:shadow-green-900/10 group-hover:-translate-y-1 shadow-sm border-white">
-                <div className="flex justify-between items-center mb-6">
-                  <div className={`p-3 rounded-2xl bg-slate-50 ${stat.color}`}>
-                    <stat.icon className="w-6 h-6" />
+            <div 
+              key={stat.name} 
+              className={`relative group h-full ${stat.name === 'Active Semester' ? 'cursor-pointer' : ''}`}
+              onClick={() => stat.name === 'Active Semester' && setIsSemesterModalOpen(true)}
+            >
+              <div className="h-full flex flex-col justify-between relative bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2rem] transition-all duration-300 group-hover:bg-white group-hover:shadow-2xl group-hover:shadow-green-900/10 group-hover:-translate-y-1 shadow-sm border-white">
+                <div>
+                  <div className="flex justify-between items-center mb-6">
+                    <div className={`p-3 rounded-2xl bg-slate-50 ${stat.color}`}>
+                      <stat.icon className="w-6 h-6" />
+                    </div>
+                    <div className="text-[10px] font-black text-green-700 bg-green-500/10 px-2 py-1 rounded-md">
+                      {stat.trend}
+                    </div>
                   </div>
-                  <div className="text-[10px] font-black text-green-700 bg-green-500/10 px-2 py-1 rounded-md">
-                    {stat.trend}
-                  </div>
+                  <p className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.name}</p>
                 </div>
-                <p className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.name}</p>
-                <h3 className="text-5xl font-black tracking-tighter leading-none text-slate-900">{stat.value}</h3>
+                {stat.name === 'Active Semester' && stat.value !== 'None' ? (
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <span className="text-2xl lg:text-3xl font-black text-green-700 bg-green-500/10 px-4 py-2 rounded-2xl inline-block w-fit border border-green-500/20 shadow-sm">
+                      {stat.value.split(' ').slice(1).join(' ')}
+                    </span>
+                    <span className="text-sm lg:text-base font-black text-slate-400 uppercase tracking-widest leading-none">
+                      {stat.value.split(' ')[0]}
+                    </span>
+                  </div>
+                ) : (
+                  <h3 className={`font-black tracking-tighter leading-none text-slate-900 ${stat.value.length > 10 ? 'text-lg lg:text-2xl mt-4' : 'text-5xl'}`}>{stat.value}</h3>
+                )}
               </div>
             </div>
           ))}
@@ -247,6 +330,92 @@ export default function DashboardHome() {
           </div>
         </div>
       </div>
+
+      <Modal
+        isOpen={isSemesterModalOpen}
+        onClose={() => setIsSemesterModalOpen(false)}
+        title="Manage Semesters"
+      >
+        <div className="space-y-8">
+          <div>
+            <h4 className="text-sm font-black text-slate-700 mb-4 uppercase tracking-wide">Select Active Semester</h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+              {allSemesters.map(sem => (
+                <div key={sem.id} className={`flex items-center justify-between p-4 rounded-2xl border ${sem.is_active ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-100'}`}>
+                  <div>
+                    <p className="font-black text-slate-900">{sem.academic_year}</p>
+                    <p className="text-xs font-bold text-slate-500">{formatSemesterTerm(sem.term)}</p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {!sem.is_active ? (
+                      <button
+                        onClick={() => handleSetActiveSemester(sem.id)}
+                        className="px-4 py-2 bg-white text-green-700 border border-green-200 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-green-50 transition-colors"
+                        disabled={isProcessing}
+                      >
+                        Set Active
+                      </button>
+                    ) : (
+                      <div className="flex items-center text-green-600 bg-green-100 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
+                        <Zap className="w-3 h-3 mr-1" /> Active
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleDeleteSemester(sem.id)}
+                      className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-colors border border-transparent hover:border-rose-100"
+                      disabled={isProcessing}
+                      title="Delete Semester"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {allSemesters.length === 0 && (
+                <div className="text-center p-4 text-slate-500 font-medium">No semesters found.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-slate-100">
+            <h4 className="text-sm font-black text-slate-700 mb-4 uppercase tracking-wide">Create New Semester</h4>
+            <form onSubmit={handleCreateSemester} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Academic Year</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 2026-2027"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700"
+                    value={newSemesterData.academic_year}
+                    onChange={(e) => setNewSemesterData({ ...newSemesterData, academic_year: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Term</label>
+                  <select
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 appearance-none cursor-pointer"
+                    value={newSemesterData.term}
+                    onChange={(e) => setNewSemesterData({ ...newSemesterData, term: e.target.value })}
+                  >
+                    <option value="1st Semester">1st Semester</option>
+                    <option value="2nd Semester">2nd Semester</option>
+                    <option value="3rd Semester">3rd Semester</option>
+                  </select>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={isProcessing}
+                className="w-full py-3.5 bg-green-700 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all hover:bg-green-800 shadow-md disabled:opacity-50"
+              >
+                Create & Set Active
+              </button>
+            </form>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

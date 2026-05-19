@@ -7,7 +7,6 @@ import Schedules from './pages/dashboard/Schedules';
 import Curriculum from './pages/dashboard/Curriculum';
 import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
-import Sections from './pages/dashboard/Sections';
 import DashboardHome from './pages/dashboard/DashboardHome';
 import SystemLogs from './pages/dashboard/SystemLogs';
 
@@ -41,7 +40,6 @@ function App() {
           <Route path="curriculum" element={<Curriculum />} />
           <Route path="rooms" element={<Rooms />} />
           <Route path="teachers" element={<Teachers />} />
-          <Route path="sections" element={<Sections />} />
           <Route path="logs" element={<SystemLogs />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
