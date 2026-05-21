@@ -78,6 +78,26 @@ def send_textbee_notification(to_phone: str, message: str):
         return False
 
 def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
+    # 0. Try Google Apps Script Web App (100% Free, uses your own @dlsau.edu.ph or @gmail.com)
+    script_url = os.getenv("GOOGLE_SCRIPT_URL")
+    if script_url:
+        url = script_url
+        data = {
+            "to": to_email,
+            "subject": subject,
+            "body": body
+        }
+        try:
+            # Google Apps Script redirects require handling redirects, requests does it by default
+            res = requests.post(url, json=data)
+            if res.status_code == 200:
+                print(f"[SUCCESS] Sent email via Google Apps Script to {to_email}")
+                return True
+            else:
+                print(f"[ERROR] Google Apps Script failed: {res.status_code} - {res.text}")
+        except Exception as e:
+            print(f"[ERROR] Google Apps Script exception: {e}")
+
     # 1. Try SendGrid HTTP API
     sendgrid_key = os.getenv("SENDGRID_API_KEY")
     sendgrid_sender = os.getenv("SENDGRID_SENDER_EMAIL")
