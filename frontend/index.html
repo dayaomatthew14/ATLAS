@@ -4,7 +4,28 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/atlas_logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <title>ATLAS - Automated Timetabling</title>
+    <script>
+      (function() {
+        try {
+          const theme = localStorage.getItem('atlas_settings_theme') || 'green';
+          document.documentElement.setAttribute('data-theme', theme);
+          
+          const fontSize = localStorage.getItem('atlas_settings_font_size') || 'normal';
+          if (fontSize === 'small') {
+            document.documentElement.style.fontSize = '14px';
+          } else if (fontSize === 'large') {
+            document.documentElement.style.fontSize = '18px';
+          } else {
+            document.documentElement.style.fontSize = '16px';
+          }
+        } catch (e) {
+          console.error('Failed to initialize appearance settings pre-render:', e);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

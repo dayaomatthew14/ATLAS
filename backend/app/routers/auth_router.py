@@ -81,7 +81,8 @@ def login_for_access_token(
         "token_type": "bearer",
         "role": user.role,
         "name": f"{user.first_name} {user.last_name}",
-        "department": user.department
+        "department": user.department,
+        "profile_picture": user.profile_picture
     }
 
 @router.get("/me", response_model=schemas.UserResponse)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
@@ -80,7 +80,11 @@ export default function Schedules() {
     }).catch(console.error);
 
     api.get('/professors').then(data => {
-      setAllTeachers(Array.isArray(data) ? data : []);
+      const formatted = (Array.isArray(data) ? data : []).map(t => ({
+        ...t,
+        name: `${t.first_name} ${t.last_name}`
+      }));
+      setAllTeachers(formatted);
     }).catch(console.error);
   }, []);
 
@@ -171,9 +175,13 @@ export default function Schedules() {
         api.get('/rooms').catch(() => []),
         api.get('/professors').catch(() => [])
       ]);
+      const formattedTeachers = (teachersData || []).map(t => ({
+        ...t,
+        name: `${t.first_name} ${t.last_name}`
+      }));
       setSubjects(subjectsData || []);
       setRooms(roomsData || []);
-      setTeachers(teachersData || []);
+      setTeachers(formattedTeachers);
     } catch (error) {
       console.error('Error fetching dropdown data');
       addToast('Failed to fetch required data', 'error');
@@ -391,7 +399,7 @@ export default function Schedules() {
               <div className="flex-1 flex relative" style={{ height: '1100px' }}>
                 {/* Grid lines */}
                 {Array.from({length: 11}).map((_, i) => (
-                  <div key={`line-${i}`} className="absolute w-full border-t border-slate-100/50" style={{ top: `${(i/10)*100}%` }} />
+                  <div key={`line-${i}`} className="absolute w-full border-t border-slate-200 border-dashed" style={{ top: `${(i/10)*100}%` }} />
                 ))}
                 
                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
@@ -401,7 +409,7 @@ export default function Schedules() {
                   }
 
                   return (
-                    <div key={day} className="flex-1 relative border-r border-slate-100/50 last:border-r-0">
+                    <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0">
                       <div className="absolute -top-12 w-full text-center text-xs font-black text-slate-400 uppercase tracking-[0.3em]">{day}</div>
                       {dayScheds.map(sched => {
                         const [h, m] = sched.start_time.split(':').map(Number);
@@ -412,24 +420,37 @@ export default function Schedules() {
                         const top = ((start - 7.5) / 10) * 100;
                         const height = ((end - start) / 10) * 100;
                         
-                        let colorClass = 'bg-slate-50 border-slate-200 text-slate-700';
+                        let colorClass = 'bg-white border-slate-200 text-slate-800 border-l-4 border-l-slate-400';
                         const dName = (sched.department_name || '').toUpperCase();
-                        if (dName.includes('CAST')) colorClass = 'bg-green-50 border-green-200 text-green-700';
-                        else if (dName.includes('CBMA')) colorClass = 'bg-blue-50 border-blue-200 text-blue-700';
-                        else if (dName.includes('CVMAS')) colorClass = 'bg-amber-50 border-amber-200 text-amber-700';
-                        else if (dName.includes('COED')) colorClass = 'bg-purple-50 border-purple-200 text-purple-700';
+                        if (dName.includes('CAST')) colorClass = 'bg-white border-emerald-100 text-emerald-950 border-l-4 border-l-emerald-500';
+                        else if (dName.includes('CBMA')) colorClass = 'bg-white border-blue-100 text-blue-950 border-l-4 border-l-blue-500';
+                        else if (dName.includes('CVMAS')) colorClass = 'bg-white border-amber-100 text-amber-950 border-l-4 border-l-amber-500';
+                        else if (dName.includes('COED')) colorClass = 'bg-white border-purple-100 text-purple-950 border-l-4 border-l-purple-500';
 
                         return (
                           <div 
                             key={sched.id}
-                            className={`absolute w-[calc(100%-12px)] mx-[6px] p-4 rounded-3xl border shadow-sm flex flex-col gap-2 overflow-hidden transition-all hover:scale-[1.02] hover:z-10 hover:shadow-xl cursor-default ${colorClass}`}
+                            className={`absolute w-[calc(100%-12px)] mx-[6px] rounded-xl border shadow-sm flex flex-col overflow-hidden transition-all hover:scale-[1.03] hover:z-20 hover:shadow-xl cursor-default group ${colorClass}`}
                             style={{ top: `${top}%`, height: `${height}%` }}
                           >
-                            <div className="text-[11px] font-black uppercase tracking-[0.15em] opacity-80 leading-none">{sched.subject_code}</div>
-                            <div className="font-black text-sm leading-tight tracking-tighter truncate mt-0.5">{sched.section}</div>
-                            <div className="text-[10px] font-black mt-auto opacity-70 flex items-center justify-between tracking-wide">
-                              <span className="truncate max-w-[55%]">{sched.room_name}</span>
-                              <span className="truncate max-w-[45%] text-right">{sched.faculty_name}</span>
+                            <div className="px-2.5 py-1.5 bg-slate-50/50 border-b border-black/5 flex justify-between items-center">
+                              <div className="text-xs font-black uppercase tracking-wider">{sched.subject_code}</div>
+                              <div className="text-[10px] font-bold opacity-80">{(() => {
+                                const formatT = (t) => {
+                                  if (!t) return '';
+                                  const [h,m] = t.split(':'); 
+                                  const hr = parseInt(h); 
+                                  return `${hr%12||12}:${m} ${hr>=12?'PM':'AM'}`;
+                                };
+                                return `${formatT(sched.start_time)} - ${formatT(sched.end_time)}`;
+                              })()}</div>
+                            </div>
+                            <div className="p-2.5 flex flex-col flex-1">
+                              <div className="font-bold text-xs leading-snug line-clamp-2 mb-1.5" title={sched.subject_name}>{sched.subject_name}</div>
+                              <div className="mt-auto space-y-1">
+                                <div className="text-[10px] font-bold opacity-90 flex items-center gap-1.5"><MapPin className="w-3 h-3 opacity-80 shrink-0" /> <span className="truncate">{sched.room_name}</span></div>
+                                <div className="text-[10px] font-bold opacity-90 flex items-center gap-1.5"><User className="w-3 h-3 opacity-80 shrink-0" /> <span className="truncate">{sched.faculty_name}</span></div>
+                              </div>
                             </div>
                           </div>
                         );
@@ -472,30 +493,17 @@ export default function Schedules() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Subject</label>
-              <select
-                required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.subject_id}
-                onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
-              >
-                <option value="">Select Subject</option>
-                {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Section</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. BSCS-3A"
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.section}
-                onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-              />
-            </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700">Subject</label>
+            <select
+              required
+              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
+              value={formData.subject_id}
+              onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
+            >
+              <option value="">Select Subject</option>
+              {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -694,7 +702,7 @@ export default function Schedules() {
                 <button
                   type="submit"
                   disabled={isGenerating}
-                  className="px-10 py-3 text-[13px] font-black text-white bg-[#1a6b3a] hover:bg-[#14522d] rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all disabled:opacity-50 flex items-center"
+                  className="px-10 py-3 text-[13px] font-black text-white bg-green-700 hover:bg-green-800 rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all disabled:opacity-50 flex items-center"
                 >
                   {isGenerating ? <Sparkles className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
                   {isGenerating ? 'Generating...' : 'Start Engine'}

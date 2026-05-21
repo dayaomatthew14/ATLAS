@@ -3,11 +3,29 @@ import { useNavigate, Outlet, useLocation, Link } from 'react-router-dom';
 import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder, AlertCircle, Activity } from 'lucide-react';
 import { api } from '../utils/api';
 
+const getProfilePictureUrl = (path) => {
+  if (!path) return '';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (apiUrl && apiUrl.startsWith('http')) {
+    try {
+      const url = new URL(apiUrl);
+      return `${url.origin}${cleanPath}`;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  return cleanPath;
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const [profileName, setProfileName] = useState(localStorage.getItem('atlas_user_name') || 'Program Chair');
+  const [profilePicture, setProfilePicture] = useState(localStorage.getItem('atlas_profile_picture') || '');
 
   // Normalized role check
   const rawRole = localStorage.getItem('atlas_role') || 'guest';
@@ -16,6 +34,17 @@ export default function Dashboard() {
   const [conflictCount, setConflictCount] = useState(0);
   const department = localStorage.getItem('atlas_department');
   const dashboardTitle = department ? `${department} Program Chair Portal` : 'DLSAU Tertiary Education';
+
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      setProfileName(localStorage.getItem('atlas_user_name') || 'Program Chair');
+      setProfilePicture(localStorage.getItem('atlas_profile_picture') || '');
+    };
+    window.addEventListener('atlas_profile_updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('atlas_profile_updated', handleProfileUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchConflictCount = async () => {
@@ -36,6 +65,7 @@ export default function Dashboard() {
     localStorage.removeItem('atlas_role');
     localStorage.removeItem('atlas_user_name');
     localStorage.removeItem('atlas_department');
+    localStorage.removeItem('atlas_profile_picture');
     navigate('/login');
   };
 
@@ -56,7 +86,7 @@ export default function Dashboard() {
       {/* Top Navbar */}
       <nav className="bg-green-800 text-white shadow-lg sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12">
-          <div className="flex items-center justify-start h-24 space-x-12">
+          <div className="flex items-center justify-between h-24">
             <Link to="/dashboard" className="flex items-center space-x-4 group shrink-0">
               <img src="/atlas_logo.png" alt="Atlas Logo" className="w-14 h-14 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
               <div className="hidden sm:block">
@@ -64,7 +94,7 @@ export default function Dashboard() {
               </div>
             </Link>
 
-            <div className="hidden md:flex space-x-2 items-center">
+            <div className="hidden md:flex flex-1 justify-center space-x-2 items-center">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.path === '/dashboard'
@@ -87,17 +117,30 @@ export default function Dashboard() {
               })}
             </div>
 
-            <div className="relative ml-auto">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="flex items-center space-x-4 bg-green-900/50 px-4 py-2 rounded-2xl border border-white/10 hover:bg-green-700/50 transition-colors"
               >
                 <div className="w-12 h-12 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center">
-                  <span className="text-pink-600 font-black text-sm uppercase">PR</span>
+                  {profilePicture ? (
+                    <img src={getProfilePictureUrl(profilePicture)} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-pink-600 font-black text-sm uppercase">
+                      {(() => {
+                        const name = profileName;
+                        const parts = name.trim().split(/\s+/);
+                        if (parts.length >= 2) {
+                          return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                        }
+                        return name.substring(0, 2).toUpperCase();
+                      })()}
+                    </span>
+                  )}
                 </div>
                 <div className="hidden lg:block text-left">
                   <p className="text-xs font-black uppercase tracking-tight text-white leading-none mb-1.5">
-                    {localStorage.getItem('atlas_user_name') || 'Program Chair'}
+                    {profileName}
                   </p>
                   <p className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest leading-none">
                     {department || 'Tertiary Education'}
@@ -115,7 +158,7 @@ export default function Dashboard() {
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl py-2 z-50 border border-gray-100 animate-in fade-in slide-in-from-top-2">
                     <div className="px-4 py-2 border-b border-gray-50 mb-1">
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Account</p>
-                      <p className="text-sm font-bold text-gray-700 truncate">{localStorage.getItem('atlas_user_name') || 'Program Chair'}</p>
+                      <p className="text-sm font-bold text-gray-700 truncate">{profileName}</p>
                     </div>
                     <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/profile'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
                       <Users className="w-4 h-4 mr-3 text-gray-400" />

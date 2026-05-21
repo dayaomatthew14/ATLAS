@@ -514,7 +514,7 @@ async def _process_curriculum_import(
             if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
                 ctype = 'lab'
 
-            is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE'))
+            is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE', 'RZAL', 'RIZAL'))
 
             item_data = {
                 "block_id": curriculum_block.id if curriculum_block else None,

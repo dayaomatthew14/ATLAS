@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, MapPin, Users, Monitor, BookOpen } from 'lucide-react';
+import { Plus, MapPin, Users, Monitor, BookOpen, ChevronDown } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
@@ -13,9 +13,9 @@ export default function Rooms() {
   const [editingRoom, setEditingRoom] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
-    building: '',
+    building: 'LSB BUILDING',
     capacity: '',
-    type: 'lecture'
+    type: 'lab'
   });
 
   const columns = [
@@ -93,7 +93,7 @@ export default function Rooms() {
       });
     } else {
       setEditingRoom(null);
-      setFormData({ name: '', building: '', capacity: '', type: 'lecture' });
+      setFormData({ name: '', building: 'LSB BUILDING', capacity: '', type: 'lab' });
     }
     setIsModalOpen(true);
   };
@@ -195,27 +195,36 @@ export default function Rooms() {
           
           <div>
             <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Building / Floor</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Main Building - 3rd Floor"
-              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
-              value={formData.building}
-              onChange={(e) => setFormData({ ...formData, building: e.target.value })}
-            />
+            <div className="relative">
+              <select
+                className="w-full px-4 pr-10 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-black text-slate-700 appearance-none cursor-pointer"
+                value={formData.building}
+                onChange={(e) => setFormData({ ...formData, building: e.target.value })}
+              >
+                <option value="LSB BUILDING">LSB BUILDING</option>
+                <option value="VET BUILDING">VET BUILDING</option>
+                <option value="VET HOSPITAL">VET HOSPITAL</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-slate-400">
+                <ChevronDown className="w-5 h-5" />
+              </div>
+            </div>
           </div>
-
           <div>
             <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Room Type</label>
-            <select
-              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-black text-slate-700 appearance-none cursor-pointer"
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-            >
-              <option value="lecture">Lecture Room</option>
-              <option value="lab">Science Laboratory</option>
-              <option value="computer_lab">Computer Laboratory</option>
-            </select>
+            <div className="relative">
+              <select
+                className="w-full px-4 pr-10 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-black text-slate-700 appearance-none cursor-pointer"
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              >
+                <option value="lab">Science Laboratory</option>
+                <option value="computer_lab">Computer Laboratory</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-slate-400">
+                <ChevronDown className="w-5 h-5" />
+              </div>
+            </div>
           </div>
 
           <div className="pt-6 flex justify-end gap-3">

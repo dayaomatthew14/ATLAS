@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users as UsersIcon, Clock, Calendar, ShieldAlert, UserCheck, X, Check, Trash2 } from 'lucide-react';
+import { Plus, Users as UsersIcon, Clock, Calendar, ShieldAlert, UserCheck, X, Check, Trash2, Search } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
@@ -36,6 +36,7 @@ export default function Teachers() {
   const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [courseCodeFilter, setCourseCodeFilter] = useState('All');
   const [semesterFilter, setSemesterFilter] = useState('1st');
+  const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
   const [activeSemester, setActiveSemester] = useState(null);
 
   const columns = [
@@ -220,9 +221,20 @@ export default function Teachers() {
             }
             return t;
           }));
+          setSelectedTeacherForSubjects(prev => ({
+            ...prev,
+            subject_offerings: (prev.subject_offerings || []).filter(o => o.id !== offering.id),
+            current_units: Math.max(0, (prev.current_units || 0) - subject.units)
+          }));
           addToast('Subject removed', 'success');
         }
       } else {
+        const updatedUnits = (selectedTeacherForSubjects.current_units || 0) + subject.units;
+        if (updatedUnits > selectedTeacherForSubjects.max_units) {
+          addToast(`Cannot add subject: Exceeds maximum units (${selectedTeacherForSubjects.max_units})`, 'error');
+          return;
+        }
+
         const res = await api.post('/subject-offerings', {
           faculty_id: selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id,
           curriculum_id: subject.id,
@@ -233,10 +245,14 @@ export default function Teachers() {
         setTeachers(teachers.map(t => {
             if (t.id === selectedTeacherForSubjects.id) {
               const newOfferings = [...(t.subject_offerings || []), res];
-              const updatedUnits = (t.current_units || 0) + subject.units;
               return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
             }
             return t;
+        }));
+        setSelectedTeacherForSubjects(prev => ({
+          ...prev,
+          subject_offerings: [...(prev.subject_offerings || []), res],
+          current_units: updatedUnits
         }));
         addToast('Subject added', 'success');
       }
@@ -263,6 +279,7 @@ export default function Teachers() {
       
       const enrichedData = (Array.isArray(data) ? data : []).map(t => ({
          ...t,
+         name: `${t.first_name} ${t.last_name}`,
          subject_offerings: offerings.filter(o => o.faculty_id === (t.faculty_id || t.id))
       }));
       setTeachers(enrichedData);
@@ -295,10 +312,13 @@ export default function Teachers() {
       (teacher.unavailability || []).forEach(u => {
         const day = u.day_of_week.substring(0, 3);
         days.push(day);
+        const uStart = u.start_time ? u.start_time.substring(0, 5) : '07:30';
+        const uEnd = u.end_time ? u.end_time.substring(0, 5) : '17:30';
+        const isCustom = uStart !== '07:30' || uEnd !== '17:30';
         ranges[day] = {
-          start: u.start_time || '07:30',
-          end: u.end_time || '17:30',
-          active: u.is_custom || false
+          start: uStart,
+          end: uEnd,
+          active: u.is_custom !== undefined ? u.is_custom : isCustom
         };
       });
       setSelectedDays(days);
@@ -408,6 +428,14 @@ export default function Teachers() {
     try {
       await api.delete(`/professors/${selectedTeacher.id}/unavailability/${blockId}`);
       setUnavailability(prev => prev.filter(b => b.id !== blockId));
+      
+      setTeachers(prev => prev.map(t => {
+        if (t.id === selectedTeacher.id) {
+          return { ...t, unavailability: (t.unavailability || []).filter(b => b.id !== blockId) };
+        }
+        return t;
+      }));
+      
       addToast('Blocked time removed', 'success');
     } catch (error) {
       addToast('Failed to remove blocked time', 'error');
@@ -419,6 +447,14 @@ export default function Teachers() {
     try {
       const data = await api.post(`/professors/${selectedTeacher.id}/unavailability`, newUnavail);
       setUnavailability(prev => [...prev, data]);
+      
+      setTeachers(prev => prev.map(t => {
+        if (t.id === selectedTeacher.id) {
+          return { ...t, unavailability: [...(t.unavailability || []), data] };
+        }
+        return t;
+      }));
+
       setIsAddingUnavailability(false);
       addToast('Blocked time added', 'success');
     } catch (error) {
@@ -691,7 +727,7 @@ export default function Teachers() {
             </button>
             <button
               type="submit"
-              className="px-14 py-4 text-[13px] font-black text-white bg-[#1a6b3a] hover:bg-[#14522d] rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center min-w-[200px]"
+              className="px-14 py-4 text-[13px] font-black text-white bg-green-700 hover:bg-green-800 rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center min-w-[200px]"
             >
               {editingTeacher ? 'Update Faculty' : 'Add Faculty'}
             </button>
@@ -854,6 +890,21 @@ export default function Teachers() {
           
           {/* Filters */}
           <div className="flex gap-4 mb-4">
+             <div className="flex-[2]">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Search Subjects</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by code or name..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                    value={subjectSearchQuery}
+                    onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                  />
+                </div>
+             </div>
              <div className="flex-1">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Semester</label>
                 <select 
@@ -900,7 +951,18 @@ export default function Teachers() {
                     else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
                     else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
                     
-                    return matchSem && matchType && sub.is_major;
+                    const searchLower = subjectSearchQuery.toLowerCase();
+                    const matchSearch = !subjectSearchQuery || 
+                                        sub.code.toLowerCase().includes(searchLower) || 
+                                        sub.name.toLowerCase().includes(searchLower);
+                    
+                    return matchSem && matchType && sub.is_major && matchSearch;
+                 }).sort((a, b) => {
+                   const aAssigned = teacherSubjects.some(ts => ts.curriculum_id === a.id);
+                   const bAssigned = teacherSubjects.some(ts => ts.curriculum_id === b.id);
+                   if (aAssigned && !bAssigned) return -1;
+                   if (!aAssigned && bAssigned) return 1;
+                   return a.code.localeCompare(b.code);
                  }).map(sub => {
                    const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === sub.id);
                    return (

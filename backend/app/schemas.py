@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, computed_field
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -9,6 +9,9 @@ class UserBase(BaseModel):
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: str
     department: Optional[str] = None
+    sex: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    profile_picture: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -39,12 +42,19 @@ class ResetPassword(BaseModel):
     otp: str
     new_password: str
 
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
+
 class UserUpdate(BaseModel):
     first_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s.]+$')
     last_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s.]+$')
     contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
     role: Optional[str] = None
     is_verified: Optional[bool] = None
+    sex: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    profile_picture: Optional[str] = None
 
 class DepartmentBase(BaseModel):
     name: str
@@ -161,6 +171,7 @@ class FacultyUpdate(BaseModel):
 class FacultyResponse(FacultyBase):
     id: int
     current_units: Optional[int] = 0
+    unavailability: Optional[List["FacultyUnavailabilityResponse"]] = []
     model_config = ConfigDict(from_attributes=True)
 
 class SemesterBase(BaseModel):

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Enum, Time, DateTime
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Enum, Time, DateTime, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from .database import Base
@@ -13,6 +13,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum('admin', 'program_chair', 'faculty', 'student', name='user_roles'), nullable=False)
     department = Column(String(50), nullable=True)
+    sex = Column(Enum('Male', 'Female', 'Other', name='user_sex_types'), nullable=True)
+    date_of_birth = Column(Date, nullable=True)
+    profile_picture = Column(String(255), nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_otp = Column(String(10), nullable=True)
     reset_otp = Column(String(10), nullable=True)

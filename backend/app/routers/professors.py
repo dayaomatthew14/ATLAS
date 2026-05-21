@@ -63,7 +63,8 @@ def get_professors(
             "max_units": f.max_units,
             "type": f.type,
             "department_id": f.department_id,
-            "current_units": faculty_loads.get(f.id, 0)
+            "current_units": faculty_loads.get(f.id, 0),
+            "unavailability": f.unavailabilities
         }
         result.append(f_dict)
     

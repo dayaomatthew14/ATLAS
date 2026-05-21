@@ -46,9 +46,9 @@ def is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_scheds):
                 return True
     return False
 
-def is_prof_unavail(user_id, day1, day2, start_t, end_t, all_unavails):
+def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
     for u in all_unavails:
-        if u.faculty_id == user_id and u.day_of_week in (day1, day2):
+        if u.faculty_id == faculty_id and u.day_of_week in (day1, day2):
             if check_overlap(u.start_time, u.end_time, start_t, end_t):
                 return True
     return False
@@ -70,7 +70,6 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
     # 2. Load Faculty and initialize hours used
     faculties = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
     faculty_objs = {f.id: f for f in faculties}
-    faculty_user_map = {f.id: f.user_id for f in faculties}
 
     faculty_hours_used = {f.id: 0.0 for f in faculties}
     all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id).all()
@@ -79,8 +78,7 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
             faculty_hours_used[s.faculty_id] += get_duration_hours(s.start_time, s.end_time) # type: ignore
 
     # Load unavailabilities
-    user_ids = [f.user_id for f in faculties]
-    all_unavails = db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id.in_(user_ids)).all()
+    all_unavails = db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id.in_(faculty_ids)).all()
 
     # 3. Load Rooms grouped by type
     rooms = db.query(models.Room).all()
@@ -187,7 +185,6 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
                     continue
 
                 placed = False
-                user_id = faculty_user_map[pid]
 
                 for room in valid_rooms:
                     if placed: break
@@ -197,7 +194,7 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
 
                         if is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
                         if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
-                        if is_prof_unavail(user_id, day1, day2, start_t, end_t, all_unavails): continue
+                        if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
                         if is_section_conflict(section.name, day1, day2, start_t, end_t, all_schedules): continue
 
                         # F. If all 4 checks pass
