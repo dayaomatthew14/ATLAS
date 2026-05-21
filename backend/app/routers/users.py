@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import shutil
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
@@ -142,3 +144,53 @@ def delete_user(
     db.delete(db_user)
     db.commit()
     return None
+
+@router.post("/{user_id}/upload-picture")
+def upload_profile_picture(
+    user_id: int, 
+    file: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role != 'admin' and current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+    # Generate unique filename
+    file_ext = file.filename.split(".")[-1]
+    filename = f"user_{user_id}_{os.urandom(4).hex()}.{file_ext}"
+    file_location = f"uploads/profiles/{filename}"
+    
+    with open(file_location, "wb+") as file_object:
+        shutil.copyfileobj(file.file, file_object)
+        
+    # Delete old picture if exists
+    if db_user.profile_picture:
+        try:
+            os.remove(db_user.profile_picture)
+        except OSError:
+            pass
+            
+    db_user.profile_picture = file_location
+    db.commit()
+    db.refresh(db_user)
+    
+    return {"url": f"/{file_location}"}
+
+@router.post("/change-password")
+def change_password(
+    payload: schemas.ChangePassword,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if not auth.verify_password(payload.old_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect current password"
+        )
+    current_user.password_hash = auth.get_password_hash(payload.new_password)
+    db.commit()
+    return {"msg": "Password updated successfully"}

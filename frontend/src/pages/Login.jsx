@@ -96,6 +96,11 @@ export default function Login() {
         if (response.department) {
           localStorage.setItem('atlas_department', response.department);
         }
+        if (response.profile_picture) {
+          localStorage.setItem('atlas_profile_picture', response.profile_picture);
+        } else {
+          localStorage.removeItem('atlas_profile_picture');
+        }
         navigate('/dashboard');
       }
       else if (mode === 'register') {
@@ -138,6 +143,11 @@ export default function Login() {
         localStorage.setItem('atlas_user_name', response.name);
         if (response.department) {
           localStorage.setItem('atlas_department', response.department);
+        }
+        if (response.profile_picture) {
+          localStorage.setItem('atlas_profile_picture', response.profile_picture);
+        } else {
+          localStorage.removeItem('atlas_profile_picture');
         }
         navigate('/dashboard');
       }

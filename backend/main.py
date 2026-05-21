@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -17,6 +18,10 @@ from app.routers import (
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ATLAS Backend API")
+
+# Mount static directory for uploads
+os.makedirs("uploads/profiles", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Setup CORS for frontend communication
 app.add_middleware(

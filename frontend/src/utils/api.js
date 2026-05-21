@@ -21,6 +21,7 @@ async function request(endpoint, options = {}) {
       localStorage.removeItem('atlas_role');
       localStorage.removeItem('atlas_user_name');
       localStorage.removeItem('atlas_department');
+      localStorage.removeItem('atlas_profile_picture');
       // Don't try to removeItem('atlas_token') — it's an HttpOnly cookie
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });

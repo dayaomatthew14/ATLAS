@@ -44,7 +44,7 @@ def generate_schedule(
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
          
     # Map input User IDs to Faculty IDs
-    faculty_records = db.query(models.Faculty).filter(models.Faculty.user_id.in_(request.faculty_ids)).all()
+    faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
     resolved_faculty_ids = [f.id for f in faculty_records]
 
     # Run the generator

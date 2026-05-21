@@ -2,11 +2,215 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Dynamic Appearance Themes Config */
+:root, html[data-theme="green"] {
+  --color-primary-50: 240 253 244;
+  --color-primary-100: 220 252 231;
+  --color-primary-200: 187 247 208;
+  --color-primary-300: 134 239 172;
+  --color-primary-400: 74 222 128;
+  --color-primary-500: 34 197 94;
+  --color-primary-600: 22 163 74;
+  --color-primary-700: 21 128 61;
+  --color-primary-800: 22 101 52;
+  --color-primary-900: 20 83 45;
+  --color-primary-950: 5 46 22;
+}
+
+html[data-theme="dark"] {
+  --color-primary-50: 248 250 252;
+  --color-primary-100: 241 245 249;
+  --color-primary-200: 226 232 240;
+  --color-primary-300: 203 213 225;
+  --color-primary-400: 148 163 184;
+  --color-primary-500: 100 116 139;
+  --color-primary-600: 71 85 105;
+  --color-primary-700: 51 65 85;
+  --color-primary-800: 30 41 59;
+  --color-primary-900: 15 23 42;
+  --color-primary-950: 2 6 23;
+}
+
+html[data-theme="blue"] {
+  --color-primary-50: 239 246 255;
+  --color-primary-100: 219 234 254;
+  --color-primary-200: 191 219 254;
+  --color-primary-300: 147 197 253;
+  --color-primary-400: 96 165 250;
+  --color-primary-500: 59 130 246;
+  --color-primary-600: 37 99 235;
+  --color-primary-700: 29 78 216;
+  --color-primary-800: 30 64 175;
+  --color-primary-900: 30 58 138;
+  --color-primary-950: 23 37 84;
+}
+
+html[data-theme="purple"] {
+  --color-primary-50: 250 245 255;
+  --color-primary-100: 243 232 255;
+  --color-primary-200: 233 213 255;
+  --color-primary-300: 216 180 254;
+  --color-primary-400: 192 132 252;
+  --color-primary-500: 168 85 247;
+  --color-primary-600: 147 51 234;
+  --color-primary-700: 126 34 206;
+  --color-primary-800: 107 33 168;
+  --color-primary-900: 88 28 135;
+  --color-primary-950: 59 7 100;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+/* Direct class overrides to bypass tailwind compiler caching and hex hardcoding issues */
+.bg-green-50 { background-color: rgb(var(--color-primary-50)) !important; }
+.bg-green-100 { background-color: rgb(var(--color-primary-100)) !important; }
+.bg-green-200 { background-color: rgb(var(--color-primary-200)) !important; }
+.bg-green-300 { background-color: rgb(var(--color-primary-300)) !important; }
+.bg-green-400 { background-color: rgb(var(--color-primary-400)) !important; }
+.bg-green-500 { background-color: rgb(var(--color-primary-500)) !important; }
+.bg-green-600 { background-color: rgb(var(--color-primary-600)) !important; }
+.bg-green-700 { background-color: rgb(var(--color-primary-700)) !important; }
+.bg-green-800 { background-color: rgb(var(--color-primary-800)) !important; }
+.bg-green-900 { background-color: rgb(var(--color-primary-900)) !important; }
+.bg-green-950 { background-color: rgb(var(--color-primary-950)) !important; }
+
+.text-green-50 { color: rgb(var(--color-primary-50)) !important; }
+.text-green-100 { color: rgb(var(--color-primary-100)) !important; }
+.text-green-200 { color: rgb(var(--color-primary-200)) !important; }
+.text-green-300 { color: rgb(var(--color-primary-300)) !important; }
+.text-green-400 { color: rgb(var(--color-primary-400)) !important; }
+.text-green-500 { color: rgb(var(--color-primary-500)) !important; }
+.text-green-600 { color: rgb(var(--color-primary-600)) !important; }
+.text-green-700 { color: rgb(var(--color-primary-700)) !important; }
+.text-green-800 { color: rgb(var(--color-primary-800)) !important; }
+.text-green-900 { color: rgb(var(--color-primary-900)) !important; }
+.text-green-950 { color: rgb(var(--color-primary-950)) !important; }
+
+.border-green-50 { border-color: rgb(var(--color-primary-50)) !important; }
+.border-green-100 { border-color: rgb(var(--color-primary-100)) !important; }
+.border-green-200 { border-color: rgb(var(--color-primary-200)) !important; }
+.border-green-300 { border-color: rgb(var(--color-primary-300)) !important; }
+.border-green-400 { border-color: rgb(var(--color-primary-400)) !important; }
+.border-green-500 { border-color: rgb(var(--color-primary-500)) !important; }
+.border-green-600 { border-color: rgb(var(--color-primary-600)) !important; }
+.border-green-700 { border-color: rgb(var(--color-primary-700)) !important; }
+.border-green-800 { border-color: rgb(var(--color-primary-800)) !important; }
+.border-green-900 { border-color: rgb(var(--color-primary-900)) !important; }
+.border-green-950 { border-color: rgb(var(--color-primary-950)) !important; }
+
+.hover\:bg-green-50:hover { background-color: rgb(var(--color-primary-50)) !important; }
+.hover\:bg-green-100:hover { background-color: rgb(var(--color-primary-100)) !important; }
+.hover\:bg-green-200:hover { background-color: rgb(var(--color-primary-200)) !important; }
+.hover\:bg-green-300:hover { background-color: rgb(var(--color-primary-300)) !important; }
+.hover\:bg-green-400:hover { background-color: rgb(var(--color-primary-400)) !important; }
+.hover\:bg-green-500:hover { background-color: rgb(var(--color-primary-500)) !important; }
+.hover\:bg-green-600:hover { background-color: rgb(var(--color-primary-600)) !important; }
+.hover\:bg-green-700:hover { background-color: rgb(var(--color-primary-700)) !important; }
+.hover\:bg-green-800:hover { background-color: rgb(var(--color-primary-800)) !important; }
+.hover\:bg-green-900:hover { background-color: rgb(var(--color-primary-900)) !important; }
+.hover\:bg-green-950:hover { background-color: rgb(var(--color-primary-950)) !important; }
+
+.hover\:text-green-50:hover { color: rgb(var(--color-primary-50)) !important; }
+.hover\:text-green-100:hover { color: rgb(var(--color-primary-100)) !important; }
+.hover\:text-green-200:hover { color: rgb(var(--color-primary-200)) !important; }
+.hover\:text-green-300:hover { color: rgb(var(--color-primary-300)) !important; }
+.hover\:text-green-400:hover { color: rgb(var(--color-primary-400)) !important; }
+.hover\:text-green-500:hover { color: rgb(var(--color-primary-500)) !important; }
+.hover\:text-green-600:hover { color: rgb(var(--color-primary-600)) !important; }
+.hover\:text-green-700:hover { color: rgb(var(--color-primary-700)) !important; }
+.hover\:text-green-800:hover { color: rgb(var(--color-primary-800)) !important; }
+.hover\:text-green-900:hover { color: rgb(var(--color-primary-900)) !important; }
+.hover\:text-green-950:hover { color: rgb(var(--color-primary-950)) !important; }
+
+/* Transparency and Opacity Classes commonly used in Tailwind green */
+.bg-green-900\/50 { background-color: rgba(var(--color-primary-900), 0.5) !important; }
+.bg-green-700\/50 { background-color: rgba(var(--color-primary-700), 0.5) !important; }
+.bg-green-50\/40 { background-color: rgba(var(--color-primary-50), 0.4) !important; }
+.bg-green-50\/50 { background-color: rgba(var(--color-primary-50), 0.5) !important; }
+.bg-green-50\/70 { background-color: rgba(var(--color-primary-50), 0.7) !important; }
+.bg-green-50\/30 { background-color: rgba(var(--color-primary-50), 0.3) !important; }
+.bg-green-900\/20 { background-color: rgba(var(--color-primary-900), 0.2) !important; }
+.shadow-green-900\/20 { --tw-shadow-color: rgba(var(--color-primary-900), 0.2) !important; }
+.shadow-green-700\/20 { --tw-shadow-color: rgba(var(--color-primary-700), 0.2) !important; }
+
+.hover\:bg-green-700\/50:hover { background-color: rgba(var(--color-primary-700), 0.5) !important; }
+.focus\:ring-green-500\/25:focus { --tw-ring-color: rgba(var(--color-primary-500), 0.25) !important; }
+.focus\:ring-green-600:focus { --tw-ring-color: rgb(var(--color-primary-600)) !important; }
+.focus\:ring-green-500:focus { --tw-ring-color: rgb(var(--color-primary-500)) !important; }
+
+/* Additional border direction overrides */
+.border-t-green-50 { border-top-color: rgb(var(--color-primary-50)) !important; }
+.border-t-green-100 { border-top-color: rgb(var(--color-primary-100)) !important; }
+.border-t-green-200 { border-top-color: rgb(var(--color-primary-200)) !important; }
+.border-t-green-300 { border-top-color: rgb(var(--color-primary-300)) !important; }
+.border-t-green-400 { border-top-color: rgb(var(--color-primary-400)) !important; }
+.border-t-green-500 { border-top-color: rgb(var(--color-primary-500)) !important; }
+.border-t-green-600 { border-top-color: rgb(var(--color-primary-600)) !important; }
+.border-t-green-700 { border-top-color: rgb(var(--color-primary-700)) !important; }
+.border-t-green-800 { border-top-color: rgb(var(--color-primary-800)) !important; }
+.border-t-green-900 { border-top-color: rgb(var(--color-primary-900)) !important; }
+
+.border-b-green-50 { border-bottom-color: rgb(var(--color-primary-50)) !important; }
+.border-b-green-100 { border-bottom-color: rgb(var(--color-primary-100)) !important; }
+.border-b-green-200 { border-bottom-color: rgb(var(--color-primary-200)) !important; }
+.border-b-green-300 { border-bottom-color: rgb(var(--color-primary-300)) !important; }
+.border-b-green-400 { border-bottom-color: rgb(var(--color-primary-400)) !important; }
+.border-b-green-500 { border-bottom-color: rgb(var(--color-primary-500)) !important; }
+.border-b-green-600 { border-bottom-color: rgb(var(--color-primary-600)) !important; }
+.border-b-green-700 { border-bottom-color: rgb(var(--color-primary-700)) !important; }
+.border-b-green-800 { border-bottom-color: rgb(var(--color-primary-800)) !important; }
+.border-b-green-900 { border-bottom-color: rgb(var(--color-primary-900)) !important; }
+
+.border-l-green-50 { border-left-color: rgb(var(--color-primary-50)) !important; }
+.border-l-green-100 { border-left-color: rgb(var(--color-primary-100)) !important; }
+.border-l-green-200 { border-left-color: rgb(var(--color-primary-200)) !important; }
+.border-l-green-300 { border-left-color: rgb(var(--color-primary-300)) !important; }
+.border-l-green-400 { border-left-color: rgb(var(--color-primary-400)) !important; }
+.border-l-green-500 { border-left-color: rgb(var(--color-primary-500)) !important; }
+.border-l-green-600 { border-left-color: rgb(var(--color-primary-600)) !important; }
+.border-l-green-700 { border-left-color: rgb(var(--color-primary-700)) !important; }
+.border-l-green-800 { border-left-color: rgb(var(--color-primary-800)) !important; }
+.border-l-green-900 { border-left-color: rgb(var(--color-primary-900)) !important; }
+
+.border-r-green-50 { border-right-color: rgb(var(--color-primary-50)) !important; }
+.border-r-green-100 { border-right-color: rgb(var(--color-primary-100)) !important; }
+.border-r-green-200 { border-right-color: rgb(var(--color-primary-200)) !important; }
+.border-r-green-300 { border-right-color: rgb(var(--color-primary-300)) !important; }
+.border-r-green-400 { border-right-color: rgb(var(--color-primary-400)) !important; }
+.border-r-green-500 { border-right-color: rgb(var(--color-primary-500)) !important; }
+.border-r-green-600 { border-right-color: rgb(var(--color-primary-600)) !important; }
+.border-r-green-700 { border-right-color: rgb(var(--color-primary-700)) !important; }
+.border-r-green-800 { border-right-color: rgb(var(--color-primary-800)) !important; }
+.border-r-green-900 { border-right-color: rgb(var(--color-primary-900)) !important; }
+
+/* Gradient stop overrides */
+.from-green-50 { --tw-gradient-from: rgb(var(--color-primary-50)) !important; --tw-gradient-to: rgb(var(--color-primary-50) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-100 { --tw-gradient-from: rgb(var(--color-primary-100)) !important; --tw-gradient-to: rgb(var(--color-primary-100) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-200 { --tw-gradient-from: rgb(var(--color-primary-200)) !important; --tw-gradient-to: rgb(var(--color-primary-200) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-300 { --tw-gradient-from: rgb(var(--color-primary-300)) !important; --tw-gradient-to: rgb(var(--color-primary-300) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-400 { --tw-gradient-from: rgb(var(--color-primary-400)) !important; --tw-gradient-to: rgb(var(--color-primary-400) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-500 { --tw-gradient-from: rgb(var(--color-primary-500)) !important; --tw-gradient-to: rgb(var(--color-primary-500) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-600 { --tw-gradient-from: rgb(var(--color-primary-600)) !important; --tw-gradient-to: rgb(var(--color-primary-600) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-700 { --tw-gradient-from: rgb(var(--color-primary-700)) !important; --tw-gradient-to: rgb(var(--color-primary-700) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-800 { --tw-gradient-from: rgb(var(--color-primary-800)) !important; --tw-gradient-to: rgb(var(--color-primary-800) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+.from-green-900 { --tw-gradient-from: rgb(var(--color-primary-900)) !important; --tw-gradient-to: rgb(var(--color-primary-900) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
+
+.to-green-50 { --tw-gradient-to: rgb(var(--color-primary-50)) !important; }
+.to-green-100 { --tw-gradient-to: rgb(var(--color-primary-100)) !important; }
+.to-green-200 { --tw-gradient-to: rgb(var(--color-primary-200)) !important; }
+.to-green-300 { --tw-gradient-to: rgb(var(--color-primary-300)) !important; }
+.to-green-400 { --tw-gradient-to: rgb(var(--color-primary-400)) !important; }
+.to-green-500 { --tw-gradient-to: rgb(var(--color-primary-500)) !important; }
+.to-green-600 { --tw-gradient-to: rgb(var(--color-primary-600)) !important; }
+.to-green-700 { --tw-gradient-to: rgb(var(--color-primary-700)) !important; }
+.to-green-800 { --tw-gradient-to: rgb(var(--color-primary-800)) !important; }
+.to-green-900 { --tw-gradient-to: rgb(var(--color-primary-900)) !important; }
+
+
+
