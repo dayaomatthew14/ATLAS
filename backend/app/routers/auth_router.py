@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import timedelta, datetime, timezone
 import secrets
 import string
+import os
 from .. import database, models, schemas, auth, notifications
 from .logs import log_activity
 
@@ -54,13 +55,17 @@ def login_for_access_token(
     )
     
     # Set HttpOnly Cookie
-    print(f"DEBUG AUTH: Setting atlas_token cookie for user {user.email}")
+    is_prod = os.getenv("ENV") == "production"
+    samesite_val = "none" if is_prod else "lax"
+    secure_val = True if is_prod else False
+
+    print(f"DEBUG AUTH: Setting atlas_token cookie for user {user.email} (is_prod={is_prod})")
     response.set_cookie(
         key="atlas_token",
         value=access_token,
         httponly=True,
-        secure=False, 
-        samesite="lax",
+        secure=secure_val, 
+        samesite=samesite_val,
         max_age=30*24*60*60 if remember_me else None
     )
     
@@ -234,7 +239,10 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie("atlas_token", samesite="lax", secure=False)
+    is_prod = os.getenv("ENV") == "production"
+    samesite_val = "none" if is_prod else "lax"
+    secure_val = True if is_prod else False
+    response.delete_cookie("atlas_token", samesite=samesite_val, secure=secure_val)
     return {"msg": "Logged out successfully"}
 
 @router.post("/logout-all")
@@ -248,7 +256,10 @@ def logout_all(response: Response, current_user: models.User = Depends(auth.get_
     ).first()
     log_activity(db, current_user.id, "Logout All", "User logged out of all devices", "success", department_id=dept.id if dept else None) # type: ignore
     
-    response.delete_cookie("atlas_token", samesite="lax", secure=False)
+    is_prod = os.getenv("ENV") == "production"
+    samesite_val = "none" if is_prod else "lax"
+    secure_val = True if is_prod else False
+    response.delete_cookie("atlas_token", samesite=samesite_val, secure=secure_val)
     return {"msg": "Logged out of all devices successfully"}
 
 @router.get("/seed")
