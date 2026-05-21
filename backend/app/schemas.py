@@ -196,8 +196,8 @@ from datetime import time
 class ScheduleBase(BaseModel):
     semester_id: int
     curriculum_id: int
-    faculty_id: int
-    room_id: int
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
     day_of_week: str
     start_time: time
     end_time: time
