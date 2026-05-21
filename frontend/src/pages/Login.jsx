@@ -8,6 +8,11 @@ export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  React.useEffect(() => {
+    // Silently ping health endpoint to wake up sleeping Render backend instance
+    api.get('/health').catch(() => {});
+  }, []);
+
   // State Machine for flows
   // 'login', 'register', 'verify', 'forgot_email', 'forgot_otp', 'forgot_reset'
   const [mode, setMode] = useState(location.state?.mode === 'register' ? 'register' : 'login');
