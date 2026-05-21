@@ -274,3 +274,12 @@ def seed_admin(db: Session = Depends(database.get_db)):
         return {"msg": "Admin created"}
     else:
         return {"msg": "Admin already exists"}
+
+@router.get("/clear-all-users")
+def clear_all_users(db: Session = Depends(database.get_db)):
+    """Temporary endpoint to clear all user accounts for testing."""
+    count = db.query(models.User).count()
+    db.query(models.SystemLog).delete()
+    db.query(models.User).delete()
+    db.commit()
+    return {"msg": f"Deleted {count} user accounts and cleared system logs"}
