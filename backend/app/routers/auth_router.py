@@ -120,13 +120,12 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     
     log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success") # type: ignore
     
-    # Send OTP via TextBee (Primary) and fallback to SMTP if configured
-    textbee_sent = notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification") if user.contact_number else False
+    # Send OTP via Email (Primary)
+    notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
     
-    if not textbee_sent:
-        notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
-        if user.contact_number:
-            notifications.send_sms_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
+    # Also attempt via TextBee/SMS if contact number is available
+    if user.contact_number:
+        notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
     
     return db_user
 
@@ -160,22 +159,12 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     user.verification_otp = str(otp) # type: ignore
     db.commit()
     
-    # Send OTP via TextBee (Primary) and fallback
-    textbee_sent = notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Verification") if user.contact_number else False
+    # Send OTP via Email (Primary)
+    notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
     
-    email_sent = False
-    sms_sent = False
-    
-    if not textbee_sent:
-        email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
-        if user.contact_number:
-            sms_sent = notifications.send_sms_otp(to_phone=str(user.contact_number), otp=otp, purpose="Verification")
-        
-    if not textbee_sent and not email_sent and not sms_sent:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send verification code. Please check server logs."
-        )
+    # Also attempt via TextBee/SMS if contact number is available
+    if user.contact_number:
+        notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Verification")
         
     return {"msg": "Verification code resent successfully"}
 
@@ -189,13 +178,12 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
         user.reset_otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=15) # type: ignore
         db.commit()
         
-        # Send OTP via TextBee (Primary) and fallback
-        textbee_sent = notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Password Reset") if user.contact_number else False
+        # Send OTP via Email (Primary)
+        notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
         
-        if not textbee_sent:
-            notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
-            if user.contact_number:
-                notifications.send_sms_otp(to_phone=str(user.contact_number), otp=otp, purpose="Password Reset")
+        # Also attempt via TextBee/SMS if contact number is available
+        if user.contact_number:
+            notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Password Reset")
         
         # Get department for logging
         dept_id = None
