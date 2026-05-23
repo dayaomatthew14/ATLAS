@@ -66,6 +66,7 @@ export default function Dashboard() {
     localStorage.removeItem('atlas_user_name');
     localStorage.removeItem('atlas_department');
     localStorage.removeItem('atlas_profile_picture');
+    localStorage.removeItem('atlas_token');
     navigate('/login');
   };
 

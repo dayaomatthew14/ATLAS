@@ -2,9 +2,11 @@ const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
+  const token = localStorage.getItem('atlas_token');
   
   const headers = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
@@ -22,7 +24,8 @@ async function request(endpoint, options = {}) {
       localStorage.removeItem('atlas_user_name');
       localStorage.removeItem('atlas_department');
       localStorage.removeItem('atlas_profile_picture');
-      // Don't try to removeItem('atlas_token') — it's an HttpOnly cookie
+      localStorage.removeItem('atlas_token');
+      // Don't try to remove cookie directly — it's an HttpOnly cookie
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
       } catch (e) {}

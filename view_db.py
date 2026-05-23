@@ -1,12 +1,35 @@
 import os
-import sqlite3
 import json
 import webbrowser
 import http.server
 import socketserver
 from urllib.parse import urlparse, parse_qs
+from sqlalchemy import create_engine, MetaData, Table, select, text, func
 
-DB_PATH = "backend/atlas_v3.db" if os.path.exists("backend/atlas_v3.db") else "atlas_v3.db"
+# Load environment variables from backend/.env if it exists
+ENV_PATH = "backend/.env" if os.path.exists("backend/.env") else ".env"
+DATABASE_URL = "sqlite:///./backend/atlas_v3.db"
+
+if os.path.exists(ENV_PATH):
+    with open(ENV_PATH, "r") as f:
+        for line in f:
+            if line.startswith("DATABASE_URL="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if val:
+                    DATABASE_URL = val
+                    break
+
+# Fix for postgres:// protocol common in cloud hosting
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Fix relative SQLite path if running from root
+if DATABASE_URL.startswith("sqlite:///./"):
+    # If SQLite file is in backend/ and we are in root, prefix with backend/
+    sqlite_filename = DATABASE_URL.replace("sqlite:///./", "")
+    if not os.path.exists(sqlite_filename) and os.path.exists(f"backend/{sqlite_filename}"):
+        DATABASE_URL = f"sqlite:///./backend/{sqlite_filename}"
+
 PORT = 8555
 
 HTML_CONTENT = """<!DOCTYPE html>
@@ -61,7 +84,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 32px;
+            margin-bottom: 8px;
         }
 
         .logo-icon {
@@ -84,6 +107,17 @@ HTML_CONTENT = """<!DOCTYPE html>
             background: linear-gradient(to right, #ffffff, #9ca3af);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+
+        .db-status {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            padding: 4px 8px;
+            background-color: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            word-break: break-all;
         }
 
         .section-title {
@@ -248,7 +282,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             background-color: rgba(255, 255, 255, 0.01);
         }
 
-        /* Status colors */
+        /* Status badges */
         .role-badge {
             display: inline-block;
             padding: 4px 10px;
@@ -285,6 +319,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div class="logo-icon">A</div>
             <div class="logo-title">ATLAS DB Explorer</div>
         </div>
+        <div class="db-status" id="db-status-text">Connecting...</div>
         <div class="section-title">Database Tables</div>
         <ul class="table-list" id="table-list">
             <!-- Tables load here -->
@@ -313,6 +348,16 @@ HTML_CONTENT = """<!DOCTYPE html>
     <script>
         let currentData = [];
         let headers = [];
+
+        async function loadConnectionStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const status = await response.json();
+                document.getElementById('db-status-text').innerText = "Connected to: " + status.url;
+            } catch (err) {
+                document.getElementById('db-status-text').innerText = "Connection Error";
+            }
+        }
 
         async function loadTables() {
             try {
@@ -406,6 +451,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         }
 
         // Initial Load
+        loadConnectionStatus();
         loadTables();
     </script>
 </body>
@@ -427,20 +473,33 @@ class DatabaseAPIHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(HTML_CONTENT.encode("utf-8"))
             
+        elif path == "/api/status":
+            # Mask credentials from UI
+            url_obj = urlparse(DATABASE_URL)
+            masked_url = f"{url_obj.scheme}://{url_obj.hostname or 'local'}"
+            if url_obj.path:
+                masked_url += url_obj.path
+                
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"url": masked_url}).encode("utf-8"))
+            
         elif path == "/api/tables":
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+            engine = create_engine(DATABASE_URL)
             try:
-                # Query all user tables
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+                # Query table names and counts dynamically using SQLAlchemy
+                metadata = MetaData()
+                metadata.reflect(bind=engine)
                 tables = []
-                for row in cursor.fetchall():
-                    tname = row["name"]
-                    # Get count of items
-                    cursor.execute(f"SELECT count(*) FROM [{tname}]")
-                    count = cursor.fetchone()[0]
-                    tables.append({"name": tname, "count": count})
+                
+                with engine.connect() as conn:
+                    for tname in sorted(metadata.tables.keys()):
+                        if tname.startswith("sqlite_"): continue
+                        t = metadata.tables[tname]
+                        # Run a count query
+                        res = conn.execute(select(func.count()).select_from(t)).scalar()
+                        tables.append({"name": tname, "count": res})
                 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -449,7 +508,7 @@ class DatabaseAPIHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             finally:
-                conn.close()
+                engine.dispose()
                 
         elif path == "/api/table-data":
             query_params = parse_qs(parsed_url.query)
@@ -459,17 +518,34 @@ class DatabaseAPIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(400, "Missing name parameter")
                 return
                 
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+            engine = create_engine(DATABASE_URL)
             try:
-                # Fetch columns
-                cursor.execute(f"PRAGMA table_info([{table_name}])")
-                columns = [col[1] for col in cursor.fetchall()]
+                metadata = MetaData()
+                metadata.reflect(bind=engine)
                 
-                # Fetch rows
-                cursor.execute(f"SELECT * FROM [{table_name}]")
-                rows = [dict(row) for row in cursor.fetchall()]
+                if table_name not in metadata.tables:
+                    self.send_error(404, f"Table {table_name} not found")
+                    return
+                    
+                t = metadata.tables[table_name]
+                columns = [c.name for c in t.columns]
+                
+                with engine.connect() as conn:
+                    # Query all rows
+                    res = conn.execute(select(t))
+                    rows = []
+                    for row in res.fetchall():
+                        # Map row values to dict
+                        row_dict = {}
+                        for i, col_name in enumerate(columns):
+                            val = row[i]
+                            # Handle non-serializable objects (like datetime, date, time)
+                            if hasattr(val, "isoformat"):
+                                val = val.isoformat()
+                            elif hasattr(val, "strftime"):
+                                val = val.strftime("%H:%M:%S")
+                            row_dict[col_name] = val
+                        rows.append(row_dict)
                 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -478,22 +554,33 @@ class DatabaseAPIHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             finally:
-                conn.close()
+                engine.dispose()
         else:
             self.send_error(404, "Not Found")
 
 def main():
     print("=== ATLAS DATABASE EXPLORER ===")
-    print(f"Loading database file from: {os.path.abspath(DB_PATH)}")
     
-    if not os.path.exists(DB_PATH):
-        print(f"[ERROR] Database file not found at {DB_PATH}. Run the backend server or seed command first to initialize it.")
+    # Connect and verify using SQLAlchemy
+    engine = create_engine(DATABASE_URL)
+    try:
+        with engine.connect() as conn:
+            # Mask credentials for terminal output
+            url_obj = urlparse(DATABASE_URL)
+            masked_url = f"{url_obj.scheme}://{url_obj.hostname or 'local'}"
+            if url_obj.path:
+                masked_url += url_obj.path
+            print(f"Connected successfully to database: {masked_url}")
+    except Exception as e:
+        print(f"[ERROR] Failed to connect to database: {e}")
         return
+    finally:
+        engine.dispose()
         
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), DatabaseAPIHandler) as httpd:
         url = f"http://localhost:{PORT}"
-        print(f"\n[SUCCESS] Server started successfully!")
+        print(f"\n[SUCCESS] Explorer Server started successfully!")
         print(f"Opening your browser automatically: {url}")
         print("Press Ctrl+C to close and exit.")
         
