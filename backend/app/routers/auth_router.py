@@ -71,6 +71,7 @@ def login_for_access_token(
     
     # Get department ID for logging if available
     dept_id = None
+    dept_name = user.department
     if user.department:
         dept = db.query(models.Department).filter(
             (models.Department.code == user.department) | 
@@ -78,6 +79,7 @@ def login_for_access_token(
         ).first()
         if dept:
             dept_id = dept.id
+            dept_name = dept.name
             
     log_activity(db, user.id, "Login", f"User {user.email} logged in", "success", department_id=dept_id) # type: ignore
     
@@ -86,13 +88,32 @@ def login_for_access_token(
         "token_type": "bearer",
         "role": user.role,
         "name": f"{user.first_name} {user.last_name}",
-        "department": user.department,
+        "department": dept_name,
         "profile_picture": user.profile_picture
     }
 
 @router.get("/me", response_model=schemas.UserResponse)
-def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
-    return current_user
+def read_users_me(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    dept = db.query(models.Department).filter(models.Department.code == current_user.department).first()
+    dept_name = dept.name if dept else current_user.department
+    
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "contact_number": current_user.contact_number,
+        "role": current_user.role,
+        "department": dept_name,
+        "sex": current_user.sex,
+        "date_of_birth": current_user.date_of_birth,
+        "profile_picture": current_user.profile_picture,
+        "is_verified": current_user.is_verified,
+        "created_at": current_user.created_at
+    }
 
 @router.post("/register", response_model=schemas.UserResponse)
 def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
@@ -103,20 +124,41 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     hashed_password = auth.get_password_hash(user.password)
     otp = generate_otp()
     
-    db_user = models.User(
-        email=str(user.email),
-        first_name=str(user.first_name),
-        last_name=str(user.last_name),
-        contact_number=str(user.contact_number) if user.contact_number else None,
-        password_hash=str(hashed_password),
-        role=str(user.role),
-        department=str(user.department),
-        is_verified=False,
-        verification_otp=str(otp)
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    try:
+        db_user = models.User(
+            email=str(user.email),
+            first_name=str(user.first_name),
+            last_name=str(user.last_name),
+            contact_number=str(user.contact_number) if user.contact_number else None,
+            password_hash=str(hashed_password),
+            role=str(user.role),
+            department=str(user.department) if user.department else None,
+            is_verified=False,
+            verification_otp=str(otp)
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        # Automatically provision a private Department workspace for the newly registered chair/dean
+        friendly_dept_name = str(user.department) if user.department else "General"
+        unique_dept_code = f"DEPT_{db_user.id}"
+        
+        new_dept = models.Department(
+            code=unique_dept_code,
+            name=friendly_dept_name,
+            description=f"Isolated department workspace for {db_user.first_name} {db_user.last_name} ({friendly_dept_name})",
+            owner_id=db_user.id
+        )
+        db.add(new_dept)
+        
+        # Update user's department field to the unique department code
+        db_user.department = unique_dept_code
+        db.commit()
+        db.refresh(db_user)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database write failed during registration: {str(e)}")
     
     log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success") # type: ignore
     
@@ -127,7 +169,21 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     if user.contact_number:
         notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
     
-    return db_user
+    # Return user details returning the friendly department name to the frontend
+    return {
+        "id": db_user.id,
+        "email": db_user.email,
+        "first_name": db_user.first_name,
+        "last_name": db_user.last_name,
+        "contact_number": db_user.contact_number,
+        "role": db_user.role,
+        "department": friendly_dept_name,
+        "sex": db_user.sex,
+        "date_of_birth": db_user.date_of_birth,
+        "profile_picture": db_user.profile_picture,
+        "is_verified": db_user.is_verified,
+        "created_at": db_user.created_at
+    }
 
 @router.post("/verify-email")
 def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_db)):
@@ -231,7 +287,13 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
     return {"msg": "Password reset successfully"}
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(
+    response: Response, 
+    current_user: models.User = Depends(auth.get_current_user), 
+    db: Session = Depends(database.get_db)
+):
+    current_user.session_version += 1 # type: ignore
+    db.commit()
     is_prod = os.getenv("ENV") == "production"
     samesite_val = "none" if is_prod else "lax"
     secure_val = True if is_prod else False
@@ -277,9 +339,21 @@ def seed_admin(db: Session = Depends(database.get_db)):
 
 @router.get("/clear-all-users")
 def clear_all_users(db: Session = Depends(database.get_db)):
-    """Temporary endpoint to clear all user accounts for testing."""
+    """Temporary endpoint to clear all user accounts and reset the database for testing."""
     count = db.query(models.User).count()
+    
+    # Clear all dependent tables in correct dependency order
+    db.query(models.Conflict).delete()
+    db.query(models.Schedule).delete()
+    db.query(models.SubjectOffering).delete()
+    db.query(models.FacultyUnavailability).delete()
+    db.query(models.Faculty).delete()
+    db.query(models.Curriculum).delete()
+    db.query(models.CurriculumBlock).delete()
+    db.query(models.AIRule).delete()
+    db.query(models.Department).delete()
     db.query(models.SystemLog).delete()
     db.query(models.User).delete()
+    
     db.commit()
-    return {"msg": f"Deleted {count} user accounts and cleared system logs"}
+    return {"msg": f"Deleted {count} user accounts and reset all database tables successfully."}

@@ -89,7 +89,9 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
         rooms_by_type[r.type].append(r)
 
     # 4. Generate dynamic sections since sections table/management is removed
-    distinct_programs = db.query(models.Curriculum.program_code).distinct().all()
+    distinct_programs = db.query(models.Curriculum.program_code).filter(
+        models.Curriculum.department_id == department_id
+    ).distinct().all()
     distinct_programs = [p[0] for p in distinct_programs if p[0]]
     
     all_sections = []

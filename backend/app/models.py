@@ -30,6 +30,7 @@ class Department(Base):
     name = Column(String(255), nullable=False)
     code = Column(String(50), nullable=False, unique=True)
     description = Column(String(500), nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
 
     curriculum_items = relationship("Curriculum", back_populates="department")
     faculty_members = relationship("Faculty", back_populates="department")
@@ -41,7 +42,7 @@ class CurriculumBlock(Base):
     program_name = Column(String(255), nullable=False)
     academic_year = Column(String(50), nullable=False)
     filename = Column(String(255), nullable=True)
-    department_id = Column(Integer, ForeignKey("departments.id"))
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     department = relationship("Department", back_populates="blocks")
     curriculum_items = relationship("Curriculum", back_populates="block")
@@ -49,11 +50,11 @@ class CurriculumBlock(Base):
 class Curriculum(Base):
     __tablename__ = "curriculum"
     id = Column(Integer, primary_key=True, index=True)
-    block_id = Column(Integer, ForeignKey("curriculum_blocks.id"), nullable=True)
+    block_id = Column(Integer, ForeignKey("curriculum_blocks.id", ondelete="CASCADE"), nullable=True)
     code = Column(String(50), nullable=False)
     name = Column(String(255), nullable=False)
     units = Column(Integer, nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id"))
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
     type = Column(Enum('lecture', 'lab', name='subject_types'), nullable=False)
     program_code = Column(String(50), nullable=True)
     year_level = Column(String(20), nullable=True)
@@ -86,7 +87,7 @@ class Faculty(Base):
     contact_number = Column(String(20), nullable=True)
     max_units = Column(Integer, nullable=False, default=18)
     type = Column(Enum('full_time', 'part_time', name='faculty_types'), nullable=False, default='full_time')
-    department_id = Column(Integer, ForeignKey("departments.id"))
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
 
     department = relationship("Department", back_populates="faculty_members")
     schedules = relationship("Schedule", back_populates="faculty")
@@ -105,8 +106,8 @@ class Schedule(Base):
     __tablename__ = "schedules"
     id = Column(Integer, primary_key=True, index=True)
     semester_id = Column(Integer, ForeignKey("semesters.id"), index=True)
-    curriculum_id = Column(Integer, ForeignKey("curriculum.id"))
-    faculty_id = Column(Integer, ForeignKey("faculty.id"), index=True)
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"))
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), index=True)
     room_id = Column(Integer, ForeignKey("rooms.id"), index=True)
     day_of_week = Column(Enum('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', name='days'), index=True)
     start_time = Column(Time, index=True)
@@ -125,15 +126,15 @@ class Schedule(Base):
 class Conflict(Base):
     __tablename__ = "conflicts"
     id = Column(Integer, primary_key=True, index=True)
-    schedule_id_1 = Column(Integer, ForeignKey("schedules.id"))
-    schedule_id_2 = Column(Integer, ForeignKey("schedules.id"))
+    schedule_id_1 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"))
+    schedule_id_2 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"))
     conflict_type = Column(String(50))
     resolved_at = Column(DateTime, nullable=True)
 
 class SystemLog(Base):
     __tablename__ = "system_logs"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     action = Column(String(255), nullable=False)
     details = Column(String(1000), nullable=True)
@@ -143,8 +144,8 @@ class SystemLog(Base):
 class AIRule(Base):
     __tablename__ = "ai_rules"
     id = Column(Integer, primary_key=True, index=True)
-    department_id = Column(Integer, ForeignKey("departments.id"))
-    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=True)
     rule_type = Column(String(100), nullable=False) # e.g., 'preferred_time', 'max_consecutive_hours'
     rule_value = Column(String(500), nullable=False) # JSON or simple value
     is_active = Column(Boolean, default=True)
@@ -153,7 +154,7 @@ class AIRule(Base):
 class FacultyUnavailability(Base):
     __tablename__ = "faculty_unavailability"
     id = Column(Integer, primary_key=True, index=True)
-    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=False, index=True)
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=False, index=True)
     day_of_week = Column(Enum('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', name='unavail_days'), nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
@@ -166,8 +167,8 @@ class FacultyUnavailability(Base):
 class SubjectOffering(Base):
     __tablename__ = "subject_offerings"
     id = Column(Integer, primary_key=True, index=True)
-    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=False)
-    curriculum_id = Column(Integer, ForeignKey("curriculum.id"), nullable=False)
-    semester_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
-    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=False)
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False)
+    assigned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
