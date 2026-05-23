@@ -13,11 +13,16 @@ DATABASE_URL = "sqlite:///./backend/atlas_v3.db"
 if os.path.exists(ENV_PATH):
     with open(ENV_PATH, "r") as f:
         for line in f:
-            if line.startswith("DATABASE_URL="):
-                val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                if val:
-                    DATABASE_URL = val
-                    break
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" in stripped:
+                key, val = stripped.split("=", 1)
+                if key.strip() == "DATABASE_URL":
+                    val = val.strip().strip('"').strip("'")
+                    if val:
+                        DATABASE_URL = val
+                        break
 
 # Fix for postgres:// protocol common in cloud hosting
 if DATABASE_URL.startswith("postgres://"):
