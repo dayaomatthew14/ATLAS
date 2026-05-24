@@ -15,6 +15,22 @@ from app.routers import (
 )
 
 # Create the database tables
+from sqlalchemy import text
+with engine.begin() as conn:
+    try:
+        driver = engine.url.drivername
+        if "postgresql" in driver:
+            conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
+            print("Successfully verified/added owner_id column to departments in production PostgreSQL.")
+        else:
+            res = conn.execute(text("PRAGMA table_info(departments)")).fetchall()
+            columns = [r[1] for r in res]
+            if "owner_id" not in columns:
+                conn.execute(text("ALTER TABLE departments ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
+                print("Successfully added owner_id column to departments in SQLite.")
+    except Exception as e:
+        print(f"Database migration pre-check result: {e}")
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ATLAS Backend API")

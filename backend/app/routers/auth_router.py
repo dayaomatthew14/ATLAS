@@ -124,41 +124,37 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     hashed_password = auth.get_password_hash(user.password)
     otp = generate_otp()
     
-    try:
-        db_user = models.User(
-            email=str(user.email),
-            first_name=str(user.first_name),
-            last_name=str(user.last_name),
-            contact_number=str(user.contact_number) if user.contact_number else None,
-            password_hash=str(hashed_password),
-            role=str(user.role),
-            department=str(user.department) if user.department else None,
-            is_verified=False,
-            verification_otp=str(otp)
-        )
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        
-        # Automatically provision a private Department workspace for the newly registered chair/dean
-        friendly_dept_name = str(user.department) if user.department else "General"
-        unique_dept_code = f"DEPT_{db_user.id}"
-        
-        new_dept = models.Department(
-            code=unique_dept_code,
-            name=friendly_dept_name,
-            description=f"Isolated department workspace for {db_user.first_name} {db_user.last_name} ({friendly_dept_name})",
-            owner_id=db_user.id
-        )
-        db.add(new_dept)
-        
-        # Update user's department field to the unique department code
-        db_user.department = unique_dept_code
-        db.commit()
-        db.refresh(db_user)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database write failed during registration: {str(e)}")
+    db_user = models.User(
+        email=str(user.email),
+        first_name=str(user.first_name),
+        last_name=str(user.last_name),
+        contact_number=str(user.contact_number) if user.contact_number else None,
+        password_hash=str(hashed_password),
+        role=str(user.role),
+        department=str(user.department) if user.department else None,
+        is_verified=False,
+        verification_otp=str(otp)
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    # Automatically provision a private Department workspace for the newly registered chair/dean
+    friendly_dept_name = str(user.department) if user.department else "General"
+    unique_dept_code = f"DEPT_{db_user.id}"
+    
+    new_dept = models.Department(
+        code=unique_dept_code,
+        name=friendly_dept_name,
+        description=f"Isolated department workspace for {db_user.first_name} {db_user.last_name} ({friendly_dept_name})",
+        owner_id=db_user.id
+    )
+    db.add(new_dept)
+    
+    # Update user's department field to the unique department code
+    db_user.department = unique_dept_code
+    db.commit()
+    db.refresh(db_user)
     
     log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success") # type: ignore
     
@@ -287,13 +283,7 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
     return {"msg": "Password reset successfully"}
 
 @router.post("/logout")
-def logout(
-    response: Response, 
-    current_user: models.User = Depends(auth.get_current_user), 
-    db: Session = Depends(database.get_db)
-):
-    current_user.session_version += 1 # type: ignore
-    db.commit()
+def logout(response: Response):
     is_prod = os.getenv("ENV") == "production"
     samesite_val = "none" if is_prod else "lax"
     secure_val = True if is_prod else False

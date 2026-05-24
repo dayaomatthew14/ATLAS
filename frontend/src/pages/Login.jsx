@@ -98,9 +98,6 @@ export default function Login() {
 
         localStorage.setItem('atlas_role', response.role);
         localStorage.setItem('atlas_user_name', response.name);
-        if (response.access_token) {
-          localStorage.setItem('atlas_token', response.access_token);
-        }
         if (response.department) {
           localStorage.setItem('atlas_department', response.department);
         }
@@ -149,9 +146,6 @@ export default function Login() {
 
         localStorage.setItem('atlas_role', response.role);
         localStorage.setItem('atlas_user_name', response.name);
-        if (response.access_token) {
-          localStorage.setItem('atlas_token', response.access_token);
-        }
         if (response.department) {
           localStorage.setItem('atlas_department', response.department);
         }
