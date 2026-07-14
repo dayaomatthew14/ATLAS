@@ -140,7 +140,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     db.refresh(db_user)
     
     # Automatically provision a private Department workspace for the newly registered chair/dean
-    friendly_dept_name = str(user.department) if user.department else "General"
+    friendly_dept_name = user.department if user.department else "General"
     unique_dept_code = f"DEPT_{db_user.id}"
     
     new_dept = models.Department(
@@ -152,7 +152,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     db.add(new_dept)
     
     # Update user's department field to the unique department code
-    db_user.department = unique_dept_code
+    db_user.department = unique_dept_code  # type: ignore
     db.commit()
     db.refresh(db_user)
     
