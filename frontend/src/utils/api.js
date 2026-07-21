@@ -3,6 +3,7 @@ if (rawBaseUrl.startsWith('http://') && !rawBaseUrl.includes('localhost') && !ra
   rawBaseUrl = rawBaseUrl.replace('http://', 'https://');
 }
 const BASE_URL = rawBaseUrl;
+console.log("[ATLAS API] Base URL initialized as:", BASE_URL);
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
