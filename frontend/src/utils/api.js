@@ -1,4 +1,8 @@
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+let rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+if (rawBaseUrl.startsWith('http://') && !rawBaseUrl.includes('localhost') && !rawBaseUrl.includes('127.0.0.1')) {
+  rawBaseUrl = rawBaseUrl.replace('http://', 'https://');
+}
+const BASE_URL = rawBaseUrl;
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
