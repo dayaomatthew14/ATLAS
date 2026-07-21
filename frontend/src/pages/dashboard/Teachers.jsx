@@ -29,7 +29,7 @@ export default function Teachers() {
   });
   const [selectedDays, setSelectedDays] = useState([]);
   const [customRanges, setCustomRanges] = useState({}); // { 'Mon': { start: '07:30', end: '17:30', active: false } }
-  
+
   const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
   const [selectedTeacherForSubjects, setSelectedTeacherForSubjects] = useState(null);
   const [curriculumSubjects, setCurriculumSubjects] = useState([]);
@@ -54,15 +54,15 @@ export default function Teachers() {
         </div>
       )
     },
-    { 
-      key: 'load', 
+    {
+      key: 'load',
       label: 'Teaching Load',
       render: (item) => {
         const current = item.current_units || 0;
         const max = item.max_units || 18;
         const percentage = Math.min((current / max) * 100, 100);
         const isOverloaded = current > max;
-        
+
         return (
           <div className="w-48">
             <div className="flex justify-between items-center mb-1.5">
@@ -72,10 +72,9 @@ export default function Teachers() {
               {isOverloaded && <ShieldAlert className="w-3.5 h-3.5 text-rose-600 animate-pulse" />}
             </div>
             <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5">
-              <div 
-                className={`h-full transition-all duration-700 rounded-full ${
-                  isOverloaded ? 'bg-rose-500' : percentage > 80 ? 'bg-amber-500' : 'bg-green-600'
-                }`}
+              <div
+                className={`h-full transition-all duration-700 rounded-full ${isOverloaded ? 'bg-rose-500' : percentage > 80 ? 'bg-amber-500' : 'bg-green-600'
+                  }`}
                 style={{ width: `${percentage}%` }}
               />
             </div>
@@ -87,11 +86,10 @@ export default function Teachers() {
       key: 'type',
       label: 'Type',
       render: (item) => (
-        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-          item.type === 'full_time' 
-            ? 'bg-green-50 text-green-700 border border-green-100' 
+        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${item.type === 'full_time'
+            ? 'bg-green-50 text-green-700 border border-green-100'
             : 'bg-blue-50 text-blue-700 border border-blue-100'
-        }`}>
+          }`}>
           {item.type?.replace('_', ' ') || 'Full Time'}
         </span>
       )
@@ -104,7 +102,7 @@ export default function Teachers() {
           <span className="text-sm font-black text-slate-800">
             {item.subject_offerings?.length || 0} Subjects
           </span>
-          <button 
+          <button
             onClick={() => handleOpenSubjectModal(item)}
             className="text-[9px] bg-green-50 text-green-700 px-2 py-1 rounded font-black uppercase tracking-widest hover:bg-green-100 transition-colors w-fit"
           >
@@ -118,28 +116,27 @@ export default function Teachers() {
       label: 'Availability Status',
       render: (item) => {
         const blockedDays = (item.unavailability || []).map(u => u.day_of_week.substring(0, 3));
-        
+
         return (
           <div className="flex flex-col gap-3">
             <div className="flex gap-1.5">
               {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
                 const isBlocked = blockedDays.includes(day);
                 return (
-                  <div 
+                  <div
                     key={day}
                     title={`${day}: ${isBlocked ? 'Blocked' : 'Available'}`}
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black transition-all border ${
-                      isBlocked 
-                        ? 'bg-rose-50 border-rose-200 text-rose-600 shadow-inner' 
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black transition-all border ${isBlocked
+                        ? 'bg-rose-50 border-rose-200 text-rose-600 shadow-inner'
                         : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                    }`}
+                      }`}
                   >
                     {day === 'Thu' ? 'TH' : day[0]}
                   </div>
                 );
               })}
             </div>
-            <button 
+            <button
               onClick={() => handleOpenAvailability(item)}
               className="flex items-center justify-center space-x-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all font-black text-[10px] uppercase tracking-widest active:scale-95"
             >
@@ -183,7 +180,7 @@ export default function Teachers() {
       const semData = await api.get('/semesters');
       const active = semData.find(s => s.is_active);
       setActiveSemester(active || null);
-      
+
       if (active) {
         const offerings = await api.get(`/subject-offerings?semester_id=${active.id}`).catch(() => []);
         const teacherOfferings = offerings.filter(o => o.faculty_id === (teacher.faculty_id || teacher.id));
@@ -205,14 +202,14 @@ export default function Teachers() {
     }
 
     const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === subject.id);
-    
+
     try {
       if (isAssigned) {
         const offering = teacherSubjects.find(ts => ts.curriculum_id === subject.id);
         if (offering) {
           await api.delete(`/subject-offerings/${offering.id}`);
           setTeacherSubjects(teacherSubjects.filter(ts => ts.id !== offering.id));
-          
+
           setTeachers(teachers.map(t => {
             if (t.id === selectedTeacherForSubjects.id) {
               const newOfferings = (t.subject_offerings || []).filter(o => o.id !== offering.id);
@@ -241,13 +238,13 @@ export default function Teachers() {
           semester_id: activeSemester.id
         });
         setTeacherSubjects([...teacherSubjects, res]);
-        
+
         setTeachers(teachers.map(t => {
-            if (t.id === selectedTeacherForSubjects.id) {
-              const newOfferings = [...(t.subject_offerings || []), res];
-              return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
-            }
-            return t;
+          if (t.id === selectedTeacherForSubjects.id) {
+            const newOfferings = [...(t.subject_offerings || []), res];
+            return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
+          }
+          return t;
         }));
         setSelectedTeacherForSubjects(prev => ({
           ...prev,
@@ -261,26 +258,33 @@ export default function Teachers() {
     }
   };
 
+  const computeFullName = (fn, ln) => {
+    if (!fn && !ln) return '';
+    if (!ln || fn === ln) return fn || '';
+    if (!fn) return ln || '';
+    return `${fn} ${ln}`.trim();
+  };
+
   const fetchTeachers = async () => {
     setIsLoading(true);
     try {
       const data = await api.get('/professors');
-      
+
       let offerings = [];
       try {
-          const sems = await api.get('/semesters');
-          const activeSem = sems.find(s => s.is_active);
-          if (activeSem) {
-            offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(()=>[]);
-          }
+        const sems = await api.get('/semesters');
+        const activeSem = sems.find(s => s.is_active);
+        if (activeSem) {
+          offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
+        }
       } catch (e) {
-          console.error('Could not fetch offerings', e);
+        console.error('Could not fetch offerings', e);
       }
-      
+
       const enrichedData = (Array.isArray(data) ? data : []).map(t => ({
-         ...t,
-         name: `${t.first_name} ${t.last_name}`,
-         subject_offerings: offerings.filter(o => o.faculty_id === (t.faculty_id || t.id))
+        ...t,
+        name: computeFullName(t.first_name, t.last_name),
+        subject_offerings: offerings.filter(o => o.faculty_id === (t.faculty_id || t.id))
       }));
       setTeachers(enrichedData);
     } catch (error) {
@@ -300,12 +304,12 @@ export default function Teachers() {
     if (teacher) {
       setEditingTeacher(teacher);
       setFormData({
-        name: `${teacher.first_name} ${teacher.last_name}`,
+        name: computeFullName(teacher.first_name, teacher.last_name),
         type: teacher.faculty_type || teacher.type || 'full_time',
         max_units: teacher.max_units || 18,
         unavailability: teacher.unavailability || []
       });
-      
+
       // Initialize selected days and custom ranges from existing unavailability
       const days = [];
       const ranges = {};
@@ -339,11 +343,11 @@ export default function Teachers() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Split name into first and last
-    const nameParts = formData.name.trim().split(' ');
-    const first_name = nameParts[0];
-    const last_name = nameParts.slice(1).join(' ') || nameParts[0];
+
+    // Split name into first and last cleanly
+    const nameParts = formData.name.trim().split(/\s+/);
+    const first_name = nameParts[0] || '';
+    const last_name = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
     // Construct unavailability array for submission
     const finalUnavailability = selectedDays.map(day => {
@@ -370,8 +374,8 @@ export default function Teachers() {
     try {
       let newUser;
       if (editingTeacher) {
-        newUser = await api.put(`/professors/${editingTeacher.id}`, submissionData);
-        
+        newUser = await api.put(`/professors/${editingTeacher.id}/`, submissionData);
+
         // Clear existing unavailability for this teacher to sync with new selection
         const existing = await api.get(`/professors/${editingTeacher.id}/unavailability`);
         if (Array.isArray(existing)) {
@@ -384,7 +388,7 @@ export default function Teachers() {
           }
         }
       } else {
-        newUser = await api.post('/professors', submissionData);
+        newUser = await api.post('/professors/', submissionData);
       }
 
       // Save the new set of unavailability records
@@ -392,10 +396,12 @@ export default function Teachers() {
         for (const u of finalUnavailability) {
           try {
             await api.post(
-              `/professors/${newUser.id}/unavailability`, 
-              { day_of_week: u.day_of_week,
-                start_time: u.start_time, 
-                end_time: u.end_time }
+              `/professors/${newUser.id}/unavailability`,
+              {
+                day_of_week: u.day_of_week,
+                start_time: u.start_time,
+                end_time: u.end_time
+              }
             );
           } catch (err) {
             console.error('Failed to save unavailability block', u, err);
@@ -428,14 +434,14 @@ export default function Teachers() {
     try {
       await api.delete(`/professors/${selectedTeacher.id}/unavailability/${blockId}`);
       setUnavailability(prev => prev.filter(b => b.id !== blockId));
-      
+
       setTeachers(prev => prev.map(t => {
         if (t.id === selectedTeacher.id) {
           return { ...t, unavailability: (t.unavailability || []).filter(b => b.id !== blockId) };
         }
         return t;
       }));
-      
+
       addToast('Blocked time removed', 'success');
     } catch (error) {
       addToast('Failed to remove blocked time', 'error');
@@ -447,7 +453,7 @@ export default function Teachers() {
     try {
       const data = await api.post(`/professors/${selectedTeacher.id}/unavailability`, newUnavail);
       setUnavailability(prev => [...prev, data]);
-      
+
       setTeachers(prev => prev.map(t => {
         if (t.id === selectedTeacher.id) {
           return { ...t, unavailability: [...(t.unavailability || []), data] };
@@ -474,7 +480,7 @@ export default function Teachers() {
           </div>
           <p className="text-slate-500 text-base font-medium">Configure faculty profiles, track teaching loads, and manage schedule constraints.</p>
         </div>
-        
+
         <button
           onClick={() => handleOpenModal()}
           className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
@@ -521,11 +527,10 @@ export default function Teachers() {
                     key={type}
                     type="button"
                     onClick={() => setFormData({ ...formData, type })}
-                    className={`flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
-                      formData.type === type 
-                        ? 'bg-white text-green-700 shadow-sm' 
+                    className={`flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${formData.type === type
+                        ? 'bg-white text-green-700 shadow-sm'
                         : 'text-slate-400 hover:text-slate-600'
-                    }`}
+                      }`}
                   >
                     {type.replace('_', ' ')}
                   </button>
@@ -547,7 +552,7 @@ export default function Teachers() {
           {/* Availability Section */}
           <div className="space-y-6 pt-2">
             <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">Time Unavailable</label>
-            
+
             {/* Day Toggle Buttons */}
             <div className="flex flex-wrap gap-3">
               {DAYS.map(day => {
@@ -566,11 +571,10 @@ export default function Teachers() {
                         }
                       }
                     }}
-                    className={`px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest border transition-all ${
-                      isSelected 
-                        ? 'bg-rose-500 border-rose-500 text-white shadow-lg shadow-rose-200 scale-105' 
+                    className={`px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest border transition-all ${isSelected
+                        ? 'bg-rose-500 border-rose-500 text-white shadow-lg shadow-rose-200 scale-105'
                         : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
-                    }`}
+                      }`}
                   >
                     {day}
                   </button>
@@ -582,22 +586,21 @@ export default function Teachers() {
             {selectedDays.length > 0 && (
               <div className="space-y-4 animate-in slide-in-from-top-4 duration-500">
                 <p className="text-xs font-bold text-slate-500 italic">Set time ranges per selected day (optional):</p>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {selectedDays.map(day => {
                     const range = customRanges[day] || { start: '07:30', end: '17:30', active: false };
                     return (
-                      <div 
-                        key={day} 
-                        className={`p-5 rounded-[2rem] border transition-all ${
-                          range.active ? 'bg-white border-blue-200 shadow-md ring-1 ring-blue-50' : 'bg-slate-50/50 border-slate-100 opacity-80'
-                        }`}
+                      <div
+                        key={day}
+                        className={`p-5 rounded-[2rem] border transition-all ${range.active ? 'bg-white border-blue-200 shadow-md ring-1 ring-blue-50' : 'bg-slate-50/50 border-slate-100 opacity-80'
+                          }`}
                       >
                         <div className="flex items-center justify-between mb-4">
                           <span className={`font-black text-sm uppercase tracking-tighter ${range.active ? 'text-blue-600' : 'text-slate-400'}`}>
                             {day}
                           </span>
-                          <button 
+                          <button
                             type="button"
                             onClick={() => setSelectedDays(selectedDays.filter(d => d !== day))}
                             className="text-slate-300 hover:text-rose-500 transition-colors"
@@ -607,14 +610,13 @@ export default function Teachers() {
                         </div>
 
                         <label className="flex items-center gap-3 cursor-pointer group mb-3">
-                          <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                            range.active ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300 group-hover:border-slate-400'
-                          }`}>
+                          <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${range.active ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300 group-hover:border-slate-400'
+                            }`}>
                             {range.active && <Check className="w-3.5 h-3.5 text-white stroke-[4]" />}
                           </div>
-                          <input 
-                            type="checkbox" 
-                            className="hidden" 
+                          <input
+                            type="checkbox"
+                            className="hidden"
                             checked={range.active}
                             onChange={(e) => setCustomRanges({
                               ...customRanges,
@@ -634,8 +636,8 @@ export default function Teachers() {
                               <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] block mb-1">From</span>
                               <div className="relative">
                                 <Clock className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" />
-                                <input 
-                                  type="time" 
+                                <input
+                                  type="time"
                                   className="w-full pl-9 pr-3 py-2 bg-blue-50/50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-1 focus:ring-blue-500"
                                   value={range.start}
                                   onChange={(e) => setCustomRanges({
@@ -649,8 +651,8 @@ export default function Teachers() {
                               <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] block mb-1">To</span>
                               <div className="relative">
                                 <Clock className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" />
-                                <input 
-                                  type="time" 
+                                <input
+                                  type="time"
                                   className="w-full pl-9 pr-3 py-2 bg-blue-50/50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-1 focus:ring-blue-500"
                                   value={range.end}
                                   onChange={(e) => setCustomRanges({
@@ -674,8 +676,8 @@ export default function Teachers() {
               <div className="pt-6 border-t border-slate-100">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Selected Unavailable Times</h4>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => {
                       setSelectedDays([]);
                       setCustomRanges({});
@@ -685,23 +687,22 @@ export default function Teachers() {
                     <Trash2 className="w-3 h-3" /> Clear All
                   </button>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-2">
                   {selectedDays.map(day => {
                     const range = customRanges[day] || { start: '07:30', end: '17:30', active: false };
                     return (
-                      <div 
+                      <div
                         key={day}
-                        className={`flex items-center justify-between px-4 py-2.5 rounded-full border ${
-                          range.active 
-                            ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                        className={`flex items-center justify-between px-4 py-2.5 rounded-full border ${range.active
+                            ? 'bg-blue-50 border-blue-200 text-blue-700'
                             : 'bg-rose-50 border-rose-100 text-rose-700'
-                        }`}
+                          }`}
                       >
                         <span className="text-[10px] font-black uppercase tracking-widest">
                           {day}: {range.active ? `${formatTime(range.start)} – ${formatTime(range.end)}` : `${formatTime('07:30')} – ${formatTime('17:30')}`}
                         </span>
-                        <button 
+                        <button
                           type="button"
                           onClick={() => setSelectedDays(selectedDays.filter(d => d !== day))}
                           className="hover:scale-110 transition-transform"
@@ -756,13 +757,13 @@ export default function Teachers() {
                 <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] bg-emerald-50 px-3 py-1 rounded-full">Available Days</h4>
                 <div className="h-px flex-1 bg-emerald-100"></div>
               </div>
-              
+
               <div className="grid grid-cols-1 gap-2">
                 {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => {
                   const dayCode = day.substring(0, 3);
                   const isBlocked = unavailability.some(b => b.day_of_week === dayCode);
                   if (isBlocked) return null;
-                  
+
                   return (
                     <div key={day} className="flex items-center p-3 bg-emerald-50/30 border border-emerald-100 rounded-2xl group transition-all">
                       <div className="w-8 h-8 bg-white text-emerald-600 rounded-xl flex items-center justify-center font-black text-xs shadow-sm border border-emerald-100 mr-3">
@@ -794,7 +795,7 @@ export default function Teachers() {
                     <div key={idx} className="group flex items-center justify-between p-3 bg-white border border-rose-100 rounded-2xl shadow-sm transition-all">
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 bg-rose-50 text-rose-700 rounded-xl flex items-center justify-center font-black text-[10px] border border-rose-100">
-                          {block.day_of_week?.substring(0,3).toUpperCase()}
+                          {block.day_of_week?.substring(0, 3).toUpperCase()}
                         </div>
                         <div>
                           <p className="text-xs font-black text-slate-900 leading-none mb-1">{block.day_of_week}</p>
@@ -803,7 +804,7 @@ export default function Teachers() {
                           </p>
                         </div>
                       </div>
-                      <button 
+                      <button
                         onClick={() => handleRemoveUnavailability(block.id)}
                         className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                       >
@@ -815,68 +816,6 @@ export default function Teachers() {
               )}
             </div>
           </div>
-
-          <div className="pt-6 border-t border-slate-100">
-            {!isAddingUnavailability ? (
-              <button
-                type="button"
-                onClick={() => setIsAddingUnavailability(true)}
-                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-slate-500 font-black text-xs uppercase tracking-widest hover:border-green-400 hover:text-green-600 hover:bg-green-50 transition-all flex items-center justify-center"
-              >
-                <Plus className="w-4 h-4 mr-2" /> Add Blocked Window
-              </button>
-            ) : (
-              <form onSubmit={handleAddUnavailability} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4 animate-in slide-in-from-top-2">
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Day</label>
-                    <select 
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
-                      value={newUnavail.day_of_week}
-                      onChange={(e) => setNewUnavail({...newUnavail, day_of_week: e.target.value})}
-                    >
-                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">From</label>
-                    <input 
-                      type="time" 
-                      required
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
-                      value={newUnavail.start_time}
-                      onChange={(e) => setNewUnavail({...newUnavail, start_time: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">To</label>
-                    <input 
-                      type="time" 
-                      required
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
-                      value={newUnavail.end_time}
-                      onChange={(e) => setNewUnavail({...newUnavail, end_time: e.target.value})}
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-green-700 hover:bg-green-800 text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
-                  >
-                    Save Window
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddingUnavailability(false)}
-                    className="flex-1 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
         </div>
       </Modal>
       {/* Subject Offerings Modal */}
@@ -887,133 +826,133 @@ export default function Teachers() {
         maxWidth="max-w-4xl"
       >
         <div className="space-y-6 max-h-[80vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
-          
+
           {/* Filters */}
           <div className="flex gap-4 mb-4">
-             <div className="flex-[2]">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Search Subjects</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Search className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Search by code or name..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                    value={subjectSearchQuery}
-                    onChange={(e) => setSubjectSearchQuery(e.target.value)}
-                  />
+            <div className="flex-[2]">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Search Subjects</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-slate-400" />
                 </div>
-             </div>
-             <div className="flex-1">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Semester</label>
-                <select 
-                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                  value={semesterFilter}
-                  onChange={(e) => setSemesterFilter(e.target.value)}
-                >
-                  <option value="1st">1st Semester</option>
-                  <option value="2nd">2nd Semester</option>
-                  <option value="3rd">3rd Semester</option>
-                </select>
-             </div>
-             <div className="flex-1">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Course Code (Type)</label>
-                <select 
-                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                  value={courseCodeFilter}
-                  onChange={(e) => setCourseCodeFilter(e.target.value)}
-                >
-                  <option value="All">All Course Codes</option>
-                  <option value="A">A - Lecture</option>
-                  <option value="B">B - Laboratory</option>
-                  <option value="C">C - Combination</option>
-                </select>
-             </div>
+                <input
+                  type="text"
+                  placeholder="Search by code or name..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                  value={subjectSearchQuery}
+                  onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Semester</label>
+              <select
+                className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                value={semesterFilter}
+                onChange={(e) => setSemesterFilter(e.target.value)}
+              >
+                <option value="1st">1st Semester</option>
+                <option value="2nd">2nd Semester</option>
+                <option value="3rd">3rd Semester</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Course Code (Type)</label>
+              <select
+                className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                value={courseCodeFilter}
+                onChange={(e) => setCourseCodeFilter(e.target.value)}
+              >
+                <option value="All">All Course Codes</option>
+                <option value="A">A - Lecture</option>
+                <option value="B">B - Laboratory</option>
+                <option value="C">C - Combination</option>
+              </select>
+            </div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <table className="w-full text-left text-sm border-collapse">
-               <thead>
-                 <tr className="bg-slate-50">
-                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest w-12 text-center">Assign</th>
-                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Code</th>
-                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Subject Name</th>
-                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Type</th>
-                    <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest text-center">Units</th>
-                 </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-100">
-                 {curriculumSubjects.filter(sub => {
-                    const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
-                    let matchType = true;
-                    if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
-                    else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
-                    else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
-                    
-                    const searchLower = subjectSearchQuery.toLowerCase();
-                    const matchSearch = !subjectSearchQuery || 
-                                        sub.code.toLowerCase().includes(searchLower) || 
-                                        sub.name.toLowerCase().includes(searchLower);
-                    
-                    return matchSem && matchType && sub.is_major && matchSearch;
-                 }).sort((a, b) => {
-                   const aAssigned = teacherSubjects.some(ts => ts.curriculum_id === a.id);
-                   const bAssigned = teacherSubjects.some(ts => ts.curriculum_id === b.id);
-                   if (aAssigned && !bAssigned) return -1;
-                   if (!aAssigned && bAssigned) return 1;
-                   return a.code.localeCompare(b.code);
-                 }).map(sub => {
-                   const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === sub.id);
-                   return (
-                     <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-4 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isAssigned}
-                            onChange={() => handleToggleSubject(sub)}
-                            className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-5 py-4 font-bold text-slate-900">{sub.code}</td>
-                        <td className="px-5 py-4 font-medium text-slate-600">{sub.name}</td>
-                        <td className="px-5 py-4">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${sub.type === 'lecture' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
-                            {sub.type}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-center font-black text-slate-700">{sub.units}</td>
-                     </tr>
-                   )
-                 })}
-               </tbody>
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest w-12 text-center">Assign</th>
+                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Code</th>
+                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Subject Name</th>
+                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Type</th>
+                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest text-center">Units</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {curriculumSubjects.filter(sub => {
+                  const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
+                  let matchType = true;
+                  if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
+                  else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
+                  else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
+
+                  const searchLower = subjectSearchQuery.toLowerCase();
+                  const matchSearch = !subjectSearchQuery ||
+                    sub.code.toLowerCase().includes(searchLower) ||
+                    sub.name.toLowerCase().includes(searchLower);
+
+                  return matchSem && matchType && sub.is_major && matchSearch;
+                }).sort((a, b) => {
+                  const aAssigned = teacherSubjects.some(ts => ts.curriculum_id === a.id);
+                  const bAssigned = teacherSubjects.some(ts => ts.curriculum_id === b.id);
+                  if (aAssigned && !bAssigned) return -1;
+                  if (!aAssigned && bAssigned) return 1;
+                  return a.code.localeCompare(b.code);
+                }).map(sub => {
+                  const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === sub.id);
+                  return (
+                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isAssigned}
+                          onChange={() => handleToggleSubject(sub)}
+                          className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-5 py-4 font-bold text-slate-900">{sub.code}</td>
+                      <td className="px-5 py-4 font-medium text-slate-600">{sub.name}</td>
+                      <td className="px-5 py-4">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${sub.type === 'lecture' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                          {sub.type}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-center font-black text-slate-700">{sub.units}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
             </table>
-            
+
             {curriculumSubjects.filter(sub => {
-               const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
-               let matchType = true;
-               if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
-               else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
-               else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
-               
-               return matchSem && matchType && sub.is_major;
+              const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
+              let matchType = true;
+              if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
+              else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
+              else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
+
+              return matchSem && matchType && sub.is_major;
             }).length === 0 && (
-               <div className="p-8 text-center text-slate-500 font-bold text-sm">
-                 No subjects found for the selected filters.
-               </div>
-            )}
+                <div className="p-8 text-center text-slate-500 font-bold text-sm">
+                  No subjects found for the selected filters.
+                </div>
+              )}
           </div>
-          
+
           <div className="pt-4 flex justify-end">
-             <button
-                onClick={() => {
-                  setIsSubjectModalOpen(false);
-                  fetchTeachers();
-                }}
-                className="px-8 py-3 text-sm font-black text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-lg uppercase tracking-widest transition-all"
-             >
-                Done
-             </button>
+            <button
+              onClick={() => {
+                setIsSubjectModalOpen(false);
+                fetchTeachers();
+              }}
+              className="px-8 py-3 text-sm font-black text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-lg uppercase tracking-widest transition-all"
+            >
+              Done
+            </button>
           </div>
         </div>
       </Modal>
