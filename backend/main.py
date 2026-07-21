@@ -35,7 +35,10 @@ with engine.begin() as conn:
 
 
 
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
 app = FastAPI(title="ATLAS Backend API")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # Mount static directory for uploads
 os.makedirs("uploads/profiles", exist_ok=True)

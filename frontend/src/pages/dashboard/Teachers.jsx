@@ -370,7 +370,7 @@ export default function Teachers() {
     try {
       let newUser;
       if (editingTeacher) {
-        newUser = await api.put(`/professors/${editingTeacher.id}/`, submissionData);
+        newUser = await api.put(`/professors/${editingTeacher.id}`, submissionData);
         
         // Clear existing unavailability for this teacher to sync with new selection
         const existing = await api.get(`/professors/${editingTeacher.id}/unavailability`);
@@ -384,7 +384,7 @@ export default function Teachers() {
           }
         }
       } else {
-        newUser = await api.post('/professors/', submissionData);
+        newUser = await api.post('/professors', submissionData);
       }
 
       // Save the new set of unavailability records
