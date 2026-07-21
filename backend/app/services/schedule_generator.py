@@ -97,7 +97,7 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
         for year in ['1', '2', '3', '4']:
             # Create a mock section object
             all_sections.append(type('MockSection', (object,), {
-                'name': f"{prog}-{year}A",
+                'name': f"{prog}-{year}",
                 'year_level': year,
                 'curriculum': prog,
                 'department_id': department_id
