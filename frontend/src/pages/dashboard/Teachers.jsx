@@ -770,9 +770,6 @@ export default function Teachers() {
                         {dayCode.toUpperCase()}
                       </div>
                       <span className="text-sm font-bold text-emerald-900">{day}</span>
-                      <div className="ml-auto flex items-center text-[10px] font-black text-emerald-600 uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity">
-                        Ready to Schedule
-                      </div>
                     </div>
                   );
                 })}
