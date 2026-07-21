@@ -15,6 +15,8 @@ from app.routers import (
 )
 
 # Create the database tables
+models.Base.metadata.create_all(bind=engine)
+
 from sqlalchemy import text
 with engine.begin() as conn:
     try:
@@ -31,7 +33,7 @@ with engine.begin() as conn:
     except Exception as e:
         print(f"Database migration pre-check result: {e}")
 
-models.Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(title="ATLAS Backend API")
 
