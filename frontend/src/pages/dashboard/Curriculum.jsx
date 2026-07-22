@@ -381,7 +381,7 @@ export default function Curriculum() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-20 gap-12">
         <div>
           <div className="flex items-center space-x-3 mb-2">
-            <div className="p-3 bg-green-600 rounded-2xl shadow-lg shadow-green-200">
+            <div className="p-3 bg-gradient-to-r from-green-900 via-emerald-800 to-green-950 text-white rounded-2xl shadow-lg">
               <BookOpen className="w-8 h-8 text-white" />
             </div>
             <h2 className="text-5xl font-black text-slate-900 tracking-tighter">
@@ -426,7 +426,7 @@ export default function Curriculum() {
             </button>
             <button
               onClick={() => handleOpenModal()}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl flex items-center shadow-lg shadow-green-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
+              className="bg-green-800 hover:bg-green-900 text-white px-6 py-3 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95 border border-white/10"
             >
               <Plus className="w-5 h-5 mr-1" /> Add Item
             </button>
