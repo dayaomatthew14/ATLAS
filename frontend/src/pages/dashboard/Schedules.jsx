@@ -489,17 +489,17 @@ export default function Schedules() {
 
   return (
     <>
-      {/* Page Header */}
-      <div className="bg-green-700 text-white py-3 shadow-inner">
+      {/* Page Sub-Header */}
+      <div className="bg-gradient-to-r from-green-900/80 via-emerald-800/75 to-green-950/80 backdrop-blur-md text-white py-3.5 border-b border-white/10 shadow-xs">
         <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12 flex justify-between items-center">
-          <h2 className="text-lg font-medium">Manage Schedules</h2>
+          <h2 className="text-sm font-black uppercase tracking-wider text-green-100">Manage Schedules</h2>
           <div className="flex items-center space-x-4">
             {activeConflictsCount > 0 && (
               <button
                 onClick={() => setIsConflictPanelOpen(true)}
-                className="flex items-center bg-red-600 hover:bg-red-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse transition-colors"
+                className="flex items-center bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse transition-colors shadow-sm"
               >
-                <AlertTriangle className="w-3 h-3 mr-1.5" />
+                <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
                 {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
               </button>
             )}
