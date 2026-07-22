@@ -59,4 +59,4 @@ except ImportError:
     print("[ERROR] SQLAlchemy is not installed in your active python environment.")
 except Exception as e:
     print(f"[ERROR] Failed to connect/query the database: {e}")
-    print("\nNOTE: If you are connecting locally to the Render Postgres database, make sure you replace the internal host name in DATABASE_URL with the External Database URL in your .env!")
+    print("\nNOTE: If you are connecting locally to your cloud Postgres database (e.g. Railway), make sure you replace the internal host name in DATABASE_URL with the External Database URL in your .env!")

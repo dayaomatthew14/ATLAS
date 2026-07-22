@@ -156,7 +156,7 @@ def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
     subject = f"ATLAS - Your {purpose} Code"
     body = f"Hello,\n\nYour ATLAS {purpose.lower()} code is: {otp}\n\nPlease enter this code to proceed. This code will expire shortly.\n\nThank you,\nThe ATLAS Team"
     
-    # Try HTTP delivery (works around Render's SMTP port blocks)
+    # Try HTTP delivery (works around cloud provider SMTP port blocks)
     if send_email_via_http(to_email, subject, body):
         return True
         
@@ -189,7 +189,7 @@ def send_sms_otp(to_phone: str, otp: str, purpose: str = "Verification"):
 def send_email_notification(to_email: str, subject: str, body: str):
     print(f"\n[DEVELOPMENT MODE] Email to {to_email}: {subject}\n{body}\n")
     
-    # Try HTTP delivery (works around Render's SMTP port blocks)
+    # Try HTTP delivery (works around cloud provider SMTP port blocks)
     if send_email_via_http(to_email, subject, body):
         return True
         

@@ -5,7 +5,7 @@ import os
 # Use SQLite for local development
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./atlas_v3.db")
 
-# Fix for postgres:// protocol which is common in Render database URLs but not supported directly by SQLAlchemy 1.4+
+# Fix for postgres:// protocol which is common in cloud database URLs (e.g. Railway, Render) but not supported directly by SQLAlchemy 1.4+
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
