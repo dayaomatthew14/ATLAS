@@ -60,22 +60,28 @@ export default function DashboardHome() {
         api.get('/rooms').catch(() => [])
       ]);
 
-      setAllSemesters(semesters);
-      const activeSemester = semesters.find(s => s.is_active);
-      setRecentLogs(logsData || []);
+      const safeSemesters = Array.isArray(semesters) ? semesters : [];
+      const safeSchedules = Array.isArray(schedules) ? schedules : [];
+      const safeFaculty = Array.isArray(faculty) ? faculty : [];
+      const safeRooms = Array.isArray(rooms) ? rooms : [];
+      const safeLogs = Array.isArray(logsData) ? logsData : [];
 
-      const scheduledRooms = new Set(schedules.filter(s => s.room_id).map(s => s.room_id)).size;
-      const computedRoomUtilization = rooms.length > 0 ? Math.round((scheduledRooms / rooms.length) * 100) : 0;
+      setAllSemesters(safeSemesters);
+      const activeSemester = safeSemesters.find(s => s.is_active);
+      setRecentLogs(safeLogs);
 
-      setSchedulesCount(schedules.length);
-      setConflictsCount(conflicts.count || 0);
+      const scheduledRooms = new Set(safeSchedules.filter(s => s.room_id).map(s => s.room_id)).size;
+      const computedRoomUtilization = safeRooms.length > 0 ? Math.round((scheduledRooms / safeRooms.length) * 100) : 0;
+
+      setSchedulesCount(safeSchedules.length);
+      setConflictsCount(conflicts?.count || 0);
       setRoomUtilization(computedRoomUtilization);
 
       setStats([
-        { name: 'Rooms', value: rooms.length.toString(), icon: MapPin, color: 'text-cyan-600', trend: `${computedRoomUtilization}% in use` },
+        { name: 'Rooms', value: safeRooms.length.toString(), icon: MapPin, color: 'text-cyan-600', trend: `${computedRoomUtilization}% in use` },
         { name: 'Active Semester', value: activeSemester ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}` : 'None', icon: Clock, color: 'text-purple-600', trend: 'Active' },
-        { name: 'Faculty', value: faculty.length.toString(), icon: Users, color: 'text-emerald-600', trend: 'Verified' },
-        { name: 'Conflicts', value: (conflicts.count || 0).toString(), icon: AlertTriangle, color: 'text-rose-600', trend: conflicts.count > 0 ? 'CRITICAL' : 'CLEAN' },
+        { name: 'Faculty', value: safeFaculty.length.toString(), icon: Users, color: 'text-emerald-600', trend: 'Verified' },
+        { name: 'Conflicts', value: (conflicts?.count || 0).toString(), icon: AlertTriangle, color: (conflicts?.count || 0) > 0 ? 'text-rose-600' : 'text-emerald-600', trend: (conflicts?.count || 0) > 0 ? 'CRITICAL' : 'CLEAN' },
       ]);
     } catch (e) {
       console.error('Failed to fetch stats');

@@ -154,12 +154,13 @@ export default function Schedules() {
         api.get('/semesters').catch(() => []),
         api.get('/sections').catch(() => [])
       ]);
-      setSemesters(sems || []);
-      const active = sems.find(s => s.is_active);
+      const safeSems = Array.isArray(sems) ? sems : [];
+      setSemesters(safeSems);
+      const active = safeSems.find(s => s.is_active);
       if (active) {
         setSelectedGenSemester(active.id);
       }
-      setDepartmentSections(secs || []);
+      setDepartmentSections(Array.isArray(secs) ? secs : []);
     } catch (e) {
       console.error(e);
     }
@@ -170,7 +171,7 @@ export default function Schedules() {
     setIsGlobalLoading(true);
     try {
       const data = await api.get(`/ai-scheduler/global-schedule?semester_id=${semesterId}`);
-      setGlobalSchedules(data);
+      setGlobalSchedules(Array.isArray(data) ? data : []);
     } catch (e) {
       addToast('Failed to fetch global schedule', 'error');
     } finally {
@@ -183,7 +184,8 @@ export default function Schedules() {
 
   useEffect(() => {
     api.get('/semesters').then(sems => {
-      const active = sems.find(s => s.is_active);
+      const safeSems = Array.isArray(sems) ? sems : [];
+      const active = safeSems.find(s => s.is_active);
       if (active) {
         setActiveSemesterId(active.id);
         fetchGlobalSchedules(active.id);

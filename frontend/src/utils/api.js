@@ -2,6 +2,19 @@ const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
+  let url = `${BASE_URL}${endpoint}`;
+  if (options.params) {
+    const paramsObj = {};
+    Object.keys(options.params).forEach(k => {
+      if (options.params[k] !== undefined && options.params[k] !== null) {
+        paramsObj[k] = options.params[k];
+      }
+    });
+    const query = new URLSearchParams(paramsObj).toString();
+    if (query) {
+      url += (url.includes('?') ? '&' : '?') + query;
+    }
+  }
 
   const headers = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -15,7 +28,7 @@ async function request(endpoint, options = {}) {
   };
 
   try {
-    const response = await fetch(`${BASE_URL}${endpoint}`, config);
+    const response = await fetch(url, config);
 
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
       localStorage.removeItem('atlas_role');
@@ -59,21 +72,23 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  get: (endpoint) => request(endpoint, { method: 'GET' }),
-  postForm: (endpoint, formData) => request(endpoint, { method: 'POST', body: formData }),
-  post: (endpoint, body) => {
+  get: (endpoint, options) => request(endpoint, { method: 'GET', ...options }),
+  postForm: (endpoint, formData, options) => request(endpoint, { method: 'POST', body: formData, ...options }),
+  post: (endpoint, body, options) => {
     const isFormData = body instanceof FormData;
     return request(endpoint, {
       method: 'POST',
-      body: isFormData ? body : JSON.stringify(body)
+      body: isFormData ? body : JSON.stringify(body),
+      ...options
     });
   },
-  put: (endpoint, body) => {
+  put: (endpoint, body, options) => {
     const isFormData = body instanceof FormData;
     return request(endpoint, {
       method: 'PUT',
-      body: isFormData ? body : JSON.stringify(body)
+      body: isFormData ? body : JSON.stringify(body),
+      ...options
     });
   },
-  delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
+  delete: (endpoint, options) => request(endpoint, { method: 'DELETE', ...options }),
 };
