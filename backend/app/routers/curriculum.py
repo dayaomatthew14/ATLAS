@@ -117,15 +117,15 @@ def create_curriculum_item(
             (models.Department.name == current_user.department)
         ).first()
         if dept:
-            curriculum_item.department_id = dept.id
+            curriculum_item.department_id = int(dept.id) # type: ignore
         elif not curriculum_item.department_id:
             first_dept = db.query(models.Department).first()
             if first_dept:
-                curriculum_item.department_id = first_dept.id
+                curriculum_item.department_id = int(first_dept.id) # type: ignore
     elif not curriculum_item.department_id:
         first_dept = db.query(models.Department).first()
         if first_dept:
-            curriculum_item.department_id = first_dept.id
+            curriculum_item.department_id = int(first_dept.id) # type: ignore
              
     db_curriculum = db.query(models.Curriculum).filter(
         models.Curriculum.code == curriculum_item.code,
@@ -565,7 +565,7 @@ async def _process_curriculum_import(
         for i, row in df.iterrows():
             row_text = " ".join([str(v).strip().upper() for v in row.values if pd.notna(v)])
             if "SUMMARY OF UNITS" in row_text or "TOTAL UNITS" in row_text:
-                found_summary_start = int(i)
+                found_summary_start = int(i) # type: ignore
                 break
         
         if found_summary_start != -1:
