@@ -1,7 +1,7 @@
 import React from 'react';
-import { AlertTriangle, X, ChevronRight, Wand2 } from 'lucide-react';
+import { AlertTriangle, X, ChevronRight, Wand2, Sparkles } from 'lucide-react';
 
-export default function ConflictPanel({ conflicts, isOpen, onClose }) {
+export default function ConflictPanel({ conflicts = [], isOpen, onClose, onResolveConflict, onResolveAll }) {
   if (!isOpen) return null;
 
   return (
@@ -25,29 +25,35 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <ChevronRight className="w-6 h-6 text-green-600" />
             </div>
-            <p className="text-gray-500 text-sm">No conflicts detected.</p>
+            <p className="text-gray-500 text-sm font-bold">No active conflicts.</p>
           </div>
         ) : (
           conflicts.map((item, idx) => (
-            <div key={idx} className="bg-white border border-red-200 rounded-lg p-3 shadow-sm hover:border-red-400 transition-colors group">
+            <div key={item.id || idx} className="bg-white border border-red-200 rounded-xl p-3 shadow-sm hover:border-red-400 transition-colors group">
               <div className="flex justify-between items-start mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
-                  {item.type} Conflict
+                <span className="text-[10px] font-bold uppercase tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded-md">
+                  {item.type || 'Schedule Conflict'}
                 </span>
-                <span className="text-[10px] text-gray-400 font-medium">
-                  {item.dayOfWeek} {item.startTime}
-                </span>
+                {item.dayOfWeek && (
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    {item.dayOfWeek} {item.startTime}
+                  </span>
+                )}
               </div>
-              <h4 className="font-bold text-gray-800 text-sm group-hover:text-red-700 transition-colors">
-                {item.curriculum} vs {item.conflictWith?.curriculum || 'Another Class'}
+              <h4 className="font-black text-gray-800 text-sm group-hover:text-red-700 transition-colors">
+                {item.curriculum || item.subject} {item.faculty_name ? `(${item.faculty_name})` : ''}
               </h4>
-              <p className="text-[11px] text-gray-500 mt-1 italic">
-                Reason: {item.reason || 'Overlapping schedules in the same location or teacher.'}
+              <p className="text-[11px] text-gray-600 mt-1 font-medium">
+                {item.reason || 'Overlapping schedules or constraint violation.'}
               </p>
-              <div className="mt-3 pt-3 border-t border-red-100 flex justify-end space-x-2">
-                <button className="text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1">Ignore</button>
-                <button className="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3 py-1 rounded transition-colors">
-                  Resolve
+              <div className="mt-3 pt-2 border-t border-red-100 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => onResolveConflict && onResolveConflict(item)}
+                  className="text-xs bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 shadow-xs uppercase tracking-wider text-[10px]"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  Solve Conflict
                 </button>
               </div>
             </div>
@@ -57,14 +63,16 @@ export default function ConflictPanel({ conflicts, isOpen, onClose }) {
 
       <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-3">
         <button
+          type="button"
           disabled={conflicts.length === 0}
-          className="w-full py-2 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold flex items-center justify-center transition-colors shadow-sm"
+          onClick={() => onResolveAll && onResolveAll()}
+          className="w-full py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center transition-colors shadow-sm gap-2"
         >
-          <Wand2 className="w-4 h-4 mr-2" />
-          Auto-Resolve All
+          <Wand2 className="w-4 h-4" />
+          Auto-Solve All Conflicts
         </button>
         <p className="text-[10px] text-gray-400 text-center leading-relaxed">
-          Auto-resolve will attempt to shift conflicting classes to the nearest available open time slots.
+          Auto-solve will override unit constraints and relocate unplaced/conflicting classes to open time slots.
         </p>
       </div>
     </div>

@@ -136,7 +136,77 @@ def update_schedule(
     
     return db_schedule
 
-@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/clear-all")
+def clear_all_schedules(
+    semester_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
+
+    if current_user.role == 'program_chair':
+        if not current_user.department:
+            return {"deleted_count": 0, "backup": []}
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
+        else:
+            return {"deleted_count": 0, "backup": []}
+
+    schedules_to_delete = query.all()
+    backup = []
+    for s in schedules_to_delete:
+        backup.append({
+            "semester_id": s.semester_id,
+            "curriculum_id": s.curriculum_id,
+            "faculty_id": s.faculty_id,
+            "room_id": s.room_id,
+            "day_of_week": s.day_of_week,
+            "start_time": s.start_time.strftime("%H:%M") if s.start_time else "07:30",
+            "end_time": s.end_time.strftime("%H:%M") if s.end_time else "09:00",
+            "section": s.section or "",
+            "status": s.status or "draft"
+        })
+
+    count = len(schedules_to_delete)
+    for s in schedules_to_delete:
+        db.delete(s)
+    db.commit()
+
+    log_activity(db, current_user.id, "Clear All Schedules", f"Cleared {count} schedules for semester ID {semester_id}", "success")
+    return {"deleted_count": count, "backup": backup}
+
+from pydantic import BaseModel
+
+class RestoreSchedulesRequest(BaseModel):
+    items: List[schemas.ScheduleCreate]
+
+@router.post("/restore", status_code=status.HTTP_201_CREATED)
+def restore_schedules(
+    req: RestoreSchedulesRequest,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    restored_items = []
+    for item in req.items:
+        new_sched = models.Schedule(**item.model_dump())
+        db.add(new_sched)
+        restored_items.append(new_sched)
+
+    db.commit()
+    log_activity(db, current_user.id, "Restore Schedules", f"Restored {len(restored_items)} schedule items", "success")
+    return {"restored_count": len(restored_items)}
+
+@router.delete("/{schedule_id}")
 def delete_schedule(
     schedule_id: int, 
     db: Session = Depends(database.get_db),
@@ -159,18 +229,29 @@ def delete_schedule(
     if db_schedule.is_locked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Locked schedules cannot be deleted")
                 
-    # Get details for logging before deletion
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
     section = db_schedule.section
     dept_id = curriculum_item.department_id if curriculum_item else None
     code = curriculum_item.code if curriculum_item else "Unknown"
+
+    backup = {
+        "semester_id": db_schedule.semester_id,
+        "curriculum_id": db_schedule.curriculum_id,
+        "faculty_id": db_schedule.faculty_id,
+        "room_id": db_schedule.room_id,
+        "day_of_week": db_schedule.day_of_week,
+        "start_time": db_schedule.start_time.strftime("%H:%M") if db_schedule.start_time else "07:30",
+        "end_time": db_schedule.end_time.strftime("%H:%M") if db_schedule.end_time else "09:00",
+        "section": db_schedule.section or "",
+        "status": db_schedule.status or "draft"
+    }
 
     db.delete(db_schedule)
     db.commit()
     
     log_activity(db, current_user.id, "Delete Schedule", f"Deleted schedule for {code} in {section}", "success", department_id=dept_id) # type: ignore
     
-    return None
+    return {"message": "Schedule deleted successfully", "backup": backup}
 
 @router.get("/suggestions")
 def get_schedule_suggestions(

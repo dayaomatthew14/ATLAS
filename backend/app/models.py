@@ -126,10 +126,14 @@ class Schedule(Base):
 class Conflict(Base):
     __tablename__ = "conflicts"
     id = Column(Integer, primary_key=True, index=True)
-    schedule_id_1 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"))
-    schedule_id_2 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"))
-    conflict_type = Column(String(50))
+    schedule_id_1 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=True)
+    schedule_id_2 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=True)
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=True)
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=True)
+    conflict_type = Column(String(50), nullable=True)
+    reason = Column(String(500), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class SystemLog(Base):
     __tablename__ = "system_logs"

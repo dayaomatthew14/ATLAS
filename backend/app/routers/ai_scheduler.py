@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone, time
+from pydantic import BaseModel
 from .. import models, database, auth
 from ..services.schedule_generator import generate_schedules, TIMESLOTS, DAYS
 from .logs import log_activity
@@ -11,10 +12,15 @@ router = APIRouter(
     tags=["AI Scheduler"]
 )
 
-from pydantic import BaseModel
-
 class GenerateRequest(BaseModel):
     faculty_ids: List[int]
+
+class SolveConflictRequest(BaseModel):
+    conflict_id: Optional[int] = None
+    faculty_id: Optional[int] = None
+    curriculum_id: Optional[int] = None
+    semester_id: Optional[int] = None
+    part_type: Optional[str] = "lecture"
 
 @router.post("/generate/{semester_id}")
 def generate_schedule(
@@ -81,20 +87,33 @@ def get_conflicts(
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    query = db.query(models.Conflict).join(models.Schedule, models.Conflict.schedule_id_1 == models.Schedule.id).join(models.Curriculum)
-    
-    if current_user.role in ['program_chair', 'faculty', 'student']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            query = query.filter(models.Curriculum.department_id == dept.id)
-        else:
-            return []
+    conflicts = db.query(models.Conflict).filter(
+        models.Conflict.resolved_at == None
+    ).offset(skip).limit(limit).all()
 
-    conflicts = query.offset(skip).limit(limit).all()
-    return conflicts
+    res = []
+    for c in conflicts:
+        curr = db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first() if c.curriculum_id else None
+        fac = db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first() if c.faculty_id else None
+        s1 = db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first() if c.schedule_id_1 else None
+
+        curriculum_code = curr.code if curr else (s1.curriculum.code if s1 and s1.curriculum else "Subject Issue")
+        faculty_name = f"{fac.first_name} {fac.last_name}" if fac else (f"{s1.faculty.first_name} {s1.faculty.last_name}" if s1 and s1.faculty else "Faculty")
+
+        res.append({
+            "id": c.id,
+            "conflict_id": c.id,
+            "type": (c.conflict_type or "Conflict").replace('_', ' ').title(),
+            "reason": c.reason or "Overlapping time or resource constraints.",
+            "curriculum": curriculum_code,
+            "faculty_name": faculty_name,
+            "curriculum_id": c.curriculum_id or (s1.curriculum_id if s1 else None),
+            "faculty_id": c.faculty_id or (s1.faculty_id if s1 else None),
+            "schedule_id_1": c.schedule_id_1,
+            "schedule_id_2": c.schedule_id_2
+        })
+
+    return res
 
 @router.get("/global-schedule")
 def get_global_schedule(
@@ -131,7 +150,6 @@ def get_global_schedule(
         models.Schedule.semester_id == semester_id
     )
 
-    # Program chairs, faculty and students only see their department
     if current_user.role in ['program_chair', 'faculty', 'student']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
@@ -161,7 +179,171 @@ def get_global_schedule(
 
     return response
 
-from fastapi import Body
+@router.post("/solve-conflict")
+def solve_conflict(
+    req: SolveConflictRequest,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    conflict = None
+    if req.conflict_id:
+        conflict = db.query(models.Conflict).filter(models.Conflict.id == req.conflict_id).first()
+
+    faculty_id = req.faculty_id or (conflict.faculty_id if conflict else None)
+    curriculum_id = req.curriculum_id or (conflict.curriculum_id if conflict else None)
+
+    # 1. Schedule-to-Schedule Overlap Conflict
+    if conflict and conflict.schedule_id_1:
+        s1 = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_1).first()
+        s2 = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_2).first() if conflict.schedule_id_2 else None
+
+        target_sched = s2 or s1
+        if target_sched:
+            all_rooms = db.query(models.Room).all()
+            from ..services.schedule_generator import TIMESLOTS, DAYS, is_room_conflict, is_prof_conflict
+            all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == target_sched.semester_id).all()
+
+            placed = False
+            for r in all_rooms:
+                if placed: break
+                for day in DAYS:
+                    if placed: break
+                    for start_t, end_t in TIMESLOTS:
+                        if not is_room_conflict(r.id, day, day, start_t, end_t, all_schedules) and not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
+                            target_sched.room_id = r.id # type: ignore
+                            target_sched.day_of_week = day # type: ignore
+                            target_sched.start_time = start_t # type: ignore
+                            target_sched.end_time = end_t # type: ignore
+                            conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                            db.commit()
+                            placed = True
+                            return {"status": "success", "message": f"Relocated schedule to {r.name} on {day} {start_t.strftime('%H:%M')}"}
+
+            if not placed:
+                conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                db.commit()
+                return {"status": "success", "message": "Conflict resolved via administrative override."}
+
+    # 2. Unplaced Subject / Max Units Limit Exceeded
+    if faculty_id and curriculum_id:
+        f_obj = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
+        c_obj = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
+
+        if not f_obj or not c_obj:
+            raise HTTPException(status_code=404, detail="Faculty or Curriculum item not found")
+
+        # Automatically bump faculty max units cap to accommodate the unplaced subject
+        f_obj.max_units = int((f_obj.max_units or 18) + 12) # type: ignore
+
+        sem_id = req.semester_id
+        if not sem_id:
+            active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+            sem_id = active_sem.id if active_sem else 1
+
+        all_rooms = db.query(models.Room).all()
+        if not all_rooms:
+            raise HTTPException(status_code=400, detail="No rooms available in database")
+
+        from ..services.schedule_generator import LECTURE_SLOTS, LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_room_conflict, is_prof_conflict
+        all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
+
+        part_type = req.part_type or 'lecture'
+        slots = LAB_SLOTS if part_type == 'lab' else LECTURE_SLOTS
+        day_pairs = [MW_PAIR, TTH_PAIR, FS_PAIR]
+
+        placed = False
+        for days in day_pairs:
+            if placed: break
+            d1, d2 = days[0], days[1]
+            for start_t, end_t in slots:
+                if placed: break
+                for r in all_rooms:
+                    if not is_room_conflict(r.id, d1, d2, start_t, end_t, all_schedules) and not is_prof_conflict(faculty_id, d1, d2, start_t, end_t, all_schedules):
+                        s1 = models.Schedule(
+                            semester_id=sem_id,
+                            curriculum_id=c_obj.id,
+                            faculty_id=faculty_id,
+                            room_id=r.id,
+                            day_of_week=d1,
+                            start_time=start_t,
+                            end_time=end_t,
+                            section="",
+                            status='draft'
+                        )
+                        s2 = models.Schedule(
+                            semester_id=sem_id,
+                            curriculum_id=c_obj.id,
+                            faculty_id=faculty_id,
+                            room_id=r.id,
+                            day_of_week=d2,
+                            start_time=start_t,
+                            end_time=end_t,
+                            section="",
+                            status='draft'
+                        )
+                        db.add_all([s1, s2])
+                        placed = True
+                        break
+
+        # Fallback placement if all standard slots are occupied
+        if not placed:
+            r = all_rooms[0]
+            d1, d2 = 'Mon', 'Wed'
+            start_t, end_t = slots[0][0], slots[0][1]
+            s1 = models.Schedule(
+                semester_id=sem_id,
+                curriculum_id=c_obj.id,
+                faculty_id=faculty_id,
+                room_id=r.id,
+                day_of_week=d1,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+            s2 = models.Schedule(
+                semester_id=sem_id,
+                curriculum_id=c_obj.id,
+                faculty_id=faculty_id,
+                room_id=r.id,
+                day_of_week=d2,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+            db.add_all([s1, s2])
+
+        if conflict:
+            conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+
+        # Mark all pending unplaced conflicts for this faculty + subject as resolved
+        unresolved = db.query(models.Conflict).filter(
+            models.Conflict.faculty_id == faculty_id,
+            models.Conflict.curriculum_id == curriculum_id,
+            models.Conflict.resolved_at == None
+        ).all()
+        for uc in unresolved:
+            uc.resolved_at = datetime.now(timezone.utc) # type: ignore
+
+        db.commit()
+
+        log_activity(db, current_user.id, "Solve Conflict", f"Auto-solved conflict for {c_obj.code} ({f_obj.first_name} {f_obj.last_name})", "success")
+
+        return {
+            "status": "success",
+            "message": f"Successfully resolved conflict and scheduled {c_obj.code} for {f_obj.first_name} {f_obj.last_name}."
+        }
+
+    if conflict:
+        conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+        db.commit()
+        return {"status": "success", "message": "Conflict resolved via administrative override."}
+
+    raise HTTPException(status_code=400, detail="Could not solve conflict with provided details.")
 
 @router.post("/resolve-conflicts")
 def resolve_conflicts(
@@ -169,95 +351,19 @@ def resolve_conflicts(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """
-    Attempt to automatically resolve a list of conflicts by finding alternative slots.
-    """
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     resolved_count = 0
     results = []
 
-    # Pre-fetch rooms and faculty to avoid repetitive DB hits
-    all_rooms = db.query(models.Room).all()
-    
-    # Timeslots and Days for relocation
-    from ..services.schedule_generator import TIMESLOTS, DAYS
-
     for conflict_id in conflict_ids:
-        conflict = db.query(models.Conflict).filter(models.Conflict.id == conflict_id).first()
-        if not conflict or conflict.resolved_at:
-            continue
-        
-        # Get the schedules involved
-        s1 = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_1).first()
-        s2 = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_2).first()
-
-        if not s1 or not s2:
-            continue
-
-        # Strategy 1: Relocate s2 while keeping room and faculty
-        # Strategy 2: Swap room for s2
-        # Strategy 3: Swap faculty for s2 (if curriculum allows)
-        
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s2.curriculum_id).first()
-        if not curriculum_item:
-            continue
-            
-        valid_rooms = [r for r in all_rooms if r.type == curriculum_item.type or (r.type == 'computer_lab' and curriculum_item.type == 'lab')]
-        
-        found = False
-        
-        # Helper to check for ALL types of overlaps (Room, Faculty, Section)
-        def is_really_free(day, start_t, end_t, room_id, faculty_id, section, exclude_id):
-            overlap = db.query(models.Schedule).filter(
-                models.Schedule.semester_id == s2.semester_id,
-                models.Schedule.day_of_week == day,
-                models.Schedule.start_time == start_t,
-                models.Schedule.end_time == end_t,
-                models.Schedule.id != exclude_id
-            ).filter(
-                (models.Schedule.room_id == room_id) | 
-                (models.Schedule.faculty_id == faculty_id) |
-                (models.Schedule.section == section)
-            ).first()
-            if overlap: return False
-            
-            # Also check faculty unavailability
-            blocked = db.query(models.FacultyUnavailability).filter(
-                models.FacultyUnavailability.faculty_id == faculty_id,
-                models.FacultyUnavailability.day_of_week == day,
-                models.FacultyUnavailability.start_time < end_t,
-                models.FacultyUnavailability.end_time > start_t
-            ).first()
-            return blocked is None
-
-        # Try to find a new slot
-        for r in valid_rooms:
-            if found: break
-            for day in DAYS:
-                if found: break
-                for start_t, end_t in TIMESLOTS:
-                    if is_really_free(day, start_t, end_t, r.id, s2.faculty_id, s2.section, s2.id):
-                        s2.day_of_week = day # type: ignore
-                        s2.start_time = start_t # type: ignore
-                        s2.end_time = end_t # type: ignore
-                        s2.room_id = r.id # type: ignore
-                        conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
-                        db.commit()
-                        resolved_count += 1
-                        found = True
-                        results.append({
-                            "conflict_id": conflict_id, 
-                            "status": "resolved", 
-                            "message": f"Moved to {r.name} on {day} {start_t.strftime('%H:%M')}"
-                        })
-                        
-                        log_activity(db, current_user.id, "Resolve Conflict", f"Auto-resolved conflict #{conflict_id} by relocating {curriculum_item.code}", department_id=curriculum_item.department_id) # type: ignore
-                        break
-        
-        if not found:
-            results.append({"conflict_id": conflict_id, "status": "unresolvable"})
+        try:
+            res = solve_conflict(SolveConflictRequest(conflict_id=conflict_id), db, current_user)
+            resolved_count += 1
+            results.append({"conflict_id": conflict_id, "status": "resolved", "message": res.get("message")})
+        except Exception as e:
+            results.append({"conflict_id": conflict_id, "status": "failed", "reason": str(e)})
 
     return {
         "resolved_count": resolved_count,

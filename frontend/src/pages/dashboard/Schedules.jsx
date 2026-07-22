@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User, Trash2, RotateCcw, X } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
@@ -36,6 +36,119 @@ export default function Schedules() {
 
   const [globalSchedules, setGlobalSchedules] = useState([]);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+  const [activeConflicts, setActiveConflicts] = useState([]);
+
+  const [undoBackup, setUndoBackup] = useState(null);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+
+  const fetchActiveConflicts = async () => {
+    try {
+      const data = await api.get('/ai-scheduler/conflicts');
+      setActiveConflicts(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSolveConflict = async (item) => {
+    try {
+      const res = await api.post('/ai-scheduler/solve-conflict', {
+        conflict_id: item.conflict_id || item.id,
+        faculty_id: item.faculty || item.faculty_id,
+        curriculum_id: item.curriculum_id,
+        semester_id: selectedGenSemester || activeSemesterId,
+        part_type: item.part_type || 'lecture'
+      });
+      addToast(res.message || 'Conflict resolved successfully', 'success');
+
+      if (generationResults) {
+        setGenerationResults(prev => {
+          if (!prev) return prev;
+          const updatedItems = (prev.unplaced_items || []).filter(i =>
+            i !== item &&
+            i.conflict_id !== (item.conflict_id || item.id) &&
+            !(i.faculty === (item.faculty || item.faculty_id) && i.curriculum_id === item.curriculum_id)
+          );
+          return {
+            ...prev,
+            generated: prev.generated + 2,
+            unplaced_count: updatedItems.length,
+            unplaced_items: updatedItems
+          };
+        });
+      }
+
+      const semToFetch = selectedGenSemester || activeSemesterId;
+      if (semToFetch) {
+        fetchGlobalSchedules(semToFetch);
+      }
+      fetchActiveConflicts();
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Failed to solve conflict', 'error');
+    }
+  };
+
+  const handleSolveAllConflicts = async () => {
+    const itemsToSolve = generationResults?.unplaced_items?.length ? [...generationResults.unplaced_items] : [...activeConflicts];
+    if (!itemsToSolve.length) return;
+    for (const item of itemsToSolve) {
+      await handleSolveConflict(item);
+    }
+  };
+
+  const handleDeleteSchedule = async (sched) => {
+    try {
+      const res = await api.delete(`/schedules/${sched.id}`);
+      if (res?.backup) {
+        setUndoBackup({
+          label: `Deleted schedule for ${sched.subject_code}`,
+          items: [res.backup]
+        });
+      }
+      addToast(`Deleted schedule for ${sched.subject_code}`, 'success');
+      const semToFetch = selectedGenSemester || activeSemesterId;
+      if (semToFetch) fetchGlobalSchedules(semToFetch);
+      fetchSchedules();
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Failed to delete schedule', 'error');
+    }
+  };
+
+  const handleClearAllSchedules = async () => {
+    const semId = selectedGenSemester || activeSemesterId;
+    if (!semId) return addToast('Select a semester first', 'error');
+    try {
+      const res = await api.delete(`/schedules/clear-all?semester_id=${semId}`);
+      if (res?.backup?.length > 0) {
+        setUndoBackup({
+          label: `Cleared ${res.deleted_count} schedule entries`,
+          items: res.backup
+        });
+      }
+      addToast(`Cleared ${res.deleted_count} schedules`, 'success');
+      fetchGlobalSchedules(semId);
+      fetchSchedules();
+      fetchActiveConflicts();
+      setIsClearConfirmOpen(false);
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Failed to clear schedules', 'error');
+    }
+  };
+
+  const handleRestoreSchedules = async () => {
+    if (!undoBackup || !undoBackup.items?.length) return;
+    try {
+      await api.post('/schedules/restore', { items: undoBackup.items });
+      addToast('Schedules successfully restored! ✨', 'success');
+      setUndoBackup(null);
+      const semId = selectedGenSemester || activeSemesterId;
+      if (semId) fetchGlobalSchedules(semId);
+      fetchSchedules();
+      fetchActiveConflicts();
+    } catch (e) {
+      addToast(e.response?.data?.detail || 'Failed to restore schedules', 'error');
+    }
+  };
 
   const fetchGenerateData = async () => {
     try {
@@ -79,6 +192,8 @@ export default function Schedules() {
       }
     }).catch(console.error);
 
+    fetchActiveConflicts();
+
     api.get('/professors').then(data => {
       const formatted = (Array.isArray(data) ? data : []).map(t => ({
         ...t,
@@ -102,6 +217,7 @@ export default function Schedules() {
       addToast('Generation complete', 'success');
       fetchSchedules();
       fetchGlobalSchedules(selectedGenSemester);
+      fetchActiveConflicts();
     } catch (e) {
       addToast(e.response?.data?.detail || 'Generation failed', 'error');
     } finally {
@@ -374,6 +490,13 @@ export default function Schedules() {
                   >
                     <Plus className="w-4 h-4 mr-1" /> Create
                   </button>
+                  <button
+                    onClick={() => setIsClearConfirmOpen(true)}
+                    className="px-5 py-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200/60 rounded-2xl text-[11px] font-black flex items-center shadow-xs transition-all uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
+                    title="Clear all schedules for this semester"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1.5" /> Clear All
+                  </button>
                 </div>
               )}
             </div>
@@ -435,15 +558,30 @@ export default function Schedules() {
                           >
                             <div className="px-2.5 py-1.5 bg-slate-50/50 border-b border-black/5 flex justify-between items-center">
                               <div className="text-xs font-black uppercase tracking-wider">{sched.subject_code}</div>
-                              <div className="text-[10px] font-bold opacity-80">{(() => {
-                                const formatT = (t) => {
-                                  if (!t) return '';
-                                  const [h,m] = t.split(':'); 
-                                  const hr = parseInt(h); 
-                                  return `${hr%12||12}:${m} ${hr>=12?'PM':'AM'}`;
-                                };
-                                return `${formatT(sched.start_time)} - ${formatT(sched.end_time)}`;
-                              })()}</div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="text-[10px] font-bold opacity-80">{(() => {
+                                  const formatT = (t) => {
+                                    if (!t) return '';
+                                    const [h,m] = t.split(':'); 
+                                    const hr = parseInt(h); 
+                                    return `${hr%12||12}:${m} ${hr>=12?'PM':'AM'}`;
+                                  };
+                                  return `${formatT(sched.start_time)} - ${formatT(sched.end_time)}`;
+                                })()}</div>
+                                {canManage && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteSchedule(sched);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 p-0.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-all"
+                                    title="Delete this schedule"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <div className="p-2.5 flex flex-col flex-1">
                               <div className="font-bold text-xs leading-snug line-clamp-2 mb-1.5" title={sched.subject_name}>{sched.subject_name}</div>
@@ -467,12 +605,13 @@ export default function Schedules() {
       <ConflictPanel
         isOpen={isConflictPanelOpen}
         onClose={() => setIsConflictPanelOpen(false)}
-        conflicts={schedules.filter(s => s.isConflicting).map(s => ({
+        conflicts={activeConflicts.length > 0 ? activeConflicts : schedules.filter(s => s.isConflicting).map(s => ({
           ...s,
           type: 'General',
           conflictWith: s.conflictDetails?.[0]
         }))}
-        onAutoResolveAll={handleAutoResolveAll}
+        onResolveConflict={handleSolveConflict}
+        onResolveAll={handleSolveAllConflicts}
       />
 
       <Modal
@@ -729,17 +868,39 @@ export default function Schedules() {
 
               {generationResults.unplaced_items?.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-black text-rose-600 uppercase tracking-[0.2em] mb-4">Unplaced Subjects</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-xs font-black text-rose-600 uppercase tracking-[0.2em]">Unplaced Subjects ({generationResults.unplaced_items.length})</h4>
+                    <button
+                      type="button"
+                      onClick={handleSolveAllConflicts}
+                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black rounded-xl shadow-xs transition-all flex items-center gap-1.5 uppercase tracking-wider"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Auto-Solve All
+                    </button>
+                  </div>
                   <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
                     {generationResults.unplaced_items.map((item, idx) => (
-                      <div key={idx} className="bg-rose-50/50 border border-rose-100 rounded-2xl p-4 flex gap-4">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-rose-500 shadow-sm shrink-0 font-black text-xs">
-                          {item.subject}
+                      <div key={idx} className="bg-rose-50/50 border border-rose-100 rounded-2xl p-4 flex gap-4 items-center justify-between">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-12 h-10 bg-white rounded-xl flex items-center justify-center text-rose-500 shadow-sm shrink-0 font-black text-xs px-2">
+                            {item.subject}
+                          </div>
+                          <div className="min-w-0">
+                            {item.section && item.section.trim() !== "" && (
+                              <p className="text-sm font-black text-slate-900 leading-tight">{item.section}</p>
+                            )}
+                            <p className="text-xs font-bold text-rose-600 mt-0.5">{item.reason}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-black text-slate-900 leading-tight">{item.section}</p>
-                          <p className="text-xs font-bold text-rose-600 mt-1">{item.reason}</p>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSolveConflict(item)}
+                          className="shrink-0 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black rounded-xl shadow-xs transition-all flex items-center gap-1 uppercase tracking-wider"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Solve Issue
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -762,6 +923,62 @@ export default function Schedules() {
           )}
         </form>
       </Modal>
+      <Modal
+        isOpen={isClearConfirmOpen}
+        onClose={() => setIsClearConfirmOpen(false)}
+        title="Clear All Schedules"
+      >
+        <div className="space-y-4">
+          <p className="text-sm font-bold text-slate-700">
+            Are you sure you want to delete all generated schedules for this semester?
+          </p>
+          <p className="text-xs text-slate-500 font-medium">
+            You will be able to restore them immediately using the Undo button after clearing.
+          </p>
+          <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsClearConfirmOpen(false)}
+              className="px-5 py-2.5 text-xs font-black text-slate-500 hover:text-slate-700 uppercase tracking-wider"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAllSchedules}
+              className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-sm"
+            >
+              Yes, Clear All
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {undoBackup && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-300 border border-slate-800">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-400" />
+            <span className="text-sm font-bold">{undoBackup.label}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRestoreSchedules}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Undo / Restore
+            </button>
+            <button
+              type="button"
+              onClick={() => setUndoBackup(null)}
+              className="text-slate-400 hover:text-white p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

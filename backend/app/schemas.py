@@ -201,7 +201,7 @@ class ScheduleBase(BaseModel):
     day_of_week: str
     start_time: time
     end_time: time
-    section: str
+    section: Optional[str] = ""
     status: str = 'draft'
     is_locked: bool = False
 

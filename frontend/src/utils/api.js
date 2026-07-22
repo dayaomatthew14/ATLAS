@@ -1,13 +1,8 @@
-let rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
-if (rawBaseUrl.startsWith('http://') && !rawBaseUrl.includes('localhost') && !rawBaseUrl.includes('127.0.0.1')) {
-  rawBaseUrl = rawBaseUrl.replace('http://', 'https://');
-}
-const BASE_URL = rawBaseUrl;
-console.log("[ATLAS API] Base URL initialized as:", BASE_URL);
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
-  
+
   const headers = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...options.headers,
@@ -21,7 +16,7 @@ async function request(endpoint, options = {}) {
 
   try {
     const response = await fetch(`${BASE_URL}${endpoint}`, config);
-    
+
     if (response.status === 401) {
       localStorage.removeItem('atlas_role');
       localStorage.removeItem('atlas_user_name');
@@ -30,7 +25,7 @@ async function request(endpoint, options = {}) {
       // Don't try to removeItem('atlas_token') — it's an HttpOnly cookie
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-      } catch (e) {}
+      } catch (e) { }
       window.location.href = '/login';
       return;
     }
@@ -40,7 +35,7 @@ async function request(endpoint, options = {}) {
     }
 
     const data = await response.json();
-    
+
     if (!response.ok) {
       let errorMessage = 'Something went wrong';
       if (Array.isArray(data.detail)) {
@@ -53,7 +48,7 @@ async function request(endpoint, options = {}) {
       errorObj.response = { status: response.status, data };
       throw errorObj;
     }
-    
+
     return data;
   } catch (error) {
     console.error('API Error:', error);
@@ -66,16 +61,16 @@ export const api = {
   postForm: (endpoint, formData) => request(endpoint, { method: 'POST', body: formData }),
   post: (endpoint, body) => {
     const isFormData = body instanceof FormData;
-    return request(endpoint, { 
-      method: 'POST', 
-      body: isFormData ? body : JSON.stringify(body) 
+    return request(endpoint, {
+      method: 'POST',
+      body: isFormData ? body : JSON.stringify(body)
     });
   },
   put: (endpoint, body) => {
     const isFormData = body instanceof FormData;
-    return request(endpoint, { 
-      method: 'PUT', 
-      body: isFormData ? body : JSON.stringify(body) 
+    return request(endpoint, {
+      method: 'PUT',
+      body: isFormData ? body : JSON.stringify(body)
     });
   },
   delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
