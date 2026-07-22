@@ -241,14 +241,14 @@ export default function DashboardHome() {
                 <Zap className="w-3 h-3 animate-pulse text-green-600" />
                 <span>System Optimized</span>
               </div>
-              <h1 className="text-2xl lg:text-4xl font-black tracking-tight mb-2 text-slate-900">
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-slate-900 leading-tight">
                 Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-700 to-green-500">Schedule.</span>
               </h1>
-              <p className="text-slate-500 text-xs sm:text-sm font-medium mb-5 leading-relaxed max-w-2xl">
+              <p className="text-slate-600 text-sm sm:text-base lg:text-lg font-medium mb-6 leading-relaxed max-w-2xl">
                 Welcome, {localStorage.getItem('atlas_user_name') || 'Administrator'}. Your command center for the {localStorage.getItem('atlas_department') ? `${localStorage.getItem('atlas_department')} department` : 'entire institution'}.
               </p>
               <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
-                <Link to="/dashboard/schedules" className="px-6 py-2.5 bg-green-700 hover:bg-green-800 text-white rounded-xl text-xs font-black transition-all transform hover:scale-105 shadow-md shadow-green-700/20 flex items-center uppercase tracking-wider">
+                <Link to="/dashboard/schedules" className="px-7 py-3 bg-green-700 hover:bg-green-800 text-white rounded-xl text-xs sm:text-sm font-black transition-all transform hover:scale-105 shadow-md shadow-green-700/20 flex items-center uppercase tracking-wider">
                   Launch Calendar <ChevronRight className="w-4 h-4 ml-1.5" />
                 </Link>
               </div>
