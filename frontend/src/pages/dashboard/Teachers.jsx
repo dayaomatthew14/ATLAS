@@ -476,16 +476,16 @@ export default function Teachers() {
             <div className="bg-orange-100 p-2.5 rounded-xl shadow-sm">
               <UserCheck className="w-6 h-6 text-orange-700" />
             </div>
-            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Teachers</h2>
+            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Professors</h2>
           </div>
           <p className="text-slate-500 text-base font-medium">Configure faculty profiles, track teaching loads, and manage schedule constraints.</p>
         </div>
 
         <button
           onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
+          className="bg-green-700 hover:bg-green-800 text-white px-6 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
         >
-          <Plus className="w-6 h-6 mr-2" /> Add Teacher
+          <Plus className="w-4 h-4 mr-2" /> Add Professor
         </button>
       </div>
 
@@ -728,9 +728,9 @@ export default function Teachers() {
             </button>
             <button
               type="submit"
-              className="px-14 py-4 text-[13px] font-black text-white bg-green-700 hover:bg-green-800 rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all transform hover:scale-[1.02] active:scale-95 flex items-center justify-center min-w-[200px]"
+              className="bg-green-700 hover:bg-green-800 text-white px-8 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
             >
-              {editingTeacher ? 'Update Faculty' : 'Add Faculty'}
+              {editingTeacher ? 'Update Professor' : 'Add Professor'}
             </button>
           </div>
         </form>

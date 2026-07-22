@@ -146,9 +146,9 @@ export default function Rooms() {
         
         <button
           onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-8 py-4 rounded-2xl flex items-center shadow-lg transition-all font-black text-sm uppercase tracking-widest transform hover:scale-105 active:scale-95"
+          className="bg-green-700 hover:bg-green-800 text-white px-6 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
         >
-          <Plus className="w-6 h-6 mr-2" /> Add Room
+          <Plus className="w-4 h-4 mr-2" /> Add Room
         </button>
       </div>
 
@@ -181,35 +181,32 @@ export default function Rooms() {
               />
             </div>
             <div>
-              <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Capacity</label>
+              <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Location / Building</label>
               <input
-                type="number"
+                type="text"
                 required
-                placeholder="40"
-                className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700"
-                value={formData.capacity}
-                onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+                placeholder="e.g. LSB BUILDING"
+                className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
+                value={formData.building}
+                onChange={(e) => setFormData({ ...formData, building: e.target.value })}
               />
             </div>
           </div>
           
           <div>
-            <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Building / Floor</label>
-            <div className="relative">
-              <select
-                className="w-full px-4 pr-10 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-black text-slate-700 appearance-none cursor-pointer"
-                value={formData.building}
-                onChange={(e) => setFormData({ ...formData, building: e.target.value })}
-              >
-                <option value="LSB BUILDING">LSB BUILDING</option>
-                <option value="VET BUILDING">VET BUILDING</option>
-                <option value="VET HOSPITAL">VET HOSPITAL</option>
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-slate-400">
-                <ChevronDown className="w-5 h-5" />
-              </div>
-            </div>
+            <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Capacity (Students)</label>
+            <input
+              type="number"
+              required
+              min="1"
+              max="200"
+              placeholder="e.g. 40"
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 placeholder:text-slate-400 placeholder:font-normal"
+              value={formData.capacity}
+              onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+            />
           </div>
+
           <div>
             <label className="block text-sm font-black text-slate-700 mb-2 uppercase tracking-wide">Room Type</label>
             <div className="relative">
@@ -231,13 +228,13 @@ export default function Rooms() {
             <button
               type="button"
               onClick={handleCloseModal}
-              className="px-6 py-3.5 text-sm font-black text-slate-500 hover:bg-slate-50 rounded-2xl uppercase tracking-widest transition-all"
+              className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[11px] font-black flex items-center shadow-xs transition-colors uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-10 py-3.5 text-sm font-black text-white bg-green-700 hover:bg-green-800 rounded-2xl shadow-lg uppercase tracking-widest transition-all transform hover:scale-105 active:scale-95"
+              className="bg-green-700 hover:bg-green-800 text-white px-8 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
             >
               {editingRoom ? 'Update Room' : 'Create Room'}
             </button>
