@@ -232,34 +232,34 @@ export default function DashboardHome() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-yellow-100/30 rounded-full blur-[120px]"></div>
 
       <div className="relative z-10 space-y-10">
-        {/* Header Section with Crystal Translucent Glass Card */}
+        {/* Header Section with Crystal Glass Card */}
         <div className="relative group">
-          <div className="absolute -inset-1 bg-gradient-to-r from-green-500 to-emerald-400 rounded-[2.5rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-          <div className="relative bg-gradient-to-r from-green-900/90 via-emerald-800/85 to-green-950/90 backdrop-blur-xl border border-white/20 rounded-[2rem] p-6 lg:p-8 flex flex-col lg:flex-row items-center justify-between overflow-hidden shadow-2xl shadow-green-950/20 text-white">
+          <div className="absolute -inset-1 bg-gradient-to-r from-green-400 to-yellow-300 rounded-[2.5rem] blur opacity-20 group-hover:opacity-30 transition duration-1000"></div>
+          <div className="relative bg-white/60 backdrop-blur-2xl border border-white rounded-[2rem] p-6 lg:p-8 flex flex-col lg:flex-row items-center justify-between overflow-hidden shadow-xl shadow-green-900/5">
             <div className="relative z-10 max-w-xl text-center lg:text-left">
-              <div className="inline-flex items-center space-x-2 bg-white/10 border border-white/20 px-3.5 py-1 rounded-full text-[10px] font-black tracking-[0.15em] text-green-200 uppercase mb-3 backdrop-blur-md">
-                <Zap className="w-3 h-3 animate-pulse text-amber-300" />
+              <div className="inline-flex items-center space-x-2 bg-green-500/10 border border-green-500/20 px-3.5 py-1 rounded-full text-[10px] font-black tracking-[0.15em] text-green-700 uppercase mb-3">
+                <Zap className="w-3 h-3 animate-pulse text-green-600" />
                 <span>System Optimized</span>
               </div>
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-white leading-tight">
-                Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-emerald-200 to-green-100">Schedule.</span>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-slate-900 leading-tight">
+                Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-700 to-green-500">Schedule.</span>
               </h1>
-              <p className="text-green-100/90 text-sm sm:text-base lg:text-lg font-medium mb-6 leading-relaxed max-w-2xl">
+              <p className="text-slate-600 text-sm sm:text-base lg:text-lg font-medium mb-6 leading-relaxed max-w-2xl">
                 Welcome, {localStorage.getItem('atlas_user_name') || 'Administrator'}. Your command center for the {localStorage.getItem('atlas_department') ? `${localStorage.getItem('atlas_department')} department` : 'entire institution'}.
               </p>
               <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
-                <Link to="/dashboard/schedules" className="px-7 py-3 bg-white text-green-950 hover:bg-green-50 rounded-xl text-xs sm:text-sm font-black transition-all transform hover:scale-105 shadow-md flex items-center uppercase tracking-wider">
-                  Launch Calendar <ChevronRight className="w-4 h-4 ml-1.5 text-green-700" />
+                <Link to="/dashboard/schedules" className="px-7 py-3 bg-green-700 hover:bg-green-800 text-white rounded-xl text-xs sm:text-sm font-black transition-all transform hover:scale-105 shadow-md shadow-green-700/20 flex items-center uppercase tracking-wider">
+                  Launch Calendar <ChevronRight className="w-4 h-4 ml-1.5" />
                 </Link>
               </div>
             </div>
             
             {/* Visual Element */}
             <div className="hidden lg:block relative w-80 h-80">
-              <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-20"></div>
-              <div className="absolute inset-4 bg-amber-400/10 rounded-full animate-pulse"></div>
+              <div className="absolute inset-0 bg-green-500/10 rounded-full animate-ping opacity-20"></div>
+              <div className="absolute inset-4 bg-yellow-400/5 rounded-full animate-pulse"></div>
               <div className="absolute inset-0 flex items-center justify-center">
-                <ShieldCheck className="w-32 h-32 text-green-200/60 drop-shadow-[0_4px_15px_rgba(0,0,0,0.3)]" />
+                <ShieldCheck className="w-32 h-32 text-green-600/80 drop-shadow-[0_4px_10px_rgba(21,128,61,0.2)]" />
               </div>
             </div>
           </div>

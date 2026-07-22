@@ -146,7 +146,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       {/* Top Navbar */}
-      <nav className="bg-green-900/90 backdrop-blur-xl border-b border-white/10 text-white shadow-lg sticky top-0 z-50 transition-all">
+      <nav className="bg-gradient-to-r from-emerald-950/90 via-green-900/90 to-emerald-950/90 backdrop-blur-xl border-b border-white/10 text-white shadow-xl sticky top-0 z-50 transition-all">
         <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12">
           <div className="flex items-center justify-between h-24">
             <Link to="/dashboard" className="flex items-center space-x-4 group shrink-0">
