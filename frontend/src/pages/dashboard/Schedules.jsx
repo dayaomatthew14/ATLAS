@@ -15,6 +15,31 @@ const formatSemesterTerm = (term) => {
   return term;
 };
 
+const FACULTY_COLOR_PALETTES = [
+  { name: 'emerald', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-950', badge: 'bg-emerald-700 text-white', accent: 'border-l-emerald-600', dot: 'bg-emerald-500' },
+  { name: 'indigo', bg: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-950', badge: 'bg-indigo-700 text-white', accent: 'border-l-indigo-600', dot: 'bg-indigo-500' },
+  { name: 'amber', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-950', badge: 'bg-amber-700 text-white', accent: 'border-l-amber-600', dot: 'bg-amber-500' },
+  { name: 'purple', bg: 'bg-purple-50 border-purple-200', text: 'text-purple-950', badge: 'bg-purple-700 text-white', accent: 'border-l-purple-600', dot: 'bg-purple-500' },
+  { name: 'cyan', bg: 'bg-cyan-50 border-cyan-200', text: 'text-cyan-950', badge: 'bg-cyan-700 text-white', accent: 'border-l-cyan-600', dot: 'bg-cyan-500' },
+  { name: 'rose', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-950', badge: 'bg-rose-700 text-white', accent: 'border-l-rose-600', dot: 'bg-rose-500' },
+  { name: 'teal', bg: 'bg-teal-50 border-teal-200', text: 'text-teal-950', badge: 'bg-teal-700 text-white', accent: 'border-l-teal-600', dot: 'bg-teal-500' },
+  { name: 'blue', bg: 'bg-blue-50 border-blue-200', text: 'text-blue-950', badge: 'bg-blue-700 text-white', accent: 'border-l-blue-600', dot: 'bg-blue-500' },
+  { name: 'violet', bg: 'bg-violet-50 border-violet-200', text: 'text-violet-950', badge: 'bg-violet-700 text-white', accent: 'border-l-violet-600', dot: 'bg-violet-500' },
+  { name: 'fuchsia', bg: 'bg-fuchsia-50 border-fuchsia-200', text: 'text-fuchsia-950', badge: 'bg-fuchsia-700 text-white', accent: 'border-l-fuchsia-600', dot: 'bg-fuchsia-500' },
+  { name: 'sky', bg: 'bg-sky-50 border-sky-200', text: 'text-sky-950', badge: 'bg-sky-700 text-white', accent: 'border-l-sky-600', dot: 'bg-sky-500' },
+  { name: 'orange', bg: 'bg-orange-50 border-orange-200', text: 'text-orange-950', badge: 'bg-orange-700 text-white', accent: 'border-l-orange-600', dot: 'bg-orange-500' }
+];
+
+const getFacultyColor = (profName) => {
+  if (!profName) return FACULTY_COLOR_PALETTES[0];
+  let hash = 0;
+  for (let i = 0; i < profName.length; i++) {
+    hash = profName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % FACULTY_COLOR_PALETTES.length;
+  return FACULTY_COLOR_PALETTES[index];
+};
+
 export default function Schedules() {
   const { addToast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -568,24 +593,67 @@ export default function Schedules() {
 
           <div className="mt-12 mb-8"></div>
 
+          {/* Faculty Color Legend Bar */}
+          {globalSchedules.length > 0 && (
+            <div className="mt-8 mb-4 p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs">
+              <div className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-2.5 flex items-center gap-2">
+                <User className="w-3.5 h-3.5 text-green-700" /> Faculty Color Legend (Click to filter)
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from(new Set(globalSchedules.map(s => s.faculty_name).filter(Boolean))).map(prof => {
+                  const color = getFacultyColor(prof);
+                  const isSelected = selectedProfessorFilter === prof;
+                  return (
+                    <button
+                      key={prof}
+                      type="button"
+                      onClick={() => setSelectedProfessorFilter(isSelected ? '' : prof)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+                        isSelected
+                          ? 'ring-2 ring-green-600 shadow-md bg-slate-900 text-white border-slate-900 scale-105'
+                          : `${color.bg} ${color.border} ${color.text} hover:scale-105 shadow-2xs`
+                      }`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full ${color.dot}`} />
+                      <span>{prof}</span>
+                    </button>
+                  );
+                })}
+                {selectedProfessorFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProfessorFilter('')}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-all"
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {isGlobalLoading ? (
             <div className="flex justify-center py-20"><Sparkles className="w-8 h-8 text-indigo-400 animate-spin" /></div>
           ) : (
-            <div className="flex relative mt-16">
-              {/* Time column */}
-              <div className="w-16 flex flex-col relative border-r border-slate-100 pr-6" style={{ height: '1100px' }}>
-                {Array.from({length: 11}).map((_, i) => (
-                  <div key={i} className="absolute w-full text-right text-xs font-black text-slate-400" style={{ top: `${(i/10)*100}%`, transform: 'translateY(-50%)' }}>
-                    {7 + i}:30
+            <div className="flex relative mt-12 overflow-x-auto min-w-[900px] pb-8">
+              {/* Time column (7:30 AM to 7:30 PM - 12 hours) */}
+              <div className="w-20 flex flex-col relative border-r border-slate-200 pr-4 shrink-0" style={{ height: '1400px' }}>
+                {Array.from({length: 13}).map((_, i) => (
+                  <div key={i} className="absolute w-full text-right text-xs font-black text-slate-400" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
+                    {(() => {
+                      const hr = Math.floor(7.5 + i);
+                      const min = (7.5 + i) % 1 === 0 ? '30' : '00';
+                      return `${hr % 12 || 12}:${min} ${hr >= 12 ? 'PM' : 'AM'}`;
+                    })()}
                   </div>
                 ))}
               </div>
               
               {/* Days columns */}
-              <div className="flex-1 flex relative" style={{ height: '1100px' }}>
+              <div className="flex-1 flex relative" style={{ height: '1400px' }}>
                 {/* Grid lines */}
-                {Array.from({length: 11}).map((_, i) => (
-                  <div key={`line-${i}`} className="absolute w-full border-t border-slate-200 border-dashed" style={{ top: `${(i/10)*100}%` }} />
+                {Array.from({length: 13}).map((_, i) => (
+                  <div key={`line-${i}`} className="absolute w-full border-t border-slate-200/80 border-dashed" style={{ top: `${(i/12)*100}%` }} />
                 ))}
                 
                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
@@ -595,42 +663,37 @@ export default function Schedules() {
                   }
 
                   return (
-                    <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0">
-                      <div className="absolute -top-12 w-full text-center text-xs font-black text-slate-400 uppercase tracking-[0.3em]">{day}</div>
+                    <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0 min-w-[140px]">
+                      <div className="absolute -top-10 w-full text-center text-xs font-black text-slate-600 uppercase tracking-[0.25em] bg-slate-100 py-1.5 rounded-xl border border-slate-200">{day}</div>
                       {dayScheds.map(sched => {
                         const [h, m] = sched.start_time.split(':').map(Number);
                         const [eh, em] = sched.end_time.split(':').map(Number);
                         const start = h + m / 60;
                         const end = eh + em / 60;
-                        if (start < 7.5 || start > 17.5) return null;
-                        const top = ((start - 7.5) / 10) * 100;
-                        const height = ((end - start) / 10) * 100;
+                        if (start < 7.5 || start > 19.5) return null;
+                        const top = ((start - 7.5) / 12) * 100;
+                        const height = Math.max(((end - start) / 12) * 100, 6.5);
                         
-                        let colorClass = 'bg-white border-slate-200 text-slate-800 border-l-4 border-l-slate-400';
-                        const dName = (sched.department_name || '').toUpperCase();
-                        if (dName.includes('CAST')) colorClass = 'bg-white border-emerald-100 text-emerald-950 border-l-4 border-l-emerald-500';
-                        else if (dName.includes('CBMA')) colorClass = 'bg-white border-blue-100 text-blue-950 border-l-4 border-l-blue-500';
-                        else if (dName.includes('CVMAS')) colorClass = 'bg-white border-amber-100 text-amber-950 border-l-4 border-l-amber-500';
-                        else if (dName.includes('COED')) colorClass = 'bg-white border-purple-100 text-purple-950 border-l-4 border-l-purple-500';
+                        const color = getFacultyColor(sched.faculty_name);
 
                         return (
                           <div 
                             key={sched.id}
-                            className={`absolute w-[calc(100%-12px)] mx-[6px] rounded-xl border shadow-sm flex flex-col overflow-hidden transition-all hover:scale-[1.03] hover:z-20 hover:shadow-xl cursor-default group ${colorClass}`}
+                            className={`absolute w-[calc(100%-10px)] mx-[5px] rounded-2xl border shadow-xs flex flex-col overflow-hidden transition-all hover:scale-[1.02] hover:z-30 hover:shadow-2xl cursor-default group border-l-[6px] ${color.bg} ${color.border} ${color.accent}`}
                             style={{ top: `${top}%`, height: `${height}%` }}
                           >
-                            <div className="px-2.5 py-1.5 bg-slate-50/50 border-b border-black/5 flex justify-between items-center">
-                              <div className="text-xs font-black uppercase tracking-wider">{sched.subject_code}</div>
+                            <div className="px-3 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex justify-between items-center shrink-0">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-900">{sched.subject_code}</span>
                               <div className="flex items-center gap-1.5">
-                                <div className="text-[10px] font-bold opacity-80">{(() => {
+                                <span className="text-[11px] font-extrabold text-slate-600">{(() => {
                                   const formatT = (t) => {
                                     if (!t) return '';
                                     const [h,m] = t.split(':'); 
                                     const hr = parseInt(h); 
-                                    return `${hr%12||12}:${m} ${hr>=12?'PM':'AM'}`;
+                                    return `${hr%12||12}:${m}${hr>=12?'PM':'AM'}`;
                                   };
-                                  return `${formatT(sched.start_time)} - ${formatT(sched.end_time)}`;
-                                })()}</div>
+                                  return `${formatT(sched.start_time)}-${formatT(sched.end_time)}`;
+                                })()}</span>
                                 {canManage && (
                                   <button
                                     type="button"
@@ -638,7 +701,7 @@ export default function Schedules() {
                                       e.stopPropagation();
                                       handleDeleteSchedule(sched);
                                     }}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-all"
+                                    className="opacity-0 group-hover:opacity-100 p-0.5 text-rose-600 hover:bg-rose-100 rounded transition-all"
                                     title="Delete this schedule"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -646,11 +709,19 @@ export default function Schedules() {
                                 )}
                               </div>
                             </div>
-                            <div className="p-2.5 flex flex-col flex-1">
-                              <div className="font-bold text-xs leading-snug line-clamp-2 mb-1.5" title={sched.subject_name}>{sched.subject_name}</div>
-                              <div className="mt-auto space-y-1">
-                                <div className="text-[10px] font-bold opacity-90 flex items-center gap-1.5"><MapPin className="w-3 h-3 opacity-80 shrink-0" /> <span className="truncate">{sched.room_name}</span></div>
-                                <div className="text-[10px] font-bold opacity-90 flex items-center gap-1.5"><User className="w-3 h-3 opacity-80 shrink-0" /> <span className="truncate">{sched.faculty_name}</span></div>
+                            <div className="p-3 flex flex-col flex-1 justify-between gap-1 overflow-y-auto">
+                              <div className="font-black text-xs sm:text-sm leading-snug text-slate-900" title={sched.subject_name}>
+                                {sched.subject_name}
+                              </div>
+                              <div className="pt-1 border-t border-black/5 space-y-1">
+                                <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                  <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                  <span className="truncate">{sched.faculty_name}</span>
+                                </div>
+                                <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                                  <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="truncate">{sched.room_name}</span>
+                                </div>
                               </div>
                             </div>
                           </div>
