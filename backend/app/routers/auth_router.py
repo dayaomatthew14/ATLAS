@@ -23,16 +23,21 @@ def login_for_access_token(
     password: str = Form(...),
     remember_me: bool = Form(False)
 ):
-    user = db.query(models.User).filter(models.User.email == username).first()
+    clean_username = username.strip().lower() if username else ""
+    user = db.query(models.User).filter(models.User.email == clean_username).first()
+    if not user:
+        user = db.query(models.User).filter(models.User.email == username).first()
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    if user.role != 'program_chair':
+    allowed_roles = ['admin', 'program_chair', 'faculty', 'student']
+    if user.role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Only Program Chairs are allowed to use this system."
+            detail="Access denied. Your role is not authorized to use this system."
         )
 
     if not auth.verify_password(password, user.password_hash):

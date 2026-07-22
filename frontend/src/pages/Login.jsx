@@ -86,8 +86,22 @@ export default function Login() {
 
     try {
       if (mode === 'login') {
+        setFieldErrors({});
+        if (!email || !email.trim()) {
+          setError('Please enter your email address.');
+          setFieldErrors(prev => ({ ...prev, email: 'Email address is required' }));
+          setLoading(false);
+          return;
+        }
+        if (!password) {
+          setError('Please enter your password.');
+          setFieldErrors(prev => ({ ...prev, password: 'Password is required' }));
+          setLoading(false);
+          return;
+        }
+
         const formData = new FormData();
-        formData.append('username', email);
+        formData.append('username', email.trim().toLowerCase());
         formData.append('password', password);
         formData.append('remember_me', rememberMe);
 
@@ -135,7 +149,7 @@ export default function Login() {
 
         // Auto-login after successful verification
         const formData = new FormData();
-        formData.append('username', email);
+        formData.append('username', email.trim().toLowerCase());
         formData.append('password', password);
         formData.append('remember_me', rememberMe);
 
@@ -154,7 +168,7 @@ export default function Login() {
         navigate('/dashboard');
       }
       else if (mode === 'forgot_email') {
-        const response = await api.post('/auth/forgot-password', { email });
+        const response = await api.post('/auth/forgot-password', { email: email.trim().toLowerCase() });
         setSuccess(response.msg);
         setMode('forgot_otp');
       }
@@ -168,25 +182,44 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        await api.post('/auth/reset-password', { email, otp, new_password: password });
+        await api.post('/auth/reset-password', { email: email.trim().toLowerCase(), otp, new_password: password });
         setSuccess('Password reset successfully! You can now log in.');
         setMode('login');
       }
     } catch (err) {
-      if (mode === 'login' && err.response?.status === 403) {
-        setError('Account not verified. Please check your email or phone for the verification OTP.');
-        setMode('verify');
+      let detailMsg = '';
+      const rawDetail = err.response?.data?.detail;
+      if (typeof rawDetail === 'string') {
+        detailMsg = rawDetail;
+      } else if (Array.isArray(rawDetail)) {
+        detailMsg = rawDetail.map(d => (typeof d === 'string' ? d : d.msg || d.detail || JSON.stringify(d))).join(', ');
+      } else if (rawDetail && typeof rawDetail === 'object') {
+        detailMsg = rawDetail.message || rawDetail.detail || JSON.stringify(rawDetail);
+      } else {
+        detailMsg = err.message || 'An error occurred. Please try again.';
+      }
+
+      if (mode === 'login' && err.response?.status === 401) {
+        setError('Incorrect password. Please double-check your password and try again.');
+        setFieldErrors(prev => ({ ...prev, password: 'Incorrect password' }));
+      } else if (mode === 'login' && err.response?.status === 403) {
+        if (detailMsg.toLowerCase().includes('verified') || detailMsg.toLowerCase().includes('otp')) {
+          setError('Account not verified. Please check your email for the verification OTP.');
+          setMode('verify');
+        } else {
+          setError(detailMsg || 'Access denied. You are not authorized to log in.');
+        }
       } else if (mode === 'login' && err.response?.status === 404) {
         setError(
           <div className="flex flex-col space-y-2">
-            <span>No account found for this email.</span>
-            <button type="button" onClick={() => setMode('register')} className="text-yellow-600 font-bold hover:underline text-left">
+            <span>No account found for this email address.</span>
+            <button type="button" onClick={() => { setError(''); setMode('register'); }} className="text-yellow-600 font-bold hover:underline text-left">
               Create a new account instead?
             </button>
           </div>
         );
       } else {
-        setError(err.response?.data?.detail || err.message || 'An error occurred. Please try again.');
+        setError(detailMsg);
       }
     } finally {
       setLoading(false);
