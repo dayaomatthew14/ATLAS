@@ -83,6 +83,66 @@ export default function Dashboard() {
   // Filter items based on normalized role
   const filteredNavItems = navItems.filter(item => item.roles.includes(role));
 
+  const [isTourActive, setIsTourActive] = useState(false);
+  const [tourStep, setTourStep] = useState(1);
+
+  const tourSteps = [
+    {
+      step: 1,
+      title: '1/5: Dashboard Overview',
+      desc: 'Verify active academic semester status and overall department schedule metrics.',
+      path: '/dashboard',
+      nextLabel: 'Next: Rooms ➔'
+    },
+    {
+      step: 2,
+      title: '2/5: Campus Rooms & Labs',
+      desc: 'Set up lecture halls and computer labs with accurate student capacity limits.',
+      path: '/dashboard/rooms',
+      nextLabel: 'Next: Curriculum ➔'
+    },
+    {
+      step: 3,
+      title: '3/5: Curriculum Flowchart',
+      desc: 'Review department subjects, credit units, and curriculum offerings.',
+      path: '/dashboard/curriculum',
+      nextLabel: 'Next: Faculty ➔'
+    },
+    {
+      step: 4,
+      title: '4/5: Faculty & Workload Limits',
+      desc: 'Assign professors, max unit caps, and day/time unavailability slots.',
+      path: '/dashboard/teachers',
+      nextLabel: 'Next: Schedules ➔'
+    },
+    {
+      step: 5,
+      title: '5/5: Schedules & AI Engine',
+      desc: 'Run AI Generation, Solve Conflicts ✨, Restore 🔄, or Export CSV/PDF 📊!',
+      path: '/dashboard/schedules',
+      nextLabel: 'Finish Tour 🎉'
+    }
+  ];
+
+  const handleTourNext = () => {
+    if (tourStep < tourSteps.length) {
+      const nextStepNum = tourStep + 1;
+      setTourStep(nextStepNum);
+      navigate(tourSteps[nextStepNum - 1].path);
+    } else {
+      setIsTourActive(false);
+      setTourStep(1);
+    }
+  };
+
+  const handleTourPrev = () => {
+    if (tourStep > 1) {
+      const prevStepNum = tourStep - 1;
+      setTourStep(prevStepNum);
+      navigate(tourSteps[prevStepNum - 1].path);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       {/* Top Navbar */}
@@ -208,25 +268,61 @@ export default function Dashboard() {
         <Outlet />
       </main>
 
-      {/* Floating System Guide Widget (Bottom Left) */}
-      <div className="fixed bottom-6 left-6 z-40">
-        <button
-          type="button"
-          onClick={() => setIsGuideOpen(true)}
-          className="bg-gradient-to-r from-emerald-600 to-green-700 hover:from-emerald-700 hover:to-green-800 text-white px-5 py-3 rounded-full shadow-xl shadow-green-900/30 flex items-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 border border-white/20 group"
-          title="Open ATLAS System Guide & User Manual"
-        >
-          <div className="bg-white/20 p-1.5 rounded-full group-hover:rotate-12 transition-transform">
-            <Sparkles className="w-4 h-4 text-amber-300" />
+      {/* Interactive Guided System Tour Controller */}
+      {isTourActive && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center gap-4 animate-in slide-in-from-bottom-5 duration-300 border border-slate-800 max-w-xl w-[90%]">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="bg-amber-400 text-slate-900 p-2 rounded-xl shrink-0 font-black text-xs">
+              🎯
+            </div>
+            <div>
+              <p className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                {tourSteps[tourStep - 1].title}
+              </p>
+              <p className="text-xs text-slate-200 mt-0.5 leading-snug font-medium">
+                {tourSteps[tourStep - 1].desc}
+              </p>
+            </div>
           </div>
-          <span className="text-xs font-black uppercase tracking-wider pr-1">User Guide 💡</span>
-        </button>
-      </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {tourStep > 1 && (
+              <button
+                type="button"
+                onClick={handleTourPrev}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all"
+              >
+                ⬅️ Back
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleTourNext}
+              className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-all shadow-md"
+            >
+              {tourSteps[tourStep - 1].nextLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsTourActive(false)}
+              className="text-slate-400 hover:text-white p-1 ml-1"
+              title="Exit Guided Tour"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* System Guide Modal */}
       <SystemGuideModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
+        onStartTour={() => {
+          setIsGuideOpen(false);
+          setIsTourActive(true);
+          setTourStep(1);
+          navigate('/dashboard');
+        }}
       />
     </div>
   );
