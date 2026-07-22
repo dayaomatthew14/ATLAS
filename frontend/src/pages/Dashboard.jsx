@@ -146,7 +146,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       {/* Top Navbar */}
-      <nav className="bg-green-800 text-white shadow-lg sticky top-0 z-50">
+      <nav className="bg-green-900/90 backdrop-blur-xl border-b border-white/10 text-white shadow-lg sticky top-0 z-50 transition-all">
         <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12">
           <div className="flex items-center justify-between h-24">
             <Link to="/dashboard" className="flex items-center space-x-4 group shrink-0">
@@ -168,11 +168,11 @@ export default function Dashboard() {
                     key={item.name}
                     to={item.path}
                     className={`flex items-center px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${isActive
-                      ? 'bg-white text-green-800 shadow-md transform -translate-y-0.5'
-                      : 'text-green-50 hover:bg-green-700 hover:text-white'
+                      ? 'bg-white text-green-900 shadow-md transform -translate-y-0.5'
+                      : 'text-green-100/90 hover:bg-white/10 hover:text-white'
                       }`}
                   >
-                    <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-green-700' : 'text-green-200'}`} />
+                    <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-green-800' : 'text-green-200/80'}`} />
                     {item.name}
                   </Link>
                 );
@@ -184,7 +184,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => setIsGuideOpen(true)}
-                className="hidden sm:flex items-center gap-2 bg-green-900/60 hover:bg-green-700/60 px-4 py-2.5 rounded-2xl border border-white/10 text-xs font-bold text-green-100 transition-colors"
+                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2.5 rounded-2xl border border-white/15 text-xs font-bold text-green-100 transition-all shadow-xs"
                 title="Open System Guide"
               >
                 <HelpCircle className="w-4 h-4 text-amber-300" />
@@ -194,7 +194,7 @@ export default function Dashboard() {
               <div className="relative shrink-0">
                 <button
                   onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex items-center space-x-4 bg-green-900/50 px-4 py-2 rounded-2xl border border-white/10 hover:bg-green-700/50 transition-colors"
+                  className="flex items-center space-x-4 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-2xl border border-white/15 transition-all shadow-xs"
                 >
                   <div className="w-12 h-12 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center">
                     {profilePicture ? (
