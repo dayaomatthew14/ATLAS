@@ -105,7 +105,6 @@ export default function Schedules() {
           items: [res.backup]
         });
       }
-      addToast(`Deleted schedule for ${sched.subject_code}`, 'success');
       const semToFetch = selectedGenSemester || activeSemesterId;
       if (semToFetch) fetchGlobalSchedules(semToFetch);
       fetchSchedules();
@@ -125,7 +124,6 @@ export default function Schedules() {
           items: res.backup
         });
       }
-      addToast(`Cleared ${res.deleted_count} schedules`, 'success');
       fetchGlobalSchedules(semId);
       fetchSchedules();
       fetchActiveConflicts();
@@ -955,7 +953,7 @@ export default function Schedules() {
       </Modal>
 
       {undoBackup && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-300 border border-slate-800">
+        <div className="fixed bottom-6 right-6 z-[250] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-300 border border-slate-800">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-400" />
             <span className="text-sm font-bold">{undoBackup.label}</span>
