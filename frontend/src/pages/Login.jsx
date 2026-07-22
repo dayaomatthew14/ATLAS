@@ -107,17 +107,19 @@ export default function Login() {
 
         const response = await api.postForm('/auth/login', formData);
 
-        localStorage.setItem('atlas_role', response.role);
-        localStorage.setItem('atlas_user_name', response.name);
-        if (response.department) {
-          localStorage.setItem('atlas_department', response.department);
+        if (response && response.role) {
+          localStorage.setItem('atlas_role', response.role);
+          localStorage.setItem('atlas_user_name', response.name || '');
+          if (response.department) {
+            localStorage.setItem('atlas_department', response.department);
+          }
+          if (response.profile_picture) {
+            localStorage.setItem('atlas_profile_picture', response.profile_picture);
+          } else {
+            localStorage.removeItem('atlas_profile_picture');
+          }
+          navigate('/dashboard');
         }
-        if (response.profile_picture) {
-          localStorage.setItem('atlas_profile_picture', response.profile_picture);
-        } else {
-          localStorage.removeItem('atlas_profile_picture');
-        }
-        navigate('/dashboard');
       }
       else if (mode === 'register') {
         if (!validateAll()) {
@@ -155,17 +157,19 @@ export default function Login() {
 
         const response = await api.postForm('/auth/login', formData);
 
-        localStorage.setItem('atlas_role', response.role);
-        localStorage.setItem('atlas_user_name', response.name);
-        if (response.department) {
-          localStorage.setItem('atlas_department', response.department);
+        if (response && response.role) {
+          localStorage.setItem('atlas_role', response.role);
+          localStorage.setItem('atlas_user_name', response.name || '');
+          if (response.department) {
+            localStorage.setItem('atlas_department', response.department);
+          }
+          if (response.profile_picture) {
+            localStorage.setItem('atlas_profile_picture', response.profile_picture);
+          } else {
+            localStorage.removeItem('atlas_profile_picture');
+          }
+          navigate('/dashboard');
         }
-        if (response.profile_picture) {
-          localStorage.setItem('atlas_profile_picture', response.profile_picture);
-        } else {
-          localStorage.removeItem('atlas_profile_picture');
-        }
-        navigate('/dashboard');
       }
       else if (mode === 'forgot_email') {
         const response = await api.post('/auth/forgot-password', { email: email.trim().toLowerCase() });

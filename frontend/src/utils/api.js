@@ -17,7 +17,7 @@ async function request(endpoint, options = {}) {
   try {
     const response = await fetch(`${BASE_URL}${endpoint}`, config);
 
-    if (response.status === 401) {
+    if (response.status === 401 && !endpoint.includes('/auth/login')) {
       localStorage.removeItem('atlas_role');
       localStorage.removeItem('atlas_user_name');
       localStorage.removeItem('atlas_department');
@@ -26,7 +26,9 @@ async function request(endpoint, options = {}) {
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
       } catch (e) { }
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
       return;
     }
 
