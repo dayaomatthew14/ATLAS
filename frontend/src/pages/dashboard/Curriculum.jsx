@@ -186,32 +186,35 @@ export default function Curriculum() {
     if (item) {
       setEditingItem(item);
       setFormData({
-        code: item.code,
-        name: item.name,
-        units: item.units,
-        type: item.type,
-        department_id: item.department_id || '',
-        year: item.year || '',
+        code: item.code || '',
+        name: item.name || '',
+        units: item.units || 3,
+        type: item.type || 'lecture',
+        department_id: item.department_id || 1,
+        year: item.year || '1',
         semester: item.semester || '1st',
-        course: item.course || 'BSCS',
-        lec_units: item.lec_units || 0,
+        course: item.course || (selectedCourse !== 'All' ? selectedCourse : 'BSCS'),
+        lec_units: item.lec_units || 3,
         lab_units: item.lab_units || 0,
-        pre_requisites: item.pre_requisites || ''
+        pre_requisites: item.pre_requisites || '',
+        block_id: item.block_id || selectedBlock?.id || null
       });
     } else {
       setEditingItem(null);
+      const defaultCourse = selectedCourse !== 'All' ? selectedCourse : (selectedBlock?.program_name?.split(' ')[0] || 'BSCS');
       setFormData({ 
         code: '', 
         name: '', 
-        units: '', 
+        units: 3, 
         type: 'lecture', 
-        department_id: '',
-        year: '',
+        department_id: 1,
+        year: '1',
         semester: '1st',
-        course: 'BSCS',
-        lec_units: 0,
+        course: defaultCourse,
+        lec_units: 3,
         lab_units: 0,
-        pre_requisites: ''
+        pre_requisites: '',
+        block_id: selectedBlock?.id || null
       });
     }
     setIsModalOpen(true);
@@ -225,12 +228,20 @@ export default function Curriculum() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const unitsNum = parseInt(formData.units) || (parseInt(formData.lec_units) || 0) + (parseInt(formData.lab_units) || 0);
       const backendPayload = {
-        ...formData,
-        program_code: formData.course,
-        year_level: formData.year ? String(formData.year) : null,
-        semester_term: formData.semester,
-        pre_requisite: formData.pre_requisites
+        code: (formData.code || '').trim(),
+        name: (formData.name || '').trim(),
+        units: unitsNum > 0 ? unitsNum : 3,
+        type: formData.type || 'lecture',
+        department_id: parseInt(formData.department_id) || 1,
+        lec_units: parseInt(formData.lec_units) || 0,
+        lab_units: parseInt(formData.lab_units) || 0,
+        program_code: (formData.course || 'BSCS').trim(),
+        year_level: formData.year ? String(formData.year) : '1',
+        semester_term: formData.semester || '1st',
+        pre_requisite: formData.pre_requisites || null,
+        block_id: selectedBlock?.id || formData.block_id || null
       };
 
       if (editingItem) {
@@ -240,14 +251,14 @@ export default function Curriculum() {
       }
       await fetchCurriculum();
       handleCloseModal();
-      addToast(`Curriculum item ${editingItem ? 'updated' : 'created'} successfully`, 'success');
+      addToast(`Curriculum subject ${editingItem ? 'updated' : 'created'} successfully! ✨`, 'success');
       
-      // Auto-select the course we just added/edited so the user sees it immediately
-      if (formData.course) {
+      if (formData.course && formData.course !== selectedCourse) {
         setSelectedCourse(formData.course);
       }
     } catch (error) {
-      addToast(error.message || 'Error saving curriculum item', 'error');
+      console.error('Save curriculum error:', error);
+      addToast(error.response?.data?.detail || error.message || 'Error saving curriculum subject', 'error');
     }
   };
 

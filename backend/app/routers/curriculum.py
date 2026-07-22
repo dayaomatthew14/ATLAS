@@ -112,9 +112,20 @@ def create_curriculum_item(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     if current_user.role == 'program_chair' and current_user.department:
-        dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
-        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create curriculum for your department")
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            curriculum_item.department_id = dept.id
+        elif not curriculum_item.department_id:
+            first_dept = db.query(models.Department).first()
+            if first_dept:
+                curriculum_item.department_id = first_dept.id
+    elif not curriculum_item.department_id:
+        first_dept = db.query(models.Department).first()
+        if first_dept:
+            curriculum_item.department_id = first_dept.id
              
     db_curriculum = db.query(models.Curriculum).filter(
         models.Curriculum.code == curriculum_item.code,

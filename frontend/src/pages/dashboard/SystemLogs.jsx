@@ -87,13 +87,6 @@ export default function SystemLogs() {
         </div>
         <div className="flex items-center space-x-3">
           <button
-            onClick={handleExport}
-            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center shadow-sm"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </button>
-          <button
             onClick={handleClear}
             className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors flex items-center shadow-sm"
           >

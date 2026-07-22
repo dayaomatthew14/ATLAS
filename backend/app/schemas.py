@@ -96,7 +96,7 @@ class CurriculumBase(BaseModel):
     code: str
     name: str
     units: int
-    department_id: int
+    department_id: Optional[int] = 1
     type: str
     program_code: Optional[str] = None
     year_level: Optional[str] = None
