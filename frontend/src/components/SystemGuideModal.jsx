@@ -107,7 +107,7 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide & System Manual 📖">
+    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide 📖" maxWidth="sm:max-w-2xl">
       <div className="space-y-4">
         {/* Banner Header with Guided Tour CTA */}
         <div className="bg-gradient-to-r from-green-800 to-emerald-700 text-white rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -132,8 +132,8 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
           </button>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-slate-100 space-x-2">
+        {/* Tab Selection (Scrollable to prevent any text cropping) */}
+        <div className="flex items-center gap-1 sm:gap-2 border-b border-slate-100 pb-1 overflow-x-auto">
           {[
             { id: 'workflow', label: '🚀 Recommended Steps' },
             { id: 'features', label: '⚙️ Feature Guide' },
@@ -142,10 +142,10 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`pb-2.5 px-3 text-xs font-black uppercase tracking-wider transition-all border-b-2 whitespace-nowrap ${
+              className={`px-4 py-2 text-xs font-black uppercase tracking-wider transition-all border-b-2 shrink-0 ${
                 activeTab === t.id
-                  ? 'border-green-600 text-green-800 font-bold'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
+                  ? 'border-green-600 text-green-800 font-bold bg-green-50/50 rounded-t-xl'
+                  : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-t-xl'
               }`}
             >
               {t.label}
