@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User, Trash2, RotateCcw, X } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, Printer, FileSpreadsheet } from 'lucide-react';
 import Modal from '../../components/Modal';
 import ConflictPanel from '../../components/ConflictPanel';
 import AIGenerationModal from '../../components/AIGenerationModal';
@@ -146,6 +146,43 @@ export default function Schedules() {
     } catch (e) {
       addToast(e.response?.data?.detail || 'Failed to restore schedules', 'error');
     }
+  };
+
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+
+  const handleExportCSV = () => {
+    if (!globalSchedules || globalSchedules.length === 0) {
+      addToast('No schedule entries to export', 'warning');
+      return;
+    }
+    const headers = ['Subject Code', 'Subject Name', 'Day', 'Start Time', 'End Time', 'Room', 'Faculty', 'Department'];
+    const rows = globalSchedules.map(s => [
+      `"${s.subject_code || ''}"`,
+      `"${(s.subject_name || '').replace(/"/g, '""')}"`,
+      `"${s.day_of_week || ''}"`,
+      `"${s.start_time || ''}"`,
+      `"${s.end_time || ''}"`,
+      `"${s.room_name || ''}"`,
+      `"${s.faculty_name || ''}"`,
+      `"${s.department_name || ''}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `ATLAS_Schedule_Export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addToast('Exported schedule to CSV file! 📊', 'success');
+  };
+
+  const handlePrintSchedule = () => {
+    if (!globalSchedules || globalSchedules.length === 0) {
+      addToast('No schedule entries to print', 'warning');
+      return;
+    }
+    window.print();
   };
 
   const fetchGenerateData = async () => {
@@ -490,6 +527,32 @@ export default function Schedules() {
                   >
                     <Plus className="w-4 h-4 mr-1" /> Create
                   </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
+                      className="px-5 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl text-[11px] font-black flex items-center shadow-xs transition-all uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
+                    >
+                      <Download className="w-4 h-4 mr-1.5" /> Export
+                    </button>
+                    {isExportDropdownOpen && (
+                      <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-100 z-50 overflow-hidden py-1.5 animate-in fade-in slide-in-from-top-2">
+                        <button
+                          type="button"
+                          onClick={() => { handleExportCSV(); setIsExportDropdownOpen(false); }}
+                          className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV / Excel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { handlePrintSchedule(); setIsExportDropdownOpen(false); }}
+                          className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 border-t border-slate-100"
+                        >
+                          <Printer className="w-4 h-4 text-indigo-600" /> Print / Save PDF
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={() => setIsClearConfirmOpen(true)}
                     className="px-5 py-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200/60 rounded-2xl text-[11px] font-black flex items-center shadow-xs transition-all uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"

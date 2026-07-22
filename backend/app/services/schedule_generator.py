@@ -62,9 +62,10 @@ def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
                 return True
     return False
 
-def generate_schedules(db: Session, semester_id: int, department_id: int, faculty_ids: list[int]):
-    # 1. Load SubjectOfferings for selected faculties
-    subject_offerings = db.query(models.SubjectOffering).filter(
+def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], department_id: int, auto_bump_units: bool = True):
+    # 1. Fetch Subject Offerings for Department
+    subject_offerings = db.query(models.SubjectOffering).join(models.Curriculum).filter(
+        models.Curriculum.department_id == department_id,
         models.SubjectOffering.semester_id == semester_id,
         models.SubjectOffering.faculty_id.in_(faculty_ids)
     ).all()
@@ -143,23 +144,29 @@ def generate_schedules(db: Session, semester_id: int, department_id: int, facult
 
             # Check professor max workload hours/units
             if faculty_hours_used[pid] + proposed_hours_total > max_allowed:
-                reason_msg = f"Faculty max units limit ({max_allowed} hrs) exceeded for {part_type}"
-                conf_rec = models.Conflict(
-                    faculty_id=pid,
-                    curriculum_id=c.id,
-                    conflict_type="max_units_exceeded",
-                    reason=reason_msg
-                )
-                pending_conflicts.append(conf_rec)
+                if auto_bump_units:
+                    f_obj.max_units = float(int(faculty_hours_used[pid] + proposed_hours_total + 3))
+                    db.add(f_obj)
+                    db.commit()
+                    max_allowed = f_obj.max_units
+                else:
+                    reason_msg = f"Faculty max units limit ({max_allowed} hrs) exceeded for {part_type}"
+                    conf_rec = models.Conflict(
+                        faculty_id=pid,
+                        curriculum_id=c.id,
+                        conflict_type="max_units_exceeded",
+                        reason=reason_msg
+                    )
+                    pending_conflicts.append(conf_rec)
 
-                unplaced.append({
-                    "faculty": pid,
-                    "curriculum_id": c.id,
-                    "subject": c.code,
-                    "part_type": part_type,
-                    "reason": reason_msg
-                })
-                continue
+                    unplaced.append({
+                        "faculty": pid,
+                        "curriculum_id": c.id,
+                        "subject": c.code,
+                        "part_type": part_type,
+                        "reason": reason_msg
+                    })
+                    continue
 
             valid_rooms = []
             if part_type == 'lab':

@@ -14,6 +14,7 @@ router = APIRouter(
 
 class GenerateRequest(BaseModel):
     faculty_ids: List[int]
+    auto_bump_units: Optional[bool] = True
 
 class SolveConflictRequest(BaseModel):
     conflict_id: Optional[int] = None
@@ -54,7 +55,7 @@ def generate_schedule(
     resolved_faculty_ids = [f.id for f in faculty_records]
 
     # Run the generator
-    results = generate_schedules(db, semester_id, dept.id, resolved_faculty_ids) # type: ignore
+    results = generate_schedules(db, semester_id, resolved_faculty_ids, dept.id, auto_bump_units=request.auto_bump_units if request.auto_bump_units is not None else True) # type: ignore
     
     unplaced_data = results.get('unplaced', [])
     unplaced_count = len(unplaced_data) if isinstance(unplaced_data, list) else 0
