@@ -1,4 +1,5 @@
 from datetime import time
+from typing import List
 from sqlalchemy.orm import Session
 from .. import models
 
@@ -145,10 +146,10 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
             # Check professor max workload hours/units
             if faculty_hours_used[pid] + proposed_hours_total > max_allowed:
                 if auto_bump_units:
-                    f_obj.max_units = float(int(faculty_hours_used[pid] + proposed_hours_total + 3))
+                    f_obj.max_units = int(faculty_hours_used[pid] + proposed_hours_total + 3) # type: ignore
                     db.add(f_obj)
                     db.commit()
-                    max_allowed = f_obj.max_units
+                    max_allowed = float(f_obj.max_units)
                 else:
                     reason_msg = f"Faculty max units limit ({max_allowed} hrs) exceeded for {part_type}"
                     conf_rec = models.Conflict(
