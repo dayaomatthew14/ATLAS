@@ -177,6 +177,12 @@ export default function Teachers() {
     setIsSubjectModalOpen(true);
     setCourseCodeFilter('All');
     setSemesterFilter('1st');
+    const userRole = localStorage.getItem('atlas_role');
+    if (userRole === 'coordinator') {
+      setSubjectCategoryFilter('gened');
+    } else {
+      setSubjectCategoryFilter('major');
+    }
     try {
       const semData = await api.get('/semesters');
       const active = semData.find(s => s.is_active);

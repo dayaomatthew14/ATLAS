@@ -25,7 +25,7 @@ def get_subject_offerings(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     query = db.query(
@@ -58,6 +58,8 @@ def get_subject_offerings(
             "faculty_id": offering.faculty_id,
             "curriculum_id": offering.curriculum_id,
             "semester_id": offering.semester_id,
+            "assigned_by": offering.assigned_by,
+            "created_at": offering.created_at,
             "faculty_name": f"{fname} {lname}",
             "subject_code": scode,
             "subject_name": sname
@@ -70,7 +72,7 @@ def create_subject_offering(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     # Check for duplicates
@@ -86,8 +88,6 @@ def create_subject_offering(
     curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == offering.curriculum_id).first()
     if not curriculum:
         raise HTTPException(status_code=404, detail="Curriculum subject not found")
-    if not curriculum.is_major:
-        raise HTTPException(status_code=400, detail="Only major subjects can be selected and offered")
 
     new_offering = models.SubjectOffering(
         faculty_id=offering.faculty_id,
@@ -106,20 +106,12 @@ def delete_subject_offering(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     offering = db.query(models.SubjectOffering).filter(models.SubjectOffering.id == id).first()
     if not offering:
         raise HTTPException(status_code=404, detail="Subject offering not found")
-
-    if current_user.role == 'program_chair':
-        # Verify the offering belongs to current user's department
-        curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == offering.curriculum_id).first()
-        if curriculum:
-            department = db.query(models.Department).filter(models.Department.id == curriculum.department_id).first()
-            if not department or department.code != current_user.department:
-                raise HTTPException(status_code=403, detail="Cannot delete offering from another department")
 
     db.delete(offering)
     db.commit()
