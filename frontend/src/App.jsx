@@ -9,6 +9,8 @@ import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
 import DashboardHome from './pages/dashboard/DashboardHome';
 import SystemLogs from './pages/dashboard/SystemLogs';
+import UserManagement from './pages/dashboard/UserManagement';
+import AcademicSemesters from './pages/dashboard/AcademicSemesters';
 import Profile from './pages/dashboard/Profile';
 import Settings from './pages/dashboard/Settings';
 
@@ -42,6 +44,8 @@ function App() {
           <Route path="curriculum" element={<Curriculum />} />
           <Route path="rooms" element={<Rooms />} />
           <Route path="teachers" element={<Teachers />} />
+          <Route path="users" element={<UserManagement />} />
+          <Route path="semesters" element={<AcademicSemesters />} />
           <Route path="logs" element={<SystemLogs />} />
           <Route path="profile" element={<Profile />} />
           <Route path="settings" element={<Settings />} />

@@ -145,6 +145,22 @@ def delete_user(
     db.commit()
     return None
 
+@router.post("/{user_id}/toggle-verification")
+def toggle_user_verification(
+    user_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can toggle user verification")
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db_user.is_verified = not db_user.is_verified
+    db.commit()
+    db.refresh(db_user)
+    return {"id": db_user.id, "is_verified": db_user.is_verified, "msg": f"Verification status updated"}
+
 @router.post("/{user_id}/upload-picture")
 def upload_profile_picture(
     user_id: int, 

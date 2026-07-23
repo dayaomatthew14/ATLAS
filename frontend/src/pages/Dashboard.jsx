@@ -71,17 +71,24 @@ export default function Dashboard() {
     navigate('/login');
   };
 
-  const navItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'coordinator', 'faculty', 'student'] },
-    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'coordinator', 'faculty', 'student'] },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum', roles: ['admin', 'program_chair', 'coordinator'] },
-    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair', 'coordinator'] },
-    { name: 'Professors', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair', 'coordinator'] },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair', 'coordinator'] },
+  const adminNavItems = [
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { name: 'User Governance', icon: Shield, path: '/dashboard/users' },
+    { name: 'Campus Rooms', icon: MapPin, path: '/dashboard/rooms' },
+    { name: 'Academic Terms', icon: Calendar, path: '/dashboard/semesters' },
+    { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
   ];
 
-  // Filter items based on normalized role
-  const filteredNavItems = navItems.filter(item => item.roles.includes(role));
+  const standardNavItems = [
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules' },
+    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum' },
+    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms' },
+    { name: 'Professors', icon: Users, path: '/dashboard/teachers' },
+    { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
+  ];
+
+  const filteredNavItems = role === 'admin' ? adminNavItems : standardNavItems;
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [tourStep, setTourStep] = useState(1);

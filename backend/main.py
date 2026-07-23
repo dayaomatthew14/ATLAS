@@ -43,6 +43,26 @@ with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
     except Exception as e:
         print(f"Database migration pre-check result: {e}")
 
+try:
+    with database.SessionLocal() as db:
+        admin_user = db.query(models.User).filter(models.User.role == 'admin').first()
+        if not admin_user:
+            hashed_pw = auth.get_password_hash("Admin123!")
+            new_admin = models.User(
+                first_name="ATLAS",
+                last_name="Administrator",
+                email="admin@dlsau.edu.ph",
+                password_hash=str(hashed_pw),
+                role="admin",
+                department="DLSAU IT / System Administration",
+                is_verified=True
+            )
+            db.add(new_admin)
+            db.commit()
+            print("Successfully seeded master System Administrator account: admin@dlsau.edu.ph")
+except Exception as e:
+    print(f"Admin seeding note: {e}")
+
 
 
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
