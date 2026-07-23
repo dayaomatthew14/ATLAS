@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { api } from '../utils/api';
-import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building } from 'lucide-react';
+import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
 
 
 export default function Login() {
@@ -278,40 +278,92 @@ export default function Login() {
     );
   };
 
-  const renderSelectField = (name, icon, value, setter, label, options) => {
-    const Icon = icon;
-    const hasError = fieldErrors[name];
-    return (
-      <div className="mb-4 text-left">
-        <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
-        <div className="relative group">
+function CustomSelectInput({ name, icon: Icon, value, setter, label, options, hasError }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  return (
+    <div className="mb-4 text-left relative" ref={dropdownRef}>
+      <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className={`w-full pl-11 pr-10 py-3 bg-white border rounded-xl outline-none transition-all font-medium text-left shadow-sm flex items-center justify-between ${
+            hasError
+              ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30'
+              : isOpen
+              ? 'border-green-600 ring-2 ring-green-600/20 bg-white'
+              : 'border-gray-200 hover:border-gray-300'
+          }`}
+        >
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-400 group-focus-within:text-green-600'}`} />
+            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : isOpen ? 'text-green-600' : 'text-gray-400'}`} />
           </div>
-          <select
-            name={name}
-            required
-            value={value}
-            onChange={(e) => setter(e.target.value)}
-            onBlur={handleBlur}
-            className={`block w-full pl-11 pr-4 py-3 bg-white border rounded-xl outline-none transition-all text-gray-700 font-medium appearance-none shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-gray-200 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600/20'}
-              ${!value ? 'text-gray-300' : ''}
-            `}
-          >
-            <option value="" disabled hidden>Select Department</option>
-            {options.map(opt => (
-              <option key={opt.value} value={opt.value} className="text-gray-700">{opt.label}</option>
-            ))}
-          </select>
-          <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
-            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+          <span className={`truncate text-xs sm:text-sm font-semibold ${selectedOption ? 'text-slate-900' : 'text-gray-400'}`}>
+            {selectedOption ? selectedOption.label : `Select ${label}...`}
+          </span>
+          <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-gray-400">
+            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-green-600' : ''}`} />
           </div>
-        </div>
-        {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
+        </button>
+
+        {isOpen && (
+          <div className="absolute top-full left-0 min-w-full w-max max-w-sm sm:max-w-md mt-2 bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-2xl shadow-2xl z-50 overflow-hidden py-1.5 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+            {options.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setter(opt.value);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-bold transition-all flex items-center justify-between gap-2.5 ${
+                    isSelected
+                      ? 'bg-green-50 text-green-800 border-l-4 border-l-green-600'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  title={opt.label}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {isSelected && <Check className="w-4 h-4 text-green-600 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+      {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
+    </div>
+  );
+}
+
+  const renderSelectField = (name, icon, value, setter, label, options) => {
+    return (
+      <CustomSelectInput
+        key={name}
+        name={name}
+        icon={icon}
+        value={value}
+        setter={setter}
+        label={label}
+        options={options}
+        hasError={fieldErrors[name]}
+      />
     );
   };
 
