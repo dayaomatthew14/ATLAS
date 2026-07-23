@@ -510,8 +510,10 @@ export default function Teachers() {
           {/* Profile Section */}
           <div className="grid grid-cols-2 gap-6">
             <div className="col-span-2">
-              <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Full Name</label>
+              <label htmlFor="teacher_full_name" className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Full Name</label>
               <input
+                id="teacher_full_name"
+                name="teacher_full_name"
                 type="text"
                 required
                 placeholder="e.g. Juan Dela Cruz"
@@ -539,8 +541,10 @@ export default function Teachers() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Max Units</label>
+              <label htmlFor="teacher_max_units" className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Max Units</label>
               <input
+                id="teacher_max_units"
+                name="teacher_max_units"
                 type="number"
                 required
                 className="w-full px-5 py-4 bg-slate-50 border-none focus:ring-2 focus:ring-green-600 rounded-2xl transition-all font-bold text-slate-700"
