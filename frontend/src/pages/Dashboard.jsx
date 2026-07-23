@@ -144,9 +144,13 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
+    <div className="min-h-screen bg-slate-100 font-sans flex flex-col relative text-slate-800 selection:bg-emerald-600 selection:text-white">
+      {/* DLSAU Campus Background Layer matching Login */}
+      <div className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none opacity-[0.06] filter blur-[2px]" style={{ backgroundImage: `url('/dlsau_bg.jpg')` }}></div>
+      <div className="fixed inset-0 z-0 bg-gradient-to-br from-emerald-950/10 via-slate-900/5 to-emerald-950/15 pointer-events-none"></div>
+
       {/* Top Navbar */}
-      <nav className="bg-gradient-to-r from-emerald-950/90 via-green-900/90 to-emerald-950/90 backdrop-blur-xl border-b border-white/10 text-white shadow-xl sticky top-0 z-50 transition-all">
+      <nav className="bg-gradient-to-r from-emerald-950/95 via-green-900/95 to-emerald-950/95 backdrop-blur-2xl border-b border-white/10 text-white shadow-2xl sticky top-0 z-50 transition-all">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20 gap-4">
             <Link to="/dashboard" className="flex items-center space-x-3 group shrink-0">
@@ -264,7 +268,7 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      <main className="flex-1 flex flex-col overflow-y-auto">
+      <main className="flex-1 flex flex-col overflow-y-auto relative z-10">
         <Outlet />
       </main>
 
