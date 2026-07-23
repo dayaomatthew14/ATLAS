@@ -118,6 +118,9 @@ def update_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
@@ -136,13 +139,15 @@ def delete_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
              
     db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id == faculty_id).delete(synchronize_session=False)
     db.query(models.SubjectOffering).filter(models.SubjectOffering.faculty_id == faculty_id).delete(synchronize_session=False)
-    # Ideally should delete schedules as well, or handled via cascade
     db.delete(db_faculty)
     db.commit()
     return None
@@ -170,7 +175,7 @@ def add_unavailability(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
@@ -193,7 +198,7 @@ def remove_unavailability(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     block = db.query(models.FacultyUnavailability).filter(
         models.FacultyUnavailability.id == block_id,
