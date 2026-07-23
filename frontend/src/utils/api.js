@@ -1,6 +1,6 @@
 let rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
-if (typeof window !== 'undefined' && window.location.protocol === 'https:' && rawBaseUrl.startsWith('http://')) {
-  rawBaseUrl = rawBaseUrl.replace('http://', 'https://');
+if (rawBaseUrl.includes('railway.app') || (typeof window !== 'undefined' && window.location.protocol === 'https:')) {
+  rawBaseUrl = rawBaseUrl.replace(/^http:\/\//i, 'https://');
 }
 const BASE_URL = rawBaseUrl;
 

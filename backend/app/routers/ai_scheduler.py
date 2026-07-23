@@ -85,36 +85,42 @@ def get_conflicts(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
-    conflicts = db.query(models.Conflict).filter(
-        models.Conflict.resolved_at == None
-    ).offset(skip).limit(limit).all()
+    try:
+        if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+            return []
+            
+        conflicts = db.query(models.Conflict).filter(
+            models.Conflict.resolved_at == None
+        ).offset(skip).limit(limit).all()
 
-    res = []
-    for c in conflicts:
-        curr = db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first() if c.curriculum_id else None
-        fac = db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first() if c.faculty_id else None
-        s1 = db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first() if c.schedule_id_1 else None
+        res = []
+        for c in conflicts:
+            try:
+                curr = db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first() if c.curriculum_id else None
+                fac = db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first() if c.faculty_id else None
+                s1 = db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first() if c.schedule_id_1 else None
 
-        curriculum_code = curr.code if curr else (s1.curriculum.code if s1 and s1.curriculum else "Subject Issue")
-        faculty_name = f"{fac.first_name} {fac.last_name}" if fac else (f"{s1.faculty.first_name} {s1.faculty.last_name}" if s1 and s1.faculty else "Faculty")
+                curriculum_code = curr.code if curr else (s1.curriculum.code if s1 and s1.curriculum else "Subject Issue")
+                faculty_name = f"{fac.first_name} {fac.last_name}" if fac else (f"{s1.faculty.first_name} {s1.faculty.last_name}" if s1 and s1.faculty else "Faculty")
 
-        res.append({
-            "id": c.id,
-            "conflict_id": c.id,
-            "type": (c.conflict_type or "Conflict").replace('_', ' ').title(),
-            "reason": c.reason or "Overlapping time or resource constraints.",
-            "curriculum": curriculum_code,
-            "faculty_name": faculty_name,
-            "curriculum_id": c.curriculum_id or (s1.curriculum_id if s1 else None),
-            "faculty_id": c.faculty_id or (s1.faculty_id if s1 else None),
-            "schedule_id_1": c.schedule_id_1,
-            "schedule_id_2": c.schedule_id_2
-        })
+                res.append({
+                    "id": c.id,
+                    "conflict_id": c.id,
+                    "type": (c.conflict_type or "Conflict").replace('_', ' ').title(),
+                    "reason": c.reason or "Overlapping time or resource constraints.",
+                    "curriculum": curriculum_code,
+                    "faculty_name": faculty_name,
+                    "curriculum_id": c.curriculum_id or (s1.curriculum_id if s1 else None),
+                    "faculty_id": c.faculty_id or (s1.faculty_id if s1 else None),
+                    "schedule_id_1": c.schedule_id_1,
+                    "schedule_id_2": c.schedule_id_2
+                })
+            except Exception:
+                continue
 
-    return res
+        return res
+    except Exception:
+        return []
 
 @router.get("/global-schedule")
 def get_global_schedule(
@@ -122,7 +128,7 @@ def get_global_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = db.query(
