@@ -424,22 +424,22 @@ export default function Login() {
                       { value: 'coordinator', label: 'Coordinator' }
                     ])}
                     {renderSelectField('department', Building, department, setDepartment, 'Department / Position', role === 'coordinator' ? [
-                      { value: 'CAST - Language and Literature Courses', label: 'CAST — Language & Literature Courses (Mr. Pellogo)' },
-                      { value: 'CAST - Math and Science Courses', label: 'CAST — Math & Science Courses (Mr. Dizon)' },
-                      { value: 'CAST - Human and Societal Formation Courses', label: 'CAST — Human & Societal Formation (Mr. Romasoc)' },
-                      { value: 'CAST - NSTP', label: 'CAST — NSTP (Mr. Salvado)' },
+                      { value: 'CAST - Language and Literature Courses', label: 'CAST — Language & Literature Courses' },
+                      { value: 'CAST - Math and Science Courses', label: 'CAST — Math & Science Courses' },
+                      { value: 'CAST - Human and Societal Formation Courses', label: 'CAST — Human & Societal Formation Courses' },
+                      { value: 'CAST - NSTP', label: 'CAST — NSTP' },
                     ] : [
-                      { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science (Mr. Bancud)' },
-                      { value: 'CAST - Psychology', label: 'CAST — Psychology (Mr. Masagca)' },
-                      { value: 'COED - Education Programs', label: 'COED — Education Programs (Dr. Dalog)' },
-                      { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy (Dr. Bundoc)' },
-                      { value: 'CBMA - Business Administration', label: 'CBMA — Business Administration (Dr. de Ocampo)' },
-                      { value: 'CBMA - Hospitality & Tourism Management', label: 'CBMA — Hospitality & Tourism (Ms. Alejo)' },
-                      { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture (Mr. Montebon)' },
-                      { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Technology (Ms. Maniego)' },
-                      { value: 'CVMAS - Basic Veterinary Science', label: 'CVMAS — Basic Vet Science (Dr. Domingo)' },
-                      { value: 'CVMAS - Veterinary Paraclinical', label: 'CVMAS — Vet Paraclinical (Dr. Rosario)' },
-                      { value: 'CVMAS - Veterinary Clinical', label: 'CVMAS — Vet Clinical (Dr. Dycoco)' },
+                      { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science' },
+                      { value: 'CAST - Psychology', label: 'CAST — Psychology' },
+                      { value: 'COED - Education Programs', label: 'COED — Education Programs' },
+                      { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy' },
+                      { value: 'CBMA - Business Administration', label: 'CBMA — Business Administration' },
+                      { value: 'CBMA - Hospitality & Tourism Management', label: 'CBMA — Hospitality & Tourism Management' },
+                      { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture' },
+                      { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Technology' },
+                      { value: 'CVMAS - Basic Veterinary Science', label: 'CVMAS — Basic Veterinary Science' },
+                      { value: 'CVMAS - Veterinary Paraclinical', label: 'CVMAS — Veterinary Paraclinical' },
+                      { value: 'CVMAS - Veterinary Clinical', label: 'CVMAS — Veterinary Clinical' },
                     ])}
                   </div>
                   {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
