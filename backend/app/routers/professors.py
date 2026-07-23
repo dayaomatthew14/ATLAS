@@ -16,21 +16,22 @@ def get_professors(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     query = db.query(models.Faculty)
     
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         if not current_user.department:
             return []
-        # Find department ID for the PC
+        # Find department ID for the user
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
         ).first()
         if not dept:
-            return []
+            # Fallback: Return all faculty if dept code doesn't map to a single ID
+            return query.offset(skip).limit(limit).all()
         query = query.filter(models.Faculty.department_id == dept.id)
     elif department_id:
         query = query.filter(models.Faculty.department_id == department_id)
@@ -88,12 +89,12 @@ def create_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     faculty_data = faculty.model_dump()
     
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
