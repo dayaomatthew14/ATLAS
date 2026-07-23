@@ -72,12 +72,12 @@ export default function Dashboard() {
   };
 
   const navItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'faculty', 'student'] },
-    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'faculty', 'student'] },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum', roles: ['admin', 'program_chair'] },
-    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair'] },
-    { name: 'Professors', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair'] },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair'] },
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'program_chair', 'coordinator', 'faculty', 'student'] },
+    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules', roles: ['admin', 'program_chair', 'coordinator', 'faculty', 'student'] },
+    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum', roles: ['admin', 'program_chair', 'coordinator'] },
+    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms', roles: ['admin', 'program_chair', 'coordinator'] },
+    { name: 'Professors', icon: Users, path: '/dashboard/teachers', roles: ['admin', 'program_chair', 'coordinator'] },
+    { name: 'System Logs', icon: Activity, path: '/dashboard/logs', roles: ['admin', 'program_chair', 'coordinator'] },
   ];
 
   // Filter items based on normalized role
