@@ -7,6 +7,9 @@ const BASE_URL = rawBaseUrl;
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
   let url = `${BASE_URL}${endpoint}`;
+  if (url.startsWith('http://')) {
+    url = url.replace(/^http:\/\//i, 'https://');
+  }
   if (options.params) {
     const paramsObj = {};
     Object.keys(options.params).forEach(k => {
