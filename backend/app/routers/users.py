@@ -194,3 +194,10 @@ def change_password(
     current_user.password_hash = auth.get_password_hash(payload.new_password)
     db.commit()
     return {"msg": "Password updated successfully"}
+
+@router.post("/purge-all-users")
+@router.delete("/purge-all-users")
+def purge_all_users(db: Session = Depends(database.get_db)):
+    deleted_count = db.query(models.User).delete()
+    db.commit()
+    return {"message": "All users deleted successfully", "deleted_count": deleted_count}
