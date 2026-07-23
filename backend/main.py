@@ -43,6 +43,11 @@ with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
     except Exception as e:
         print(f"Database migration pre-check result: {e}")
 
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+app = FastAPI(title="ATLAS Backend API", redirect_slashes=False)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+
 @app.on_event("startup")
 def seed_admin_user():
     try:
@@ -68,13 +73,6 @@ def seed_admin_user():
                 db.commit()
     except Exception as e:
         print(f"Startup admin seeder result: {e}")
-
-
-
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-
-app = FastAPI(title="ATLAS Backend API", redirect_slashes=False)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # Mount static directory for uploads
 os.makedirs("uploads/profiles", exist_ok=True)
