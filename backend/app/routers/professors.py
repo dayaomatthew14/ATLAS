@@ -9,6 +9,7 @@ router = APIRouter(
 )
 
 @router.get("", response_model=List[schemas.FacultyResponse])
+@router.get("/", response_model=List[schemas.FacultyResponse], include_in_schema=False)
 def get_professors(
     skip: int = 0, 
     limit: int = 100, 
@@ -84,6 +85,7 @@ def get_professor(
     return faculty
 
 @router.post("", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 def create_professor(
     faculty: schemas.FacultyCreate, 
     db: Session = Depends(database.get_db),
