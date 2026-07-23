@@ -160,7 +160,8 @@ def upload_profile_picture(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
     # Generate unique filename
-    file_ext = file.filename.split(".")[-1]
+    raw_filename = file.filename or "profile.jpg"
+    file_ext = raw_filename.split(".")[-1] if "." in raw_filename else "jpg"
     filename = f"user_{user_id}_{os.urandom(4).hex()}.{file_ext}"
     file_location = f"uploads/profiles/{filename}"
     
@@ -170,11 +171,11 @@ def upload_profile_picture(
     # Delete old picture if exists
     if db_user.profile_picture:
         try:
-            os.remove(db_user.profile_picture)
+            os.remove(str(db_user.profile_picture))
         except OSError:
             pass
             
-    db_user.profile_picture = file_location
+    setattr(db_user, 'profile_picture', file_location)
     db.commit()
     db.refresh(db_user)
     
@@ -186,12 +187,12 @@ def change_password(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if not auth.verify_password(payload.old_password, current_user.password_hash):
+    if not auth.verify_password(payload.old_password, str(current_user.password_hash)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password"
         )
-    current_user.password_hash = auth.get_password_hash(payload.new_password)
+    setattr(current_user, 'password_hash', auth.get_password_hash(payload.new_password))
     db.commit()
     return {"msg": "Password updated successfully"}
 
