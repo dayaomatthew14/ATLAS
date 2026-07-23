@@ -40,7 +40,7 @@ def login_for_access_token(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    allowed_roles = ['admin', 'program_chair', 'faculty', 'student']
+    allowed_roles = ['admin', 'program_chair', 'coordinator', 'faculty', 'student']
     if user.role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
