@@ -22,10 +22,11 @@ with engine.begin() as conn:
     try:
         driver = engine.url.drivername
         if "postgresql" in driver:
+            conn.execute(text("ALTER TYPE user_roles ADD VALUE IF NOT EXISTS 'coordinator'"))
             conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
             conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
             conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
-            print("Successfully verified/added owner_id to departments, and faculty_id & curriculum_id to conflicts in production PostgreSQL.")
+            print("Successfully verified/added 'coordinator' role and database columns in production PostgreSQL.")
         else:
             res = conn.execute(text("PRAGMA table_info(departments)")).fetchall()
             columns = [r[1] for r in res]
