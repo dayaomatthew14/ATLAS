@@ -340,22 +340,26 @@ def seed_admin(db: Session = Depends(database.get_db)):
         return {"msg": "Admin already exists"}
 
 @router.get("/clear-all-users")
+@router.post("/clear-all-users")
 def clear_all_users(db: Session = Depends(database.get_db)):
-    """Temporary endpoint to clear all user accounts and reset the database for testing."""
-    count = db.query(models.User).count()
-    
-    # Clear all dependent tables in correct dependency order
-    db.query(models.Conflict).delete()
-    db.query(models.Schedule).delete()
-    db.query(models.SubjectOffering).delete()
-    db.query(models.FacultyUnavailability).delete()
-    db.query(models.Faculty).delete()
-    db.query(models.Curriculum).delete()
-    db.query(models.CurriculumBlock).delete()
-    db.query(models.AIRule).delete()
-    db.query(models.Department).delete()
-    db.query(models.SystemLog).delete()
-    db.query(models.User).delete()
-    
-    db.commit()
-    return {"msg": f"Deleted {count} user accounts and reset all database tables successfully."}
+    """Clear all user accounts for testing."""
+    from sqlalchemy import text
+    try:
+        driver = db.bind.dialect.name
+        if "postgresql" in driver:
+            db.execute(text("TRUNCATE TABLE users CASCADE;"))
+        else:
+            db.execute(text("PRAGMA foreign_keys = OFF;"))
+            db.execute(text("DELETE FROM users;"))
+            db.execute(text("PRAGMA foreign_keys = ON;"))
+        db.commit()
+        return {"msg": "All users purged successfully! System ready for fresh registration."}
+    except Exception as e:
+        db.rollback()
+        try:
+            db.execute(text("UPDATE departments SET owner_id = NULL"))
+            db.query(models.User).delete()
+            db.commit()
+            return {"msg": "All users purged via fallback.", "detail": str(e)}
+        except Exception as e2:
+            return {"msg": "Purge error", "detail": str(e2)}
