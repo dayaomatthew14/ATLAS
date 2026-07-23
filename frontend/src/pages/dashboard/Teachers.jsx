@@ -35,6 +35,7 @@ export default function Teachers() {
   const [curriculumSubjects, setCurriculumSubjects] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [courseCodeFilter, setCourseCodeFilter] = useState('All');
+  const [subjectCategoryFilter, setSubjectCategoryFilter] = useState('all'); // 'all', 'major', 'gened'
   const [semesterFilter, setSemesterFilter] = useState('1st');
   const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
   const [activeSemester, setActiveSemester] = useState(null);
@@ -825,7 +826,7 @@ export default function Teachers() {
         <div className="space-y-6 max-h-[80vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
 
           {/* Filters */}
-          <div className="flex gap-4 mb-4">
+          <div className="flex gap-3 mb-4">
             <div className="flex-[2]">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Search Subjects</label>
               <div className="relative">
@@ -842,9 +843,21 @@ export default function Teachers() {
               </div>
             </div>
             <div className="flex-1">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Subject Scope / Role</label>
+              <select
+                className="w-full px-3 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                value={subjectCategoryFilter}
+                onChange={(e) => setSubjectCategoryFilter(e.target.value)}
+              >
+                <option value="all">All Subjects</option>
+                <option value="major">Major Subjects (Program Chair)</option>
+                <option value="gened">General Education (Coordinator)</option>
+              </select>
+            </div>
+            <div className="flex-1">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Semester</label>
               <select
-                className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
                 value={semesterFilter}
                 onChange={(e) => setSemesterFilter(e.target.value)}
               >
@@ -854,16 +867,16 @@ export default function Teachers() {
               </select>
             </div>
             <div className="flex-1">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Course Code (Type)</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Course Type</label>
               <select
-                className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
                 value={courseCodeFilter}
                 onChange={(e) => setCourseCodeFilter(e.target.value)}
               >
-                <option value="All">All Course Codes</option>
-                <option value="A">A - Lecture</option>
-                <option value="B">B - Laboratory</option>
-                <option value="C">C - Combination</option>
+                <option value="All">All Types</option>
+                <option value="A">Lecture Only</option>
+                <option value="B">Lab Only</option>
+                <option value="C">Combination</option>
               </select>
             </div>
           </div>
@@ -875,6 +888,7 @@ export default function Teachers() {
                   <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest w-12 text-center">Assign</th>
                   <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Code</th>
                   <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Subject Name</th>
+                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Category</th>
                   <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Type</th>
                   <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest text-center">Units</th>
                 </tr>
@@ -887,12 +901,16 @@ export default function Teachers() {
                   else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
                   else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
 
+                  let matchCategory = true;
+                  if (subjectCategoryFilter === 'major') matchCategory = sub.is_major;
+                  else if (subjectCategoryFilter === 'gened') matchCategory = !sub.is_major;
+
                   const searchLower = subjectSearchQuery.toLowerCase();
                   const matchSearch = !subjectSearchQuery ||
                     sub.code.toLowerCase().includes(searchLower) ||
                     sub.name.toLowerCase().includes(searchLower);
 
-                  return matchSem && matchType && sub.is_major && matchSearch;
+                  return matchSem && matchType && matchCategory && matchSearch;
                 }).sort((a, b) => {
                   const aAssigned = teacherSubjects.some(ts => ts.curriculum_id === a.id);
                   const bAssigned = teacherSubjects.some(ts => ts.curriculum_id === b.id);
@@ -914,6 +932,11 @@ export default function Teachers() {
                       <td className="px-5 py-4 font-bold text-slate-900">{sub.code}</td>
                       <td className="px-5 py-4 font-medium text-slate-600">{sub.name}</td>
                       <td className="px-5 py-4">
+                        <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${sub.is_major ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
+                          {sub.is_major ? 'Major' : 'GenEd'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
                         <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${sub.type === 'lecture' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
                           {sub.type}
                         </span>
@@ -932,7 +955,11 @@ export default function Teachers() {
               else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
               else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
 
-              return matchSem && matchType && sub.is_major;
+              let matchCategory = true;
+              if (subjectCategoryFilter === 'major') matchCategory = sub.is_major;
+              else if (subjectCategoryFilter === 'gened') matchCategory = !sub.is_major;
+
+              return matchSem && matchType && matchCategory;
             }).length === 0 && (
                 <div className="p-8 text-center text-slate-500 font-bold text-sm">
                   No subjects found for the selected filters.
