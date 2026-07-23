@@ -17,44 +17,44 @@ def get_conflict_count(
     Returns the total number of unresolved conflicts for the active semester.
     Scoped to the Program Chair's department.
     """
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-    
-    # 1. Find the active semester
-    active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
-    if not active_semester:
-        return {"count": 0}
-
-    # 2. Build the query
-    query = db.query(models.Conflict).join(
-        models.Schedule, 
-        models.Conflict.schedule_id_1 == models.Schedule.id
-    ).filter(
-        models.Schedule.semester_id == active_semester.id,
-        models.Conflict.resolved_at == None
-    )
-
-    # 3. Apply department scoping for Program Chairs
-    if current_user.role == 'program_chair':
-        if not current_user.department:
+    try:
+        if current_user.role not in ['admin', 'program_chair', 'coordinator']:
             return {"count": 0}
         
-        # We need to check the department of the curriculum items in the schedules
-        # Since Conflict links to Schedule 1 and 2, and both are likely in the same dept if they conflict,
-        # checking Schedule 1's curriculum item dept is enough.
-        query = query.join(
-            models.Curriculum,
-            models.Schedule.curriculum_id == models.Curriculum.id
-        ).join(
-            models.Department,
-            models.Curriculum.department_id == models.Department.id
+        # 1. Find the active semester
+        active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+        if not active_semester:
+            return {"count": 0}
+
+        # 2. Build the query
+        query = db.query(models.Conflict).join(
+            models.Schedule, 
+            models.Conflict.schedule_id_1 == models.Schedule.id
         ).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
+            models.Schedule.semester_id == active_semester.id,
+            models.Conflict.resolved_at == None
         )
 
-    count = query.count()
-    return {"count": count}
+        # 3. Apply department scoping for Program Chairs / Coordinators
+        if current_user.role in ['program_chair', 'coordinator']:
+            if not current_user.department:
+                return {"count": 0}
+            
+            query = query.join(
+                models.Curriculum,
+                models.Schedule.curriculum_id == models.Curriculum.id
+            ).join(
+                models.Department,
+                models.Curriculum.department_id == models.Department.id
+            ).filter(
+                (models.Department.code == current_user.department) |
+                (models.Department.name == current_user.department)
+            )
+
+        count = query.count()
+        return {"count": count}
+    except Exception as e:
+        return {"count": 0}
  
 @router.post("/validate", response_model=List[schemas.ConflictDetail])
 def validate_schedule_conflict(
