@@ -345,21 +345,16 @@ def clear_all_users(db: Session = Depends(database.get_db)):
     """Clear all user accounts for testing."""
     from sqlalchemy import text
     try:
-        driver = db.bind.dialect.name
-        if "postgresql" in driver:
-            db.execute(text("TRUNCATE TABLE users CASCADE;"))
-        else:
-            db.execute(text("PRAGMA foreign_keys = OFF;"))
-            db.execute(text("DELETE FROM users;"))
-            db.execute(text("PRAGMA foreign_keys = ON;"))
+        db.execute(text("UPDATE departments SET owner_id = NULL;"))
+        db.execute(text("DELETE FROM users;"))
         db.commit()
         return {"msg": "All users purged successfully! System ready for fresh registration."}
     except Exception as e:
         db.rollback()
         try:
-            db.execute(text("UPDATE departments SET owner_id = NULL"))
-            db.query(models.User).delete()
+            db.execute(text("TRUNCATE TABLE users CASCADE;"))
             db.commit()
-            return {"msg": "All users purged via fallback.", "detail": str(e)}
-        except Exception as e2:
-            return {"msg": "Purge error", "detail": str(e2)}
+            return {"msg": "All users purged via CASCADE."}
+        except Exception as err:
+            db.rollback()
+            return {"msg": "Failed to purge users", "error": str(err)}
