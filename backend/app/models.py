@@ -11,7 +11,7 @@ class User(Base):
     contact_number = Column(String(20), nullable=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum('admin', 'program_chair', 'coordinator', 'faculty', 'student', name='user_roles'), nullable=False)
+    role = Column(String(50), nullable=False, default='program_chair')
     department = Column(String(50), nullable=True)
     sex = Column(Enum('Male', 'Female', 'Other', name='user_sex_types'), nullable=True)
     date_of_birth = Column(Date, nullable=True)
