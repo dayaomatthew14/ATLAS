@@ -80,7 +80,35 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 os.makedirs("uploads/profiles", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Setup CORS for frontend communication
+from fastapi.responses import JSONResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class CORSOverrideMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        origin = request.headers.get("origin")
+        if request.method == "OPTIONS":
+            response = Response(status_code=200)
+            if origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            return response
+
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            response = JSONResponse(status_code=500, content={"detail": str(exc)})
+
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        return response
+
+app.add_middleware(CORSOverrideMiddleware)
+
 origins = [
     "http://localhost:5173", 
     "http://127.0.0.1:5173",
