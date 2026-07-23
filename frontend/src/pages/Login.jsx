@@ -423,22 +423,23 @@ export default function Login() {
                       { value: 'program_chair', label: 'Program Chair' },
                       { value: 'coordinator', label: 'Coordinator' }
                     ])}
-                    {renderSelectField('department', Building, department, setDepartment, 'Department / Cluster', [
-                      { value: 'CAST', label: 'CAST — General' },
-                      { value: 'CAST - Computer Science & Engineering', label: 'CAST — Computer Science & Eng' },
-                      { value: 'CAST - Psychology', label: 'CAST — Psychology' },
-                      { value: 'CAST - GenEd Languages & Literature', label: 'CAST — GenEd Languages & Lit' },
-                      { value: 'CAST - GenEd Science, Math & Research', label: 'CAST — GenEd Math & Science' },
-                      { value: 'CAST - GenEd Values, Society & Human Dev', label: 'CAST — GenEd Values & Society' },
-                      { value: 'CBMA', label: 'CBMA — General' },
-                      { value: 'CBMA - Business Administration', label: 'CBMA — Business Admin' },
-                      { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy' },
-                      { value: 'CBMA - Hospitality & Tourism', label: 'CBMA — Hospitality & Tourism' },
-                      { value: 'CVMAS', label: 'CVMAS — General' },
-                      { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture' },
-                      { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Tech' },
-                      { value: 'CVMAS - Veterinary Sciences', label: 'CVMAS — Veterinary Sciences' },
-                      { value: 'COED', label: 'COED — Education' }
+                    {renderSelectField('department', Building, department, setDepartment, 'Department / Position', role === 'coordinator' ? [
+                      { value: 'CAST - Language and Literature Courses', label: 'CAST — Language & Literature Courses (Mr. Pellogo)' },
+                      { value: 'CAST - Math and Science Courses', label: 'CAST — Math & Science Courses (Mr. Dizon)' },
+                      { value: 'CAST - Human and Societal Formation Courses', label: 'CAST — Human & Societal Formation (Mr. Romasoc)' },
+                      { value: 'CAST - NSTP', label: 'CAST — NSTP (Mr. Salvado)' },
+                    ] : [
+                      { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science (Mr. Bancud)' },
+                      { value: 'CAST - Psychology', label: 'CAST — Psychology (Mr. Masagca)' },
+                      { value: 'COED - Education Programs', label: 'COED — Education Programs (Dr. Dalog)' },
+                      { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy (Dr. Bundoc)' },
+                      { value: 'CBMA - Business Administration', label: 'CBMA — Business Administration (Dr. de Ocampo)' },
+                      { value: 'CBMA - Hospitality & Tourism Management', label: 'CBMA — Hospitality & Tourism (Ms. Alejo)' },
+                      { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture (Mr. Montebon)' },
+                      { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Technology (Ms. Maniego)' },
+                      { value: 'CVMAS - Basic Veterinary Science', label: 'CVMAS — Basic Vet Science (Dr. Domingo)' },
+                      { value: 'CVMAS - Veterinary Paraclinical', label: 'CVMAS — Vet Paraclinical (Dr. Rosario)' },
+                      { value: 'CVMAS - Veterinary Clinical', label: 'CVMAS — Vet Clinical (Dr. Dycoco)' },
                     ])}
                   </div>
                   {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
