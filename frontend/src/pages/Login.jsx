@@ -21,6 +21,7 @@ export default function Login() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
+  const [role, setRole] = useState('program_chair');
   const [department, setDepartment] = useState('');
   const [otp, setOtp] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -139,7 +140,7 @@ export default function Login() {
         }
 
         const payload = {
-          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role: 'program_chair', department
+          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role, department
         };
 
         await api.post('/auth/register', payload);
@@ -417,12 +418,29 @@ export default function Login() {
                     {renderField('firstName', User, 'text', 'Juan', firstName, setFirstName, 'First Name')}
                     {renderField('lastName', User, 'text', 'Dela Cruz', lastName, setLastName, 'Last Name')}
                   </div>
-                  {renderSelectField('department', Building, department, setDepartment, 'Department', [
-                    { value: 'CAST', label: 'CAST' },
-                    { value: 'CVMAS', label: 'CVMAS' },
-                    { value: 'COED', label: 'COED' },
-                    { value: 'CBMA', label: 'CBMA' }
-                  ])}
+                  <div className="grid grid-cols-2 gap-4">
+                    {renderSelectField('role', ShieldCheck, role, setRole, 'User Role', [
+                      { value: 'program_chair', label: 'Program Chair' },
+                      { value: 'coordinator', label: 'Coordinator' }
+                    ])}
+                    {renderSelectField('department', Building, department, setDepartment, 'Department / Cluster', [
+                      { value: 'CAST', label: 'CAST — General' },
+                      { value: 'CAST - Computer Science & Engineering', label: 'CAST — Computer Science & Eng' },
+                      { value: 'CAST - Psychology', label: 'CAST — Psychology' },
+                      { value: 'CAST - GenEd Languages & Literature', label: 'CAST — GenEd Languages & Lit' },
+                      { value: 'CAST - GenEd Science, Math & Research', label: 'CAST — GenEd Math & Science' },
+                      { value: 'CAST - GenEd Values, Society & Human Dev', label: 'CAST — GenEd Values & Society' },
+                      { value: 'CBMA', label: 'CBMA — General' },
+                      { value: 'CBMA - Business Administration', label: 'CBMA — Business Admin' },
+                      { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy' },
+                      { value: 'CBMA - Hospitality & Tourism', label: 'CBMA — Hospitality & Tourism' },
+                      { value: 'CVMAS', label: 'CVMAS — General' },
+                      { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture' },
+                      { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Tech' },
+                      { value: 'CVMAS - Veterinary Sciences', label: 'CVMAS — Veterinary Sciences' },
+                      { value: 'COED', label: 'COED — Education' }
+                    ])}
+                  </div>
                   {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
                   {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
                   <div className="grid grid-cols-2 gap-4">

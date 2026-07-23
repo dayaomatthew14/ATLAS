@@ -239,7 +239,11 @@ export default function DashboardHome() {
             <div className="relative z-10 max-w-xl text-center lg:text-left">
               <div className="inline-flex items-center space-x-2 bg-green-500/10 border border-green-500/20 px-3.5 py-1 rounded-full text-[10px] font-black tracking-[0.15em] text-green-700 uppercase mb-3">
                 <Zap className="w-3 h-3 animate-pulse text-green-600" />
-                <span>System Optimized</span>
+                <span>{((role) => {
+                  if (role === 'coordinator') return 'Coordinator Command Center';
+                  if (role === 'program_chair') return 'Program Chair Command Center';
+                  return 'Administrator Command Center';
+                })(localStorage.getItem('atlas_role'))}</span>
               </div>
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-slate-900 leading-tight">
                 Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-700 to-green-500">Schedule.</span>
