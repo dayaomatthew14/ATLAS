@@ -6,8 +6,9 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
+from contextlib import asynccontextmanager
+from app import database, models, auth
 from app.database import engine
-from app import models
 from app.routers import (
     auth_router, curriculum, rooms, 
     users, schedules, semesters, faculty, ai_scheduler, logs, ai_rules,
@@ -45,11 +46,8 @@ with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
 
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-app = FastAPI(title="ATLAS Backend API", redirect_slashes=False)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
-
-@app.on_event("startup")
-def seed_admin_user():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     try:
         with database.SessionLocal() as db:
             admin_user = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
@@ -73,6 +71,10 @@ def seed_admin_user():
                 db.commit()
     except Exception as e:
         print(f"Startup admin seeder result: {e}")
+    yield
+
+app = FastAPI(title="ATLAS Backend API", redirect_slashes=False, lifespan=lifespan)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # Mount static directory for uploads
 os.makedirs("uploads/profiles", exist_ok=True)
