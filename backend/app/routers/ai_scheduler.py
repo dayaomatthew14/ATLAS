@@ -157,7 +157,7 @@ def get_global_schedule(
         models.Schedule.semester_id == semester_id
     )
 
-    if current_user.role in ['program_chair', 'faculty', 'student']:
+    if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)

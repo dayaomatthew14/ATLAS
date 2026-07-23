@@ -31,7 +31,7 @@ def get_schedules(
 ):
     query = db.query(models.Schedule).join(models.Curriculum)
     
-    if current_user.role in ['program_chair', 'faculty', 'student']:
+    if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
         if not current_user.department:
             return []
         dept = db.query(models.Department).filter(
