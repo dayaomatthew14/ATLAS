@@ -73,7 +73,7 @@ export default function Dashboard() {
 
   const adminNavItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'User Governance', icon: Shield, path: '/dashboard/users' },
+    { name: 'User Governance', icon: ShieldCheck, path: '/dashboard/users' },
     { name: 'Campus Rooms', icon: MapPin, path: '/dashboard/rooms' },
     { name: 'Academic Terms', icon: Calendar, path: '/dashboard/semesters' },
     { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
