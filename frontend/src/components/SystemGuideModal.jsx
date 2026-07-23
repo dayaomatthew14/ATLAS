@@ -107,16 +107,16 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide 📖" maxWidth="sm:max-w-2xl">
-      <div className="space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide 📖" maxWidth="sm:max-w-3xl">
+      <div className="space-y-6 pt-1">
         {/* Banner Header with Guided Tour CTA */}
-        <div className="bg-gradient-to-r from-green-800 to-emerald-700 text-white rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-black tracking-tight flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-300" />
+        <div className="bg-gradient-to-r from-emerald-900 via-green-800 to-emerald-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-white/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-base sm:text-lg font-extrabold tracking-tight flex items-center gap-2 text-white">
+              <Sparkles className="w-5 h-5 text-amber-300" />
               Interactive Guided Navigation
             </h3>
-            <p className="text-xs text-green-100 mt-0.5 font-medium">
+            <p className="text-xs sm:text-sm text-green-100 font-medium max-w-lg leading-relaxed">
               Want a step-by-step tour? Click below to let ATLAS guide you page by page!
             </p>
           </div>
@@ -126,26 +126,26 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
               onClose();
               if (onStartTour) onStartTour();
             }}
-            className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 text-xs font-black rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shrink-0 transform hover:scale-105"
+            className="px-6 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black rounded-full uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shrink-0 transform hover:scale-105"
           >
-            <Compass className="w-4 h-4" /> Start Tour 🎯
+            <Compass className="w-4 h-4" /> START TOUR 🎯
           </button>
         </div>
 
-        {/* Tab Selection (Scrollable to prevent any text cropping) */}
-        <div className="flex items-center gap-1 sm:gap-2 border-b border-slate-100 pb-1 overflow-x-auto">
+        {/* Tab Selection */}
+        <div className="flex items-center gap-4 sm:gap-8 border-b border-slate-100 pb-1 overflow-x-auto">
           {[
-            { id: 'workflow', label: '🚀 Recommended Steps' },
-            { id: 'features', label: '⚙️ Feature Guide' },
-            { id: 'faq', label: '❓ FAQ & Answers' }
+            { id: 'workflow', label: '🚀 RECOMMENDED STEPS' },
+            { id: 'features', label: '⚙️ FEATURE GUIDE' },
+            { id: 'faq', label: '❓ FAQ & ANSWERS' }
           ].map(t => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`px-4 py-2 text-xs font-black uppercase tracking-wider transition-all border-b-2 shrink-0 ${
+              className={`pb-3 text-xs sm:text-sm font-extrabold tracking-wider transition-all border-b-4 shrink-0 ${
                 activeTab === t.id
-                  ? 'border-green-600 text-green-800 font-bold bg-green-50/50 rounded-t-xl'
-                  : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-t-xl'
+                  ? 'border-emerald-600 text-emerald-900 font-black'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
               }`}
             >
               {t.label}
@@ -153,28 +153,28 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
           ))}
         </div>
 
-        {/* Scrollable Container with max-h-[60vh] to prevent cropping */}
-        <div className="max-h-[55vh] overflow-y-auto pr-1 space-y-3">
-          {/* Tab 1: Workflow */}
+        {/* Scrollable Content Container */}
+        <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3.5">
+          {/* Tab 1: Recommended Steps */}
           {activeTab === 'workflow' && (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {steps.map(s => (
-                <div key={s.step} className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-3 hover:bg-slate-100/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${s.color}`}>
+                <div key={s.step} className="p-4 bg-slate-50/90 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-white hover:shadow-md transition-all">
+                  <div className="flex items-start sm:items-center gap-4">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm shrink-0 shadow-xs ${s.color}`}>
                       {s.step}
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-slate-800">{s.title}</h4>
-                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{s.desc}</p>
+                      <h4 className="text-sm font-bold text-slate-900">{s.title}</h4>
+                      <p className="text-xs text-slate-500 mt-0.5 leading-relaxed font-medium">{s.desc}</p>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => handleNavigate(s.link)}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold shrink-0 transition-all flex items-center gap-1 shadow-2xs"
+                    className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200/90 rounded-2xl text-xs font-bold shrink-0 transition-all flex items-center gap-1.5 shadow-2xs self-end sm:self-center"
                   >
-                    {s.linkText} <ArrowRight className="w-3 h-3 text-slate-400" />
+                    {s.linkText} <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
                   </button>
                 </div>
               ))}
@@ -183,16 +183,16 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
 
           {/* Tab 2: Feature Guide */}
           {activeTab === 'features' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {features.map((f, i) => {
                 const Icon = f.icon;
                 return (
-                  <div key={i} className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Icon className={`w-4 h-4 ${f.color}`} />
-                      <h4 className="text-xs font-bold text-slate-800">{f.name}</h4>
+                  <div key={i} className="p-4 bg-slate-50/90 border border-slate-200/80 rounded-2xl flex flex-col hover:bg-white hover:shadow-md transition-all">
+                    <div className="flex items-center gap-2.5 mb-2">
+                      <Icon className={`w-5 h-5 ${f.color}`} />
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">{f.name}</h4>
                     </div>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">{f.text}</p>
+                    <p className="text-xs text-slate-600 leading-relaxed font-medium">{f.text}</p>
                   </div>
                 );
               })}
@@ -201,14 +201,14 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
 
           {/* Tab 3: FAQ */}
           {activeTab === 'faq' && (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {faqs.map((faq, i) => (
-                <div key={i} className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl space-y-1">
-                  <h4 className="text-xs font-bold text-slate-800 flex items-start gap-2">
-                    <HelpCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                <div key={i} className="p-4 bg-slate-50/90 border border-slate-200/80 rounded-2xl space-y-1.5 hover:bg-white hover:shadow-md transition-all">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 flex items-start gap-2.5">
+                    <HelpCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <span>{faq.q}</span>
                   </h4>
-                  <p className="text-[11px] text-slate-600 leading-relaxed pl-6">{faq.a}</p>
+                  <p className="text-xs text-slate-600 leading-relaxed pl-6 font-medium">{faq.a}</p>
                 </div>
               ))}
             </div>
@@ -216,14 +216,14 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
         </div>
 
         {/* Footer */}
-        <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ATLAS Guide System</span>
+        <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
+          <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">ATLAS GUIDE SYSTEM</span>
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 bg-green-700 hover:bg-green-800 text-white text-xs font-bold rounded-xl uppercase tracking-wider shadow-sm transition-all"
+            className="px-7 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-full uppercase tracking-wider shadow-md transition-all transform hover:scale-105"
           >
-            Close Guide
+            CLOSE GUIDE
           </button>
         </div>
       </div>

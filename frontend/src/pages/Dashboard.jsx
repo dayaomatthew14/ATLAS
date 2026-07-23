@@ -184,15 +184,14 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center gap-3.5 shrink-0">
-              {/* Header User Guide Button */}
+              {/* Header User Guide Button (Icon only) */}
               <button
                 type="button"
                 onClick={() => setIsGuideOpen(true)}
-                className="hidden sm:flex items-center gap-2.5 bg-white/10 hover:bg-white/20 px-4.5 py-2.5 rounded-2xl border border-white/15 text-xs sm:text-sm font-bold text-green-100 transition-all shadow-xs shrink-0"
-                title="Open System Guide"
+                className="hidden sm:flex items-center justify-center bg-white/10 hover:bg-white/20 hover:scale-105 w-10 h-10 rounded-2xl border border-white/15 transition-all shadow-xs shrink-0 group"
+                title="Open ATLAS User Guide"
               >
-                <HelpCircle className="w-4.5 h-4.5 text-amber-300 shrink-0" />
-                <span>Guide</span>
+                <HelpCircle className="w-5 h-5 text-amber-300 group-hover:text-amber-200 transition-colors shrink-0" />
               </button>
 
               <div className="relative shrink-0">
