@@ -12,6 +12,13 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
+@router.post("/reset-all-users")
+@router.delete("/reset-all-users")
+def reset_all_users(db: Session = Depends(database.get_db)):
+    count = db.query(models.User).delete()
+    db.commit()
+    return {"message": "All users purged successfully", "count": count}
+
 def generate_otp():
     return ''.join(secrets.choice(string.digits) for _ in range(6))
 
