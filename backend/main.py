@@ -23,13 +23,22 @@ with engine.begin() as conn:
         driver = engine.url.drivername
         if "postgresql" in driver:
             conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
-            print("Successfully verified/added owner_id column to departments in production PostgreSQL.")
+            conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
+            conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
+            print("Successfully verified/added owner_id to departments, and faculty_id & curriculum_id to conflicts in production PostgreSQL.")
         else:
             res = conn.execute(text("PRAGMA table_info(departments)")).fetchall()
             columns = [r[1] for r in res]
             if "owner_id" not in columns:
                 conn.execute(text("ALTER TABLE departments ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
-                print("Successfully added owner_id column to departments in SQLite.")
+            
+            res_c = conn.execute(text("PRAGMA table_info(conflicts)")).fetchall()
+            cols_c = [r[1] for r in res_c]
+            if "faculty_id" not in cols_c:
+                conn.execute(text("ALTER TABLE conflicts ADD COLUMN faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
+            if "curriculum_id" not in cols_c:
+                conn.execute(text("ALTER TABLE conflicts ADD COLUMN curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
+            print("Successfully migrated conflicts columns in SQLite.")
     except Exception as e:
         print(f"Database migration pre-check result: {e}")
 
