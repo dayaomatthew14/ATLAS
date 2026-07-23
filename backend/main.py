@@ -18,7 +18,7 @@ from app.routers import (
 models.Base.metadata.create_all(bind=engine)
 
 from sqlalchemy import text
-with engine.begin() as conn:
+with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
     try:
         driver = engine.url.drivername
         if "postgresql" in driver:
