@@ -156,7 +156,7 @@ def toggle_user_verification(
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    db_user.is_verified = not db_user.is_verified
+    db_user.is_verified = not db_user.is_verified # type: ignore
     db.commit()
     db.refresh(db_user)
     return {"id": db_user.id, "is_verified": db_user.is_verified, "msg": f"Verification status updated"}

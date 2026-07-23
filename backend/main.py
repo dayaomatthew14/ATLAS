@@ -66,8 +66,8 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 print("Successfully seeded master System Administrator account: admin@dlsau.edu.ph")
             else:
-                admin_user.role = "admin"
-                admin_user.is_verified = True
+                admin_user.role = "admin" # type: ignore
+                admin_user.is_verified = True # type: ignore
                 db.commit()
     except Exception as e:
         print(f"Startup admin seeder result: {e}")
