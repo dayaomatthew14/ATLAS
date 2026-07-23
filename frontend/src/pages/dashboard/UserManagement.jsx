@@ -3,7 +3,7 @@ import {
   Users, ShieldCheck, Mail, Building, CheckCircle, XCircle, 
   Search, Filter, Edit3, Trash2, Key, RefreshCw, UserPlus, AlertCircle 
 } from 'lucide-react';
-import api from '../../utils/api';
+import { api } from '../../utils/api';
 import Modal from '../../components/Modal';
 
 export default function UserManagement({ addToast }) {

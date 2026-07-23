@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, CheckCircle2, Plus, Clock, RefreshCw, Trash2, Edit3 } from 'lucide-react';
-import api from '../../utils/api';
+import { api } from '../../utils/api';
 import Modal from '../../components/Modal';
 
 export default function AcademicSemesters({ addToast }) {
