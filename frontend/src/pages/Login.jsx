@@ -321,7 +321,7 @@ function CustomSelectInput({ name, icon: Icon, value, setter, label, options, ha
         </button>
 
         {isOpen && (
-          <div className="absolute top-full left-0 min-w-full w-max max-w-sm sm:max-w-md mt-2 bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-2xl shadow-2xl z-50 overflow-hidden py-1.5 max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+          <div className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200 shadow-2xl rounded-2xl z-50 overflow-hidden py-1.5 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/5">
             {options.map((opt) => {
               const isSelected = opt.value === value;
               return (
@@ -332,14 +332,14 @@ function CustomSelectInput({ name, icon: Icon, value, setter, label, options, ha
                     setter(opt.value);
                     setIsOpen(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-left text-xs sm:text-sm font-bold transition-all flex items-center justify-between gap-2.5 ${
+                  className={`w-full px-4 py-3 text-left text-xs sm:text-sm font-bold transition-all flex items-center justify-between gap-3 ${
                     isSelected
                       ? 'bg-green-50 text-green-800 border-l-4 border-l-green-600'
                       : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                   title={opt.label}
                 >
-                  <span className="truncate">{opt.label}</span>
+                  <span className="whitespace-normal leading-snug break-words flex-1">{opt.label}</span>
                   {isSelected && <Check className="w-4 h-4 text-green-600 shrink-0" />}
                 </button>
               );
@@ -409,7 +409,7 @@ function CustomSelectInput({ name, icon: Icon, value, setter, label, options, ha
       </div>
 
       <div className="relative z-10 w-full max-w-lg">
-        <div className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] overflow-hidden border border-white/20">
+        <div className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-white/20 relative z-20">
           <div className="pt-12 pb-6 px-10 text-center">
             <div className="w-28 h-28 flex items-center justify-center mx-auto mb-6 transform hover:scale-105 transition-transform">
               <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-xl" />
