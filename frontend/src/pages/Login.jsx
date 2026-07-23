@@ -321,34 +321,29 @@ function CustomSelectInput({ name, icon: Icon, value, setter, label, options, ha
         </button>
 
         {isOpen && (
-          <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-white/95 backdrop-blur-2xl border border-slate-200 shadow-2xl rounded-2xl z-50 overflow-hidden p-2 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/5">
-            <div className="px-3 py-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100/80 mb-1">
-              Select {label}
-            </div>
-            <div className="space-y-1">
-              {options.map((opt) => {
-                const isSelected = opt.value === value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => {
-                      setter(opt.value);
-                      setIsOpen(false);
-                    }}
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-left text-xs sm:text-sm font-bold transition-all flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? 'bg-green-50 text-green-800 ring-1 ring-green-600/30'
-                        : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                    }`}
-                    title={opt.label}
-                  >
-                    <span className="whitespace-normal leading-relaxed break-words flex-1">{opt.label}</span>
-                    {isSelected && <Check className="w-4 h-4 text-green-600 shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200 shadow-2xl rounded-2xl z-50 overflow-hidden py-1.5 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/5">
+            {options.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setter(opt.value);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full px-4 py-3 text-left text-xs sm:text-sm font-bold transition-all flex items-center justify-between gap-3 ${
+                    isSelected
+                      ? 'bg-green-50 text-green-800 border-l-4 border-l-green-600'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  title={opt.label}
+                >
+                  <span className="whitespace-normal leading-snug break-words flex-1">{opt.label}</span>
+                  {isSelected && <Check className="w-4 h-4 text-green-600 shrink-0" />}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

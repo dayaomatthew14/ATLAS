@@ -147,16 +147,16 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
       {/* Top Navbar */}
       <nav className="bg-gradient-to-r from-emerald-950/90 via-green-900/90 to-emerald-950/90 backdrop-blur-xl border-b border-white/10 text-white shadow-xl sticky top-0 z-50 transition-all">
-        <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12">
-          <div className="flex items-center justify-between h-24">
-            <Link to="/dashboard" className="flex items-center space-x-4 group shrink-0">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-14 h-14 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-20 gap-4">
+            <Link to="/dashboard" className="flex items-center space-x-3 group shrink-0">
+              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-11 h-11 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
               <div className="hidden sm:block">
-                <span className="font-black text-4xl tracking-tighter block leading-none">ATLAS</span>
+                <span className="font-black text-3xl tracking-tighter block leading-none">ATLAS</span>
               </div>
             </Link>
 
-            <div className="hidden md:flex flex-1 justify-center space-x-2 items-center">
+            <div className="hidden md:flex flex-1 justify-center items-center gap-1.5 xl:gap-2">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.path === '/dashboard'
@@ -167,40 +167,40 @@ export default function Dashboard() {
                   <Link
                     key={item.name}
                     to={item.path}
-                    className={`flex items-center px-6 py-3 rounded-2xl text-lg font-bold transition-all duration-200 ${isActive
+                    className={`flex items-center px-3.5 py-2 rounded-xl text-xs xl:text-sm font-bold whitespace-nowrap transition-all duration-200 ${isActive
                       ? 'bg-white text-green-900 shadow-md transform -translate-y-0.5'
                       : 'text-green-100/90 hover:bg-white/10 hover:text-white'
                       }`}
                   >
-                    <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-green-800' : 'text-green-200/80'}`} />
-                    {item.name}
+                    <Icon className={`w-4 h-4 mr-2 shrink-0 ${isActive ? 'text-green-800' : 'text-green-200/80'}`} />
+                    <span>{item.name}</span>
                   </Link>
                 );
               })}
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0">
               {/* Header User Guide Button */}
               <button
                 type="button"
                 onClick={() => setIsGuideOpen(true)}
-                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2.5 rounded-2xl border border-white/15 text-xs font-bold text-green-100 transition-all shadow-xs"
+                className="hidden sm:flex items-center gap-2 bg-white/10 hover:bg-white/20 px-3.5 py-2 rounded-xl border border-white/15 text-xs font-bold text-green-100 transition-all shadow-xs shrink-0"
                 title="Open System Guide"
               >
-                <HelpCircle className="w-4 h-4 text-amber-300" />
+                <HelpCircle className="w-4 h-4 text-amber-300 shrink-0" />
                 <span>Guide</span>
               </button>
 
               <div className="relative shrink-0">
                 <button
                   onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex items-center space-x-4 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-2xl border border-white/15 transition-all shadow-xs"
+                  className="flex items-center space-x-3 bg-white/10 hover:bg-white/20 px-3.5 py-1.5 rounded-xl border border-white/15 transition-all shadow-xs"
                 >
-                  <div className="w-12 h-12 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center">
+                  <div className="w-9 h-9 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center shrink-0">
                     {profilePicture ? (
                       <img src={getProfilePictureUrl(profilePicture)} alt="Profile" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-pink-600 font-black text-sm uppercase">
+                      <span className="text-pink-600 font-black text-xs uppercase">
                         {(() => {
                           const name = profileName;
                           const parts = name.trim().split(/\s+/);
@@ -212,15 +212,15 @@ export default function Dashboard() {
                       </span>
                     )}
                   </div>
-                  <div className="hidden lg:block text-left">
-                    <p className="text-xs font-black uppercase tracking-tight text-white leading-none mb-1.5">
+                  <div className="hidden lg:block text-left max-w-[140px] xl:max-w-[180px]">
+                    <p className="text-xs font-black uppercase tracking-tight text-white leading-none mb-1 truncate">
                       {profileName}
                     </p>
-                    <p className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest leading-none">
+                    <p className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider leading-none truncate" title={department || 'Tertiary Education'}>
                       {department || 'Tertiary Education'}
                     </p>
                   </div>
-                  <ChevronDown className={`w-4 h-4 text-green-300 transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 text-green-300 transition-transform shrink-0 ${isProfileOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isProfileOpen && (
