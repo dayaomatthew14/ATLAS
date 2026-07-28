@@ -122,7 +122,9 @@ export default function DashboardHome() {
             break;
           case 'e':
             e.preventDefault();
-            setIsSemesterModalOpen(true);
+            if ((localStorage.getItem('atlas_role') || '').toLowerCase().trim() === 'admin') {
+              setIsSemesterModalOpen(true);
+            }
             break;
           default:
             break;
@@ -492,14 +494,16 @@ export default function DashboardHome() {
                     <span>Rooms</span>
                     <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-mono shadow-xs text-slate-400 group-hover/item:border-green-200 group-hover/item:text-green-600">Alt+R</kbd>
                   </button>
-                  <button 
-                    onClick={() => setIsSemesterModalOpen(true)} 
-                    className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-green-50 rounded-xl transition-all border border-slate-100 group/item hover:border-green-200"
-                    title="Manage Semesters (Alt + E)"
-                  >
-                    <span>Semesters</span>
-                    <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-mono shadow-xs text-slate-400 group-hover/item:border-green-200 group-hover/item:text-green-600">Alt+E</kbd>
-                  </button>
+                  {(localStorage.getItem('atlas_role') || '').toLowerCase().trim() === 'admin' && (
+                    <button 
+                      onClick={() => setIsSemesterModalOpen(true)} 
+                      className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-green-50 rounded-xl transition-all border border-slate-100 group/item hover:border-green-200"
+                      title="Manage Semesters (Alt + E)"
+                    >
+                      <span>Semesters</span>
+                      <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[9px] font-mono shadow-xs text-slate-400 group-hover/item:border-green-200 group-hover/item:text-green-600">Alt+E</kbd>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -507,11 +511,12 @@ export default function DashboardHome() {
         </div>
       </div>
 
-      <Modal
-        isOpen={isSemesterModalOpen}
-        onClose={() => setIsSemesterModalOpen(false)}
-        title="Manage Semesters"
-      >
+      {(localStorage.getItem('atlas_role') || '').toLowerCase().trim() === 'admin' && (
+        <Modal
+          isOpen={isSemesterModalOpen}
+          onClose={() => setIsSemesterModalOpen(false)}
+          title="Manage Semesters"
+        >
         <div className="space-y-8">
           <div>
             <h4 className="text-sm font-black text-slate-700 mb-4 uppercase tracking-wide">Select Active Semester</h4>
@@ -597,6 +602,7 @@ export default function DashboardHome() {
           </div>
         </div>
       </Modal>
+      )}
     </div>
   );
 }

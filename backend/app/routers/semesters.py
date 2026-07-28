@@ -35,8 +35,8 @@ def create_semester(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and program chairs can manage semesters")
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Semester management is restricted to administrators.")
         
     # Normalize term to match enum
     term_mapping = {
@@ -76,8 +76,8 @@ def update_semester(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and program chairs can manage semesters")
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Semester management is restricted to administrators.")
         
     db_semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     if not db_semester:
@@ -114,8 +114,8 @@ def delete_semester(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and program chairs can manage semesters")
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Semester management is restricted to administrators.")
         
     db_semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     if not db_semester:

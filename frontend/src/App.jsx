@@ -24,7 +24,7 @@ const Unauthorized403 = () => {
       </div>
       <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">403 Unauthorized Access</h2>
       <p className="text-slate-600 dark:text-slate-400 max-w-md mb-6">
-        You do not have administrative permission to view this module. This section is restricted.
+        Semester management is restricted to administrators. Contact the system administrator for academic period changes.
       </p>
       <a 
         href="/dashboard"
@@ -109,7 +109,7 @@ function App() {
           <Route 
             path="semesters" 
             element={
-              <ProtectedRoute allowedRoles={['admin', 'program_chair', 'coordinator']}>
+              <ProtectedRoute allowedRoles={['admin']}>
                 <AcademicSemesters />
               </ProtectedRoute>
             } 
