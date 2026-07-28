@@ -288,7 +288,7 @@ export default function Schedules() {
   };
 
   const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const canManage = ['admin', 'program_chair'].includes(role);
+  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
 
   // Date Helpers
   const monthNames = [

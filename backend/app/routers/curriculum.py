@@ -21,7 +21,7 @@ def get_curriculum_blocks(
 ):
     query = db.query(models.CurriculumBlock)
     
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -64,8 +64,8 @@ def get_curriculum(
 ):
     query = db.query(models.Curriculum)
     
-    if current_user.role == 'program_chair' and current_user.department:
-        # Filter curriculum by the program chair's department
+    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
+        # Filter curriculum by the program chair/coordinator's department
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -678,12 +678,12 @@ def bulk_create_curriculum(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     try:
         # Step 0: Ensure Curriculum Block exists or create it
-        if current_user.role == 'program_chair':
+        if current_user.role in ['program_chair', 'coordinator']:
             dept = db.query(models.Department).filter(
                 (models.Department.code == current_user.department) | 
                 (models.Department.name == current_user.department)
@@ -755,7 +755,7 @@ async def get_excel_headers(
     file: UploadFile = File(...),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     contents = await file.read()
     try:
@@ -778,7 +778,7 @@ async def delete_curriculum_course(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     db.query(models.Curriculum).filter(models.Curriculum.program_code == course_name).delete(synchronize_session=False)
     db.commit()
@@ -798,7 +798,7 @@ async def delete_curriculum_block(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
     # Get block details for logging before deletion
@@ -823,7 +823,7 @@ async def delete_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     item = db.query(models.Curriculum).filter(models.Curriculum.id == id).first()
     if not item:

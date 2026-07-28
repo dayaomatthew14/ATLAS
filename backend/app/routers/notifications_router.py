@@ -18,7 +18,7 @@ def notify_faculty(
     """
     Send schedule notifications to all faculty members of the department.
     """
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     # Find department

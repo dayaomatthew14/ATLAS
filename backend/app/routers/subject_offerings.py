@@ -44,7 +44,7 @@ def get_subject_offerings(
         models.SubjectOffering.semester_id == semester_id
     )
 
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         query = query.filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)

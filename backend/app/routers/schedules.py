@@ -268,14 +268,14 @@ def get_schedule_suggestions(
     """
     Returns a list of conflict-free scheduling suggestions for a given curriculum item.
     """
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this curriculum item")
@@ -396,14 +396,14 @@ def export_pdf(
     """
     Export the current department's schedule for a semester to PDF.
     """
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     # Fetch data
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
     
     dept_name = "All Departments"
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -456,7 +456,7 @@ def export_pdf(
     doc.build(elements)
     buffer.seek(0)
     
-    log_activity(db, current_user.id, "Export PDF", f"Exported schedule for {dept_name} to PDF", department_id=dept.id if current_user.role == 'program_chair' and dept else None) # type: ignore
+    log_activity(db, current_user.id, "Export PDF", f"Exported schedule for {dept_name} to PDF", department_id=dept.id if current_user.role in ['program_chair', 'coordinator'] and dept else None) # type: ignore
     
     return StreamingResponse(buffer, media_type="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=schedule_{dept_name.replace(' ', '_')}.pdf"
@@ -473,7 +473,7 @@ async def import_excel(
     Import schedules from an Excel file.
     Expects columns: CurriculumCode, FacultyEmail, RoomName, Day, StartTime, EndTime, Section
     """
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     contents = await file.read()
@@ -541,14 +541,14 @@ def export_excel(
     """
     Export the current department's schedule for a semester to Excel.
     """
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
  
     # Fetch data
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
     
     dept_name = "All Departments"
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -589,7 +589,7 @@ def export_excel(
         
     output.seek(0)
     
-    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel", department_id=dept.id if current_user.role == 'program_chair' and dept else None) # type: ignore
+    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel", department_id=dept.id if current_user.role in ['program_chair', 'coordinator'] and dept else None) # type: ignore
     
     return StreamingResponse(
         output,
