@@ -70,7 +70,7 @@ def get_schedule(
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
-    if current_user.role in ['program_chair', 'faculty', 'student']:
+    if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
         if curriculum_item:
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()

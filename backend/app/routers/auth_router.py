@@ -14,7 +14,15 @@ router = APIRouter(
 
 @router.api_route("/clear-all-users", methods=["GET", "POST", "DELETE"])
 @router.api_route("/reset-all-users", methods=["GET", "POST", "DELETE"])
-def reset_all_users(db: Session = Depends(database.get_db)):
+def reset_all_users(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation restricted to System Administrators."
+        )
     try:
         from sqlalchemy import text
         db.execute(text("UPDATE departments SET owner_id = NULL"))

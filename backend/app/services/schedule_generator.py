@@ -99,6 +99,7 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
     pending_schedules = []
     pending_conflicts = []
     unplaced = []
+    bumped_warnings = []
     generated_count = 0
     skipped_gened = 0
 
@@ -146,11 +147,22 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
             # Check professor max workload hours/units
             if faculty_hours_used[pid] + proposed_hours_total > max_allowed:
                 if auto_bump_units:
+                    old_max = max_allowed
                     new_max = int(faculty_hours_used[pid] + proposed_hours_total + 3)
                     f_obj.max_units = new_max # type: ignore
                     db.add(f_obj)
                     db.commit()
                     max_allowed = float(new_max)
+                    fac_name = getattr(f_obj, 'name', f"Faculty ID {pid}")
+                    bumped_warnings.append({
+                        "faculty_id": pid,
+                        "faculty_name": fac_name,
+                        "subject_code": c.code,
+                        "part_type": part_type,
+                        "old_max_units": old_max,
+                        "new_max_units": new_max,
+                        "message": f"Faculty '{fac_name}' unit limit automatically increased from {old_max} to {new_max} units for {c.code} ({part_type})"
+                    })
                 else:
                     reason_msg = f"Faculty max units limit ({max_allowed} hrs) exceeded for {part_type}"
                     conf_rec = models.Conflict(
@@ -286,5 +298,6 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
     return {
         "generated": generated_count,
         "unplaced": unplaced,
-        "skipped_gened": skipped_gened
+        "skipped_gened": skipped_gened,
+        "bumped_warnings": bumped_warnings
     }

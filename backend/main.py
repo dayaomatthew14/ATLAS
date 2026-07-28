@@ -127,9 +127,12 @@ from fastapi.responses import JSONResponse
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     origin = request.headers.get("origin", "*")
+    is_prod = os.getenv("ENV") == "production"
+    print(f"[INTERNAL EXCEPTION] {type(exc).__name__}: {str(exc)}")
+    detail_msg = "Internal server error" if is_prod else str(exc)
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": detail_msg},
         headers={
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Credentials": "true",

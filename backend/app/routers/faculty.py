@@ -19,7 +19,7 @@ def get_faculties(
 ):
     query = db.query(models.Faculty)
     
-    if current_user.role in ['program_chair', 'faculty', 'student']:
+    if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
         if not current_user.department:
             return []
         dept = db.query(models.Department).filter(
@@ -45,7 +45,7 @@ def get_faculty(
     if not faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Faculty not found")
         
-    if current_user.role in ['program_chair', 'faculty', 'student']:
+    if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
         dept = db.query(models.Department).filter(models.Department.id == faculty.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
