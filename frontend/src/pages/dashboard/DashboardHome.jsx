@@ -18,6 +18,7 @@ import {
   Sliders,
   Trash2,
   Check,
+  CheckCircle2,
   AlertCircle,
   Server,
   Database,
@@ -875,35 +876,47 @@ export default function DashboardHome() {
         <Modal
           isOpen={isSemesterModalOpen}
           onClose={() => setIsSemesterModalOpen(false)}
-          title="Manage Semesters"
+          title="Manage Academic Term"
+          maxWidth="max-w-md"
         >
-          <div className="space-y-8">
+          <div className="space-y-6 pt-2">
             <div>
-              <h4 className="text-sm font-black text-slate-700 mb-4 uppercase tracking-wide">Select Active Semester</h4>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
+                Select Active Term
+              </label>
+              <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
                 {allSemesters.map(sem => (
-                  <div key={sem.id} className={`flex items-center justify-between p-4 rounded-2xl border ${sem.is_active ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-100'}`}>
+                  <div 
+                    key={sem.id} 
+                    className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                      sem.is_active 
+                        ? 'bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-900 text-white border-emerald-700 shadow-md' 
+                        : 'bg-slate-50 border-slate-100 text-slate-800 hover:border-slate-200'
+                    }`}
+                  >
                     <div>
-                      <p className="font-black text-slate-900">{sem.academic_year}</p>
-                      <p className="text-xs font-bold text-slate-500">{formatSemesterTerm(sem.term)}</p>
+                      <p className={`font-black text-sm ${sem.is_active ? 'text-white' : 'text-slate-900'}`}>{sem.academic_year}</p>
+                      <p className={`text-xs font-bold ${sem.is_active ? 'text-emerald-200/90' : 'text-slate-500'}`}>{formatSemesterTerm(sem.term)}</p>
                     </div>
                     <div className="flex items-center space-x-2">
                       {!sem.is_active ? (
                         <button
                           onClick={() => handleSetActiveSemester(sem.id)}
-                          className="px-4 py-2 bg-white text-green-700 border border-green-200 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-green-50 transition-colors"
+                          className="px-3.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm"
                           disabled={isProcessing}
                         >
                           Set Active
                         </button>
                       ) : (
-                        <div className="flex items-center text-green-600 bg-green-100 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
-                          <Zap className="w-3 h-3 mr-1" /> Active
+                        <div className="flex items-center text-emerald-400 text-xs font-black uppercase tracking-widest">
+                          <CheckCircle2 className="w-4 h-4 mr-1 text-emerald-400" /> Active
                         </div>
                       )}
                       <button
                         onClick={() => handleDeleteSemester(sem.id)}
-                        className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-colors border border-transparent hover:border-rose-100"
+                        className={`p-1.5 rounded-xl transition-colors ${
+                          sem.is_active ? 'text-emerald-300/70 hover:text-rose-300' : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50'
+                        }`}
                         disabled={isProcessing}
                         title="Delete Semester"
                       >
@@ -913,51 +926,67 @@ export default function DashboardHome() {
                   </div>
                 ))}
                 {allSemesters.length === 0 && (
-                  <div className="text-center p-4 text-slate-500 font-medium">No semesters found.</div>
+                  <div className="text-center p-4 text-slate-400 font-bold text-xs">No academic terms found.</div>
                 )}
               </div>
             </div>
 
-            <div className="pt-6 border-t border-slate-100">
-              <h4 className="text-sm font-black text-slate-700 mb-4 uppercase tracking-wide">Create New Semester</h4>
+            <div className="pt-6 border-t border-slate-100 space-y-4">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">
+                Add Academic Term
+              </label>
               <form onSubmit={handleCreateSemester} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Academic Year</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 2026-2027"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700"
-                      value={newSemesterData.academic_year}
-                      onChange={(e) => setNewSemesterData({ ...newSemesterData, academic_year: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Term</label>
-                    <div className="relative">
-                      <select
-                        className="w-full px-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all font-bold text-slate-700 appearance-none cursor-pointer"
-                        value={newSemesterData.term}
-                        onChange={(e) => setNewSemesterData({ ...newSemesterData, term: e.target.value })}
-                      >
-                        <option value="1st Semester">1st Semester</option>
-                        <option value="2nd Semester">2nd Semester</option>
-                        <option value="3rd Semester">3rd Semester</option>
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-                        <ChevronDown className="w-4 h-4" />
-                      </div>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Academic Year</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 2026-2027"
+                    className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-600"
+                    value={newSemesterData.academic_year}
+                    onChange={(e) => setNewSemesterData({ ...newSemesterData, academic_year: e.target.value })}
+                  />
                 </div>
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className="w-full py-3.5 bg-green-700 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all hover:bg-green-800 shadow-md disabled:opacity-50"
-                >
-                  Create & Set Active
-                </button>
+
+                <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Semester Term</label>
+                  <select
+                    className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-600"
+                    value={newSemesterData.term}
+                    onChange={(e) => setNewSemesterData({ ...newSemesterData, term: e.target.value })}
+                  >
+                    <option value="1st Semester">1st Semester</option>
+                    <option value="2nd Semester">2nd Semester</option>
+                    <option value="3rd Semester">3rd Semester</option>
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-3 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 text-emerald-600 rounded-lg focus:ring-emerald-500"
+                    checked={newSemesterData.is_active}
+                    onChange={(e) => setNewSemesterData({ ...newSemesterData, is_active: e.target.checked })}
+                  />
+                  <span className="text-xs font-black text-slate-700">Set as Active Academic Term</span>
+                </label>
+
+                <div className="pt-4 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsSemesterModalOpen(false)}
+                    className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isProcessing}
+                    className="flex-1 py-3.5 bg-emerald-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-900/20 disabled:opacity-50"
+                  >
+                    Save Term
+                  </button>
+                </div>
               </form>
             </div>
           </div>
