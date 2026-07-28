@@ -1,3 +1,3 @@
 # Workspace Project Rules — ATLAS
 
-- **Automatic Commit & Redeploy:** Whenever system code modifications or UI updates are completed, automatically stage, commit, and push the changes to `origin main` to trigger production redeployment on Vercel and Render.
+- **Commit & Redeploy Policy:** Do not automatically commit or push code changes to remote unless explicitly requested by the user.
