@@ -19,7 +19,11 @@ async def serve_frontend(full_path: str):
     file_path = os.path.join(dist_path, full_path)
     if os.path.isfile(file_path):
         return FileResponse(file_path)
-    return FileResponse(os.path.join(dist_path, "index.html"))
+    index_file = os.path.join(dist_path, "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("<h3>Frontend build not found. Please run 'npm run build' in frontend directory.</h3>", status_code=404)
 
 if __name__ == "__main__":
     import uvicorn

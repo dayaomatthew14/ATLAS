@@ -121,9 +121,11 @@ def delete_semester(
     if not db_semester:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
         
+    ay = db_semester.academic_year
+    term = db_semester.term
     db.delete(db_semester)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Semester", f"Deleted semester: {db_semester.academic_year} {db_semester.term}", "success") # type: ignore
+    log_activity(db, current_user.id, "Delete Semester", f"Deleted semester: {ay} {term}", "success")
     
     return None

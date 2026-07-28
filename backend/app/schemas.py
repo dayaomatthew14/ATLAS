@@ -4,9 +4,9 @@ from datetime import datetime, date
 
 class UserBase(BaseModel):
     email: EmailStr
-    first_name: str = Field(pattern=r'^[A-Za-z\s.]+$')
-    last_name: str = Field(pattern=r'^[A-Za-z\s.]+$')
-    contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
+    first_name: str = Field(pattern=r"^[A-Za-z\s.\-']+$")
+    last_name: str = Field(pattern=r"^[A-Za-z\s.\-']+$")
+    contact_number: Optional[str] = Field(None, pattern=r"^(|09\d{9}|\+639\d{9})$")
     role: str
     department: Optional[str] = None
     sex: Optional[str] = None
@@ -47,9 +47,9 @@ class ChangePassword(BaseModel):
     new_password: str
 
 class UserUpdate(BaseModel):
-    first_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s.]+$')
-    last_name: Optional[str] = Field(None, pattern=r'^[A-Za-z\s.]+$')
-    contact_number: Optional[str] = Field(None, pattern=r'^(09\d{9}|\+639\d{9})$')
+    first_name: Optional[str] = Field(None, pattern=r"^[A-Za-z\s.\-']+$")
+    last_name: Optional[str] = Field(None, pattern=r"^[A-Za-z\s.\-']+$")
+    contact_number: Optional[str] = Field(None, pattern=r"^(|09\d{9}|\+639\d{9})$")
     role: Optional[str] = None
     is_verified: Optional[bool] = None
     sex: Optional[str] = None

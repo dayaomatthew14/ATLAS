@@ -92,9 +92,10 @@ def delete_room(
     if not db_room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
         
+    room_name = db_room.name
     db.delete(db_room)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Room", f"Deleted room: {db_room.name}", "success") # type: ignore
+    log_activity(db, current_user.id, "Delete Room", f"Deleted room: {room_name}", "success")
     
     return None

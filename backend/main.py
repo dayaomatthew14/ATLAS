@@ -15,39 +15,39 @@ from app.routers import (
     notifications_router, conflicts, subject_offerings, professors
 )
 
-# Create the database tables
-models.Base.metadata.create_all(bind=engine)
-
 from sqlalchemy import text
-with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-    try:
-        driver = engine.url.drivername
-        if "postgresql" in driver:
-            conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR;"))
-            conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
-            conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
-            conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
-            print("Successfully converted users.role to VARCHAR(50) and updated database columns in production PostgreSQL.")
-        else:
-            res = conn.execute(text("PRAGMA table_info(departments)")).fetchall()
-            columns = [r[1] for r in res]
-            if "owner_id" not in columns:
-                conn.execute(text("ALTER TABLE departments ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
-            
-            res_c = conn.execute(text("PRAGMA table_info(conflicts)")).fetchall()
-            cols_c = [r[1] for r in res_c]
-            if "faculty_id" not in cols_c:
-                conn.execute(text("ALTER TABLE conflicts ADD COLUMN faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
-            if "curriculum_id" not in cols_c:
-                conn.execute(text("ALTER TABLE conflicts ADD COLUMN curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
-            print("Successfully migrated conflicts columns in SQLite.")
-    except Exception as e:
-        print(f"Database migration pre-check result: {e}")
-
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+def init_db():
+    try:
+        models.Base.metadata.create_all(bind=engine)
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            driver = engine.url.drivername
+            if "postgresql" in driver:
+                conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR;"))
+                conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
+                conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
+                conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
+                print("Successfully converted users.role to VARCHAR(50) and updated database columns in production PostgreSQL.")
+            else:
+                res = conn.execute(text("PRAGMA table_info(departments)")).fetchall()
+                columns = [r[1] for r in res]
+                if "owner_id" not in columns:
+                    conn.execute(text("ALTER TABLE departments ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
+                
+                res_c = conn.execute(text("PRAGMA table_info(conflicts)")).fetchall()
+                cols_c = [r[1] for r in res_c]
+                if "faculty_id" not in cols_c:
+                    conn.execute(text("ALTER TABLE conflicts ADD COLUMN faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
+                if "curriculum_id" not in cols_c:
+                    conn.execute(text("ALTER TABLE conflicts ADD COLUMN curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
+                print("Successfully migrated conflicts columns in SQLite.")
+    except Exception as e:
+        print(f"Database initialization warning: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     try:
         with database.SessionLocal() as db:
             admin_user = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
@@ -66,8 +66,8 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 print("Successfully seeded master System Administrator account: admin@dlsau.edu.ph")
             else:
-                admin_user.role = "admin" # type: ignore
-                admin_user.is_verified = True # type: ignore
+                setattr(admin_user, 'role', 'admin')
+                setattr(admin_user, 'is_verified', True)
                 db.commit()
     except Exception as e:
         print(f"Startup admin seeder result: {e}")
@@ -79,35 +79,6 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 # Mount static directory for uploads
 os.makedirs("uploads/profiles", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
-from fastapi.responses import JSONResponse, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-
-class CORSOverrideMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        origin = request.headers.get("origin")
-        if request.method == "OPTIONS":
-            response = Response(status_code=200)
-            if origin:
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-            return response
-
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            response = JSONResponse(status_code=500, content={"detail": str(exc)})
-
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-        return response
-
-app.add_middleware(CORSOverrideMiddleware)
 
 origins = [
     "http://localhost:5173", 

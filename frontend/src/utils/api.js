@@ -1,5 +1,12 @@
 let rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
-if (rawBaseUrl.includes('railway.app') || (typeof window !== 'undefined' && window.location.protocol === 'https:')) {
+const isLocalHost = (typeof window !== 'undefined') && (
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1' ||
+  rawBaseUrl.includes('localhost') ||
+  rawBaseUrl.includes('127.0.0.1')
+);
+
+if (!isLocalHost && (rawBaseUrl.includes('railway.app') || (typeof window !== 'undefined' && window.location.protocol === 'https:'))) {
   rawBaseUrl = rawBaseUrl.replace(/^http:\/\//i, 'https://');
 }
 const BASE_URL = rawBaseUrl;
@@ -7,7 +14,7 @@ const BASE_URL = rawBaseUrl;
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
   let url = `${BASE_URL}${endpoint}`;
-  if (url.startsWith('http://')) {
+  if (!isLocalHost && typeof window !== 'undefined' && window.location.protocol === 'https:' && url.startsWith('http://')) {
     url = url.replace(/^http:\/\//i, 'https://');
   }
   if (options.params) {

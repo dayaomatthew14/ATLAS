@@ -127,9 +127,11 @@ def delete_faculty(
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this faculty")
                 
+    dept_id = db_faculty.department_id
+    fac_name = f"{db_faculty.first_name} {db_faculty.last_name}"
     db.delete(db_faculty)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Faculty", f"Deleted faculty record for user ID: {db_faculty.user_id}", "success", department_id=db_faculty.department_id) # type: ignore
+    log_activity(db, current_user.id, "Delete Faculty", f"Deleted faculty record for {fac_name}", "success", department_id=dept_id)
     
     return None

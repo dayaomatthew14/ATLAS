@@ -48,13 +48,13 @@ def login_for_access_token(
         )
     
     # Auto-heal role string if created under legacy schema or invalid text
-    user_role = (user.role or "").strip().lower()
+    user_role = (str(user.role or "")).strip().lower()
     if user_role not in ['admin', 'program_chair', 'coordinator']:
         dept_str = (user.department or '').lower()
         if any(keyword in dept_str for keyword in ['language', 'math', 'nstp', 'human', 'societal']):
-            user.role = 'coordinator'
+            setattr(user, 'role', 'coordinator')
         else:
-            user.role = 'program_chair'
+            setattr(user, 'role', 'program_chair')
         db.commit()
         db.refresh(user)
 

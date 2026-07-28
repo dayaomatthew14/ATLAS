@@ -191,10 +191,12 @@ def delete_curriculum_item(
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this curriculum item")
              
+    curr_code = db_curriculum.code
+    dept_id = db_curriculum.department_id
     db.delete(db_curriculum)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Curriculum", f"Deleted subject: {db_curriculum.code}", "success", department_id=db_curriculum.department_id) # type: ignore
+    log_activity(db, current_user.id, "Delete Curriculum", f"Deleted subject: {curr_code}", "success", department_id=dept_id)
     
     return None
 

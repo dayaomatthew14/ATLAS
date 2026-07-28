@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime
 import io
@@ -29,7 +29,10 @@ def get_schedules(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    query = db.query(models.Schedule).join(models.Curriculum)
+    query = db.query(models.Schedule).options(
+        joinedload(models.Schedule.curriculum),
+        joinedload(models.Schedule.room)
+    ).join(models.Curriculum)
     
     if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
         if not current_user.department:
@@ -60,7 +63,10 @@ def get_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
+    schedule = db.query(models.Schedule).options(
+        joinedload(models.Schedule.curriculum),
+        joinedload(models.Schedule.room)
+    ).filter(models.Schedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
@@ -82,10 +88,11 @@ def create_schedule(
     if current_user.role not in ['admin', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
+    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
+    if not curriculum_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
+
     if current_user.role == 'program_chair':
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
-        if not curriculum_item:
-             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create schedules for your department's curriculum")
@@ -95,7 +102,7 @@ def create_schedule(
     db.commit()
     db.refresh(new_schedule)
     
-    log_activity(db, current_user.id, "Create Schedule", f"Created schedule for {curriculum_item.code} in {new_schedule.section}", "success", department_id=curriculum_item.department_id) # type: ignore
+    log_activity(db, current_user.id, "Create Schedule", f"Created schedule for {curriculum_item.code} in {new_schedule.section}", "success", department_id=curriculum_item.department_id)
     
     return new_schedule
 
