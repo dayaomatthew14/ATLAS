@@ -16,7 +16,9 @@ import {
   Sparkles,
   Upload,
   Sliders,
-  Trash2
+  Trash2,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import Modal from '../../components/Modal';
@@ -49,6 +51,13 @@ export default function DashboardHome() {
   const [conflictsCount, setConflictsCount] = useState(0);
   const [roomUtilization, setRoomUtilization] = useState(0);
 
+  // Scheduling Status Panel states
+  const [activeSemesterObj, setActiveSemesterObj] = useState(null);
+  const [roomsCount, setRoomsCount] = useState(0);
+  const [facultyCount, setFacultyCount] = useState(0);
+  const [facultyMissingAvail, setFacultyMissingAvail] = useState(0);
+  const [offeringsCount, setOfferingsCount] = useState(0);
+
   const fetchStats = async () => {
     try {
       const [schedules, semesters, faculty, conflicts, logsData, rooms] = await Promise.all([
@@ -68,6 +77,7 @@ export default function DashboardHome() {
 
       setAllSemesters(safeSemesters);
       const activeSemester = safeSemesters.find(s => s.is_active);
+      setActiveSemesterObj(activeSemester || null);
       setRecentLogs(safeLogs);
 
       const scheduledRooms = new Set(safeSchedules.filter(s => s.room_id).map(s => s.room_id)).size;
@@ -76,6 +86,23 @@ export default function DashboardHome() {
       setSchedulesCount(safeSchedules.length);
       setConflictsCount(conflicts?.count || 0);
       setRoomUtilization(computedRoomUtilization);
+
+      setRoomsCount(safeRooms.length);
+      setFacultyCount(safeFaculty.length);
+
+      const unconfiguredFaculty = safeFaculty.filter(f => !f.max_units || f.max_units === 0).length;
+      setFacultyMissingAvail(unconfiguredFaculty);
+
+      if (activeSemester) {
+        try {
+          const offerings = await api.get(`/subject-offerings?semester_id=${activeSemester.id}`).catch(() => []);
+          if (Array.isArray(offerings)) setOfferingsCount(offerings.length);
+        } catch {
+          setOfferingsCount(0);
+        }
+      } else {
+        setOfferingsCount(0);
+      }
 
       setStats([
         { name: 'Rooms', value: safeRooms.length.toString(), icon: MapPin, color: 'text-cyan-600', trend: `${computedRoomUtilization}% in use` },
@@ -306,6 +333,103 @@ export default function DashboardHome() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Scheduling Status & Needs Attention Panels */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Scheduling Status Panel */}
+          <div className="lg:col-span-2 bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-6 sm:p-8 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-xl font-black text-emerald-950 tracking-tight flex items-center">
+                <TrendingUp className="w-5 h-5 mr-2 text-emerald-700" />
+                Scheduling Status
+              </h3>
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Pre-Generation Check</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {[
+                { label: 'Semester', ready: !!activeSemesterObj, text: activeSemesterObj ? 'Ready' : 'Pending', path: '/dashboard/semesters' },
+                { label: 'Rooms', ready: roomsCount > 0, text: roomsCount > 0 ? 'Ready' : 'Pending', path: '/dashboard/rooms' },
+                { label: 'Faculty', ready: facultyCount > 0 && facultyMissingAvail === 0, text: (facultyCount > 0 && facultyMissingAvail === 0) ? 'Ready' : 'Pending', path: '/dashboard/teachers' },
+                { label: 'Offerings', ready: offeringsCount > 0, text: offeringsCount > 0 ? 'Ready' : 'Pending', path: '/dashboard/curriculum' },
+                { label: 'Schedule', ready: schedulesCount > 0, text: schedulesCount > 0 ? 'Completed' : 'Pending', path: '/dashboard/schedules' }
+              ].map(item => (
+                <Link
+                  key={item.label}
+                  to={item.path}
+                  className={`p-3.5 rounded-2xl border transition-all hover:scale-105 flex flex-col justify-between ${
+                    item.ready ? 'bg-emerald-50/70 border-emerald-200/90' : 'bg-amber-50/70 border-amber-200/90'
+                  }`}
+                >
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{item.label}</span>
+                  <div className="mt-2 flex items-center justify-between">
+                    {item.ready ? (
+                      <span className="inline-flex items-center text-xs font-black text-emerald-700">
+                        <Check className="w-4 h-4 mr-1 text-emerald-600" /> {item.text}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center text-xs font-black text-amber-700">
+                        <Clock className="w-4 h-4 mr-1 text-amber-600" /> {item.text}
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Needs Attention Panel */}
+          <div className="bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-6 sm:p-8 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center">
+                <AlertCircle className="w-5 h-5 mr-2 text-amber-600" />
+                Needs Attention
+              </h3>
+            </div>
+
+            <div className="space-y-2.5">
+              {[
+                {
+                  id: 'conflicts',
+                  text: conflictsCount === 0 ? '✓ 0 Scheduling conflicts' : `⚠ ${conflictsCount} Scheduling conflicts`,
+                  isClean: conflictsCount === 0,
+                  path: '/dashboard/schedules'
+                },
+                ...(facultyMissingAvail > 0 ? [{
+                  id: 'fac-avail',
+                  text: '⚠ Missing faculty availability',
+                  isClean: false,
+                  path: '/dashboard/teachers'
+                }] : []),
+                ...(offeringsCount === 0 ? [{
+                  id: 'no-offerings',
+                  text: '⚠ No subject offerings created',
+                  isClean: false,
+                  path: '/dashboard/curriculum'
+                }] : []),
+                ...(roomsCount === 0 ? [{
+                  id: 'no-rooms',
+                  text: '⚠ Unassigned rooms detected',
+                  isClean: false,
+                  path: '/dashboard/rooms'
+                }] : [])
+              ].map(alert => (
+                <Link
+                  key={alert.id}
+                  to={alert.path}
+                  className={`flex items-center justify-between p-3 rounded-xl border text-xs font-bold transition-all hover:translate-x-1 ${
+                    alert.isClean ? 'bg-emerald-50/60 border-emerald-100 text-emerald-800' : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                  }`}
+                >
+                  <span className="flex items-center truncate">
+                    {alert.text}
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Bottom Section */}
