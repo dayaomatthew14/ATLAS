@@ -59,17 +59,17 @@ def generate_schedule(
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
     resolved_faculty_ids = [f.id for f in faculty_records]
 
-    # Run the generator
-    results = generate_schedules(db, semester_id, resolved_faculty_ids, dept.id, auto_bump_units=request.auto_bump_units if request.auto_bump_units is not None else True) # type: ignore
+    # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
+    results = generate_schedules(db, semester_id, resolved_faculty_ids, dept.id, auto_bump_units=False) # type: ignore
     
     unplaced_data = results.get('unplaced', [])
     unplaced_count = len(unplaced_data) if isinstance(unplaced_data, list) else 0
-    bumped_warnings = results.get('bumped_warnings', [])
-    bumped_count = len(bumped_warnings) if isinstance(bumped_warnings, list) else 0
+    workload_warnings = results.get('bumped_warnings', [])
+    warnings_count = len(workload_warnings) if isinstance(workload_warnings, list) else 0
     
     log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}."
-    if bumped_count > 0:
-        log_detail += f" Warning: {bumped_count} faculty unit cap(s) automatically adjusted."
+    if warnings_count > 0:
+        log_detail += f" Warning: {warnings_count} faculty workload cap(s) exceeded."
 
     # Log the activity
     log_activity(
@@ -77,7 +77,7 @@ def generate_schedule(
         int(current_user.id),
         "Generate Schedule",
         log_detail,
-        "success" if (unplaced_count == 0 and bumped_count == 0) else "warning",
+        "success" if (unplaced_count == 0 and warnings_count == 0) else "warning",
         department_id=dept.id # type: ignore
     )
 
@@ -87,7 +87,7 @@ def generate_schedule(
         "unplaced_count": unplaced_count,
         "unplaced_items": unplaced_data,
         "skipped_gened": results.get('skipped_gened', 0),
-        "bumped_warnings": bumped_warnings
+        "workload_warnings": workload_warnings
     }
 
 @router.get("/conflicts")

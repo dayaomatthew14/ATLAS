@@ -171,6 +171,7 @@ class FacultyUpdate(BaseModel):
 class FacultyResponse(FacultyBase):
     id: int
     current_units: Optional[int] = 0
+    remaining_units: Optional[int] = 18
     unavailability: Optional[List["FacultyUnavailabilityResponse"]] = []
     model_config = ConfigDict(from_attributes=True)
 

@@ -1039,6 +1039,39 @@ export default function Schedules() {
                 </div>
               )}
 
+              {generationResults.workload_warnings?.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-black text-amber-700 uppercase tracking-[0.2em]">
+                      Faculty Workload Exceeded ({generationResults.workload_warnings.length})
+                    </h4>
+                  </div>
+                  <div className="space-y-2.5 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    {generationResults.workload_warnings.map((warn, idx) => (
+                      <div key={idx} className="bg-amber-50/80 border border-amber-200/90 rounded-2xl p-4 flex items-center justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-900 text-xs">{warn.faculty_name}</span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-black text-[9px] uppercase tracking-wider">
+                              {warn.employment_type || 'Full-Time'}
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-amber-800 mt-1">
+                            Current: <strong className="text-slate-900">{warn.current_units} units</strong> / Max: <strong className="text-slate-900">{warn.max_units} units</strong>
+                          </p>
+                          <p className="text-[11px] font-medium text-amber-700 mt-0.5">
+                            Subject Conflict: <span className="font-bold">{warn.subject_code}</span> (+{warn.additional_units} units)
+                          </p>
+                        </div>
+                        <span className="px-3 py-1 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 shadow-xs">
+                          APPROVAL REQUIRED
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="pt-4 flex justify-center border-t border-slate-100">
                 <button
                   type="button"

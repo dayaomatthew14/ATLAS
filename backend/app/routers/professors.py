@@ -56,16 +56,20 @@ def get_professors(
     
     result = []
     for f in faculty_members:
+        curr_u = faculty_loads.get(f.id, 0)
+        max_u = f.max_units if (f.max_units and f.max_units > 0) else (18 if f.type == 'full_time' else 12)
+        rem_u = max(0, max_u - curr_u)
         f_dict = {
             "id": f.id,
             "first_name": f.first_name,
             "last_name": f.last_name,
             "email": f.email,
             "contact_number": f.contact_number,
-            "max_units": f.max_units,
+            "max_units": max_u,
             "type": f.type,
             "department_id": f.department_id,
-            "current_units": faculty_loads.get(f.id, 0),
+            "current_units": curr_u,
+            "remaining_units": rem_u,
             "unavailability": f.unavailabilities
         }
         result.append(f_dict)
@@ -95,6 +99,9 @@ def create_professor(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     faculty_data = faculty.model_dump()
+
+    if faculty_data.get('type') == 'full_time' and (not faculty_data.get('max_units') or faculty_data.get('max_units') == 0):
+        faculty_data['max_units'] = 18
     
     if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(

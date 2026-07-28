@@ -57,27 +57,41 @@ export default function Teachers() {
     },
     {
       key: 'load',
-      label: 'Teaching Load',
+      label: 'DLSAU Workload Breakdown',
       render: (item) => {
+        const isFullTime = item.type === 'full_time' || item.type === 'Full-Time';
         const current = item.current_units || 0;
-        const max = item.max_units || 18;
+        const max = item.max_units || (isFullTime ? 18 : 12);
+        const remaining = item.remaining_units !== undefined ? item.remaining_units : Math.max(0, max - current);
         const percentage = Math.min((current / max) * 100, 100);
         const isOverloaded = current > max;
+        const isAtCapacity = current === max;
 
         return (
-          <div className="w-48">
-            <div className="flex justify-between items-center mb-1.5">
-              <span className={`text-xs font-black uppercase ${isOverloaded ? 'text-rose-600' : 'text-slate-500'}`}>
+          <div className="w-56 space-y-1.5">
+            <div className="flex justify-between items-center text-xs font-black">
+              <span className="text-slate-800">
                 {current} / {max} Units
               </span>
-              {isOverloaded && <ShieldAlert className="w-3.5 h-3.5 text-rose-600 animate-pulse" />}
+              <span className={`px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider ${
+                isOverloaded ? 'bg-rose-100 text-rose-700' : isAtCapacity ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {isOverloaded ? 'Overloaded' : isAtCapacity ? 'At Capacity' : 'Normal'}
+              </span>
             </div>
-            <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5">
+
+            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
               <div
-                className={`h-full transition-all duration-700 rounded-full ${isOverloaded ? 'bg-rose-500' : percentage > 80 ? 'bg-amber-500' : 'bg-green-600'
-                  }`}
+                className={`h-full transition-all duration-500 rounded-full ${
+                  isOverloaded ? 'bg-rose-500' : percentage >= 85 ? 'bg-amber-500' : 'bg-emerald-600'
+                }`}
                 style={{ width: `${percentage}%` }}
               />
+            </div>
+
+            <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+              <span>{isFullTime ? 'Full-Time (18 Max)' : 'Part-Time (Custom)'}</span>
+              <span className="text-emerald-700 font-black">{remaining} Units Remaining</span>
             </div>
           </div>
         );

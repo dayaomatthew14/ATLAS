@@ -144,43 +144,43 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
             proposed_hours_total = get_duration_hours(slots[0][0], slots[0][1]) * 2
             max_allowed = f_obj.max_units if f_obj.max_units and f_obj.max_units > 0 else 24.0
 
-            # Check professor max workload hours/units
+            # Check professor max workload hours/units (Full-Time: 18 max units, Part-Time: Configured max units)
             if faculty_hours_used[pid] + proposed_hours_total > max_allowed:
-                if auto_bump_units:
-                    old_max = max_allowed
-                    new_max = int(faculty_hours_used[pid] + proposed_hours_total + 3)
-                    f_obj.max_units = new_max # type: ignore
-                    db.add(f_obj)
-                    db.commit()
-                    max_allowed = float(new_max)
-                    fac_name = getattr(f_obj, 'name', f"Faculty ID {pid}")
-                    bumped_warnings.append({
-                        "faculty_id": pid,
-                        "faculty_name": fac_name,
-                        "subject_code": c.code,
-                        "part_type": part_type,
-                        "old_max_units": old_max,
-                        "new_max_units": new_max,
-                        "message": f"Faculty '{fac_name}' unit limit automatically increased from {old_max} to {new_max} units for {c.code} ({part_type})"
-                    })
-                else:
-                    reason_msg = f"Faculty max units limit ({max_allowed} hrs) exceeded for {part_type}"
-                    conf_rec = models.Conflict(
-                        faculty_id=pid,
-                        curriculum_id=c.id,
-                        conflict_type="max_units_exceeded",
-                        reason=reason_msg
-                    )
-                    pending_conflicts.append(conf_rec)
+                fac_fname = getattr(f_obj, 'first_name', '')
+                fac_lname = getattr(f_obj, 'last_name', '')
+                fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
+                emp_type = "Full-Time" if (getattr(f_obj, 'type', 'full_time') or 'full_time').lower().startswith('full') else "Part-Time"
+                current_hrs = faculty_hours_used[pid]
+                reason_msg = f"Workload limit exceeded for {fac_name} ({emp_type}): {current_hrs} + {proposed_hours_total} > {max_allowed} max units"
+                
+                bumped_warnings.append({
+                    "faculty_id": pid,
+                    "faculty_name": fac_name,
+                    "employment_type": emp_type,
+                    "current_units": current_hrs,
+                    "max_units": max_allowed,
+                    "additional_units": proposed_hours_total,
+                    "subject_code": c.code,
+                    "part_type": part_type,
+                    "message": f"Faculty '{fac_name}' ({emp_type}) maximum teaching load ({max_allowed} units) exceeded by {c.code}."
+                })
+                
+                conf_rec = models.Conflict(
+                    faculty_id=pid,
+                    curriculum_id=c.id,
+                    conflict_type="max_units_exceeded",
+                    reason=reason_msg
+                )
+                pending_conflicts.append(conf_rec)
 
-                    unplaced.append({
-                        "faculty": pid,
-                        "curriculum_id": c.id,
-                        "subject": c.code,
-                        "part_type": part_type,
-                        "reason": reason_msg
-                    })
-                    continue
+                unplaced.append({
+                    "faculty": pid,
+                    "curriculum_id": c.id,
+                    "subject": c.code,
+                    "part_type": part_type,
+                    "reason": reason_msg
+                })
+                continue
 
             valid_rooms = []
             if part_type == 'lab':
