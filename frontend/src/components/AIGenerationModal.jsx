@@ -76,16 +76,13 @@ export default function AIGenerationModal({ isOpen, onClose, onGenerate }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Target Semester</label>
-              <select 
-                className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                value={formData.semester}
-                onChange={e => setFormData({...formData, semester: e.target.value})}
-              >
-                <option>1st Semester 2026-2027</option>
-                <option>2nd Semester 2026-2027</option>
-                <option>3rd Semester 2026</option>
-              </select>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Active Semester</label>
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between pointer-events-none select-none">
+                <span className="text-xs font-black text-emerald-950">2026-2027 First Semester</span>
+                <span className="bg-emerald-700 text-white px-2 py-0.5 rounded text-[9px] font-black uppercase">
+                  Status: ACTIVE
+                </span>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Scope</label>

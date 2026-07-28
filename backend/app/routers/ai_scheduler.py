@@ -30,7 +30,9 @@ def generate_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role == 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule generation is restricted to Program Chairs and Department Coordinators. System Administrators manage platform settings only.")
+    elif current_user.role not in ['program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Program Chairs and Coordinators can generate schedules")
         
     if not current_user.department:
@@ -45,10 +47,13 @@ def generate_schedule(
     if not dept:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department not found")
          
-    # Check if semester exists
-    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
-    if not semester:
-         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
+    # Check if active semester exists
+    active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+    if not active_semester:
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active semester found. Please activate a semester first.")
+    
+    semester = active_semester
+    semester_id = active_semester.id
          
     # Map input User IDs to Faculty IDs
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()

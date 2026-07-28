@@ -212,17 +212,13 @@ export default function Schedules() {
 
   const fetchGenerateData = async () => {
     try {
-      const [sems, secs] = await Promise.all([
-        api.get('/semesters').catch(() => []),
-        api.get('/sections').catch(() => [])
-      ]);
+      const sems = await api.get('/semesters').catch(() => []);
       const safeSems = Array.isArray(sems) ? sems : [];
       setSemesters(safeSems);
       const active = safeSems.find(s => s.is_active);
       if (active) {
         setSelectedGenSemester(active.id);
       }
-      setDepartmentSections(Array.isArray(secs) ? secs : []);
     } catch (e) {
       console.error(e);
     }
@@ -904,16 +900,27 @@ export default function Schedules() {
           {!generationResults ? (
             <>
               <div>
-                <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Select Semester</label>
-                <select
-                  required
-                  className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-green-500 font-bold text-slate-700"
-                  value={selectedGenSemester}
-                  onChange={e => setSelectedGenSemester(e.target.value)}
-                >
-                  <option value="">Choose a semester...</option>
-                  {semesters.map(s => <option key={s.id} value={s.id}>{s.academic_year} - {formatSemesterTerm(s.term)}</option>)}
-                </select>
+                <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Active Semester</label>
+                {(() => {
+                  const activeSem = semesters.find(s => s.is_active) || (selectedGenSemester ? semesters.find(s => s.id === Number(selectedGenSemester)) : null);
+                  return (
+                    <div className="p-4 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex items-center justify-between pointer-events-none select-none">
+                      <div>
+                        <p className="text-sm font-black text-emerald-950">
+                          {activeSem ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}` : 'No Active Semester Configured'}
+                        </p>
+                        <p className="text-[11px] font-bold text-emerald-700/80 mt-0.5">
+                          Target Academic Period for AI Scheduling Engine
+                        </p>
+                      </div>
+                      {activeSem && (
+                        <span className="bg-emerald-700 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shrink-0 shadow-xs">
+                          Status: ACTIVE
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div>
