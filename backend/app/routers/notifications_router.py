@@ -56,17 +56,19 @@ def notify_faculty(
             schedule_text += f"- {curriculum_item.name if curriculum_item else 'N/A'} ({s.section}): {s.day_of_week} {s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')} @ {room.name if room else 'N/A'}\n"
             
         # Send email
+        email_addr = getattr(user, 'email', '')
         success_email = notifications.send_email_notification(
-            user.email,
+            str(email_addr), # type: ignore
             "ATLAS - Your Academic Schedule",
             f"Hello {user.first_name},\n\n{schedule_text}\n\nBest regards,\nATLAS Team"
         )
         
         # Send SMS if contact number exists
         success_sms = False
-        if user.contact_number:
+        contact_num = getattr(user, 'contact_number', None)
+        if contact_num:
             sms_text = f"ATLAS: Hello {user.first_name}, your schedule for the upcoming semester has been generated. Please check your email for details."
-            success_sms = notifications.send_textbee_notification(user.contact_number, sms_text)
+            success_sms = notifications.send_textbee_notification(str(contact_num), sms_text) # type: ignore
             
         if success_email or success_sms:
             sent_count += 1
