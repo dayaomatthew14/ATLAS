@@ -85,8 +85,8 @@ def clear_logs(
     """
     Clear all system logs.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=403, detail="Only admins, program chairs, and coordinators can clear logs")
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="System audit log purging is restricted to administrators.")
     db.query(models.SystemLog).delete()
     db.commit()
     return None

@@ -99,6 +99,8 @@ def create_schedule(
              
     new_schedule = models.Schedule(**schedule.model_dump())
     db.add(new_schedule)
+    db.commit()
+    db.refresh(new_schedule)
     dept_id_val = getattr(curriculum_item, 'department_id', None)
     log_activity(db, current_user.id, "Create Schedule", f"Created schedule for {curriculum_item.code} in {new_schedule.section}", "success", department_id=dept_id_val) # type: ignore
     

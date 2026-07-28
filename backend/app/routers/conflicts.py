@@ -66,7 +66,7 @@ def validate_schedule_conflict(
     Checks for conflicts against a potential schedule slot.
     Returns a list of detailed conflicts found.
     """
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     conflicts = []

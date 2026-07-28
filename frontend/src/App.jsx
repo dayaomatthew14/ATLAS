@@ -24,7 +24,7 @@ const Unauthorized403 = () => {
       </div>
       <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">403 Unauthorized Access</h2>
       <p className="text-slate-600 dark:text-slate-400 max-w-md mb-6">
-        Semester management is restricted to administrators. Contact the system administrator for academic period changes.
+        Access to this administrative section is restricted to authorized roles. Contact the system administrator if you require elevated permissions.
       </p>
       <a 
         href="/dashboard"
