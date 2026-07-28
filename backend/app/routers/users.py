@@ -77,10 +77,10 @@ def create_user(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         if user.department != current_user.department:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create users in your department")
         if user.role not in ['faculty', 'student']:
@@ -109,7 +109,7 @@ def update_user(
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this user")
         if user.role and user.role not in ['faculty', 'student']:
@@ -136,7 +136,7 @@ def delete_user(
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
     elif current_user.role != 'admin':

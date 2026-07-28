@@ -35,8 +35,8 @@ def create_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and program chairs can manage rooms")
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins, program chairs, and coordinators can manage rooms")
         
     db_room = db.query(models.Room).filter(
         models.Room.name == room.name, 
@@ -61,8 +61,8 @@ def update_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and program chairs can manage rooms")
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins, program chairs, and coordinators can manage rooms")
         
     db_room = db.query(models.Room).filter(models.Room.id == room_id).first()
     if not db_room:
@@ -85,8 +85,8 @@ def delete_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and program chairs can manage rooms")
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins, program chairs, and coordinators can manage rooms")
         
     db_room = db.query(models.Room).filter(models.Room.id == room_id).first()
     if not db_room:

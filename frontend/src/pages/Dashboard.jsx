@@ -26,20 +26,21 @@ export default function Dashboard() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  const [profileName, setProfileName] = useState(localStorage.getItem('atlas_user_name') || 'Program Chair');
-  const [profilePicture, setProfilePicture] = useState(localStorage.getItem('atlas_profile_picture') || '');
-
   // Normalized role check
   const rawRole = localStorage.getItem('atlas_role') || 'guest';
   const role = rawRole.toLowerCase();
+  const roleDisplay = role === 'coordinator' ? 'Coordinator' : (role === 'admin' ? 'System Administrator' : 'Program Chair');
+
+  const [profileName, setProfileName] = useState(localStorage.getItem('atlas_user_name') || roleDisplay);
+  const [profilePicture, setProfilePicture] = useState(localStorage.getItem('atlas_profile_picture') || '');
 
   const [conflictCount, setConflictCount] = useState(0);
   const department = localStorage.getItem('atlas_department');
-  const dashboardTitle = department ? `${department} Program Chair Portal` : 'DLSAU Tertiary Education';
+  const dashboardTitle = department ? `${department} ${roleDisplay} Portal` : 'DLSAU Tertiary Education';
 
   useEffect(() => {
     const handleProfileUpdate = () => {
-      setProfileName(localStorage.getItem('atlas_user_name') || 'Program Chair');
+      setProfileName(localStorage.getItem('atlas_user_name') || roleDisplay);
       setProfilePicture(localStorage.getItem('atlas_profile_picture') || '');
     };
     window.addEventListener('atlas_profile_updated', handleProfileUpdate);

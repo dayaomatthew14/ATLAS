@@ -58,24 +58,25 @@ def create_faculty(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(models.Department.id == faculty.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create faculty for your department")
              
-    db_faculty = db.query(models.Faculty).filter(models.Faculty.user_id == faculty.user_id).first()
+    db_faculty = db.query(models.Faculty).filter(models.Faculty.email == faculty.email).first() if faculty.email else None
     if db_faculty:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already registered as faculty")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Faculty member with this email already exists")
         
     new_faculty = models.Faculty(**faculty.model_dump())
     db.add(new_faculty)
     db.commit()
     db.refresh(new_faculty)
     
-    log_activity(db, current_user.id, "Create Faculty", f"Created faculty record for user ID: {new_faculty.user_id}", "success", department_id=new_faculty.department_id) # type: ignore
+    dept_id_val = getattr(new_faculty, 'department_id', None)
+    log_activity(db, current_user.id, "Create Faculty", f"Created faculty record for {new_faculty.first_name} {new_faculty.last_name}", "success", department_id=dept_id_val) # type: ignore
     
     return new_faculty
 
@@ -86,14 +87,14 @@ def update_faculty(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Faculty not found")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(models.Department.id == db_faculty.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this faculty")
@@ -105,7 +106,8 @@ def update_faculty(
     db.commit()
     db.refresh(db_faculty)
     
-    log_activity(db, current_user.id, "Update Faculty", f"Updated faculty record for user ID: {db_faculty.user_id}", "success", department_id=db_faculty.department_id) # type: ignore
+    dept_id_val = getattr(db_faculty, 'department_id', None)
+    log_activity(db, current_user.id, "Update Faculty", f"Updated faculty record for {db_faculty.first_name} {db_faculty.last_name}", "success", department_id=dept_id_val) # type: ignore
     
     return db_faculty
 
@@ -115,23 +117,23 @@ def delete_faculty(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Faculty not found")
         
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(models.Department.id == db_faculty.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this faculty")
                 
-    dept_id = db_faculty.department_id
+    dept_id_val = getattr(db_faculty, 'department_id', None)
     fac_name = f"{db_faculty.first_name} {db_faculty.last_name}"
     db.delete(db_faculty)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Faculty", f"Deleted faculty record for {fac_name}", "success", department_id=dept_id)
+    log_activity(db, current_user.id, "Delete Faculty", f"Deleted faculty record for {fac_name}", "success", department_id=dept_id_val) # type: ignore
     
     return None

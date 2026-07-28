@@ -95,7 +95,7 @@ def get_curriculum_item(
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role == 'program_chair' and current_user.department:
+    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this curriculum item")
@@ -108,10 +108,10 @@ def create_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    if current_user.role == 'program_chair' and current_user.department:
+    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
@@ -150,14 +150,14 @@ def update_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if not db_curriculum:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role == 'program_chair' and current_user.department:
+    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
         dept = db.query(models.Department).filter(models.Department.id == db_curriculum.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this curriculum item")
@@ -179,24 +179,24 @@ def delete_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if not db_curriculum:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role == 'program_chair' and current_user.department:
+    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
         dept = db.query(models.Department).filter(models.Department.id == db_curriculum.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this curriculum item")
              
     curr_code = db_curriculum.code
-    dept_id = db_curriculum.department_id
+    dept_id = getattr(db_curriculum, 'department_id', None)
     db.delete(db_curriculum)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Curriculum", f"Deleted subject: {curr_code}", "success", department_id=dept_id)
+    log_activity(db, current_user.id, "Delete Curriculum", f"Deleted subject: {curr_code}", "success", department_id=dept_id) # type: ignore
     
     return None
 
@@ -209,12 +209,12 @@ async def _process_curriculum_import(
     current_user: models.User,
     custom_mapping: Optional[str] = None
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     # Determine target department
     target_dept_id = department_id
-    if current_user.role == 'program_chair':
+    if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
