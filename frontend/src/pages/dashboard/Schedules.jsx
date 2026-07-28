@@ -489,24 +489,6 @@ export default function Schedules() {
 
   return (
     <>
-      {/* Page Header */}
-      <div className="bg-green-700 text-white py-3 shadow-inner">
-        <div className="max-w-full mx-auto px-6 sm:px-10 lg:px-12 flex justify-between items-center">
-          <h2 className="text-lg font-medium">Manage Schedules</h2>
-          <div className="flex items-center space-x-4">
-            {activeConflictsCount > 0 && (
-              <button
-                onClick={() => setIsConflictPanelOpen(true)}
-                className="flex items-center bg-red-600 hover:bg-red-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse transition-colors"
-              >
-                <AlertTriangle className="w-3 h-3 mr-1.5" />
-                {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''} Detected
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Main Content Area */}
       <main className="flex-1 max-w-full mx-auto px-6 sm:px-10 lg:px-12 py-8 w-full relative">
         
@@ -517,6 +499,15 @@ export default function Schedules() {
               <p className="text-slate-400 font-medium text-sm">Weekly view of schedules for the professors in your department.</p>
             </div>
             <div className="flex gap-4 items-center">
+              {activeConflictsCount > 0 && (
+                <button
+                  onClick={() => setIsConflictPanelOpen(true)}
+                  className="flex items-center bg-red-600 hover:bg-red-700 text-white px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider animate-pulse shadow-md transition-all whitespace-nowrap"
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''}
+                </button>
+              )}
               {/* Professor Filter */}
               <div className="min-w-[280px] relative group">
                 <select
