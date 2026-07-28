@@ -53,7 +53,7 @@ def generate_schedule(
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active semester found. Please activate a semester first.")
     
     semester = active_semester
-    semester_id = active_semester.id
+    semester_id = int(active_semester.id) # type: ignore
          
     # Map input User IDs to Faculty IDs
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
