@@ -161,7 +161,7 @@ def get_global_schedule(
         models.Curriculum, models.Schedule.curriculum_id == models.Curriculum.id
     ).join(
         models.Faculty, models.Schedule.faculty_id == models.Faculty.id
-    ).join(
+    ).outerjoin(
         models.Room, models.Schedule.room_id == models.Room.id
     ).join(
         models.Department, models.Curriculum.department_id == models.Department.id
@@ -186,8 +186,8 @@ def get_global_schedule(
             "subject_code": s.subject_code,
             "subject_name": s.subject_name,
             "faculty_name": f"{s.first_name} {s.last_name}",
-            "room_name": s.room_name,
-            "room_building": s.room_building,
+            "room_name": s.room_name if s.room_name else "—",
+            "room_building": s.room_building if s.room_building else "",
             "day_of_week": s.day_of_week,
             "start_time": s.start_time.strftime("%H:%M") if s.start_time else "00:00",
             "end_time": s.end_time.strftime("%H:%M") if s.end_time else "00:00",
@@ -221,25 +221,42 @@ def solve_conflict(
 
         target_sched = s2 or s1
         if target_sched:
-            all_rooms = db.query(models.Room).all()
+            curr_item = db.query(models.Curriculum).filter(models.Curriculum.id == target_sched.curriculum_id).first()
+            is_lec = (curr_item and curr_item.type == 'lecture') or (req.part_type == 'lecture')
+            
             from ..services.schedule_generator import TIMESLOTS, DAYS, is_room_conflict, is_prof_conflict
             all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == target_sched.semester_id).all()
 
             placed = False
-            for r in all_rooms:
-                if placed: break
+            if is_lec:
                 for day in DAYS:
                     if placed: break
                     for start_t, end_t in TIMESLOTS:
-                        if not is_room_conflict(r.id, day, day, start_t, end_t, all_schedules) and not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
-                            target_sched.room_id = r.id # type: ignore
+                        if not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
+                            target_sched.room_id = None # type: ignore
                             target_sched.day_of_week = day # type: ignore
                             target_sched.start_time = start_t # type: ignore
                             target_sched.end_time = end_t # type: ignore
                             conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
                             db.commit()
                             placed = True
-                            return {"status": "success", "message": f"Relocated schedule to {r.name} on {day} {start_t.strftime('%H:%M')}"}
+                            return {"status": "success", "message": f"Relocated lecture schedule to {day} {start_t.strftime('%H:%M')}"}
+            else:
+                all_rooms = db.query(models.Room).filter(models.Room.type.in_(['lab', 'computer_lab'])).all()
+                for r in all_rooms:
+                    if placed: break
+                    for day in DAYS:
+                        if placed: break
+                        for start_t, end_t in TIMESLOTS:
+                            if not is_room_conflict(r.id, day, day, start_t, end_t, all_schedules) and not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
+                                target_sched.room_id = r.id # type: ignore
+                                target_sched.day_of_week = day # type: ignore
+                                target_sched.start_time = start_t # type: ignore
+                                target_sched.end_time = end_t # type: ignore
+                                conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                                db.commit()
+                                placed = True
+                                return {"status": "success", "message": f"Relocated schedule to {r.name} on {day} {start_t.strftime('%H:%M')}"}
 
             if not placed:
                 conflict.resolved_at = datetime.now(timezone.utc) # type: ignore

@@ -127,6 +127,28 @@ def create_curriculum_item(
         if first_dept:
             curriculum_item.department_id = int(first_dept.id) # type: ignore
              
+    ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", curriculum_item.code, re.IGNORECASE)
+    if ab_match:
+        base_code = ab_match.group(1).strip()
+        code_a = f"{base_code}A"
+        code_b = f"{base_code}B"
+        
+        u_lec = curriculum_item.lec_units if curriculum_item.lec_units > 0 else (curriculum_item.units if curriculum_item.lab_units == 0 else max(1, curriculum_item.units - curriculum_item.lab_units))
+        u_lab = curriculum_item.lab_units if curriculum_item.lab_units > 0 else 1
+
+        new_a = models.Curriculum(
+            **{**curriculum_item.model_dump(), "code": code_a, "type": "lecture", "units": u_lec, "lec_units": u_lec, "lab_units": 0}
+        )
+        new_b = models.Curriculum(
+            **{**curriculum_item.model_dump(), "code": code_b, "type": "lab", "units": u_lab, "lec_units": 0, "lab_units": u_lab}
+        )
+        db.add(new_a)
+        db.add(new_b)
+        db.commit()
+        db.refresh(new_a)
+        log_activity(db, current_user.id, "Create Curriculum", f"Created split A/B subjects: {code_a}, {code_b}", "success", department_id=new_a.department_id) # type: ignore
+        return new_a
+
     db_curriculum = db.query(models.Curriculum).filter(
         models.Curriculum.code == curriculum_item.code,
         models.Curriculum.program_code == curriculum_item.program_code
@@ -523,11 +545,55 @@ async def _process_curriculum_import(
                 return ",".join(codes) if codes else None
 
             pre_req = clean_prereqs(row[col_map['pre_requisite']] if 'pre_requisite' in col_map else None)
+            is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE', 'RZAL', 'RIZAL'))
+
+            # DYNAMIC A/B SUBJECT SPLITTING ([BASE SUBJECT CODE]A/B -> [BASE SUBJECT CODE]A + [BASE SUBJECT CODE]B)
+            ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", code, re.IGNORECASE)
+            if ab_match:
+                base_code = ab_match.group(1).strip()
+                code_a = f"{base_code}A"
+                code_b = f"{base_code}B"
+
+                u_lec = lec_units if lec_units > 0 else (units if lab_units == 0 else max(1, units - lab_units))
+                u_lab = lab_units if lab_units > 0 else 1
+
+                split_specs = [
+                    (code_a, "lecture", u_lec, u_lec, 0),
+                    (code_b, "lab", u_lab, 0, u_lab)
+                ]
+
+                for ccode, ctype_val, u_val, lec_u, lab_u in split_specs:
+                    item_data = {
+                        "block_id": curriculum_block.id if curriculum_block else None,
+                        "code": ccode, "name": name, "units": u_val, "type": ctype_val,
+                        "department_id": target_dept_id, "program_code": program_code,
+                        "year_level": current_year_context, "semester_term": current_sem_context,
+                        "lec_units": lec_u, "lab_units": lab_u, "pre_requisite": pre_req,
+                        "pre_requisites": pre_req, "year": current_year_context, "semester": current_sem_context, "course": program_code,
+                        "is_major": is_major_val,
+                        "validation_issues": []
+                    }
+
+                    is_duplicate_in_run = any(i.code == ccode for i in items_to_add)
+                    if is_duplicate_in_run:
+                        item_data["validation_issues"].append("Duplicate: Already exists in this file")
+                        skipped_items.append({**item_data, "reason": "Already exists in this file"})
+                    else:
+                        items_to_add.append(models.Curriculum(
+                            block_id=curriculum_block.id if curriculum_block else None,
+                            code=ccode, name=name, units=u_val, type=ctype_val,
+                            department_id=target_dept_id, program_code=program_code,
+                            year_level=current_year_context, semester_term=current_sem_context,
+                            lec_units=lec_u, lab_units=lab_u, pre_requisite=pre_req,
+                            is_major=is_major_val
+                        ))
+                    all_parsed_data.append(item_data)
+                    print(f"DEBUG: Captured split A/B subject: {ccode} ({ctype_val})")
+                continue
+
             ctype = 'lecture'
             if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
                 ctype = 'lab'
-
-            is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE', 'RZAL', 'RIZAL'))
 
             item_data = {
                 "block_id": curriculum_block.id if curriculum_block else None,

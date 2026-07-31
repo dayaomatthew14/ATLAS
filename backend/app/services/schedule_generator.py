@@ -43,8 +43,10 @@ def check_overlap(s1_start: time, s1_end: time, s2_start: time, s2_end: time) ->
     return s1_start < s2_end and s1_end > s2_start
 
 def is_room_conflict(room_id, day1, day2, start_t, end_t, all_scheds):
+    if not room_id:
+        return False
     for s in all_scheds:
-        if s.room_id == room_id and s.day_of_week in (day1, day2):
+        if s.room_id and s.room_id == room_id and s.day_of_week in (day1, day2):
             if check_overlap(s.start_time, s.end_time, start_t, end_t):
                 return True
     return False
@@ -182,55 +184,25 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                 })
                 continue
 
-            valid_rooms = []
-            if part_type == 'lab':
-                valid_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
-            else:
-                valid_rooms = rooms_by_type.get('lecture', [])
-
-            # Fallback to any room if no rooms of the specific type are registered
-            if not valid_rooms:
-                valid_rooms = rooms
-
-            if not valid_rooms:
-                reason_msg = "No valid rooms found in the campus database"
-                conf_rec = models.Conflict(
-                    faculty_id=pid,
-                    curriculum_id=c.id,
-                    conflict_type="no_rooms_available",
-                    reason=reason_msg
-                )
-                pending_conflicts.append(conf_rec)
-
-                unplaced.append({
-                    "faculty": pid,
-                    "curriculum_id": c.id,
-                    "subject": c.code,
-                    "part_type": part_type,
-                    "reason": reason_msg
-                })
-                continue
-
             placed = False
 
-            for days_pair in day_pairs_to_try:
-                if placed: break
-                day1, day2 = days_pair[0], days_pair[1]
-
-                for start_t, end_t in slots:
+            if part_type == 'lecture':
+                # Lecture subjects do NOT require or use a room (room_id = NULL)
+                for days_pair in day_pairs_to_try:
                     if placed: break
+                    day1, day2 = days_pair[0], days_pair[1]
 
-                    if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
-                    if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
+                    for start_t, end_t in slots:
+                        if placed: break
 
-                    for room in valid_rooms:
-                        if is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
+                        if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
+                        if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
 
                         sched1 = models.Schedule(
                             semester_id=semester_id,
                             curriculum_id=c.id,
                             faculty_id=pid,
-                            room_id=room.id,
+                            room_id=None,
                             day_of_week=day1,
                             start_time=start_t,
                             end_time=end_t,
@@ -241,7 +213,7 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                             semester_id=semester_id,
                             curriculum_id=c.id,
                             faculty_id=pid,
-                            room_id=room.id,
+                            room_id=None,
                             day_of_week=day2,
                             start_time=start_t,
                             end_time=end_t,
@@ -256,9 +228,76 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                         generated_count += 2
                         placed = True
                         break
+            else:
+                # Laboratory subjects REQUIRE a laboratory room
+                valid_lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
+                if not valid_lab_rooms:
+                    reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
+                    conf_rec = models.Conflict(
+                        faculty_id=pid,
+                        curriculum_id=c.id,
+                        conflict_type="no_lab_room_available",
+                        reason=reason_msg
+                    )
+                    pending_conflicts.append(conf_rec)
+                    unplaced.append({
+                        "faculty": pid,
+                        "curriculum_id": c.id,
+                        "subject": c.code,
+                        "part_type": part_type,
+                        "reason": reason_msg
+                    })
+                    continue
+
+                for days_pair in day_pairs_to_try:
+                    if placed: break
+                    day1, day2 = days_pair[0], days_pair[1]
+
+                    for start_t, end_t in slots:
+                        if placed: break
+
+                        if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
+                        if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
+
+                        for room in valid_lab_rooms:
+                            if is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
+
+                            sched1 = models.Schedule(
+                                semester_id=semester_id,
+                                curriculum_id=c.id,
+                                faculty_id=pid,
+                                room_id=room.id,
+                                day_of_week=day1,
+                                start_time=start_t,
+                                end_time=end_t,
+                                section="",
+                                status='draft'
+                            )
+                            sched2 = models.Schedule(
+                                semester_id=semester_id,
+                                curriculum_id=c.id,
+                                faculty_id=pid,
+                                room_id=room.id,
+                                day_of_week=day2,
+                                start_time=start_t,
+                                end_time=end_t,
+                                section="",
+                                status='draft'
+                            )
+                            pending_schedules.extend([sched1, sched2])
+                            all_schedules.extend([sched1, sched2])
+                            scheduled_offerings.add((pid, c.id))
+
+                            faculty_hours_used[pid] += proposed_hours_total
+                            generated_count += 2
+                            placed = True
+                            break
 
             if not placed:
-                reason_msg = f"Could not find a conflict-free slot for {part_type} (faculty availability or room conflict)"
+                if part_type == 'lab':
+                    reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
+                else:
+                    reason_msg = f"{c.code} could not be scheduled due to faculty availability or schedule conflict."
                 conf_rec = models.Conflict(
                     faculty_id=pid,
                     curriculum_id=c.id,

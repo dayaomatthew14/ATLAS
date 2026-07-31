@@ -707,7 +707,7 @@ export default function Schedules() {
                                 </div>
                                 <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
                                   <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span className="truncate">{sched.room_name}</span>
+                                  <span className="truncate">{sched.room_name || '—'}</span>
                                 </div>
                               </div>
                             </div>
@@ -780,15 +780,14 @@ export default function Schedules() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Room</label>
+              <label className="block text-sm font-medium text-gray-700">Room (Optional for Lectures)</label>
               <select
-                required
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
                 value={formData.room_id}
                 onChange={(e) => setFormData({ ...formData, room_id: e.target.value })}
               >
-                <option value="">Select Room</option>
-                {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.building})</option>)}
+                <option value="">No Room (Lecture / N/A)</option>
+                {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.building}) - {r.type}</option>)}
               </select>
             </div>
           </div>

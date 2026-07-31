@@ -99,6 +99,36 @@ def create_subject_offering(
         assigned_by=current_user.id
     )
     db.add(new_offering)
+
+    # Check for companion A/B component
+    cur_code = curriculum.code.upper().strip()
+    companion_code = None
+    if cur_code.endswith('A'):
+        companion_code = cur_code[:-1] + 'B'
+    elif cur_code.endswith('B'):
+        companion_code = cur_code[:-1] + 'A'
+
+    if companion_code:
+        companion_curr = db.query(models.Curriculum).filter(
+            models.Curriculum.code == companion_code,
+            models.Curriculum.department_id == curriculum.department_id
+        ).first()
+
+        if companion_curr:
+            companion_existing = db.query(models.SubjectOffering).filter(
+                models.SubjectOffering.faculty_id == offering.faculty_id,
+                models.SubjectOffering.curriculum_id == companion_curr.id,
+                models.SubjectOffering.semester_id == offering.semester_id
+            ).first()
+            if not companion_existing:
+                companion_offering = models.SubjectOffering(
+                    faculty_id=offering.faculty_id,
+                    curriculum_id=companion_curr.id,
+                    semester_id=offering.semester_id,
+                    assigned_by=current_user.id
+                )
+                db.add(companion_offering)
+
     db.commit()
     db.refresh(new_offering)
     return new_offering
