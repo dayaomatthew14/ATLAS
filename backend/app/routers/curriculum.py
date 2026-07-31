@@ -513,69 +513,81 @@ async def _process_curriculum_import(
             if "3RD" in s or "THIRD" in s: return "3rd"
             return None
         
-        # STEP 7 — DEDUPLICATION TRACKER (Rule 259)
+        # STEP 7 — DEDUPLICATION & CONTEXT TRACKER
         last_row_identifier = None
         current_year_context = None
         current_sem_context = None
         is_in_active_zone = False
-        looking_for_headers = False
+        looking_for_headers = True
         col_map = {} 
 
         for idx, row in df.iterrows():
             row_text = " ".join([str(v).strip().upper() for v in row.values if pd.notna(v)])
             if not row_text: continue
 
-            # 1. Zone Header Detection
+            # 1. Independent Section & Zone Header Detection
             y_match = re.search(r'(1ST|2ND|3RD|4TH|5TH|FIRST|SECOND|THIRD|FOURTH|FIFTH)\s+YEAR|YEAR\s+([1-5])', row_text)
             s_match = re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)', row_text)
             
-            if y_match and s_match:
+            section_updated = False
+            if y_match:
                 y_raw = y_match.group(1) or y_match.group(2)
+                norm_y = normalize_year(y_raw)
+                if norm_y:
+                    current_year_context = norm_y
+                    section_updated = True
+
+            if s_match:
                 s_raw = s_match.group(1) or s_match.group(3)
-                current_year_context = normalize_year(y_raw)
-                current_sem_context = normalize_semester(s_raw)
+                norm_s = normalize_semester(s_raw)
+                if norm_s:
+                    current_sem_context = norm_s
+                    section_updated = True
+
+            if section_updated:
                 is_in_active_zone = True
                 looking_for_headers = True 
-                col_map = {} 
                 last_row_identifier = None # Reset for new zone
-                print(f"DEBUG: Found Zone Header at row {idx}: {current_year_context} - {current_sem_context}")
+                print(f"DEBUG: Found Section Header at row {idx}: Year={current_year_context}, Sem={current_sem_context}")
                 continue
 
-            # 4th Year Close Condition (Rule 215) & Electives Start (Rule 226)
-            if "ELECTIVES" in row_text and not (y_match and s_match):
+            # Electives Start
+            if "ELECTIVES" in row_text:
                 current_year_context = 'Elective'
                 current_sem_context = 'Elective'
                 is_in_active_zone = True
                 looking_for_headers = True
-                col_map = {}
                 last_row_identifier = None # Reset for new zone
                 continue
 
-            # Summary of Units Trigger (Close Electives/All Zones) - Step 4 Rule 229
-            if "SUMMARY OF UNITS" in row_text or "TOTAL UNITS" in row_text:
+            # Summary of Units Trigger (Close Zone)
+            if "SUMMARY OF UNITS" in row_text:
                 is_in_active_zone = False
-            
-            if not is_in_active_zone:
                 continue
 
-            # 2. Dynamic Column Detection
-            if looking_for_headers:
-                row_vals = [str(v).strip().lower() for v in row.values]
-                temp_map = {}
-                for key, keywords in mapping_keywords.items():
-                    for i, val in enumerate(row_vals):
-                        if any(k == val or (len(k) > 3 and k in val) for k in keywords):
-                            if key == 'units' and any(k in val for k in ["lec", "lab"]): continue
-                            temp_map[key] = i
-                            break
-                if 'code' in temp_map:
-                    col_map = temp_map
-                    looking_for_headers = False 
-                    print(f"DEBUG: Mapped columns at row {idx}: {col_map}")
+            # 2. Universal Table Header Detection
+            row_vals = [str(v).strip().lower() for v in row.values]
+            temp_map = {}
+            for key, keywords in mapping_keywords.items():
+                for i, val in enumerate(row_vals):
+                    if any(k == val or (len(k) > 3 and k in val) for k in keywords):
+                        if key == 'units' and any(k in val for k in ["lec", "lab"]): continue
+                        temp_map[key] = i
+                        break
+
+            if 'code' in temp_map:
+                col_map = temp_map
+                looking_for_headers = False
+                is_in_active_zone = True
+                if not current_year_context:
+                    current_year_context = '1'
+                if not current_sem_context:
+                    current_sem_context = '1st'
+                print(f"DEBUG: Mapped columns at row {idx}: {col_map}")
                 continue
 
             # 3. Subject Row Capture
-            if not col_map or 'code' not in col_map: continue
+            if not is_in_active_zone or not col_map or 'code' not in col_map: continue
             
             code_raw = row[col_map['code']]
             name_raw = row[col_map['name']] if 'name' in col_map else ""

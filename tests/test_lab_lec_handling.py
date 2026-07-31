@@ -35,7 +35,6 @@ class TestLabLecHandling(unittest.TestCase):
                 self.assertIsNone(ab_match)
 
     def test_dynamic_ab_code_formatting_logic(self):
-        # Verify formatting logic for Lecture (no room / room = None) vs Lab (with room)
         sample_schedules = [
             {"raw": "CC101A/B", "room": None, "type": "lecture", "expected": "CC101A"},
             {"raw": "CC101A/B", "room": 101, "type": "lab", "expected": "CC101B"},
@@ -60,7 +59,6 @@ class TestLabLecHandling(unittest.TestCase):
             self.assertEqual(result_code, item["expected"])
 
     def test_dvm_already_separated_subjects_classification(self):
-        # Format 2 (DVM Format): Already separated CHEF102A (Lec=2, Lab=0) and CHEF102B (Lec=0, Lab=1)
         test_rows = [
             {"code": "CHEF102A", "name": "Organic Chemistry Lec", "lec": 2, "lab": 0, "expected_type": "lecture"},
             {"code": "CHEF102B", "name": "Organic Chemistry Lab", "lec": 0, "lab": 1, "expected_type": "lab"},
@@ -86,38 +84,84 @@ class TestLabLecHandling(unittest.TestCase):
 
             self.assertEqual(ctype, r["expected_type"])
 
+    def test_separate_year_and_semester_section_headers_parsing_logic(self):
+        # Regression Test: Independent Year & Semester section header detection across separate rows
+        rows = [
+            "FIRST YEAR",
+            "FIRST SEMESTER",
+            "Course Code | Course Title | Lec | Lab | Units",
+            "MATH101 | College Algebra | 3 | 0 | 3",
+            "SECOND SEMESTER",
+            "MATH102 | Trigonometry | 3 | 0 | 3",
+            "SECOND YEAR",
+            "FIRST SEMESTER",
+            "CS201A/B | Data Structures Lec/Lab | 2 | 1 | 3"
+        ]
+
+        current_year = None
+        current_sem = None
+        parsed_subjects = []
+
+        for row in rows:
+            row_text = row.upper()
+            y_match = re.search(r'(1ST|2ND|3RD|4TH|5TH|FIRST|SECOND|THIRD|FOURTH|FIFTH)\s+YEAR|YEAR\s+([1-5])', row_text)
+            s_match = re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)', row_text)
+
+            if y_match:
+                current_year = "1" if "FIRST" in y_match.group(0) else ("2" if "SECOND" in y_match.group(0) else "1")
+                continue
+            if s_match:
+                current_sem = "1st" if "FIRST" in s_match.group(0) else ("2nd" if "SECOND" in s_match.group(0) else "1st")
+                continue
+
+            if "|" in row and "Course Code" not in row:
+                parts = [p.strip() for p in row.split("|")]
+                code = parts[0]
+                parsed_subjects.append({
+                    "code": code,
+                    "year": current_year,
+                    "semester": current_sem
+                })
+
+        self.assertEqual(len(parsed_subjects), 3)
+        self.assertEqual(parsed_subjects[0]["code"], "MATH101")
+        self.assertEqual(parsed_subjects[0]["year"], "1")
+        self.assertEqual(parsed_subjects[0]["semester"], "1st")
+
+        self.assertEqual(parsed_subjects[1]["code"], "MATH102")
+        self.assertEqual(parsed_subjects[1]["year"], "1")
+        self.assertEqual(parsed_subjects[1]["semester"], "2nd")
+
+        self.assertEqual(parsed_subjects[2]["code"], "CS201A/B")
+        self.assertEqual(parsed_subjects[2]["year"], "2")
+        self.assertEqual(parsed_subjects[2]["semester"], "1st")
+
     def test_curriculum_centered_manual_block_and_subject_creation(self):
-        # Phase 15: Create curriculum without Excel file & verify Manual/Excel parity
         db = setup_test_db()
 
         dept = models.Department(name="College of Computer Studies", code="CAST")
         db.add(dept)
         db.flush()
 
-        # Step 1: Create Curriculum Block without Excel file
         block = models.CurriculumBlock(program_name="BSCS", academic_year="AY 2026-2027", filename="Manual Entry", department_id=dept.id)
         db.add(block)
         db.flush()
 
         self.assertIsNotNone(block.id)
 
-        # Step 2: Add Normal Subject (MATH101)
         s1 = models.Curriculum(block_id=block.id, code="MATH101", name="College Algebra", units=3, type="lecture", lec_units=3, lab_units=0, department_id=dept.id)
         db.add(s1)
 
-        # Step 3: Add Combined A/B Subject (CC101A/B -> CC101A + CC101B)
         s2_a = models.Curriculum(block_id=block.id, code="CC101A", name="Intro to Computing Lec", units=2, type="lecture", lec_units=2, lab_units=0, department_id=dept.id)
         s2_b = models.Curriculum(block_id=block.id, code="CC101B", name="Intro to Computing Lab", units=1, type="lab", lec_units=0, lab_units=1, department_id=dept.id)
         db.add_all([s2_a, s2_b])
 
-        # Step 4: Add Already-Separated Subjects (CHEF102A + CHEF102B)
         s3_a = models.Curriculum(block_id=block.id, code="CHEF102A", name="Organic Chemistry Lec", units=2, type="lecture", lec_units=2, lab_units=0, department_id=dept.id)
         s3_b = models.Curriculum(block_id=block.id, code="CHEF102B", name="Organic Chemistry Lab", units=1, type="lab", lec_units=0, lab_units=1, department_id=dept.id)
         db.add_all([s3_a, s3_b])
 
         db.commit()
 
-        # Step 5: Verify all subjects share the exact same Curriculum DB structure and block_id
         stored_subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
         self.assertEqual(len(stored_subjects), 5)
         codes = [s.code for s in stored_subjects]
@@ -127,7 +171,6 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertIn("CHEF102A", codes)
         self.assertIn("CHEF102B", codes)
 
-        # Step 6: Verify Faculty Assignment & Schedule Generation
         fac = models.Faculty(first_name="John", last_name="McCarthy", max_units=24, department_id=dept.id)
         db.add(fac)
         sem = models.Semester(academic_year="AY 2026-2027", term="1st", is_active=True)
@@ -137,7 +180,6 @@ class TestLabLecHandling(unittest.TestCase):
         lab_room = models.Room(name="Computer Lab 1", building="Main", capacity=40, type="lab")
         db.add(lab_room)
 
-        # Assign MATH101 (Lecture), CC101A (Lecture), CC101B (Lab) to Faculty
         off1 = models.SubjectOffering(faculty_id=fac.id, curriculum_id=s1.id, semester_id=sem.id)
         off2 = models.SubjectOffering(faculty_id=fac.id, curriculum_id=s2_a.id, semester_id=sem.id)
         off3 = models.SubjectOffering(faculty_id=fac.id, curriculum_id=s2_b.id, semester_id=sem.id)
@@ -152,7 +194,6 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertGreater(results.get("generated", 0), 0)
 
         schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
-        # Verify Lecture schedule room_id is None and Lab schedule room_id is lab_room.id
         math_scheds = [s for s in schedules if s.curriculum_id == s1.id]
         lab_scheds = [s for s in schedules if s.curriculum_id == s2_b.id]
 
@@ -207,11 +248,9 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertEqual(len(lec_scheds), 2)
         self.assertEqual(len(lab_scheds), 2)
 
-        # Verification: CHEF102A (Lecture) MUST have room_id = None
         for s in lec_scheds:
             self.assertIsNone(s.room_id)
 
-        # Verification: CHEF102B (Lab) MUST have lab_room.id
         for s in lab_scheds:
             self.assertEqual(s.room_id, lab_room.id)
 
