@@ -25,10 +25,12 @@ def init_db():
             driver = engine.url.drivername
             if "postgresql" in driver:
                 conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR;"))
-                conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
-                conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
-                conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
-                print("Successfully converted users.role to VARCHAR(50) and updated database columns in production PostgreSQL.")
+                conn.execute(text("ALTER TABLE departments ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"))
+                conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE;"))
+                conn.execute(text("ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE;"))
+                conn.execute(text("ALTER TABLE curriculum_blocks ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'PUBLISHED';"))
+                conn.execute(text("ALTER TABLE curriculum ADD COLUMN IF NOT EXISTS block_id INTEGER REFERENCES curriculum_blocks(id) ON DELETE CASCADE;"))
+                print("Successfully updated database columns in production PostgreSQL (including curriculum_blocks.status).")
             else:
                 res = conn.execute(text("PRAGMA table_info(departments)")).fetchall()
                 columns = [r[1] for r in res]
@@ -41,7 +43,18 @@ def init_db():
                     conn.execute(text("ALTER TABLE conflicts ADD COLUMN faculty_id INTEGER REFERENCES faculty(id) ON DELETE CASCADE"))
                 if "curriculum_id" not in cols_c:
                     conn.execute(text("ALTER TABLE conflicts ADD COLUMN curriculum_id INTEGER REFERENCES curriculum(id) ON DELETE CASCADE"))
-                print("Successfully migrated conflicts columns in SQLite.")
+
+                res_cb = conn.execute(text("PRAGMA table_info(curriculum_blocks)")).fetchall()
+                cols_cb = [r[1] for r in res_cb]
+                if "status" not in cols_cb:
+                    conn.execute(text("ALTER TABLE curriculum_blocks ADD COLUMN status VARCHAR(20) DEFAULT 'PUBLISHED'"))
+
+                res_curr = conn.execute(text("PRAGMA table_info(curriculum)")).fetchall()
+                cols_curr = [r[1] for r in res_curr]
+                if "block_id" not in cols_curr:
+                    conn.execute(text("ALTER TABLE curriculum ADD COLUMN block_id INTEGER REFERENCES curriculum_blocks(id) ON DELETE CASCADE"))
+
+                print("Successfully migrated columns in SQLite.")
     except Exception as e:
         print(f"Database initialization warning: {e}")
 

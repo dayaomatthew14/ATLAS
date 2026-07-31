@@ -19,42 +19,70 @@ def get_curriculum_blocks(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    query = db.query(models.CurriculumBlock)
-    
-    if current_user.role in ['program_chair', 'coordinator']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            query = query.filter(models.CurriculumBlock.department_id == dept.id)
-        else:
-            return []
-    elif current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        # Regular users only see PUBLISHED curricula
-        query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
+    try:
+        query = db.query(models.CurriculumBlock)
+        
+        if current_user.role != 'admin':
+            # All non-admin roles only see PUBLISHED curricula
+            query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
 
-    blocks = query.all()
-    results = []
-    
-    for block in blocks:
-        subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
-        subject_count = len(subjects)
-        total_units = sum(s.units for s in subjects)
+        if current_user.role in ['program_chair', 'coordinator']:
+            dept = db.query(models.Department).filter(
+                (models.Department.code == current_user.department) | 
+                (models.Department.name == current_user.department)
+            ).first()
+            if dept:
+                query = query.filter(models.CurriculumBlock.department_id == dept.id)
+            else:
+                return []
+
+        blocks = query.all()
+        results = []
         
-        results.append({
-            "id": block.id,
-            "program_name": block.program_name,
-            "academic_year": block.academic_year,
-            "filename": block.filename,
-            "department_id": block.department_id,
-            "status": getattr(block, "status", "PUBLISHED") or "PUBLISHED",
-            "created_at": block.created_at,
-            "subject_count": subject_count,
-            "total_units": total_units
-        })
-        
-    return results
+        for block in blocks:
+            subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
+            results.append({
+                "id": block.id,
+                "program_name": block.program_name,
+                "academic_year": block.academic_year,
+                "filename": block.filename,
+                "department_id": block.department_id,
+                "status": getattr(block, "status", "PUBLISHED") or "PUBLISHED",
+                "created_at": block.created_at,
+                "subject_count": len(subjects),
+                "total_units": sum(s.units for s in subjects)
+            })
+            
+        return results
+    except Exception as e:
+        print(f"Fallback handling status query error in get_curriculum_blocks: {e}")
+        blocks = db.query(models.CurriculumBlock).all()
+        results = []
+        for block in blocks:
+            b_status = getattr(block, "status", "PUBLISHED") or "PUBLISHED"
+            if current_user.role != 'admin' and b_status != 'PUBLISHED':
+                continue
+            if current_user.role in ['program_chair', 'coordinator']:
+                dept = db.query(models.Department).filter(
+                    (models.Department.code == current_user.department) | 
+                    (models.Department.name == current_user.department)
+                ).first()
+                if dept and block.department_id != dept.id:
+                    continue
+
+            subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
+            results.append({
+                "id": block.id,
+                "program_name": block.program_name,
+                "academic_year": block.academic_year,
+                "filename": block.filename,
+                "department_id": block.department_id,
+                "status": b_status,
+                "created_at": block.created_at,
+                "subject_count": len(subjects),
+                "total_units": sum(s.units for s in subjects)
+            })
+        return results
 
 @router.post("/blocks", response_model=schemas.CurriculumBlockWithCount, status_code=status.HTTP_201_CREATED)
 def create_curriculum_block(

@@ -345,6 +345,73 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertNotIn("BSIT", block_names) # DRAFT not selectable
         self.assertNotIn("BSBA", block_names) # ARCHIVED not selectable
 
+    def test_get_curriculum_blocks_all_roles_rbac_endpoint(self):
+        from backend.app.routers.curriculum import get_curriculum_blocks
+
+        db = setup_test_db()
+        
+        # Test 1: Empty database returns empty list without error
+        class AdminUser:
+            id = 1
+            role = "admin"
+            department = "CAST"
+
+        res_empty = get_curriculum_blocks(db, AdminUser())
+        self.assertEqual(res_empty, [])
+
+        dept = models.Department(name="College of Computer Studies", code="CAST")
+        db.add(dept)
+        db.commit()
+        dept_id_val: int = int(dept.id) # type: ignore
+
+        b_pub = models.CurriculumBlock(program_name="BSCS", academic_year="AY 2026-2027", department_id=dept_id_val, status="PUBLISHED")
+        b_draft = models.CurriculumBlock(program_name="BSIT", academic_year="AY 2026-2027", department_id=dept_id_val, status="DRAFT")
+        b_arch = models.CurriculumBlock(program_name="IS", academic_year="AY 2025-2026", department_id=dept_id_val, status="ARCHIVED")
+        db.add_all([b_pub, b_draft, b_arch])
+        db.commit()
+
+        # Admin gets all 3 blocks (DRAFT, PUBLISHED, ARCHIVED)
+        res_admin = get_curriculum_blocks(db, AdminUser())
+        self.assertEqual(len(res_admin), 3)
+
+        # Program Chair sees department PUBLISHED blocks
+        class ChairUser:
+            id = 2
+            role = "program_chair"
+            department = "CAST"
+
+        res_chair = get_curriculum_blocks(db, ChairUser())
+        self.assertTrue(all(b["status"] == "PUBLISHED" for b in res_chair if "status" in b))
+
+        # Coordinator sees department PUBLISHED blocks
+        class CoordUser:
+            id = 3
+            role = "coordinator"
+            department = "CAST"
+
+        res_coord = get_curriculum_blocks(db, CoordUser())
+        self.assertTrue(all(b["status"] == "PUBLISHED" for b in res_coord if "status" in b))
+
+        # Faculty sees PUBLISHED blocks
+        class FacultyUser:
+            id = 4
+            role = "faculty"
+            department = "CAST"
+
+        res_fac = get_curriculum_blocks(db, FacultyUser())
+        self.assertEqual(len(res_fac), 1)
+        self.assertEqual(res_fac[0]["program_name"], "BSCS")
+
+        # Student sees PUBLISHED blocks
+        class StudentUser:
+            id = 5
+            role = "student"
+            department = "CAST"
+
+        res_stud = get_curriculum_blocks(db, StudentUser())
+        self.assertEqual(len(res_stud), 1)
+        self.assertEqual(res_stud[0]["program_name"], "BSCS")
+
     def test_curriculum_block_status_management_and_rbac_filtering(self):
         db = setup_test_db()
         dept = models.Department(name="College of Computer Studies", code="CAST")
