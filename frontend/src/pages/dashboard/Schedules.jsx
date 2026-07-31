@@ -40,6 +40,18 @@ const getFacultyColor = (profName) => {
   return FACULTY_COLOR_PALETTES[index];
 };
 
+const formatSubjectCode = (sched) => {
+  if (!sched || !sched.subject_code) return '';
+  const rawCode = sched.subject_code;
+  const abMatch = rawCode.match(/^(.*?)[_\-\s]*A\/B$/i);
+  if (abMatch) {
+    const baseCode = abMatch[1].trim();
+    const isLec = !sched.room_id || sched.room_name === '—' || sched.room_name === '' || sched.part_type === 'lecture';
+    return isLec ? `${baseCode}A` : `${baseCode}B`;
+  }
+  return rawCode;
+};
+
 export default function Schedules() {
   const { addToast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -182,7 +194,7 @@ export default function Schedules() {
     }
     const headers = ['Subject Code', 'Subject Name', 'Day', 'Start Time', 'End Time', 'Room', 'Faculty', 'Department'];
     const rows = globalSchedules.map(s => [
-      `"${s.subject_code || ''}"`,
+      `"${formatSubjectCode(s)}"`,
       `"${(s.subject_name || '').replace(/"/g, '""')}"`,
       `"${s.day_of_week || ''}"`,
       `"${s.start_time || ''}"`,
@@ -670,7 +682,7 @@ export default function Schedules() {
                             style={{ top: `${top}%`, height: `${height}%` }}
                           >
                             <div className="px-3 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex justify-between items-center shrink-0">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-900">{sched.subject_code}</span>
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-900">{formatSubjectCode(sched)}</span>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[11px] font-extrabold text-slate-600">{(() => {
                                   const formatT = (t) => {

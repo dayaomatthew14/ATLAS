@@ -17,6 +17,7 @@ class TestLabLecHandling(unittest.TestCase):
     def test_ab_subject_splitting(self):
         codes_to_test = [
             ("CC101A/B", True, "CC101"),
+            ("CC102A/B", True, "CC102"),
             ("DS101A/B", True, "DS101"),
             ("IT101A/B", True, "IT101"),
             ("CS201A/B", True, "CS201"),
@@ -32,6 +33,31 @@ class TestLabLecHandling(unittest.TestCase):
                     self.assertEqual(ab_match.group(1).strip(), expected_base)
             else:
                 self.assertIsNone(ab_match)
+
+    def test_dynamic_ab_code_formatting_logic(self):
+        # Verify formatting logic for Lecture (no room / room = None) vs Lab (with room)
+        sample_schedules = [
+            {"raw": "CC101A/B", "room": None, "type": "lecture", "expected": "CC101A"},
+            {"raw": "CC101A/B", "room": 101, "type": "lab", "expected": "CC101B"},
+            {"raw": "DS101A/B", "room": None, "type": "lecture", "expected": "DS101A"},
+            {"raw": "DS101A/B", "room": 202, "type": "lab", "expected": "DS101B"},
+            {"raw": "IT101A/B", "room": None, "type": "lecture", "expected": "IT101A"},
+            {"raw": "IT101A/B", "room": 303, "type": "lab", "expected": "IT101B"},
+            {"raw": "CS201A/B", "room": None, "type": "lecture", "expected": "CS201A"},
+            {"raw": "CS201A/B", "room": 404, "type": "lab", "expected": "CS201B"},
+            {"raw": "ENG101", "room": None, "type": "lecture", "expected": "ENG101"}
+        ]
+
+        for item in sample_schedules:
+            raw_code = item["raw"]
+            ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", raw_code, re.IGNORECASE)
+            if ab_match:
+                base_code = ab_match.group(1).strip()
+                result_code = f"{base_code}A" if (item["room"] is None or item["type"] == "lecture") else f"{base_code}B"
+            else:
+                result_code = raw_code
+
+            self.assertEqual(result_code, item["expected"])
 
     def test_lecture_room_null_and_lab_room_required(self):
         db = setup_test_db()

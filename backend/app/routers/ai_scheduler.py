@@ -147,6 +147,7 @@ def get_global_schedule(
         models.Schedule.id,
         models.Curriculum.code.label("subject_code"),
         models.Curriculum.name.label("subject_name"),
+        models.Curriculum.type.label("curriculum_type"),
         models.Faculty.first_name,
         models.Faculty.last_name,
         models.Room.name.label("room_name"),
@@ -156,7 +157,8 @@ def get_global_schedule(
         models.Schedule.end_time,
         models.Schedule.section,
         models.Department.name.label("department_name"),
-        models.Schedule.status
+        models.Schedule.status,
+        models.Schedule.room_id
     ).join(
         models.Curriculum, models.Schedule.curriculum_id == models.Curriculum.id
     ).join(
@@ -179,11 +181,22 @@ def get_global_schedule(
     
     schedules = query.all()
     
+    import re
     response = []
     for s in schedules:
+        raw_code = s.subject_code or ""
+        display_code = raw_code
+        ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", raw_code, re.IGNORECASE)
+        if ab_match:
+            base_code = ab_match.group(1).strip()
+            if s.room_id is None or s.curriculum_type == 'lecture':
+                display_code = f"{base_code}A"
+            else:
+                display_code = f"{base_code}B"
+
         response.append({
             "id": s.id,
-            "subject_code": s.subject_code,
+            "subject_code": display_code,
             "subject_name": s.subject_name,
             "faculty_name": f"{s.first_name} {s.last_name}",
             "room_name": s.room_name if s.room_name else "—",
