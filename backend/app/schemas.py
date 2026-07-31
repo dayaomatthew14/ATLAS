@@ -78,6 +78,7 @@ class CurriculumBlockBase(BaseModel):
     academic_year: str
     filename: Optional[str] = None
     department_id: int
+    status: Optional[str] = 'PUBLISHED'
 
 class CurriculumBlockCreate(CurriculumBlockBase):
     pass

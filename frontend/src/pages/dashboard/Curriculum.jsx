@@ -31,11 +31,32 @@ export default function Curriculum() {
   const [isImporting, setIsImporting] = useState(false);
 
   const [isCreateBlockModalOpen, setIsCreateBlockModalOpen] = useState(false);
-  const [blockFormData, setBlockFormData] = useState({
-    program_name: '',
-    academic_year: 'AY 2026-2027',
-    department_id: 1
-  });
+  const role = (localStorage.getItem('atlas_role') || 'admin').toLowerCase();
+  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+
+  const handleStatusChange = async (blockId, newStatus, e) => {
+    if (e) e.stopPropagation();
+    try {
+      const formData = new FormData();
+      formData.append('status', newStatus);
+      await api.patch(`/curriculum/blocks/${blockId}/status`, formData);
+      addToast(`Curriculum status updated to ${newStatus} ✨`, 'success');
+      const updatedBlocks = await api.get('/curriculum/blocks');
+      setBlocks(Array.isArray(updatedBlocks) ? updatedBlocks : []);
+      if (selectedBlock?.id === blockId) {
+        setSelectedBlock(prev => ({ ...prev, status: newStatus }));
+      }
+    } catch (err) {
+      addToast(err.message || 'Failed to update status', 'error');
+    }
+  };
+
+  const handleSelectCurriculum = (block) => {
+    if (!block) return;
+    localStorage.setItem('atlas_selected_curriculum_id', String(block.id));
+    localStorage.setItem('atlas_selected_program', block.program_name);
+    addToast(`Selected ${block.program_name} (${block.academic_year}) as active curriculum context! ✨`, 'success');
+  };
 
   const handleCreateBlock = async (e) => {
     e.preventDefault();
@@ -367,7 +388,7 @@ export default function Curriculum() {
                 <th className="px-3 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-16 text-center">Lab</th>
                 <th className="px-3 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-16 text-center">Units</th>
                 <th className="px-5 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-32 text-center">Pre-requisite</th>
-                <th className="px-5 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-20 text-right">Actions</th>
+                {canManage && <th className="px-5 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-20 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -386,24 +407,26 @@ export default function Curriculum() {
                   <td className="px-3 py-4 text-slate-900 font-bold text-center align-top">{subj.lab_units}</td>
                   <td className="px-3 py-4 text-slate-900 font-black text-center align-top">{subj.units}</td>
                   <td className="px-5 py-4 text-slate-600 font-medium text-center align-top text-xs">{subj.pre_requisites || 'NONE'}</td>
-                  <td className="px-5 py-4 text-right align-top">
-                    <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
-                       <button 
-                        onClick={() => handleOpenModal(subj)} 
-                        className="text-slate-400 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Edit Item"
-                       >
-                         <Edit className="w-4 h-4" />
-                       </button>
-                       <button 
-                        onClick={() => handleDelete(subj.id)} 
-                        className="text-slate-400 hover:text-rose-600 p-1.5 hover:bg-rose-50 rounded-lg ml-1 transition-colors"
-                        title="Delete Item"
-                       >
-                         <Trash2 className="w-4 h-4" />
-                       </button>
-                    </div>
-                  </td>
+                  {canManage && (
+                    <td className="px-5 py-4 text-right align-top">
+                      <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                         <button 
+                          onClick={() => handleOpenModal(subj)} 
+                          className="text-slate-400 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Edit Item"
+                         >
+                           <Edit className="w-4 h-4" />
+                         </button>
+                         <button 
+                          onClick={() => handleDelete(subj.id)} 
+                          className="text-slate-400 hover:text-rose-600 p-1.5 hover:bg-rose-50 rounded-lg ml-1 transition-colors"
+                          title="Delete Item"
+                         >
+                           <Trash2 className="w-4 h-4" />
+                         </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -417,28 +440,28 @@ export default function Curriculum() {
     <div className="px-12 py-12 w-full">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-20 gap-12">
         <div>
-          <div className="flex items-center space-x-3 mb-2">
-            <div className="p-3 bg-green-600 rounded-2xl shadow-lg shadow-green-200">
-              <BookOpen className="w-8 h-8 text-white" />
-            </div>
-            <h2 className="text-5xl font-black text-slate-900 tracking-tighter">
-              {selectedCourse === 'All' ? 'Academic Curriculum' : `${selectedCourse} Curriculum`}
-            </h2>
-          </div>
-          <p className="text-slate-500 text-lg font-medium">
-            {selectedCourse === 'All' 
-              ? 'Manage and visualize course requirements for all programs.'
-              : `Manage and visualize course requirements for the ${selectedCourse} program.`}
+          <span className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Academic Operations</span>
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight mt-1">Curriculum Flowchart Master</h1>
+          <p className="text-slate-500 font-semibold text-sm mt-1">
+            {canManage ? 'Admin Master Management — Flowcharts, Subjects, Status & Excel Import' : 'Browse published curricula and select active curriculum context for scheduling.'}
           </p>
         </div>
         
-        <div className="flex flex-wrap items-center gap-4 bg-white p-3 rounded-[2.5rem] shadow-xl shadow-slate-100 border border-slate-100">
-          <div className="flex items-center px-4 space-x-3 border-r border-slate-100">
-            <GraduationCap className="w-5 h-5 text-slate-400" />
+        <div className="flex items-center space-x-4">
+          <div className="bg-slate-100 p-1.5 rounded-2xl flex items-center border border-slate-200/60 shadow-inner">
             <select 
               value={selectedCourse} 
-              onChange={(e) => setSelectedCourse(e.target.value)}
-              className="py-2 bg-transparent focus:outline-none font-black text-slate-700 text-sm uppercase tracking-widest cursor-pointer"
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedCourse(val);
+                if (val !== 'All') {
+                  const b = blocks.find(x => x.program_name === val);
+                  if (b) setSelectedBlock(b);
+                } else {
+                  setSelectedBlock(null);
+                }
+              }}
+              className="py-2 bg-transparent focus:outline-none font-black text-slate-700 text-sm uppercase tracking-widest cursor-pointer px-2"
             >
               <option value="All">All Courses</option>
               {availableCourses.map(course => (
@@ -448,32 +471,43 @@ export default function Curriculum() {
           </div>
           
           <div className="flex items-center space-x-2 px-2">
-            <input 
-              type="file" 
-              id="excel-upload" 
-              accept=".xlsx, .xls" 
-              className="hidden" 
-              onChange={handleFileUpload}
-            />
-            <button
-              onClick={() => setIsCreateBlockModalOpen(true)}
-              className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest shadow-md transform hover:scale-105 active:scale-95"
-            >
-              <Plus className="w-4 h-4 mr-1.5" /> Create Curriculum
-            </button>
-            <button
-              onClick={() => document.getElementById('excel-upload').click()}
-              className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest border border-slate-200"
-              title="Import Excel file into curriculum"
-            >
-              <Upload className="w-4 h-4 mr-1.5" /> Import Excel
-            </button>
-            <button
-              onClick={() => handleOpenModal()}
-              className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl flex items-center shadow-lg shadow-green-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
-            >
-              <Plus className="w-4 h-4 mr-1.5" /> Add Subject
-            </button>
+            {canManage ? (
+              <>
+                <input 
+                  type="file" 
+                  id="excel-upload" 
+                  accept=".xlsx, .xls" 
+                  className="hidden" 
+                  onChange={handleFileUpload}
+                />
+                <button
+                  onClick={() => setIsCreateBlockModalOpen(true)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest shadow-md transform hover:scale-105 active:scale-95"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" /> Create Curriculum
+                </button>
+                <button
+                  onClick={() => document.getElementById('excel-upload').click()}
+                  className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest border border-slate-200"
+                  title="Import Excel file into curriculum"
+                >
+                  <Upload className="w-4 h-4 mr-1.5" /> Import Excel
+                </button>
+                <button
+                  onClick={() => handleOpenModal()}
+                  className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl flex items-center shadow-lg shadow-green-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" /> Add Subject
+                </button>
+              </>
+            ) : selectedBlock && (
+              <button
+                onClick={() => handleSelectCurriculum(selectedBlock)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-2xl flex items-center shadow-lg shadow-emerald-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-1.5" /> Select This Curriculum
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -492,28 +526,69 @@ export default function Curriculum() {
                   setSelectedBlock(block);
                   setSelectedCourse(block.program_name);
                 }}
-                className="bg-white rounded-[2.5rem] border border-slate-200 p-10 cursor-pointer hover:shadow-2xl shadow-sm hover:shadow-green-900/5 hover:border-green-200 transition-all duration-300 transform hover:-translate-y-2 group relative overflow-hidden"
+                className="bg-white rounded-[2.5rem] border border-slate-200 p-10 cursor-pointer hover:shadow-2xl shadow-sm hover:shadow-green-900/5 hover:border-green-200 transition-all duration-300 transform hover:-translate-y-2 group relative overflow-hidden flex flex-col justify-between"
               >
                 <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-green-50 to-transparent rounded-bl-full opacity-50 transition-transform group-hover:scale-110"></div>
                 
-                <button
-                  onClick={(e) => handleDeleteCourse(block.id, block.program_name, e)}
-                  className="absolute top-8 right-8 z-20 p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-all opacity-0 group-hover:opacity-100 transform hover:scale-110"
-                  title="Delete Curriculum"
-                >
-                  <Trash2 className="w-6 h-6" />
-                </button>
+                <div>
+                  <div className="flex items-center justify-between mb-6 relative z-10">
+                    <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider ${
+                      block.status === 'PUBLISHED' ? 'bg-emerald-100 text-emerald-800' :
+                      block.status === 'DRAFT' ? 'bg-amber-100 text-amber-800' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>
+                      {block.status || 'PUBLISHED'}
+                    </span>
 
-                <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-green-50 group-hover:border-green-100 transition-colors relative z-10 shadow-sm group-hover:shadow-green-100">
-                  <BookOpen className="w-10 h-10 text-slate-400 group-hover:text-green-600 transition-colors" />
+                    {canManage && (
+                      <div className="flex items-center space-x-2">
+                        <select
+                          value={block.status || 'PUBLISHED'}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => handleStatusChange(block.id, e.target.value, e)}
+                          className="text-[10px] font-black bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 cursor-pointer focus:outline-none uppercase tracking-wider text-slate-700"
+                        >
+                          <option value="DRAFT">DRAFT</option>
+                          <option value="PUBLISHED">PUBLISHED</option>
+                          <option value="ARCHIVED">ARCHIVED</option>
+                        </select>
+                        <button
+                          onClick={(e) => handleDeleteCourse(block.id, block.program_name, e)}
+                          className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-all"
+                          title="Delete Curriculum"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-green-50 group-hover:border-green-100 transition-colors relative z-10 shadow-sm group-hover:shadow-green-100">
+                    <BookOpen className="w-10 h-10 text-slate-400 group-hover:text-green-600 transition-colors" />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight relative z-10 group-hover:text-green-700 transition-colors truncate" title={block.program_name}>
+                    {block.program_name}
+                  </h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 relative z-10">{block.academic_year}</p>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight relative z-10 group-hover:text-green-700 transition-colors truncate" title={block.program_name}>
-                  {block.program_name}
-                </h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 relative z-10">{block.academic_year}</p>
-                <div className="flex items-center space-x-3 text-xs font-black text-slate-500 uppercase tracking-wider relative z-10">
-                  <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{block.subject_count} Subjects</span>
-                  <span className="bg-slate-100/80 backdrop-blur-sm px-4 py-2 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors">{block.total_units} Units</span>
+
+                <div className="flex items-center justify-between text-xs font-black text-slate-500 uppercase tracking-wider relative z-10 pt-4 border-t border-slate-100">
+                  <div className="flex space-x-2">
+                    <span className="bg-slate-100/80 backdrop-blur-sm px-3 py-1.5 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors text-[10px]">{block.subject_count} Subjects</span>
+                    <span className="bg-slate-100/80 backdrop-blur-sm px-3 py-1.5 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors text-[10px]">{block.total_units} Units</span>
+                  </div>
+
+                  {!canManage && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectCurriculum(block);
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm transition-all"
+                    >
+                      Select
+                    </button>
+                  )}
                 </div>
               </div>
             );

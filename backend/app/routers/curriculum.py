@@ -30,6 +30,9 @@ def get_curriculum_blocks(
             query = query.filter(models.CurriculumBlock.department_id == dept.id)
         else:
             return []
+    elif current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        # Regular users only see PUBLISHED curricula
+        query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
 
     blocks = query.all()
     results = []
@@ -45,6 +48,7 @@ def get_curriculum_blocks(
             "academic_year": block.academic_year,
             "filename": block.filename,
             "department_id": block.department_id,
+            "status": getattr(block, "status", "PUBLISHED") or "PUBLISHED",
             "created_at": block.created_at,
             "subject_count": subject_count,
             "total_units": total_units
@@ -83,6 +87,7 @@ def create_curriculum_block(
             "academic_year": existing.academic_year,
             "filename": existing.filename,
             "department_id": existing.department_id,
+            "status": getattr(existing, "status", "PUBLISHED") or "PUBLISHED",
             "created_at": existing.created_at,
             "subject_count": len(subjects),
             "total_units": sum(s.units for s in subjects)
@@ -92,7 +97,8 @@ def create_curriculum_block(
         program_name=block_data.program_name.strip(),
         academic_year=block_data.academic_year.strip(),
         filename=block_data.filename or "Manual Entry",
-        department_id=target_dept_id
+        department_id=target_dept_id,
+        status=block_data.status or 'PUBLISHED'
     )
     db.add(new_block)
     db.commit()
@@ -106,9 +112,47 @@ def create_curriculum_block(
         "academic_year": new_block.academic_year,
         "filename": new_block.filename,
         "department_id": new_block.department_id,
+        "status": getattr(new_block, "status", "PUBLISHED") or "PUBLISHED",
         "created_at": new_block.created_at,
         "subject_count": 0,
         "total_units": 0
+    }
+
+@router.patch("/blocks/{block_id}/status", response_model=schemas.CurriculumBlockWithCount)
+def update_curriculum_block_status(
+    block_id: int,
+    status_value: str = Form(..., alias="status"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
+    if not block:
+        raise HTTPException(status_code=404, detail="Curriculum block not found")
+        
+    new_status = status_value.upper().strip()
+    if new_status not in ['DRAFT', 'PUBLISHED', 'ARCHIVED']:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be DRAFT, PUBLISHED, or ARCHIVED.")
+        
+    block.status = new_status
+    db.commit()
+    db.refresh(block)
+    
+    log_activity(db, current_user.id, "Update Curriculum Status", f"Updated curriculum {block.program_name} status to {new_status}", "success", department_id=block.department_id) # type: ignore
+    
+    subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
+    return {
+        "id": block.id,
+        "program_name": block.program_name,
+        "academic_year": block.academic_year,
+        "filename": block.filename,
+        "department_id": block.department_id,
+        "status": block.status,
+        "created_at": block.created_at,
+        "subject_count": len(subjects),
+        "total_units": sum(s.units for s in subjects)
     }
 
 @router.get("", response_model=List[schemas.CurriculumResponse])

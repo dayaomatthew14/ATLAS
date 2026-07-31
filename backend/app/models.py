@@ -43,6 +43,7 @@ class CurriculumBlock(Base):
     academic_year = Column(String(50), nullable=False)
     filename = Column(String(255), nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    status = Column(String(20), default='PUBLISHED') # DRAFT, PUBLISHED, ARCHIVED
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     department = relationship("Department", back_populates="blocks")
     curriculum_items = relationship("Curriculum", back_populates="block")

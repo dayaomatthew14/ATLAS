@@ -234,6 +234,27 @@ class TestLabLecHandling(unittest.TestCase):
 
         asyncio.run(run_async_tests())
 
+    def test_curriculum_block_status_management_and_rbac_filtering(self):
+        db = setup_test_db()
+        dept = models.Department(name="College of Computer Studies", code="CAST")
+        db.add(dept)
+        db.flush()
+
+        b1 = models.CurriculumBlock(program_name="BSCS", academic_year="AY 2026-2027", filename="Manual Entry", department_id=dept.id, status="PUBLISHED")
+        b2 = models.CurriculumBlock(program_name="BSIT", academic_year="AY 2026-2027", filename="Manual Entry", department_id=dept.id, status="DRAFT")
+        b3 = models.CurriculumBlock(program_name="IS", academic_year="AY 2025-2026", filename="Manual Entry", department_id=dept.id, status="ARCHIVED")
+        db.add_all([b1, b2, b3])
+        db.commit()
+
+        # Admin query sees all 3 blocks
+        all_blocks = db.query(models.CurriculumBlock).all()
+        self.assertEqual(len(all_blocks), 3)
+
+        # Regular user filtering sees only PUBLISHED blocks
+        published_blocks = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.status == "PUBLISHED").all()
+        self.assertEqual(len(published_blocks), 1)
+        self.assertEqual(published_blocks[0].program_name, "BSCS")
+
     def test_curriculum_centered_manual_block_and_subject_creation(self):
         db = setup_test_db()
 
