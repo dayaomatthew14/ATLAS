@@ -4,7 +4,7 @@ import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 
-export default function Curriculum() {
+function Curriculum() {
   const { addToast } = useToast();
   const [curriculum, setCurriculum] = useState([]);
   const [blocks, setBlocks] = useState([]);
@@ -31,6 +31,12 @@ export default function Curriculum() {
   const [isImporting, setIsImporting] = useState(false);
 
   const [isCreateBlockModalOpen, setIsCreateBlockModalOpen] = useState(false);
+  const [blockFormData, setBlockFormData] = useState({
+    program_name: '',
+    academic_year: 'AY 2026-2027',
+    department_id: 1
+  });
+
   const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
   const canManage = role === 'admin';
 
@@ -942,6 +948,51 @@ export default function Curriculum() {
         </div>
       </Modal>
     </div>
+  );
+}
 
+class CurriculumErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Curriculum Page Runtime Error Caught:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-12 text-center bg-white rounded-3xl border border-rose-200 shadow-xl max-w-2xl mx-auto my-12">
+          <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-800 mb-2">Curriculum Page Runtime Error</h2>
+          <p className="text-sm font-semibold text-rose-600 mb-6 bg-rose-50 p-4 rounded-2xl text-left font-mono break-all">
+            {this.state.error?.toString() || 'An unexpected rendering error occurred.'}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition shadow-lg"
+          >
+            Reload Curriculum Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function CurriculumWithErrorBoundary(props) {
+  return (
+    <CurriculumErrorBoundary>
+      <Curriculum {...props} />
+    </CurriculumErrorBoundary>
   );
 }
