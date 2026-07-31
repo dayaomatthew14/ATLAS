@@ -368,7 +368,8 @@ async def _process_curriculum_import(
     dry_run: bool,
     db: Session,
     current_user: models.User,
-    custom_mapping: Optional[str] = None
+    custom_mapping: Optional[str] = None,
+    user_selected_sheet: Optional[str] = None
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can import curriculum Excel files")
@@ -395,15 +396,14 @@ async def _process_curriculum_import(
         items_to_add = []
         skipped_items = []
         all_parsed_data = [] 
-        found_valid_sheet = False
         
         mapping_keywords = {
-            'code': ["course code", "code", "subject code", "catalog"],
-            'name': ["course title", "title", "subject name", "description", "subject"],
-            'units': ["units", "unit", "credit", "total units"],
-            'lec_units': ["lec", "lecture", "lec units", "lec. units"],
-            'lab_units': ["lab", "laboratory", "lab units", "lab. units"],
-            'pre_requisite': ["pre-req", "prerequisite", "prerequisite(s)", "pre-requisite", "prereq"],
+            'code': ["course code", "code", "subject code", "course no", "course number", "course #", "catalog", "subj code", "subject #"],
+            'name': ["course title", "title", "subject name", "course name", "description", "subject", "course description", "subject description"],
+            'units': ["units", "unit", "credit", "total units", "credits", "credit units", "total credit", "tot. units"],
+            'lec_units': ["lec", "lecture", "lec units", "lec. units", "lec hrs", "lecture units"],
+            'lab_units': ["lab", "laboratory", "lab units", "lab. units", "lab hrs", "laboratory units"],
+            'pre_requisite': ["pre-req", "prerequisite", "prerequisites", "pre-requisite", "prereq", "co-requisites", "prereq/coreq"],
             'year_level': ["year", "yr", "grade"],
             'semester_term': ["sem", "semester", "term"]
         }
@@ -417,14 +417,8 @@ async def _process_curriculum_import(
             except:
                 pass
 
-        # STEP 0 — GENERIC STRUCTURE-BASED SHEET IDENTIFICATION & IDENTITY EXTRACTION
-        best_sheet = None
-        max_score = -1
-        extracted_program_name = "Unknown Program"
-        extracted_ay = "Unknown AY"
-        
+        # STAGE 2 — DYNAMIC STRUCTURE-BASED SHEET IDENTIFICATION & TIE-BREAKING
         program_patterns = [
-            r'BACHELOR OF SCIENCE IN [A-Z\s]+',
             r'BACHELOR OF [A-Z\s]+',
             r'DOCTOR OF [A-Z\s]+',
             r'MASTER OF [A-Z\s]+',
@@ -434,9 +428,10 @@ async def _process_curriculum_import(
             r'\bDVM\b'
         ]
 
+        sheet_scores = []
         for sheet_name in xl.sheet_names:
             try:
-                df_probe = pd.read_excel(xl, sheet_name=sheet_name, nrows=25, header=None)
+                df_probe = pd.read_excel(xl, sheet_name=sheet_name, nrows=35, header=None)
             except Exception:
                 continue
 
@@ -447,11 +442,22 @@ async def _process_curriculum_import(
             has_code_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['code']) for val in probe_vals)
             has_title_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['name']) for val in probe_vals)
             has_unit_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['units']) for val in probe_vals)
-            
+            has_lec_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['lec_units']) for val in probe_vals)
+            has_lab_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['lab_units']) for val in probe_vals)
+            has_section_hdr = any(y in probe_text for y in ['YEAR', '1ST YEAR', 'FIRST YEAR', '2ND YEAR', 'SECOND YEAR', 'SEMESTER'])
+
             if has_code_hdr: score += 40
             if has_title_hdr: score += 30
             if has_unit_hdr: score += 20
+            if has_lec_hdr: score += 10
+            if has_lab_hdr: score += 10
+            if has_section_hdr: score += 15
             
+            # Penalize known non-curriculum sheet names
+            lower_name = sheet_name.lower().strip()
+            if any(ign in lower_name for ign in ['addendum', 'coding', 'notes', 'legend', 'reference', 'instruction', 'blank']):
+                score -= 50
+
             ay_match = re.search(r'AY\s*(\d{4})', probe_text)
             ay_val = f"AY {ay_match.group(1)}" if ay_match else "Unknown AY"
             if ay_match: score += 10
@@ -463,21 +469,52 @@ async def _process_curriculum_import(
                     prog_name = match.group(0).strip()
                     score += 15
                     break
-                    
-            if score > max_score or best_sheet is None:
-                max_score = score
-                best_sheet = sheet_name
-                extracted_program_name = prog_name
-                extracted_ay = ay_val
 
-        if not best_sheet and len(xl.sheet_names) > 0:
-            best_sheet = xl.sheet_names[0]
+            if score > 0:
+                sheet_scores.append({
+                    "sheet_name": sheet_name,
+                    "score": score,
+                    "program_name": prog_name,
+                    "academic_year": ay_val
+                })
 
-        if not best_sheet:
-            raise HTTPException(status_code=400, detail="Could not identify the curriculum sheet.")
+        sheet_scores.sort(key=lambda x: x["score"], reverse=True)
+
+        selected_sheet = user_selected_sheet
+        is_sheet_tie = False
+
+        if not selected_sheet:
+            if not sheet_scores or sheet_scores[0]["score"] < 40:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No valid curriculum table was detected. Please verify the Excel file."
+                )
+
+            # Tie-break check: top 2 sheets within 10 points
+            if len(sheet_scores) > 1 and (sheet_scores[0]["score"] - sheet_scores[1]["score"]) <= 10:
+                is_sheet_tie = True
+
+            best_candidate = sheet_scores[0]
+            best_sheet = best_candidate["sheet_name"]
+            extracted_program_name = best_candidate["program_name"]
+            extracted_ay = best_candidate["academic_year"]
+            max_score = best_candidate["score"]
+        else:
+            best_sheet = selected_sheet
+            cand = next((s for s in sheet_scores if s["sheet_name"] == selected_sheet), None)
+            if cand:
+                extracted_program_name = cand["program_name"]
+                extracted_ay = cand["academic_year"]
+                max_score = cand["score"]
+            else:
+                max_score = 50
+                extracted_program_name = "Unknown Program"
+                extracted_ay = "Unknown AY"
 
         if program_code:
             extracted_program_name = program_code
+
+        print(f"DEBUG: Selected Sheet -> '{best_sheet}' (Score: {max_score}), TieBreak: {is_sheet_tie}")
 
         print(f"DEBUG: Identity Detected -> Program: {extracted_program_name}, Year: {extracted_ay}")
 
@@ -862,7 +899,9 @@ async def _process_curriculum_import(
             "program_name": extracted_program_name,
             "academic_year": extracted_ay,
             "selected_sheet": best_sheet,
-            "selected_sheet_reason": f"Selected worksheet '{best_sheet}' because it contains Course Code, Title, Units, and Lec/Lab columns (Score: {max_score}).",
+            "selected_sheet_reason": f"Detected valid subject table in worksheet '{best_sheet}' (Score: {max_score}/125).",
+            "candidate_sheets": sheet_scores,
+            "is_sheet_tie_break": is_sheet_tie,
             "scanned_rows": len(df),
             "total_rows": len(all_parsed_data),
             "detected_subjects": len(all_parsed_data),
@@ -927,11 +966,12 @@ async def import_curriculum(
     program_code: Optional[str] = Form(None),
     dry_run: bool = Form(False),
     mapping: Optional[str] = Form(None),
+    selected_sheet: Optional[str] = Form(None),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
     contents = await file.read()
-    return await _process_curriculum_import(contents, department_id, program_code, dry_run, db, current_user, mapping)
+    return await _process_curriculum_import(contents, department_id, program_code, dry_run, db, current_user, mapping, selected_sheet)
 
 @router.post("/bulk", response_model=schemas.ImportResponse)
 def bulk_create_curriculum(
