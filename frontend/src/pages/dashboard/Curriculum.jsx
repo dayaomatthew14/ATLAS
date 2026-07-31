@@ -31,8 +31,8 @@ export default function Curriculum() {
   const [isImporting, setIsImporting] = useState(false);
 
   const [isCreateBlockModalOpen, setIsCreateBlockModalOpen] = useState(false);
-  const role = (localStorage.getItem('atlas_role') || 'admin').toLowerCase();
-  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
+  const canManage = role === 'admin';
 
   const handleStatusChange = async (blockId, newStatus, e) => {
     if (e) e.stopPropagation();

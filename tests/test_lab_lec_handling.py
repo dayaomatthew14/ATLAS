@@ -5,7 +5,7 @@ import pandas as pd
 from typing import List, Dict, Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from backend.app import models
+from backend.app import models, schemas
 from backend.app.services.schedule_generator import generate_schedules, is_room_conflict
 from backend.app.routers.curriculum import _process_curriculum_import
 
@@ -13,7 +13,11 @@ def setup_test_db():
     engine = create_engine("sqlite:///:memory:")
     models.Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    return Session()
+    db = Session()
+    admin_user = models.User(id=1, first_name="System", last_name="Admin", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
+    db.add(admin_user)
+    db.commit()
+    return db
 
 class TestLabLecHandling(unittest.TestCase):
 
@@ -233,6 +237,109 @@ class TestLabLecHandling(unittest.TestCase):
             self.assertEqual(len(report4), 3) # ACCT101, BUS102A, BUS102B
 
         asyncio.run(run_async_tests())
+
+    def test_curriculum_rbac_admin_only_modifications_suite(self):
+        import asyncio
+        from fastapi import HTTPException
+        from backend.app.routers.curriculum import create_curriculum_block, update_curriculum_block_status, create_curriculum_item, update_curriculum_item, delete_curriculum_item
+
+        db = setup_test_db()
+        dept = models.Department(name="College of Computer Studies", code="CAST")
+        db.add(dept)
+        db.commit()
+
+        class AdminUser:
+            id = 1
+            role = "admin"
+            department = "CAST"
+
+        class ChairUser:
+            id = 2
+            role = "program_chair"
+            department = "CAST"
+
+        class CoordUser:
+            id = 3
+            role = "coordinator"
+            department = "CAST"
+
+        # TEST 1: Admin can create CurriculumBlock
+        block_schema = schemas.CurriculumBlockCreate(program_name="BSCS", academic_year="AY 2026-2027", department_id=dept.id)
+        res_block = create_curriculum_block(block_schema, db, AdminUser())
+        self.assertEqual(res_block["program_name"], "BSCS")
+
+        # TEST 2: Program Chair attempts to create CurriculumBlock -> 403
+        with self.assertRaises(HTTPException) as ctx2:
+            create_curriculum_block(block_schema, db, ChairUser())
+        self.assertEqual(ctx2.exception.status_code, 403)
+
+        # TEST 3: Coordinator attempts to create CurriculumBlock -> 403
+        with self.assertRaises(HTTPException) as ctx3:
+            create_curriculum_block(block_schema, db, CoordUser())
+        self.assertEqual(ctx3.exception.status_code, 403)
+
+        # TEST 4 & 5: Admin vs Chair Excel Import permissions
+        async def test_import():
+            df_data = [
+                ["BSCS", "", "", "", "", ""],
+                ["AY 2026-2027", "", "", "", "", ""],
+                ["1ST YEAR 1ST SEMESTER", "", "", "", "", ""],
+                ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
+                ["CS101", "Intro to CS", 3, 0, 3, "NONE"]
+            ]
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
+
+            # TEST 4: Admin import succeeds
+            imp_res = await _process_curriculum_import(out.getvalue(), dept.id, "BSCS", True, db, AdminUser())
+            self.assertTrue(imp_res.get("is_dry_run"))
+
+            # TEST 5: Chair import fails -> 403
+            with self.assertRaises(HTTPException) as ctx5:
+                await _process_curriculum_import(out.getvalue(), dept.id, "BSCS", True, db, ChairUser())
+            self.assertEqual(ctx5.exception.status_code, 403)
+
+        asyncio.run(test_import())
+
+        # TEST 6 & 7: Admin vs Chair Edit Subject
+        subj = models.Curriculum(block_id=res_block["id"], code="MATH101", name="Algebra", units=3, type="lecture", department_id=dept.id)
+        db.add(subj)
+        db.commit()
+
+        up_schema = schemas.CurriculumUpdate(name="Advanced Algebra")
+        # TEST 6: Admin edit succeeds
+        up_res = update_curriculum_item(subj.id, up_schema, db, AdminUser())
+        self.assertEqual(up_res.name, "Advanced Algebra")
+
+        # TEST 7: Chair edit fails -> 403
+        with self.assertRaises(HTTPException) as ctx7:
+            update_curriculum_item(subj.id, up_schema, db, ChairUser())
+        self.assertEqual(ctx7.exception.status_code, 403)
+
+        # TEST 8 & 9: Admin vs Chair Publish Status
+        # TEST 8: Admin publish succeeds
+        pub_res = update_curriculum_block_status(res_block["id"], "PUBLISHED", db, AdminUser())
+        self.assertEqual(pub_res["status"], "PUBLISHED")
+
+        # TEST 9: Chair publish fails -> 403
+        with self.assertRaises(HTTPException) as ctx9:
+            update_curriculum_block_status(res_block["id"], "PUBLISHED", db, ChairUser())
+        self.assertEqual(ctx9.exception.status_code, 403)
+
+        # TEST 10, 11, 12: Selectability rules for PUBLISHED, DRAFT, ARCHIVED
+        b_draft = models.CurriculumBlock(program_name="BSIT", academic_year="AY 2026-2027", department_id=dept.id, status="DRAFT")
+        b_pub = models.CurriculumBlock(program_name="BSCpE", academic_year="AY 2026-2027", department_id=dept.id, status="PUBLISHED")
+        b_arch = models.CurriculumBlock(program_name="BSBA", academic_year="AY 2025-2026", department_id=dept.id, status="ARCHIVED")
+        db.add_all([b_draft, b_pub, b_arch])
+        db.commit()
+
+        # TEST 10: Non-admin query returns ONLY PUBLISHED
+        user_blocks = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.status == "PUBLISHED").all()
+        block_names = [b.program_name for b in user_blocks]
+        self.assertIn("BSCpE", block_names)
+        self.assertNotIn("BSIT", block_names) # DRAFT not selectable
+        self.assertNotIn("BSBA", block_names) # ARCHIVED not selectable
 
     def test_curriculum_block_status_management_and_rbac_filtering(self):
         db = setup_test_db()
