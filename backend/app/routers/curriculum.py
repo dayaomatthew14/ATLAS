@@ -782,6 +782,17 @@ async def _process_curriculum_import(
                 "validation_issues": []
             }
             
+            # Unit Mismatch Warning check
+            if (lec_units > 0 or lab_units > 0) and units != (lec_units + lab_units):
+                item_data["validation_issues"].append(
+                    f"Unit Mismatch: Total ({units}) != Lec ({lec_units}) + Lab ({lab_units})"
+                )
+
+            if not current_year_context or not current_sem_context:
+                item_data["validation_issues"].append(
+                    "WARNING: Year/Semester context could not be determined"
+                )
+
             # Duplication check WITHIN the block (Step 0 rule: Isolated)
             is_duplicate_in_run = any(i.code == code for i in items_to_add)
 
@@ -850,10 +861,18 @@ async def _process_curriculum_import(
         summary = {
             "program_name": extracted_program_name,
             "academic_year": extracted_ay,
+            "selected_sheet": best_sheet,
+            "selected_sheet_reason": f"Selected worksheet '{best_sheet}' because it contains Course Code, Title, Units, and Lec/Lab columns (Score: {max_score}).",
+            "scanned_rows": len(df),
             "total_rows": len(all_parsed_data),
+            "detected_subjects": len(all_parsed_data),
+            "created_subjects": len(items_to_add),
             "valid_new_items": len(items_to_add),
             "duplicates_skipped": len(skipped_items),
+            "skipped_rows": len(skipped_items),
             "issues_found": sum(1 for i in all_parsed_data if i["validation_issues"]),
+            "warnings_count": sum(1 for i in all_parsed_data if i["validation_issues"]),
+            "errors_count": len(skipped_items),
             "unit_validation": validation_status,
             "excel_total": excel_grand_total,
             "parser_total": total_units_extracted,

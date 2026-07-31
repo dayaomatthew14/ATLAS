@@ -298,6 +298,21 @@ function Curriculum() {
     setEditingItem(null);
   };
 
+  const handleParsedItemChange = (idx, field, value) => {
+    if (!importReport || !importReport.report) return;
+    const updatedReport = [...importReport.report];
+    const item = { ...updatedReport[idx], [field]: value };
+    
+    if (field === 'lec_units' || field === 'lab_units') {
+      const lec = field === 'lec_units' ? parseInt(value) || 0 : item.lec_units || 0;
+      const lab = field === 'lab_units' ? parseInt(value) || 0 : item.lab_units || 0;
+      if (lec + lab > 0) item.units = lec + lab;
+    }
+    
+    updatedReport[idx] = item;
+    setImportReport({ ...importReport, report: updatedReport });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -852,55 +867,124 @@ function Curriculum() {
         maxWidth="max-w-6xl"
       >
         <div className="space-y-6">
-          <div className="flex items-center justify-between bg-slate-50 p-6 rounded-3xl border border-slate-100">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 bg-blue-100 rounded-2xl text-blue-600">
-                <Info className="w-6 h-6" />
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-blue-100 rounded-2xl text-blue-600">
+                  <Info className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-xl tracking-tight">Review & Edit Parsed Data</h4>
+                  <p className="text-slate-500 text-sm font-medium">Verify sheet selection and edit subject fields before saving.</p>
+                </div>
               </div>
-              <div>
-                <h4 className="font-black text-slate-900 text-xl tracking-tight">Review Your Data</h4>
-                <p className="text-slate-500 text-sm font-medium">Verify the subjects found in your Excel file before saving.</p>
+              <div className="flex space-x-6 text-right">
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Detected</p>
+                  <p className="text-2xl font-black text-slate-900">{importReport?.summary?.detected_subjects || importReport?.summary?.total_rows || 0}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Issues</p>
+                  <p className={`text-2xl font-black ${importReport?.summary?.issues_found > 0 ? 'text-amber-500' : 'text-green-500'}`}>
+                    {importReport?.summary?.issues_found || 0}
+                  </p>
+                </div>
               </div>
             </div>
-            <div className="flex space-x-6 text-right">
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Found</p>
-                <p className="text-2xl font-black text-slate-900">{importReport?.summary?.total_rows || 0}</p>
+            {importReport?.summary?.selected_sheet && (
+              <div className="text-xs bg-blue-50/60 border border-blue-100 text-blue-900 p-3 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="font-bold">Worksheet Selected: </span>
+                  <span className="font-black underline">{importReport.summary.selected_sheet}</span>
+                </div>
+                <div className="text-[11px] text-blue-700 font-medium">
+                  {importReport.summary.selected_sheet_reason || 'Identified via structure scoring'}
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Issues</p>
-                <p className={`text-2xl font-black ${importReport?.summary?.issues_found > 0 ? 'text-amber-500' : 'text-green-500'}`}>
-                  {importReport?.summary?.issues_found || 0}
-                </p>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="max-h-[50vh] overflow-y-auto border border-slate-100 rounded-3xl shadow-inner bg-slate-50/30">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-white border-b border-slate-100 z-10">
                 <tr>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Code</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Yr/Sem</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">L/L/U</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                  <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-28">Code</th>
+                  <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject Name</th>
+                  <th className="px-3 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-24">Yr / Sem</th>
+                  <th className="px-2 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-16">Lec</th>
+                  <th className="px-2 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-16">Lab</th>
+                  <th className="px-2 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-16">Units</th>
+                  <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-36">Prerequisites</th>
+                  <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status / Warnings</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {importReport?.report?.map((item, idx) => (
                   <tr key={idx} className={`hover:bg-white transition-colors ${item.validation_issues?.length > 0 ? 'bg-amber-50/30' : ''}`}>
-                    <td className="px-6 py-4 font-bold text-slate-900">{item.code}</td>
-                    <td className="px-6 py-4 font-medium text-slate-600">{item.name}</td>
-                    <td className="px-6 py-4 text-center">
-                      <span className="text-[10px] font-black bg-slate-100 px-2 py-1 rounded-lg">
-                        Y{item.year_level} - {item.semester_term}
-                      </span>
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        value={item.code || ''}
+                        onChange={(e) => handleParsedItemChange(idx, 'code', e.target.value)}
+                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded font-bold text-slate-900 text-xs focus:ring-1 focus:ring-blue-500"
+                      />
                     </td>
-                    <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">
-                      {item.lec_units}/{item.lab_units}/{item.units}
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        value={item.name || ''}
+                        onChange={(e) => handleParsedItemChange(idx, 'name', e.target.value)}
+                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded font-medium text-slate-700 text-xs focus:ring-1 focus:ring-blue-500"
+                      />
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3 text-center">
+                      <div className="flex space-x-1">
+                        <input
+                          type="text"
+                          value={item.year_level || '1'}
+                          onChange={(e) => handleParsedItemChange(idx, 'year_level', e.target.value)}
+                          className="w-8 px-1 py-1 text-center bg-white border border-slate-200 rounded font-bold text-xs"
+                        />
+                        <select
+                          value={item.semester_term || '1st'}
+                          onChange={(e) => handleParsedItemChange(idx, 'semester_term', e.target.value)}
+                          className="w-16 px-1 py-1 bg-white border border-slate-200 rounded font-bold text-[10px]"
+                        >
+                          <option value="1st">1st</option>
+                          <option value="2nd">2nd</option>
+                          <option value="3rd semester">3rd</option>
+                        </select>
+                      </div>
+                    </td>
+                    <td className="px-2 py-3 text-center">
+                      <input
+                        type="number"
+                        value={item.lec_units ?? 0}
+                        onChange={(e) => handleParsedItemChange(idx, 'lec_units', parseInt(e.target.value) || 0)}
+                        className="w-12 px-1 py-1 text-center bg-white border border-slate-200 rounded font-bold text-xs"
+                      />
+                    </td>
+                    <td className="px-2 py-3 text-center">
+                      <input
+                        type="number"
+                        value={item.lab_units ?? 0}
+                        onChange={(e) => handleParsedItemChange(idx, 'lab_units', parseInt(e.target.value) || 0)}
+                        className="w-12 px-1 py-1 text-center bg-white border border-slate-200 rounded font-bold text-xs"
+                      />
+                    </td>
+                    <td className="px-2 py-3 text-center font-black text-slate-900 text-xs">
+                      {item.units}
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        value={item.pre_requisite || ''}
+                        onChange={(e) => handleParsedItemChange(idx, 'pre_requisite', e.target.value)}
+                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded font-medium text-slate-600 text-xs focus:ring-1 focus:ring-blue-500"
+                        placeholder="NONE"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
                       {item.validation_issues?.length > 0 ? (
                         <div className="flex flex-col space-y-1">
                           {item.validation_issues.map((issue, i) => (
