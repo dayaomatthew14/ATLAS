@@ -129,7 +129,7 @@ def update_curriculum_block_status(
     if new_status not in ['DRAFT', 'PUBLISHED', 'ARCHIVED']:
         raise HTTPException(status_code=400, detail="Invalid status. Must be DRAFT, PUBLISHED, or ARCHIVED.")
         
-    block.status = new_status
+    setattr(block, "status", new_status)
     db.commit()
     db.refresh(block)
     

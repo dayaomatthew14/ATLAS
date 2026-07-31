@@ -74,10 +74,10 @@ class TestLabLecHandling(unittest.TestCase):
         ]
 
         for r in test_rows:
-            lec_units = r["lec"]
-            lab_units = r["lab"]
-            code = r["code"]
-            name = r["name"]
+            lec_units: int = int(r["lec"]) # type: ignore
+            lab_units: int = int(r["lab"]) # type: ignore
+            code: str = str(r["code"])
+            name: str = str(r["name"])
 
             if lec_units > 0 and lab_units == 0:
                 ctype = 'lecture'
@@ -172,7 +172,8 @@ class TestLabLecHandling(unittest.TestCase):
             with pd.ExcelWriter(out1, engine='openpyxl') as writer:
                 pd.DataFrame(df1_data).to_excel(writer, index=False, header=False)
             
-            res1 = await _process_curriculum_import(out1.getvalue(), dept.id, "DVM", True, db, MockUser())
+            target_d_id: int = int(dept.id) # type: ignore
+            res1 = await _process_curriculum_import(out1.getvalue(), target_d_id, "DVM", True, db, MockUser())
             report1 = res1.get("report", [])
             self.assertEqual(len(report1), 4)
 
@@ -192,7 +193,7 @@ class TestLabLecHandling(unittest.TestCase):
             with pd.ExcelWriter(out2, engine='openpyxl') as writer:
                 pd.DataFrame(df2_data).to_excel(writer, index=False, header=False)
 
-            res2 = await _process_curriculum_import(out2.getvalue(), dept.id, "BSCS", True, db, MockUser())
+            res2 = await _process_curriculum_import(out2.getvalue(), target_d_id, "BSCS", True, db, MockUser())
             report2 = res2.get("report", [])
             self.assertEqual(len(report2), 5) # CC101A, CC101B, MATH101, CS201A, CS201B
 
@@ -213,7 +214,7 @@ class TestLabLecHandling(unittest.TestCase):
             with pd.ExcelWriter(out3, engine='openpyxl') as writer:
                 pd.DataFrame(df3_data).to_excel(writer, index=False, header=False)
 
-            res3 = await _process_curriculum_import(out3.getvalue(), dept.id, "BSCpE", True, db, MockUser())
+            res3 = await _process_curriculum_import(out3.getvalue(), target_d_id, "BSCpE", True, db, MockUser())
             report3 = res3.get("report", [])
             self.assertEqual(len(report3), 5) # CPE101A, CPE101B, PHYS101A, PHYS101B, MATH102
 
@@ -232,7 +233,7 @@ class TestLabLecHandling(unittest.TestCase):
             with pd.ExcelWriter(out4, engine='openpyxl') as writer:
                 pd.DataFrame(df4_data).to_excel(writer, index=False, header=False)
 
-            res4 = await _process_curriculum_import(out4.getvalue(), dept.id, "BSBA", True, db, MockUser())
+            res4 = await _process_curriculum_import(out4.getvalue(), target_d_id, "BSBA", True, db, MockUser())
             report4 = res4.get("report", [])
             self.assertEqual(len(report4), 3) # ACCT101, BUS102A, BUS102B
 
@@ -247,6 +248,7 @@ class TestLabLecHandling(unittest.TestCase):
         dept = models.Department(name="College of Computer Studies", code="CAST")
         db.add(dept)
         db.commit()
+        dept_id_val: int = int(dept.id) # type: ignore
 
         class AdminUser:
             id = 1
@@ -264,7 +266,7 @@ class TestLabLecHandling(unittest.TestCase):
             department = "CAST"
 
         # TEST 1: Admin can create CurriculumBlock
-        block_schema = schemas.CurriculumBlockCreate(program_name="BSCS", academic_year="AY 2026-2027", department_id=dept.id)
+        block_schema = schemas.CurriculumBlockCreate(program_name="BSCS", academic_year="AY 2026-2027", department_id=dept_id_val)
         res_block = create_curriculum_block(block_schema, db, AdminUser())
         self.assertEqual(res_block["program_name"], "BSCS")
 
@@ -292,39 +294,41 @@ class TestLabLecHandling(unittest.TestCase):
                 pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
 
             # TEST 4: Admin import succeeds
-            imp_res = await _process_curriculum_import(out.getvalue(), dept.id, "BSCS", True, db, AdminUser())
+            imp_res = await _process_curriculum_import(out.getvalue(), dept_id_val, "BSCS", True, db, AdminUser())
             self.assertTrue(imp_res.get("is_dry_run"))
 
             # TEST 5: Chair import fails -> 403
             with self.assertRaises(HTTPException) as ctx5:
-                await _process_curriculum_import(out.getvalue(), dept.id, "BSCS", True, db, ChairUser())
+                await _process_curriculum_import(out.getvalue(), dept_id_val, "BSCS", True, db, ChairUser())
             self.assertEqual(ctx5.exception.status_code, 403)
 
         asyncio.run(test_import())
 
         # TEST 6 & 7: Admin vs Chair Edit Subject
-        subj = models.Curriculum(block_id=res_block["id"], code="MATH101", name="Algebra", units=3, type="lecture", department_id=dept.id)
+        block_id_val: int = int(res_block["id"]) # type: ignore
+        subj = models.Curriculum(block_id=block_id_val, code="MATH101", name="Algebra", units=3, type="lecture", department_id=dept_id_val)
         db.add(subj)
         db.commit()
 
+        subj_id_val: int = int(subj.id) # type: ignore
         up_schema = schemas.CurriculumUpdate(name="Advanced Algebra")
         # TEST 6: Admin edit succeeds
-        up_res = update_curriculum_item(subj.id, up_schema, db, AdminUser())
+        up_res = update_curriculum_item(subj_id_val, up_schema, db, AdminUser())
         self.assertEqual(up_res.name, "Advanced Algebra")
 
         # TEST 7: Chair edit fails -> 403
         with self.assertRaises(HTTPException) as ctx7:
-            update_curriculum_item(subj.id, up_schema, db, ChairUser())
+            update_curriculum_item(subj_id_val, up_schema, db, ChairUser())
         self.assertEqual(ctx7.exception.status_code, 403)
 
         # TEST 8 & 9: Admin vs Chair Publish Status
         # TEST 8: Admin publish succeeds
-        pub_res = update_curriculum_block_status(res_block["id"], "PUBLISHED", db, AdminUser())
+        pub_res = update_curriculum_block_status(block_id_val, "PUBLISHED", db, AdminUser())
         self.assertEqual(pub_res["status"], "PUBLISHED")
 
         # TEST 9: Chair publish fails -> 403
         with self.assertRaises(HTTPException) as ctx9:
-            update_curriculum_block_status(res_block["id"], "PUBLISHED", db, ChairUser())
+            update_curriculum_block_status(block_id_val, "PUBLISHED", db, ChairUser())
         self.assertEqual(ctx9.exception.status_code, 403)
 
         # TEST 10, 11, 12: Selectability rules for PUBLISHED, DRAFT, ARCHIVED
