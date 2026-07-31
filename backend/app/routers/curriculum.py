@@ -703,14 +703,15 @@ async def _process_curriculum_import(
                 if not val or pd.isna(val): return None
                 s = str(val).lower().strip()
                 if s in ['none', 'n/a', '0', 'nan', 'none.', 'no']: return None
-                parts = str(val).replace('&', ',').replace(';', ',').replace(' and ', ',').replace(' or ', ',')
+                parts = str(val).replace('\r\n', ',').replace('\n', ',').replace('&', ',').replace(';', ',').replace(' AND ', ',').replace(' OR ', ',')
                 raw_tokens = [c.strip().upper() for c in parts.split(',') if c and c.strip()]
                 codes: list[str] = []
                 for tok in raw_tokens:
-                    if tok in {"AND", "OR", "NONE", "N/A"}: continue
-                    if re.match(r"^[A-Z]{2,}[A-Z0-9\-\s]*\d+[A-Z0-9\-\s]*$", tok):
-                        codes.append(re.sub(r"\s+", " ", tok))
-                return ",".join(codes) if codes else None
+                    tok_clean = re.sub(r"\s+", " ", tok).strip()
+                    if tok_clean in {"AND", "OR", "NONE", "N/A", "0"}: continue
+                    if tok_clean:
+                        codes.append(tok_clean)
+                return ", ".join(codes) if codes else None
 
             pre_req = clean_prereqs(row[col_map['pre_requisite']] if 'pre_requisite' in col_map else None)
             is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE', 'RZAL', 'RIZAL'))

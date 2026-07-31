@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas
@@ -88,9 +88,19 @@ def create_subject_offering(
     if existing:
         raise HTTPException(status_code=400, detail="Subject offering already exists")
 
+    faculty_mem = db.query(models.Faculty).filter(models.Faculty.id == offering.faculty_id).first()
+    if not faculty_mem:
+        raise HTTPException(status_code=404, detail="Faculty member not found")
+
     curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == offering.curriculum_id).first()
     if not curriculum:
         raise HTTPException(status_code=404, detail="Curriculum subject not found")
+
+    if faculty_mem.department_id != curriculum.department_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Faculty member department does not match curriculum subject department"
+        )
 
     new_offering = models.SubjectOffering(
         faculty_id=offering.faculty_id,

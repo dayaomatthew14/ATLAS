@@ -406,11 +406,138 @@ class TestLabLecHandling(unittest.TestCase):
         class StudentUser:
             id = 5
             role = "student"
-            department = "CAST"
-
+            # Student sees PUBLISHED blocks
         res_stud = get_curriculum_blocks(db, StudentUser())
         self.assertEqual(len(res_stud), 1)
         self.assertEqual(res_stud[0]["program_name"], "BSCS")
+
+    def test_remediation_suite_14_scenarios(self):
+        from datetime import time
+        from fastapi import HTTPException
+        from backend.app.routers.users import purge_all_users
+        from backend.app.routers.subject_offerings import create_subject_offering
+        from backend.app.services.schedule_generator import generate_schedules
+
+        db = setup_test_db()
+        dept1 = models.Department(name="Computer Studies", code="CAST")
+        dept2 = models.Department(name="Business Admin", code="CBM")
+        db.add_all([dept1, dept2])
+        db.commit()
+
+        d1_id = int(dept1.id) # type: ignore
+        d2_id = int(dept2.id) # type: ignore
+
+        class AdminUser:
+            id = 1
+            role = "admin"
+            department = "CAST"
+
+        class ChairUser:
+            id = 2
+            role = "program_chair"
+            department = "CAST"
+
+        class CoordUser:
+            id = 3
+            role = "coordinator"
+            department = "CAST"
+
+        class FacultyUser:
+            id = 4
+            role = "faculty"
+            department = "CAST"
+
+        class StudentUser:
+            id = 5
+            role = "student"
+            department = "CAST"
+
+        # TEST 2-5: Non-admin role purge attempts -> 403
+        for user_obj in [StudentUser(), FacultyUser(), CoordUser(), ChairUser()]:
+            with self.assertRaises(HTTPException) as ctx:
+                purge_all_users(db, user_obj)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+        # TEST 6: Admin purge request -> Allowed (200 OK)
+        purge_res = purge_all_users(db, AdminUser())
+        self.assertIn("deleted_count", purge_res)
+
+        # Re-seed test DB after purge
+        admin_u = models.User(id=1, first_name="Admin", last_name="User", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
+        db.add_all([admin_u, dept1, dept2])
+        db.commit()
+
+        # TEST 11: Cross-department subject offering -> 403 Rejected
+        fac1 = models.Faculty(first_name="Prof", last_name="One", department_id=d1_id, max_units=18, type="full_time")
+        curr2 = models.Curriculum(code="ACCT101", name="Accounting", units=3, type="lecture", department_id=d2_id)
+        sem = models.Semester(academic_year="AY 2026-2027", term="1st", is_active=True)
+        db.add_all([fac1, curr2, sem])
+        db.commit()
+
+        f1_id = int(fac1.id) # type: ignore
+        c2_id = int(curr2.id) # type: ignore
+        sem_id = int(sem.id) # type: ignore
+
+        cross_offering = schemas.SubjectOfferingCreate(faculty_id=f1_id, curriculum_id=c2_id, semester_id=sem_id)
+        with self.assertRaises(HTTPException) as ctx_cross:
+            create_subject_offering(cross_offering, db, AdminUser())
+        self.assertEqual(ctx_cross.exception.status_code, 403)
+
+        # Same-department offering -> Allowed
+        curr1 = models.Curriculum(code="CS101", name="Intro to CS", units=3, type="lecture", department_id=d1_id)
+        db.add(curr1)
+        db.commit()
+        c1_id = int(curr1.id) # type: ignore
+
+        same_offering = schemas.SubjectOfferingCreate(faculty_id=f1_id, curriculum_id=c1_id, semester_id=sem_id)
+        create_subject_offering(same_offering, db, AdminUser())
+
+        # TEST 7: First schedule generation -> Succeeds
+        res_gen1 = generate_schedules(db, sem_id, [f1_id], d1_id, auto_bump_units=False)
+        self.assertGreater(res_gen1.get("generated", 0), 0)
+
+        # TEST 9: Add a locked schedule for CS101 to verify it survives regeneration
+        locked_sched = models.Schedule(semester_id=sem_id, curriculum_id=c1_id, faculty_id=f1_id, day_of_week="Fri", start_time=time(8, 0), end_time=time(9, 30), status="published", is_locked=True)
+        db.add(locked_sched)
+
+        # Add second subject offering CS102 for department 1
+        curr1_2 = models.Curriculum(code="CS102", name="Data Structures", units=3, type="lecture", department_id=d1_id)
+        db.add(curr1_2)
+        db.commit()
+        locked_id = int(locked_sched.id) # type: ignore
+        c1_2_id = int(curr1_2.id) # type: ignore
+
+        second_offering = schemas.SubjectOfferingCreate(faculty_id=f1_id, curriculum_id=c1_2_id, semester_id=sem_id)
+        create_subject_offering(second_offering, db, AdminUser())
+
+        # TEST 8 & 10: Second schedule generation -> Succeeds without duplicating or double-counting stale draft workload
+        res_gen2 = generate_schedules(db, sem_id, [f1_id], d1_id, auto_bump_units=False)
+        self.assertGreater(res_gen2.get("generated", 0), 0)
+
+        # Verify locked schedule still exists
+        survived = db.query(models.Schedule).filter(models.Schedule.id == locked_id).first()
+        self.assertIsNotNone(survived)
+
+        # TEST 12: Prerequisite newline and whitespace normalization
+        import asyncio
+        async def test_prereq():
+            df_data = [
+                ["BSCS", "", "", "", "", ""],
+                ["AY 2026-2027", "", "", "", "", ""],
+                ["1ST YEAR 1ST SEMESTER", "", "", "", "", ""],
+                ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
+                ["CS102", "Data Structures", 3, 0, 3, "CS101\n MATH101 \r\n ENGL101"]
+            ]
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
+
+            imp_res = await _process_curriculum_import(out.getvalue(), d1_id, "BSCS", True, db, AdminUser())
+            report = imp_res.get("report", [])
+            self.assertEqual(len(report), 1)
+            self.assertEqual(report[0]["pre_requisite"], "CS101, MATH101, ENGL101")
+
+        asyncio.run(test_prereq())
 
     def test_curriculum_block_status_management_and_rbac_filtering(self):
         db = setup_test_db()

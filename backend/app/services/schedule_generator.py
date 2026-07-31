@@ -66,6 +66,27 @@ def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
     return False
 
 def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], department_id: int, auto_bump_units: bool = True):
+    # Purge existing unlocked draft schedules for this semester and faculty scope
+    if faculty_ids:
+        draft_scheds = db.query(models.Schedule).join(models.Curriculum).filter(
+            models.Schedule.semester_id == semester_id,
+            models.Schedule.faculty_id.in_(faculty_ids),
+            models.Curriculum.department_id == department_id,
+            (models.Schedule.status == 'draft') | (models.Schedule.status == None),
+            (models.Schedule.is_locked == False) | (models.Schedule.is_locked == None)
+        ).all()
+        draft_ids = [s.id for s in draft_scheds]
+        if draft_ids:
+            db.query(models.Schedule).filter(models.Schedule.id.in_(draft_ids)).delete(synchronize_session=False)
+            db.commit()
+
+        # Clear unresolved conflicts for the faculty scope
+        db.query(models.Conflict).filter(
+            models.Conflict.faculty_id.in_(faculty_ids),
+            models.Conflict.resolved_at == None
+        ).delete(synchronize_session=False)
+        db.commit()
+
     # 1. Fetch Subject Offerings for Department
     subject_offerings = db.query(models.SubjectOffering).join(models.Curriculum).filter(
         models.Curriculum.department_id == department_id,
@@ -73,7 +94,7 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
         models.SubjectOffering.faculty_id.in_(faculty_ids)
     ).all()
 
-    # 2. Load Faculty and initialize hours used
+    # 2. Load Faculty and initialize hours used from LOCKED/PUBLISHED schedules only
     faculties = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
     faculty_objs = {f.id: f for f in faculties}
 

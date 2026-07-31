@@ -214,7 +214,12 @@ def change_password(
 
 @router.post("/purge-all-users")
 @router.delete("/purge-all-users")
-def purge_all_users(db: Session = Depends(database.get_db)):
+def purge_all_users(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can purge user accounts")
     deleted_count = db.query(models.User).delete()
     db.commit()
     return {"message": "All users deleted successfully", "deleted_count": deleted_count}
