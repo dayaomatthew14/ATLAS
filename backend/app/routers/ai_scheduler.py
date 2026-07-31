@@ -184,7 +184,7 @@ def get_global_schedule(
     import re
     response = []
     for s in schedules:
-        raw_code = s.subject_code or ""
+        raw_code: str = str(s.subject_code or "")
         display_code = raw_code
         ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", raw_code, re.IGNORECASE)
         if ab_match:

@@ -49,7 +49,7 @@ class TestLabLecHandling(unittest.TestCase):
         ]
 
         for item in sample_schedules:
-            raw_code = item["raw"]
+            raw_code: str = str(item["raw"])
             ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", raw_code, re.IGNORECASE)
             if ab_match:
                 base_code = ab_match.group(1).strip()
