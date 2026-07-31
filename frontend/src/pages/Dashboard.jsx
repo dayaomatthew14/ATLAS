@@ -65,6 +65,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     try { await api.post('/auth/logout', {}); } catch {}
+    localStorage.removeItem('atlas_token');
     localStorage.removeItem('atlas_role');
     localStorage.removeItem('atlas_user_name');
     localStorage.removeItem('atlas_department');

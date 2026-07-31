@@ -30,8 +30,10 @@ async function request(endpoint, options = {}) {
     }
   }
 
+  const token = typeof window !== 'undefined' ? localStorage.getItem('atlas_token') : null;
   const headers = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
@@ -45,11 +47,11 @@ async function request(endpoint, options = {}) {
     const response = await fetch(url, config);
 
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
+      localStorage.removeItem('atlas_token');
       localStorage.removeItem('atlas_role');
       localStorage.removeItem('atlas_user_name');
       localStorage.removeItem('atlas_department');
       localStorage.removeItem('atlas_profile_picture');
-      // Don't try to removeItem('atlas_token') — it's an HttpOnly cookie
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
       } catch (e) { }

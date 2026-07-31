@@ -109,6 +109,9 @@ export default function Login() {
         const response = await api.postForm('/auth/login', formData);
 
         if (response && response.role) {
+          if (response.access_token) {
+            localStorage.setItem('atlas_token', response.access_token);
+          }
           localStorage.setItem('atlas_role', response.role);
           localStorage.setItem('atlas_user_name', response.name || '');
           if (response.department) {
