@@ -139,22 +139,31 @@ export default function Curriculum() {
       if (selectedCourse === 'All') {
         const data = await api.get('/curriculum/blocks');
         setBlocks(Array.isArray(data) ? data : []);
-      } else if (selectedBlock) {
-        const data = await api.get(`/curriculum?block_id=${selectedBlock.id}`);
-        const mappedData = (Array.isArray(data) ? data : []).map(item => ({
-          ...item,
-          course: item.program_code || item.course,
-          year: normalizeYear(item.year_level || item.year),
-          semester: normalizeSemester(item.semester_term || item.semester),
-          pre_requisites: item.pre_requisite || item.pre_requisites
-        }));
-        setCurriculum(mappedData);
+      } else {
+        let currentBlock = selectedBlock;
+        if (!currentBlock && Array.isArray(blocks) && blocks.length > 0) {
+          currentBlock = blocks.find(b => b?.program_name === selectedCourse);
+          if (currentBlock) setSelectedBlock(currentBlock);
+        }
+        if (currentBlock?.id) {
+          const data = await api.get(`/curriculum?block_id=${currentBlock.id}`);
+          const mappedData = (Array.isArray(data) ? data : []).map(item => ({
+            ...item,
+            course: item.program_code || item.course,
+            year: normalizeYear(item.year_level || item.year),
+            semester: normalizeSemester(item.semester_term || item.semester),
+            pre_requisites: item.pre_requisite || item.pre_requisites
+          }));
+          setCurriculum(mappedData);
+        } else {
+          setCurriculum([]);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch curriculum', error);
       setCurriculum([]);
       setBlocks([]);
-      addToast('Failed to load curriculum', 'error');
+      addToast(error.message || 'Failed to load curriculum', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -363,7 +372,7 @@ export default function Curriculum() {
   });
 
   const SemesterTable = ({ semester, data }) => {
-    const totalUnits = data.reduce((sum, s) => sum + (s.units || 0), 0);
+    const totalUnits = (Array.isArray(data) ? data : []).reduce((sum, s) => sum + (s?.units || 0), 0);
     
     return (
       <div className="flex-1 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col hover:shadow-md transition-shadow">
@@ -392,21 +401,21 @@ export default function Curriculum() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {data.sort((a, b) => a.code.localeCompare(b.code)).map(subj => (
-                <tr key={subj.id} className="hover:bg-slate-50/80 transition-colors group">
-                  <td className="px-5 py-4 font-bold text-slate-900 align-top">{subj.code}</td>
+              {[...(Array.isArray(data) ? data : [])].sort((a, b) => String(a?.code || '').localeCompare(String(b?.code || ''))).map(subj => (
+                <tr key={subj?.id || Math.random()} className="hover:bg-slate-50/80 transition-colors group">
+                  <td className="px-5 py-4 font-bold text-slate-900 align-top">{subj?.code || '—'}</td>
                   <td className="px-5 py-4 text-slate-600 font-semibold leading-tight align-top">
-                    {subj.name}
+                    {subj?.name || 'Untitled Subject'}
                     <div className="mt-1 flex space-x-2">
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-black ${subj.type === 'lecture' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
-                        {subj.type}
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-black ${subj?.type === 'lecture' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
+                        {subj?.type || 'lecture'}
                       </span>
                     </div>
                   </td>
-                  <td className="px-3 py-4 text-slate-900 font-bold text-center align-top">{subj.lec_units}</td>
-                  <td className="px-3 py-4 text-slate-900 font-bold text-center align-top">{subj.lab_units}</td>
-                  <td className="px-3 py-4 text-slate-900 font-black text-center align-top">{subj.units}</td>
-                  <td className="px-5 py-4 text-slate-600 font-medium text-center align-top text-xs">{subj.pre_requisites || 'NONE'}</td>
+                  <td className="px-3 py-4 text-slate-900 font-bold text-center align-top">{subj?.lec_units ?? 0}</td>
+                  <td className="px-3 py-4 text-slate-900 font-bold text-center align-top">{subj?.lab_units ?? 0}</td>
+                  <td className="px-3 py-4 text-slate-900 font-black text-center align-top">{subj?.units ?? 0}</td>
+                  <td className="px-5 py-4 text-slate-600 font-medium text-center align-top text-xs">{subj?.pre_requisites || 'NONE'}</td>
                   {canManage && (
                     <td className="px-5 py-4 text-right align-top">
                       <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
@@ -418,7 +427,7 @@ export default function Curriculum() {
                            <Edit className="w-4 h-4" />
                          </button>
                          <button 
-                          onClick={() => handleDelete(subj.id)} 
+                          onClick={() => handleDelete(subj?.id)} 
                           className="text-slate-400 hover:text-rose-600 p-1.5 hover:bg-rose-50 rounded-lg ml-1 transition-colors"
                           title="Delete Item"
                          >
