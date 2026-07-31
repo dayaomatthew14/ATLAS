@@ -373,43 +373,58 @@ async def _process_curriculum_import(
             except:
                 pass
 
-        # STEP 0 — CURRICULUM BLOCK ISOLATION (IMPORT IDENTITY RULE)
+        # STEP 0 — GENERIC STRUCTURE-BASED SHEET IDENTIFICATION & IDENTITY EXTRACTION
         best_sheet = None
-        max_score = 0
+        max_score = -1
         extracted_program_name = "Unknown Program"
         extracted_ay = "Unknown AY"
         
-        # Probe all sheets for the DLSAU / DVM header or single sheet fallback
+        program_patterns = [
+            r'BACHELOR OF SCIENCE IN [A-Z\s]+',
+            r'BACHELOR OF [A-Z\s]+',
+            r'DOCTOR OF [A-Z\s]+',
+            r'MASTER OF [A-Z\s]+',
+            r'ASSOCIATE IN [A-Z\s]+',
+            r'\bBS[A-Z0-9\-\s]{1,10}\b',
+            r'\bAB[A-Z0-9\-\s]{1,10}\b',
+            r'\bDVM\b'
+        ]
+
         for sheet_name in xl.sheet_names:
-            df_probe = pd.read_excel(xl, sheet_name=sheet_name, nrows=15, header=None)
+            try:
+                df_probe = pd.read_excel(xl, sheet_name=sheet_name, nrows=25, header=None)
+            except Exception:
+                continue
+
             probe_text = " ".join([str(v).upper() for v in df_probe.values.flatten() if pd.notna(v)])
+            probe_vals = [str(v).strip().lower() for v in df_probe.values.flatten() if pd.notna(v)]
             
-            if "DE LA SALLE ARANETA UNIVERSITY" in probe_text or "VETERINARY" in probe_text or "DVM" in probe_text or len(xl.sheet_names) == 1:
-                # Extract Academic Year (e.g., "AY 2026")
-                ay_match = re.search(r'AY\s*(\d{4})', probe_text)
-                ay_val = f"AY {ay_match.group(1)}" if ay_match else "Unknown AY"
-                
-                program_patterns = [
-                    r'BACHELOR OF SCIENCE IN [A-Z\s]+',
-                    r'BACHELOR OF [A-Z\s]+',
-                    r'DOCTOR OF VETERINARY MEDICINE',
-                    r'DOCTOR OF [A-Z\s]+',
-                    r'ASSOCIATE IN [A-Z\s]+',
-                    r'DVM'
-                ]
-                prog_name = "Unknown Program"
-                for pattern in program_patterns:
-                    match = re.search(pattern, probe_text)
-                    if match:
-                        prog_name = match.group(0).strip()
-                        break
-                
-                score = (int(ay_match.group(1)) * 10 if ay_match else 0) + (5 if 'UPDATED' in str(sheet_name).upper() else 0) + 1
-                if score > max_score or best_sheet is None:
-                    max_score = score
-                    best_sheet = sheet_name
-                    extracted_program_name = prog_name
-                    extracted_ay = ay_val
+            score = 0
+            has_code_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['code']) for val in probe_vals)
+            has_title_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['name']) for val in probe_vals)
+            has_unit_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['units']) for val in probe_vals)
+            
+            if has_code_hdr: score += 40
+            if has_title_hdr: score += 30
+            if has_unit_hdr: score += 20
+            
+            ay_match = re.search(r'AY\s*(\d{4})', probe_text)
+            ay_val = f"AY {ay_match.group(1)}" if ay_match else "Unknown AY"
+            if ay_match: score += 10
+            
+            prog_name = "Unknown Program"
+            for pattern in program_patterns:
+                match = re.search(pattern, probe_text)
+                if match:
+                    prog_name = match.group(0).strip()
+                    score += 15
+                    break
+                    
+            if score > max_score or best_sheet is None:
+                max_score = score
+                best_sheet = sheet_name
+                extracted_program_name = prog_name
+                extracted_ay = ay_val
 
         if not best_sheet and len(xl.sheet_names) > 0:
             best_sheet = xl.sheet_names[0]

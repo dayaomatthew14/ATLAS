@@ -1,10 +1,13 @@
 import unittest
 import re
+import io
+import pandas as pd
 from typing import List, Dict, Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app import models
 from backend.app.services.schedule_generator import generate_schedules, is_room_conflict
+from backend.app.routers.curriculum import _process_curriculum_import
 
 def setup_test_db():
     engine = create_engine("sqlite:///:memory:")
@@ -85,7 +88,6 @@ class TestLabLecHandling(unittest.TestCase):
             self.assertEqual(ctype, r["expected_type"])
 
     def test_separate_year_and_semester_section_headers_parsing_logic(self):
-        # Regression Test: Independent Year & Semester section header detection across separate rows
         rows = [
             "FIRST YEAR",
             "FIRST SEMESTER",
@@ -135,6 +137,62 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertEqual(parsed_subjects[2]["code"], "CS201A/B")
         self.assertEqual(parsed_subjects[2]["year"], "2")
         self.assertEqual(parsed_subjects[2]["semester"], "1st")
+
+    def test_generic_multi_department_excel_importer_accuracy(self):
+        import asyncio
+        async def run_async_tests():
+            db = setup_test_db()
+            dept = models.Department(name="College of Veterinary Medicine", code="CVMAS")
+            db.add(dept)
+            db.commit()
+
+            class MockUser:
+                id = 1
+                role = "admin"
+                department = "CVMAS"
+
+            # Department Layout 1: DVM (Already separated A/B)
+            df1_data = [
+                ["DE LA SALLE ARANETA UNIVERSITY", "", "", "", "", ""],
+                ["DOCTOR OF VETERINARY MEDICINE", "", "", "", "", ""],
+                ["AY 2026-2027", "", "", "", "", ""],
+                ["1ST YEAR 1ST SEMESTER", "", "", "", "", ""],
+                ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
+                ["CHEF102A", "Organic Chemistry Lec", 2, 0, 2, "NONE"],
+                ["CHEF102B", "Organic Chemistry Lab", 0, 1, 1, "NONE"]
+            ]
+            out1 = io.BytesIO()
+            with pd.ExcelWriter(out1, engine='openpyxl') as writer:
+                pd.DataFrame(df1_data).to_excel(writer, index=False, header=False)
+            
+            res1 = await _process_curriculum_import(out1.getvalue(), dept.id, "DVM", True, db, MockUser())
+            report1 = res1.get("report", [])
+            self.assertEqual(len(report1), 2)
+            codes1 = [r["code"] for r in report1]
+            self.assertIn("CHEF102A", codes1)
+            self.assertIn("CHEF102B", codes1)
+
+            # Department Layout 2: BSCS (Combined A/B)
+            df2_data = [
+                ["BACHELOR OF SCIENCE IN COMPUTER SCIENCE", "", "", "", "", ""],
+                ["AY 2026-2027", "", "", "", "", ""],
+                ["FIRST YEAR", "", "", "", "", ""],
+                ["FIRST SEMESTER", "", "", "", "", ""],
+                ["Subject Code", "Subject Name", "Lec Units", "Lab Units", "Units", "Pre-req"],
+                ["CC101A/B", "Introduction to Computing Lec/Lab", 2, 1, 3, "NONE"]
+            ]
+            out2 = io.BytesIO()
+            with pd.ExcelWriter(out2, engine='openpyxl') as writer:
+                pd.DataFrame(df2_data).to_excel(writer, index=False, header=False)
+
+            res2 = await _process_curriculum_import(out2.getvalue(), dept.id, "BSCS", True, db, MockUser())
+            report2 = res2.get("report", [])
+            self.assertEqual(len(report2), 2)
+            codes2 = [r["code"] for r in report2]
+            self.assertIn("CC101A", codes2)
+            self.assertIn("CC101B", codes2)
+
+        asyncio.run(run_async_tests())
 
     def test_curriculum_centered_manual_block_and_subject_creation(self):
         db = setup_test_db()
