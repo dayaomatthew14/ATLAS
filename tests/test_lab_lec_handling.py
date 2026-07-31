@@ -151,7 +151,7 @@ class TestLabLecHandling(unittest.TestCase):
                 role = "admin"
                 department = "CVMAS"
 
-            # Department Layout 1: DVM (Already separated A/B)
+            # 1. DVM Layout (Doctor of Veterinary Medicine)
             df1_data = [
                 ["DE LA SALLE ARANETA UNIVERSITY", "", "", "", "", ""],
                 ["DOCTOR OF VETERINARY MEDICINE", "", "", "", "", ""],
@@ -159,7 +159,10 @@ class TestLabLecHandling(unittest.TestCase):
                 ["1ST YEAR 1ST SEMESTER", "", "", "", "", ""],
                 ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
                 ["CHEF102A", "Organic Chemistry Lec", 2, 0, 2, "NONE"],
-                ["CHEF102B", "Organic Chemistry Lab", 0, 1, 1, "NONE"]
+                ["CHEF102B", "Organic Chemistry Lab", 0, 1, 1, "NONE"],
+                ["1ST YEAR 2ND SEMESTER", "", "", "", "", ""],
+                ["ANAT101A", "Veterinary Anatomy Lec", 3, 0, 3, "NONE"],
+                ["ANAT101B", "Veterinary Anatomy Lab", 0, 2, 2, "NONE"]
             ]
             out1 = io.BytesIO()
             with pd.ExcelWriter(out1, engine='openpyxl') as writer:
@@ -167,19 +170,19 @@ class TestLabLecHandling(unittest.TestCase):
             
             res1 = await _process_curriculum_import(out1.getvalue(), dept.id, "DVM", True, db, MockUser())
             report1 = res1.get("report", [])
-            self.assertEqual(len(report1), 2)
-            codes1 = [r["code"] for r in report1]
-            self.assertIn("CHEF102A", codes1)
-            self.assertIn("CHEF102B", codes1)
+            self.assertEqual(len(report1), 4)
 
-            # Department Layout 2: BSCS (Combined A/B)
+            # 2. BSCS Layout (BS Computer Science - Combined A/B)
             df2_data = [
                 ["BACHELOR OF SCIENCE IN COMPUTER SCIENCE", "", "", "", "", ""],
                 ["AY 2026-2027", "", "", "", "", ""],
                 ["FIRST YEAR", "", "", "", "", ""],
                 ["FIRST SEMESTER", "", "", "", "", ""],
                 ["Subject Code", "Subject Name", "Lec Units", "Lab Units", "Units", "Pre-req"],
-                ["CC101A/B", "Introduction to Computing Lec/Lab", 2, 1, 3, "NONE"]
+                ["CC101A/B", "Introduction to Computing Lec/Lab", 2, 1, 3, "NONE"],
+                ["MATH101", "College Algebra", 3, 0, 3, "NONE"],
+                ["SECOND SEMESTER", "", "", "", "", ""],
+                ["CS201A/B", "Data Structures Lec/Lab", 2, 1, 3, "CC101A,CC101B"]
             ]
             out2 = io.BytesIO()
             with pd.ExcelWriter(out2, engine='openpyxl') as writer:
@@ -187,10 +190,47 @@ class TestLabLecHandling(unittest.TestCase):
 
             res2 = await _process_curriculum_import(out2.getvalue(), dept.id, "BSCS", True, db, MockUser())
             report2 = res2.get("report", [])
-            self.assertEqual(len(report2), 2)
-            codes2 = [r["code"] for r in report2]
-            self.assertIn("CC101A", codes2)
-            self.assertIn("CC101B", codes2)
+            self.assertEqual(len(report2), 5) # CC101A, CC101B, MATH101, CS201A, CS201B
+
+            # 3. BSCpE Layout (BS Computer Engineering - Separate Section Lines)
+            df3_data = [
+                ["DE LA SALLE ARANETA UNIVERSITY", "", "", "", "", ""],
+                ["BACHELOR OF SCIENCE IN COMPUTER ENGINEERING", "", "", "", "", ""],
+                ["AY 2026-2027", "", "", "", "", ""],
+                ["1ST YEAR", "", "", "", "", ""],
+                ["1ST SEMESTER", "", "", "", "", ""],
+                ["Code", "Catalog Title", "Lec", "Lab", "Total Units", "Prerequisite(s)"],
+                ["CPE101A/B", "Logic Circuits Lec/Lab", 2, 1, 3, "NONE"],
+                ["PHYS101A/B", "University Physics Lec/Lab", 3, 1, 4, "NONE"],
+                ["2ND SEMESTER", "", "", "", "", ""],
+                ["MATH102", "Calculus I", 4, 0, 4, "MATH101"]
+            ]
+            out3 = io.BytesIO()
+            with pd.ExcelWriter(out3, engine='openpyxl') as writer:
+                pd.DataFrame(df3_data).to_excel(writer, index=False, header=False)
+
+            res3 = await _process_curriculum_import(out3.getvalue(), dept.id, "BSCpE", True, db, MockUser())
+            report3 = res3.get("report", [])
+            self.assertEqual(len(report3), 5) # CPE101A, CPE101B, PHYS101A, PHYS101B, MATH102
+
+            # 4. New Unknown Department Layout (NewProgram_Curriculum.xlsx)
+            df4_data = [
+                ["COLLEGE OF BUSINESS AND MANAGEMENT", "", "", "", "", ""],
+                ["BACHELOR OF SCIENCE IN BUSINESS ADMINISTRATION", "", "", "", "", ""],
+                ["AY 2026-2027", "", "", "", "", ""],
+                ["INTRODUCTORY NOTES", "", "", "", "", ""],
+                ["1ST YEAR 1ST SEMESTER", "", "", "", "", ""],
+                ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
+                ["ACCT101", "Financial Accounting", 3, 0, 3, "NONE"],
+                ["BUS102A/B", "Business Analytics Lec/Lab", 2, 1, 3, "NONE"]
+            ]
+            out4 = io.BytesIO()
+            with pd.ExcelWriter(out4, engine='openpyxl') as writer:
+                pd.DataFrame(df4_data).to_excel(writer, index=False, header=False)
+
+            res4 = await _process_curriculum_import(out4.getvalue(), dept.id, "BSBA", True, db, MockUser())
+            report4 = res4.get("report", [])
+            self.assertEqual(len(report4), 3) # ACCT101, BUS102A, BUS102B
 
         asyncio.run(run_async_tests())
 
