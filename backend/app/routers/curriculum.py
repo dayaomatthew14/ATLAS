@@ -52,6 +52,65 @@ def get_curriculum_blocks(
         
     return results
 
+@router.post("/blocks", response_model=schemas.CurriculumBlockWithCount, status_code=status.HTTP_201_CREATED)
+def create_curriculum_block(
+    block_data: schemas.CurriculumBlockCreate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        
+    target_dept_id = block_data.department_id
+    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            target_dept_id = int(dept.id) # type: ignore
+
+    existing = db.query(models.CurriculumBlock).filter(
+        models.CurriculumBlock.program_name == block_data.program_name,
+        models.CurriculumBlock.academic_year == block_data.academic_year,
+        models.CurriculumBlock.department_id == target_dept_id
+    ).first()
+    if existing:
+        subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == existing.id).all()
+        return {
+            "id": existing.id,
+            "program_name": existing.program_name,
+            "academic_year": existing.academic_year,
+            "filename": existing.filename,
+            "department_id": existing.department_id,
+            "created_at": existing.created_at,
+            "subject_count": len(subjects),
+            "total_units": sum(s.units for s in subjects)
+        }
+
+    new_block = models.CurriculumBlock(
+        program_name=block_data.program_name.strip(),
+        academic_year=block_data.academic_year.strip(),
+        filename=block_data.filename or "Manual Entry",
+        department_id=target_dept_id
+    )
+    db.add(new_block)
+    db.commit()
+    db.refresh(new_block)
+    
+    log_activity(db, current_user.id, "Create Curriculum Block", f"Created curriculum block: {new_block.program_name} ({new_block.academic_year})", "success", department_id=target_dept_id) # type: ignore
+
+    return {
+        "id": new_block.id,
+        "program_name": new_block.program_name,
+        "academic_year": new_block.academic_year,
+        "filename": new_block.filename,
+        "department_id": new_block.department_id,
+        "created_at": new_block.created_at,
+        "subject_count": 0,
+        "total_units": 0
+    }
+
 @router.get("", response_model=List[schemas.CurriculumResponse])
 def get_curriculum(
     skip: int = 0, 
@@ -127,6 +186,14 @@ def create_curriculum_item(
         if first_dept:
             curriculum_item.department_id = int(first_dept.id) # type: ignore
              
+    # Determine subject type using Lec/Lab unit values as primary priority
+    lec_u_val = curriculum_item.lec_units
+    lab_u_val = curriculum_item.lab_units
+    if lec_u_val > 0 and lab_u_val == 0:
+        curriculum_item.type = 'lecture'
+    elif lec_u_val == 0 and lab_u_val > 0:
+        curriculum_item.type = 'lab'
+
     ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", curriculum_item.code, re.IGNORECASE)
     if ab_match:
         base_code = ab_match.group(1).strip()
@@ -136,25 +203,53 @@ def create_curriculum_item(
         u_lec = curriculum_item.lec_units if curriculum_item.lec_units > 0 else (curriculum_item.units if curriculum_item.lab_units == 0 else max(1, curriculum_item.units - curriculum_item.lab_units))
         u_lab = curriculum_item.lab_units if curriculum_item.lab_units > 0 else 1
 
-        new_a = models.Curriculum(
-            **{**curriculum_item.model_dump(), "code": code_a, "type": "lecture", "units": u_lec, "lec_units": u_lec, "lab_units": 0}
-        )
-        new_b = models.Curriculum(
-            **{**curriculum_item.model_dump(), "code": code_b, "type": "lab", "units": u_lab, "lec_units": 0, "lab_units": u_lab}
-        )
-        db.add(new_a)
-        db.add(new_b)
-        db.commit()
-        db.refresh(new_a)
-        log_activity(db, current_user.id, "Create Curriculum", f"Created split A/B subjects: {code_a}, {code_b}", "success", department_id=new_a.department_id) # type: ignore
-        return new_a
+        existing_a = db.query(models.Curriculum).filter(
+            models.Curriculum.block_id == curriculum_item.block_id,
+            func.lower(models.Curriculum.code) == code_a.lower()
+        ).first() if curriculum_item.block_id else None
 
-    db_curriculum = db.query(models.Curriculum).filter(
-        models.Curriculum.code == curriculum_item.code,
-        models.Curriculum.program_code == curriculum_item.program_code
-    ).first()
-    if db_curriculum:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Curriculum item with this code already exists for this program")
+        existing_b = db.query(models.Curriculum).filter(
+            models.Curriculum.block_id == curriculum_item.block_id,
+            func.lower(models.Curriculum.code) == code_b.lower()
+        ).first() if curriculum_item.block_id else None
+
+        if existing_a and existing_b:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Both {code_a} and {code_b} already exist in this curriculum block")
+
+        created_item = None
+        if not existing_a:
+            new_a = models.Curriculum(
+                **{**curriculum_item.model_dump(), "code": code_a, "type": "lecture", "units": u_lec, "lec_units": u_lec, "lab_units": 0}
+            )
+            db.add(new_a)
+            created_item = new_a
+        if not existing_b:
+            new_b = models.Curriculum(
+                **{**curriculum_item.model_dump(), "code": code_b, "type": "lab", "units": u_lab, "lec_units": 0, "lab_units": u_lab}
+            )
+            db.add(new_b)
+            if not created_item: created_item = new_b
+
+        db.commit()
+        if created_item: db.refresh(created_item)
+        log_activity(db, current_user.id, "Create Curriculum", f"Created split A/B subjects: {code_a}, {code_b}", "success", department_id=curriculum_item.department_id) # type: ignore
+        return created_item or existing_a
+
+    # Check per-block duplicate
+    if curriculum_item.block_id:
+        existing_single = db.query(models.Curriculum).filter(
+            models.Curriculum.block_id == curriculum_item.block_id,
+            func.lower(models.Curriculum.code) == curriculum_item.code.lower()
+        ).first()
+        if existing_single:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Subject {curriculum_item.code} already exists in this curriculum block")
+    else:
+        db_curriculum = db.query(models.Curriculum).filter(
+            models.Curriculum.code == curriculum_item.code,
+            models.Curriculum.program_code == curriculum_item.program_code
+        ).first()
+        if db_curriculum:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Curriculum item with this code already exists for this program")
         
     new_curriculum = models.Curriculum(**curriculum_item.model_dump())
     db.add(new_curriculum)
@@ -766,11 +861,16 @@ def bulk_create_curriculum(
             if not dept or dept.id != payload.department_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to import for this department")
 
-        block = db.query(models.CurriculumBlock).filter(
-            models.CurriculumBlock.program_name == payload.program_name,
-            models.CurriculumBlock.academic_year == payload.academic_year,
-            models.CurriculumBlock.department_id == payload.department_id
-        ).first()
+        block = None
+        if payload.block_id:
+            block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == payload.block_id).first()
+
+        if not block:
+            block = db.query(models.CurriculumBlock).filter(
+                models.CurriculumBlock.program_name == payload.program_name,
+                models.CurriculumBlock.academic_year == payload.academic_year,
+                models.CurriculumBlock.department_id == payload.department_id
+            ).first()
 
         if not block:
             block = models.CurriculumBlock(

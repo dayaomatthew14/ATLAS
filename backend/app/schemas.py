@@ -317,6 +317,7 @@ class FacultyUnavailabilityResponse(BaseModel):
 
 
 class BulkImportRequest(BaseModel):
+    block_id: Optional[int] = None
     program_name: str
     academic_year: str
     department_id: int

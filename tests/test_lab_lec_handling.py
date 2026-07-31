@@ -86,6 +86,81 @@ class TestLabLecHandling(unittest.TestCase):
 
             self.assertEqual(ctype, r["expected_type"])
 
+    def test_curriculum_centered_manual_block_and_subject_creation(self):
+        # Phase 15: Create curriculum without Excel file & verify Manual/Excel parity
+        db = setup_test_db()
+
+        dept = models.Department(name="College of Computer Studies", code="CAST")
+        db.add(dept)
+        db.flush()
+
+        # Step 1: Create Curriculum Block without Excel file
+        block = models.CurriculumBlock(program_name="BSCS", academic_year="AY 2026-2027", filename="Manual Entry", department_id=dept.id)
+        db.add(block)
+        db.flush()
+
+        self.assertIsNotNone(block.id)
+
+        # Step 2: Add Normal Subject (MATH101)
+        s1 = models.Curriculum(block_id=block.id, code="MATH101", name="College Algebra", units=3, type="lecture", lec_units=3, lab_units=0, department_id=dept.id)
+        db.add(s1)
+
+        # Step 3: Add Combined A/B Subject (CC101A/B -> CC101A + CC101B)
+        s2_a = models.Curriculum(block_id=block.id, code="CC101A", name="Intro to Computing Lec", units=2, type="lecture", lec_units=2, lab_units=0, department_id=dept.id)
+        s2_b = models.Curriculum(block_id=block.id, code="CC101B", name="Intro to Computing Lab", units=1, type="lab", lec_units=0, lab_units=1, department_id=dept.id)
+        db.add_all([s2_a, s2_b])
+
+        # Step 4: Add Already-Separated Subjects (CHEF102A + CHEF102B)
+        s3_a = models.Curriculum(block_id=block.id, code="CHEF102A", name="Organic Chemistry Lec", units=2, type="lecture", lec_units=2, lab_units=0, department_id=dept.id)
+        s3_b = models.Curriculum(block_id=block.id, code="CHEF102B", name="Organic Chemistry Lab", units=1, type="lab", lec_units=0, lab_units=1, department_id=dept.id)
+        db.add_all([s3_a, s3_b])
+
+        db.commit()
+
+        # Step 5: Verify all subjects share the exact same Curriculum DB structure and block_id
+        stored_subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
+        self.assertEqual(len(stored_subjects), 5)
+        codes = [s.code for s in stored_subjects]
+        self.assertIn("MATH101", codes)
+        self.assertIn("CC101A", codes)
+        self.assertIn("CC101B", codes)
+        self.assertIn("CHEF102A", codes)
+        self.assertIn("CHEF102B", codes)
+
+        # Step 6: Verify Faculty Assignment & Schedule Generation
+        fac = models.Faculty(first_name="John", last_name="McCarthy", max_units=24, department_id=dept.id)
+        db.add(fac)
+        sem = models.Semester(academic_year="AY 2026-2027", term="1st", is_active=True)
+        db.add(sem)
+        db.flush()
+
+        lab_room = models.Room(name="Computer Lab 1", building="Main", capacity=40, type="lab")
+        db.add(lab_room)
+
+        # Assign MATH101 (Lecture), CC101A (Lecture), CC101B (Lab) to Faculty
+        off1 = models.SubjectOffering(faculty_id=fac.id, curriculum_id=s1.id, semester_id=sem.id)
+        off2 = models.SubjectOffering(faculty_id=fac.id, curriculum_id=s2_a.id, semester_id=sem.id)
+        off3 = models.SubjectOffering(faculty_id=fac.id, curriculum_id=s2_b.id, semester_id=sem.id)
+        db.add_all([off1, off2, off3])
+        db.commit()
+
+        sem_id: int = int(sem.id)  # type: ignore
+        fac_id: int = int(fac.id)  # type: ignore
+        dept_id: int = int(dept.id)  # type: ignore
+
+        results = generate_schedules(db, sem_id, [fac_id], dept_id, auto_bump_units=False)
+        self.assertGreater(results.get("generated", 0), 0)
+
+        schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
+        # Verify Lecture schedule room_id is None and Lab schedule room_id is lab_room.id
+        math_scheds = [s for s in schedules if s.curriculum_id == s1.id]
+        lab_scheds = [s for s in schedules if s.curriculum_id == s2_b.id]
+
+        for s in math_scheds:
+            self.assertIsNone(s.room_id)
+        for s in lab_scheds:
+            self.assertEqual(s.room_id, lab_room.id)
+
     def test_lecture_room_null_and_lab_room_required(self):
         db = setup_test_db()
 

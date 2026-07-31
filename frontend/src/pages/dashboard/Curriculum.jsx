@@ -30,6 +30,42 @@ export default function Curriculum() {
   const [importReport, setImportReport] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
 
+  const [isCreateBlockModalOpen, setIsCreateBlockModalOpen] = useState(false);
+  const [blockFormData, setBlockFormData] = useState({
+    program_name: '',
+    academic_year: 'AY 2026-2027',
+    department_id: 1
+  });
+
+  const handleCreateBlock = async (e) => {
+    e.preventDefault();
+    if (!blockFormData.program_name.trim()) {
+      addToast('Program name is required', 'warning');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const res = await api.post('/curriculum/blocks', {
+        program_name: blockFormData.program_name.trim().toUpperCase(),
+        academic_year: blockFormData.academic_year.trim(),
+        department_id: parseInt(blockFormData.department_id) || 1
+      });
+      addToast(`Curriculum block for ${res.program_name} created successfully! ✨`, 'success');
+      setIsCreateBlockModalOpen(false);
+      setBlockFormData({ program_name: '', academic_year: 'AY 2026-2027', department_id: 1 });
+      
+      const updatedBlocks = await api.get('/curriculum/blocks');
+      setBlocks(Array.isArray(updatedBlocks) ? updatedBlocks : []);
+      const newBlock = (updatedBlocks || []).find(b => b.id === res.id) || res;
+      setSelectedBlock(newBlock);
+      setSelectedCourse(newBlock.program_name);
+    } catch (err) {
+      addToast(err.response?.data?.detail || err.message || 'Failed to create curriculum block', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const columns = [
     { key: 'code', label: 'Code' },
     { key: 'name', label: 'Subject Name' },
@@ -151,9 +187,10 @@ export default function Curriculum() {
       
       // Send the parsed and validated items to the bulk endpoint using the new Block Isolation payload
       const payload = {
-        program_name: importReport.summary.program_name || 'Unknown Program',
-        academic_year: importReport.summary.academic_year || 'Unknown AY',
-        department_id: importReport.report[0]?.department_id || 1,
+        block_id: selectedBlock?.id || null,
+        program_name: importReport.summary.program_name || selectedBlock?.program_name || 'Unknown Program',
+        academic_year: importReport.summary.academic_year || selectedBlock?.academic_year || 'Unknown AY',
+        department_id: importReport.report[0]?.department_id || selectedBlock?.department_id || 1,
         items: importReport.report
       };
       await api.post('/curriculum/bulk', payload);
@@ -419,16 +456,23 @@ export default function Curriculum() {
               onChange={handleFileUpload}
             />
             <button
+              onClick={() => setIsCreateBlockModalOpen(true)}
+              className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest shadow-md transform hover:scale-105 active:scale-95"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Create Curriculum
+            </button>
+            <button
               onClick={() => document.getElementById('excel-upload').click()}
               className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest border border-slate-200"
+              title="Import Excel file into curriculum"
             >
-              <Upload className="w-4 h-4 mr-2" /> Import
+              <Upload className="w-4 h-4 mr-1.5" /> Import Excel
             </button>
             <button
               onClick={() => handleOpenModal()}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl flex items-center shadow-lg shadow-green-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
+              className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl flex items-center shadow-lg shadow-green-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
             >
-              <Plus className="w-5 h-5 mr-1" /> Add Item
+              <Plus className="w-4 h-4 mr-1.5" /> Add Subject
             </button>
           </div>
         </div>
@@ -523,10 +567,57 @@ export default function Curriculum() {
         </div>
       )}
 
+      {/* Create Curriculum Block Modal */}
+      <Modal
+        isOpen={isCreateBlockModalOpen}
+        onClose={() => setIsCreateBlockModalOpen(false)}
+        title="Create New Curriculum"
+      >
+        <form onSubmit={handleCreateBlock} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Program Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. DVM, BSCS, BSIT, BSCpE"
+              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              value={blockFormData.program_name}
+              onChange={(e) => setBlockFormData({ ...blockFormData, program_name: e.target.value.toUpperCase() })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Academic Year</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. AY 2026-2027"
+              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+              value={blockFormData.academic_year}
+              onChange={(e) => setBlockFormData({ ...blockFormData, academic_year: e.target.value })}
+            />
+          </div>
+          <div className="pt-4 flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={() => setIsCreateBlockModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md shadow-sm"
+            >
+              Create Curriculum
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingItem ? 'Edit Curriculum Item' : 'Add New Curriculum Item'}
+        title={editingItem ? 'Edit Curriculum Subject' : 'Add New Subject'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
