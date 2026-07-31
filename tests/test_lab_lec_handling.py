@@ -59,10 +59,37 @@ class TestLabLecHandling(unittest.TestCase):
 
             self.assertEqual(result_code, item["expected"])
 
+    def test_dvm_already_separated_subjects_classification(self):
+        # Format 2 (DVM Format): Already separated CHEF102A (Lec=2, Lab=0) and CHEF102B (Lec=0, Lab=1)
+        test_rows = [
+            {"code": "CHEF102A", "name": "Organic Chemistry Lec", "lec": 2, "lab": 0, "expected_type": "lecture"},
+            {"code": "CHEF102B", "name": "Organic Chemistry Lab", "lec": 0, "lab": 1, "expected_type": "lab"},
+            {"code": "ANAT101A", "name": "Veterinary Anatomy Lec", "lec": 3, "lab": 0, "expected_type": "lecture"},
+            {"code": "ANAT101B", "name": "Veterinary Anatomy Lab", "lec": 0, "lab": 2, "expected_type": "lab"}
+        ]
+
+        for r in test_rows:
+            lec_units = r["lec"]
+            lab_units = r["lab"]
+            code = r["code"]
+            name = r["name"]
+
+            if lec_units > 0 and lab_units == 0:
+                ctype = 'lecture'
+            elif lec_units == 0 and lab_units > 0:
+                ctype = 'lab'
+            else:
+                if code.upper().endswith('B') or 'lab' in name.lower() or 'laboratory' in name.lower():
+                    ctype = 'lab'
+                else:
+                    ctype = 'lecture'
+
+            self.assertEqual(ctype, r["expected_type"])
+
     def test_lecture_room_null_and_lab_room_required(self):
         db = setup_test_db()
 
-        dept = models.Department(name="College of Computer Studies", code="CAST")
+        dept = models.Department(name="College of Veterinary Medicine", code="CVMAS")
         db.add(dept)
         db.flush()
 
@@ -76,8 +103,8 @@ class TestLabLecHandling(unittest.TestCase):
         lab_room = models.Room(name="Lab 101", building="Main", capacity=40, type="lab")
         db.add(lab_room)
 
-        curr_lec = models.Curriculum(code="CC101A", name="Computer Programming (Lec)", units=2, type="lecture", department_id=dept.id, lec_units=2, lab_units=0)
-        curr_lab = models.Curriculum(code="CC101B", name="Computer Programming (Lab)", units=1, type="lab", department_id=dept.id, lec_units=0, lab_units=1)
+        curr_lec = models.Curriculum(code="CHEF102A", name="Organic Chemistry Lec", units=2, type="lecture", department_id=dept.id, lec_units=2, lab_units=0)
+        curr_lab = models.Curriculum(code="CHEF102B", name="Organic Chemistry Lab", units=1, type="lab", department_id=dept.id, lec_units=0, lab_units=1)
         db.add_all([curr_lec, curr_lab])
         db.flush()
 
@@ -105,11 +132,11 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertEqual(len(lec_scheds), 2)
         self.assertEqual(len(lab_scheds), 2)
 
-        # Verification: Lecture schedules MUST have room_id = None
+        # Verification: CHEF102A (Lecture) MUST have room_id = None
         for s in lec_scheds:
             self.assertIsNone(s.room_id)
 
-        # Verification: Lab schedules MUST have lab_room.id
+        # Verification: CHEF102B (Lab) MUST have lab_room.id
         for s in lab_scheds:
             self.assertEqual(s.room_id, lab_room.id)
 

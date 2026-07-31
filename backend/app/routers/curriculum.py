@@ -262,10 +262,10 @@ async def _process_curriculum_import(
             'code': ["course code", "code", "subject code", "catalog"],
             'name': ["course title", "title", "subject name", "description", "subject"],
             'units': ["units", "unit", "credit", "total units"],
-            'lec_units': ["lec", "lecture"],
-            'lab_units': ["lab", "laboratory"],
-            'pre_requisite': ["pre-req", "prerequisite", "pre-requisite"],
-            'year_level': ["year", "yr"],
+            'lec_units': ["lec", "lecture", "lec units", "lec. units"],
+            'lab_units': ["lab", "laboratory", "lab units", "lab. units"],
+            'pre_requisite': ["pre-req", "prerequisite", "prerequisite(s)", "pre-requisite", "prereq"],
+            'year_level': ["year", "yr", "grade"],
             'semester_term': ["sem", "semester", "term"]
         }
 
@@ -284,22 +284,23 @@ async def _process_curriculum_import(
         extracted_program_name = "Unknown Program"
         extracted_ay = "Unknown AY"
         
-        # Probe all sheets for the DLSAU header and extract Identity
+        # Probe all sheets for the DLSAU / DVM header or single sheet fallback
         for sheet_name in xl.sheet_names:
             df_probe = pd.read_excel(xl, sheet_name=sheet_name, nrows=15, header=None)
             probe_text = " ".join([str(v).upper() for v in df_probe.values.flatten() if pd.notna(v)])
             
-            if "DE LA SALLE ARANETA UNIVERSITY" in probe_text:
+            if "DE LA SALLE ARANETA UNIVERSITY" in probe_text or "VETERINARY" in probe_text or "DVM" in probe_text or len(xl.sheet_names) == 1:
                 # Extract Academic Year (e.g., "AY 2026")
                 ay_match = re.search(r'AY\s*(\d{4})', probe_text)
                 ay_val = f"AY {ay_match.group(1)}" if ay_match else "Unknown AY"
                 
-                # Extract Program Name
-                # Heuristic: Find common program strings or look for lines after DLSAU
                 program_patterns = [
                     r'BACHELOR OF SCIENCE IN [A-Z\s]+',
                     r'BACHELOR OF [A-Z\s]+',
-                    r'ASSOCIATE IN [A-Z\s]+'
+                    r'DOCTOR OF VETERINARY MEDICINE',
+                    r'DOCTOR OF [A-Z\s]+',
+                    r'ASSOCIATE IN [A-Z\s]+',
+                    r'DVM'
                 ]
                 prog_name = "Unknown Program"
                 for pattern in program_patterns:
@@ -308,17 +309,18 @@ async def _process_curriculum_import(
                         prog_name = match.group(0).strip()
                         break
                 
-                score = (int(ay_match.group(1)) * 10 if ay_match else 0) + (5 if 'UPDATED' in str(sheet_name).upper() else 0)
-                if not ay_match: score += 1
-                
-                if score > max_score:
+                score = (int(ay_match.group(1)) * 10 if ay_match else 0) + (5 if 'UPDATED' in str(sheet_name).upper() else 0) + 1
+                if score > max_score or best_sheet is None:
                     max_score = score
                     best_sheet = sheet_name
                     extracted_program_name = prog_name
                     extracted_ay = ay_val
 
+        if not best_sheet and len(xl.sheet_names) > 0:
+            best_sheet = xl.sheet_names[0]
+
         if not best_sheet:
-            raise HTTPException(status_code=400, detail="Could not identify the curriculum sheet. Ensure it contains 'DE LA SALLE ARANETA UNIVERSITY'.")
+            raise HTTPException(status_code=400, detail="Could not identify the curriculum sheet.")
 
         if program_code:
             extracted_program_name = program_code
@@ -591,9 +593,16 @@ async def _process_curriculum_import(
                     print(f"DEBUG: Captured split A/B subject: {ccode} ({ctype_val})")
                 continue
 
-            ctype = 'lecture'
-            if 'lab' in name.lower() or 'laboratory' in name.lower() or code.endswith('B') or lab_units > 0:
+            # Determine subject type using Lec and Lab columns as primary source of truth:
+            if lec_units > 0 and lab_units == 0:
+                ctype = 'lecture'
+            elif lec_units == 0 and lab_units > 0:
                 ctype = 'lab'
+            else:
+                if code.upper().endswith('B') or 'lab' in name.lower() or 'laboratory' in name.lower():
+                    ctype = 'lab'
+                else:
+                    ctype = 'lecture'
 
             item_data = {
                 "block_id": curriculum_block.id if curriculum_block else None,
