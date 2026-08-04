@@ -1,5 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from .. import models, database, auth, schemas
 
@@ -26,30 +27,41 @@ def get_conflict_count(
         if not active_semester:
             return {"count": 0}
 
-        # 2. Build the query
-        query = db.query(models.Conflict).join(
-            models.Schedule, 
+        # 2. Build the query.
+        # Conflicts come in two shapes: schedule-overlap conflicts carry
+        # schedule_id_1, while generator conflicts (unplaced subject, workload cap)
+        # carry only faculty_id/curriculum_id and leave schedule_id_1 NULL. An
+        # inner join on schedule_id_1 dropped the entire second group, so this
+        # count read 0 while the conflicts panel listed them. Outer-join instead
+        # and resolve the department through whichever link the row actually has.
+        query = db.query(models.Conflict).outerjoin(
+            models.Schedule,
             models.Conflict.schedule_id_1 == models.Schedule.id
+        ).outerjoin(
+            models.Curriculum,
+            models.Curriculum.id == func.coalesce(
+                models.Conflict.curriculum_id, models.Schedule.curriculum_id
+            )
         ).filter(
-            models.Schedule.semester_id == active_semester.id,
-            models.Conflict.resolved_at == None
+            models.Conflict.resolved_at == None,
+            # Keep semester scoping where a schedule link exists; generator
+            # conflicts have no schedule to scope by and are always current.
+            (models.Schedule.id == None) | (models.Schedule.semester_id == active_semester.id)
         )
 
         # 3. Apply department scoping for Program Chairs / Coordinators
         if current_user.role in ['program_chair', 'coordinator']:
             if not current_user.department:
                 return {"count": 0}
-            
-            query = query.join(
-                models.Curriculum,
-                models.Schedule.curriculum_id == models.Curriculum.id
-            ).join(
-                models.Department,
-                models.Curriculum.department_id == models.Department.id
-            ).filter(
+
+            dept = db.query(models.Department).filter(
                 (models.Department.code == current_user.department) |
                 (models.Department.name == current_user.department)
-            )
+            ).first()
+            if not dept:
+                return {"count": 0}
+
+            query = query.filter(models.Curriculum.department_id == dept.id)
 
         count = query.count()
         return {"count": count}

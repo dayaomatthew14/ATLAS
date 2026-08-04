@@ -4,6 +4,9 @@ import { api } from '../utils/api';
 import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
 
 
+// Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
+const MIN_PASSWORD_LENGTH = 12;
+
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -55,6 +58,12 @@ export default function Login() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) err = "Enter a valid email address.";
     } else if (name === 'password') {
       if (/^\s|\s$/.test(value)) err = "Password cannot start or end with spaces.";
+      // The length rule applies only where a password is being SET. Enforcing
+      // it on the sign-in form told every existing user whose password predates
+      // the policy that their correct password was invalid.
+      else if (mode !== 'login' && value.length < MIN_PASSWORD_LENGTH) {
+        err = `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`;
+      }
     } else if (name === 'department') {
       if (!value) err = "Please select a department.";
     }
@@ -162,6 +171,12 @@ export default function Login() {
         const response = await api.postForm('/auth/login', formData);
 
         if (response && response.role) {
+          // Persist the token here too. Without it the post-verification
+          // session had no Authorization header and every API call 401'd
+          // wherever the cookie is blocked as cross-site.
+          if (response.access_token) {
+            localStorage.setItem('atlas_token', response.access_token);
+          }
           localStorage.setItem('atlas_role', response.role);
           localStorage.setItem('atlas_user_name', response.name || '');
           if (response.department) {
@@ -181,10 +196,26 @@ export default function Login() {
         setMode('forgot_otp');
       }
       else if (mode === 'forgot_otp') {
-        // No explicit verification endpoint for OTP alone, but we'll assume it's valid to move to reset
+        // HEU-10: this step used to advance on any input at all, so a wrong
+        // code was only discovered after the user had chosen and re-typed a new
+        // password. There is no endpoint that checks a reset code on its own,
+        // so validate the shape here and let the reset call be the authority —
+        // but at least stop accepting obviously wrong input.
+        const code = (otp || '').trim();
+        if (!/^\d{6}$/.test(code)) {
+          setError('Enter the 6-digit code from your email.');
+          setFieldErrors((prev) => ({ ...prev, otp: 'The code is 6 digits.' }));
+          setLoading(false);
+          return;
+        }
+        setError('');
         setMode('forgot_reset');
       }
       else if (mode === 'forgot_reset') {
+        if (!validateField('password', password)) {
+          setLoading(false);
+          return;
+        }
         if (password !== confirmPassword) {
           setError('Passwords do not match.');
           setLoading(false);

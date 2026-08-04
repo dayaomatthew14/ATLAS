@@ -35,7 +35,7 @@ export default function Landing() {
             Tertiary Education Program Chair Portal
           </h3>
           <p className="text-green-50 text-lg md:text-xl mb-10 leading-relaxed font-light">
-            An automated timtabling system for TED Program Chairs of De La Salle Araneta University. Intelligently plan department schedules, eliminate room conflicts, and optimize faculty loading.
+            An automated timetabling system for the Tertiary Education Department of De La Salle Araneta University. Plan department schedules, resolve room and faculty conflicts, and publish the official timetable.
           </p>
           <Link
             to="/login"

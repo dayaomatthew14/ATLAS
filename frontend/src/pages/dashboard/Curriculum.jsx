@@ -3,9 +3,15 @@ import { Plus, Upload, Edit, Trash2, BookOpen, GraduationCap, AlertCircle, Check
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
+import AtlasButton from '../../components/ui/Button';
+import CurriculumImportWizard from '../../components/ui/CurriculumImportWizard';
+import { ConfirmDialog } from '../../components/ui/Dialog';
 
 function Curriculum() {
   const { addToast } = useToast();
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [confirmState, setConfirmState] = useState(null);
+  const [isConfirmBusy, setIsConfirmBusy] = useState(false);
   const [curriculum, setCurriculum] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,7 +44,7 @@ function Curriculum() {
   });
 
   const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const canManage = role === 'admin';
+  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
 
   const handleStatusChange = async (blockId, newStatus, e) => {
     if (e) e.stopPropagation();
@@ -350,32 +356,55 @@ function Curriculum() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this curriculum item?')) {
-      try {
-        await api.delete(`/curriculum/${id}`);
-        fetchCurriculum();
-        addToast('Curriculum item deleted successfully', 'success');
-      } catch (error) {
-        addToast(error.message || 'Error deleting item', 'error');
-      }
-    }
+  // Native window.confirm cannot name what it is destroying, cannot be styled
+  // or translated, and offers no gate on a high-impact delete (HEU-04).
+  const handleDelete = (id) => {
+    const item = curriculum.find((c) => c.id === id);
+    setConfirmState({
+      kind: 'subject',
+      id,
+      title: `Delete ${item?.code || 'this subject'}?`,
+      description: item ? `${item.name} — ${item.units} units.` : 'This subject will be removed from the curriculum.',
+    });
   };
 
-  const handleDeleteCourse = async (blockId, programName, e) => {
+  const handleDeleteCourse = (blockId, programName, e) => {
     e.stopPropagation();
-    if (window.confirm(`Are you sure you want to completely delete the ${programName} curriculum? This will remove all subjects and cannot be undone.`)) {
-      try {
-        await api.delete(`/curriculum/block/${blockId}`);
+    const block = blocks.find((b) => b.id === blockId);
+    setConfirmState({
+      kind: 'block',
+      id: blockId,
+      programName,
+      title: `Delete the ${programName} curriculum?`,
+      description: block
+        ? `This removes ${block.subject_count} subjects totalling ${block.total_units} units. It cannot be undone.`
+        : 'This removes every subject in it and cannot be undone.',
+      phrase: programName,
+    });
+  };
+
+  const runConfirmedDelete = async () => {
+    if (!confirmState) return;
+    setIsConfirmBusy(true);
+    try {
+      if (confirmState.kind === 'subject') {
+        await api.delete(`/curriculum/${confirmState.id}`);
         await fetchCurriculum();
-        if (selectedBlock?.id === blockId) {
+        addToast('Subject deleted.', 'success');
+      } else {
+        await api.delete(`/curriculum/block/${confirmState.id}`);
+        await fetchCurriculum();
+        if (selectedBlock?.id === confirmState.id) {
           setSelectedCourse('All');
           setSelectedBlock(null);
         }
-        addToast(`Curriculum ${programName} deleted successfully`, 'success');
-      } catch (error) {
-        addToast(error.message || 'Error deleting curriculum', 'error');
+        addToast(`${confirmState.programName} curriculum deleted.`, 'success');
       }
+      setConfirmState(null);
+    } catch (error) {
+      addToast(error.message || 'Could not delete.', 'error');
+    } finally {
+      setIsConfirmBusy(false);
     }
   };
 
@@ -471,9 +500,13 @@ function Curriculum() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-20 gap-12">
         <div>
           <span className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Academic Operations</span>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight mt-1">Curriculum Flowchart Master</h1>
+          {/* IA-03: this screen is a subject list grouped into blocks. Calling
+              it a flowchart set an expectation the screen never met. */}
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight mt-1">Curriculum</h1>
           <p className="text-slate-500 font-semibold text-sm mt-1">
-            {canManage ? 'Admin Master Management — Flowcharts, Subjects, Status & Excel Import' : 'Browse published curricula and select active curriculum context for scheduling.'}
+            {canManage
+              ? 'Subjects, units and prerequisites by programme and academic year.'
+              : 'Browse published curricula and set the active curriculum for scheduling.'}
           </p>
         </div>
         
@@ -516,13 +549,12 @@ function Curriculum() {
                 >
                   <Plus className="w-4 h-4 mr-1.5" /> Create Curriculum
                 </button>
-                <button
-                  onClick={() => document.getElementById('excel-upload').click()}
-                  className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl flex items-center transition-all font-black text-xs uppercase tracking-widest border border-slate-200"
-                  title="Import Excel file into curriculum"
-                >
-                  <Upload className="w-4 h-4 mr-1.5" /> Import Excel
-                </button>
+                {/* Opens the 5-step wizard instead of firing a hidden file
+                    input straight into a dry run and a flat 114-row preview
+                    (FLOW-01). */}
+                <AtlasButton variant="secondary" icon={Upload} onClick={() => setIsWizardOpen(true)}>
+                  Import Excel
+                </AtlasButton>
                 <button
                   onClick={() => handleOpenModal()}
                   className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl flex items-center shadow-lg shadow-green-200 transition-all font-black text-xs uppercase tracking-widest transform hover:scale-105 active:scale-95"
@@ -1031,6 +1063,32 @@ function Curriculum() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmState)}
+        onClose={() => setConfirmState(null)}
+        onConfirm={runConfirmedDelete}
+        title={confirmState?.title || ''}
+        description={confirmState?.description}
+        confirmLabel={confirmState?.kind === 'block' ? 'Delete Curriculum' : 'Delete Subject'}
+        // Deleting an entire curriculum takes every subject with it, so it
+        // requires the programme name typed back.
+        confirmPhrase={confirmState?.phrase}
+        destructive
+        loading={isConfirmBusy}
+      />
+
+      <CurriculumImportWizard
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+        departmentId={selectedBlock?.department_id}
+        onImported={async (res) => {
+          addToast(res?.message || 'Curriculum imported.', 'success');
+          const updated = await api.get('/curriculum/blocks');
+          setBlocks(Array.isArray(updated) ? updated : []);
+          await fetchCurriculum();
+        }}
+      />
     </div>
   );
 }

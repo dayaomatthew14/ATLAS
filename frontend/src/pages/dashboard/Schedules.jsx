@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, Printer, FileSpreadsheet } from 'lucide-react';
 import Modal from '../../components/Modal';
-import ConflictPanel from '../../components/ConflictPanel';
-import AIGenerationModal from '../../components/AIGenerationModal';
+// ConflictPanel is superseded by ConflictLens; the file is deleted in the
+// final clean-up sprint together with the other superseded components.
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
+import AtlasButton from '../../components/ui/Button';
+import ConflictLens from '../../components/ui/ConflictLens';
+import Badge from '../../components/ui/Badge';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+import { restrictionReason } from '../../components/ui/tokens';
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -57,7 +62,6 @@ export default function Schedules() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
 
@@ -75,6 +79,71 @@ export default function Schedules() {
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [activeConflicts, setActiveConflicts] = useState([]);
 
+  // --- Publication (FLOW-05 / DEP-1) -------------------------------------
+  const isAdmin = (localStorage.getItem('atlas_role') || '').toLowerCase() === 'admin';
+  const [publishState, setPublishState] = useState({
+    status: 'draft', total: 0, published: 0, unresolved_conflicts: 0,
+  });
+  // --- Conflict lens (Phase 1 §1.5) --------------------------------------
+  const [isLensOpen, setIsLensOpen] = useState(false);
+  const [lensCauseFilter, setLensCauseFilter] = useState(null);
+  const [resolvingId, setResolvingId] = useState(null);
+
+  // Curriculum ids that are in conflict, so the grid knows which blocks stay lit.
+  const conflictedCurriculumIds = React.useMemo(
+    () => new Set(activeConflicts.map((c) => c.curriculum_id).filter(Boolean)),
+    [activeConflicts]
+  );
+
+  // The lens dismisses itself when the last conflict clears.
+  useEffect(() => {
+    if (isLensOpen && activeConflicts.length === 0) {
+      setIsLensOpen(false);
+      setLensCauseFilter(null);
+    }
+  }, [activeConflicts.length, isLensOpen]);
+
+  const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishBlockedReason, setPublishBlockedReason] = useState('');
+
+  const fetchPublishState = async (semesterId) => {
+    if (!semesterId) return;
+    try {
+      const data = await api.get(`/schedules/status?semester_id=${semesterId}`);
+      setPublishState(data || { status: 'draft', total: 0, published: 0, unresolved_conflicts: 0 });
+    } catch (e) {
+      /* leave the badge on Draft rather than claiming a state we could not read */
+    }
+  };
+
+  const handleTogglePublish = async () => {
+    const next = publishState.status === 'published' ? 'draft' : 'published';
+    setIsPublishing(true);
+    try {
+      const res = await api.patch('/schedules/status', {
+        semester_id: activeSemesterId,
+        department_id: publishState.department_id ?? undefined,
+        status: next,
+      });
+      addToast(
+        next === 'published'
+          ? `Schedule published. ${res.affected} classes are now official.`
+          : `Schedule unpublished and returned to draft.`,
+        'success'
+      );
+      setIsPublishOpen(false);
+      fetchPublishState(activeSemesterId);
+      fetchGlobalSchedules(activeSemesterId);
+    } catch (err) {
+      // 409 carries the reason: unresolved conflicts, or nothing to publish.
+      if (err.status === 409) setPublishBlockedReason(err.message);
+      else addToast(err.message || 'Could not change the schedule status.', 'error');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   const [undoBackup, setUndoBackup] = useState(null);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
 
@@ -88,6 +157,7 @@ export default function Schedules() {
   };
 
   const handleSolveConflict = async (item) => {
+    setResolvingId(item.conflict_id ?? item.id);
     try {
       const res = await api.post('/ai-scheduler/solve-conflict', {
         conflict_id: item.conflict_id || item.id,
@@ -121,17 +191,28 @@ export default function Schedules() {
       }
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to solve conflict', 'error');
+      // A 409 means no conflict-free slot exists (DEP-6). That is a real answer
+      // about the schedule, not a failure to report as an error toast.
+      if (e.status === 409) {
+        addToast(e.message, 'warning');
+      } else {
+        addToast(e.message || 'Could not resolve the conflict.', 'error');
+      }
+    } finally {
+      setResolvingId(null);
     }
   };
 
-  const handleSolveAllConflicts = async () => {
-    const itemsToSolve = generationResults?.unplaced_items?.length ? [...generationResults.unplaced_items] : [...activeConflicts];
-    if (!itemsToSolve.length) return;
-    for (const item of itemsToSolve) {
-      await handleSolveConflict(item);
-    }
-  };
+  /**
+   * "Auto-Solve All Conflicts" was removed here.
+   *
+   * It looped the single-conflict resolver over every conflict, and that
+   * resolver force-placed into the first room on Mon/Wed whenever no free slot
+   * existed — creating fresh double-bookings and marking them resolved. One
+   * click could quietly corrupt an entire term. The backend no longer
+   * force-places (DEP-6), and conflicts are now stepped through one at a time
+   * in the lens so each resolution is a decision someone actually made.
+   */
 
   const handleDeleteSchedule = async (sched) => {
     try {
@@ -259,6 +340,7 @@ export default function Schedules() {
       if (active) {
         setActiveSemesterId(active.id);
         fetchGlobalSchedules(active.id);
+        fetchPublishState(active.id);
       }
     }).catch(console.error);
 
@@ -387,9 +469,13 @@ export default function Schedules() {
     }
     setIsFetchingSuggestions(true);
     try {
-      const data = await api.get('/schedules/suggestions', { params: { subject_id: formData.subject_id } });
-      setAiSuggestions(data);
-      if (data.length === 0) {
+      // The API parameter is `curriculum_id`; `subject_id` was ignored and the
+      // required parameter came back missing.
+      const data = await api.get('/schedules/suggestions', {
+        params: { curriculum_id: formData.subject_id, semester_id: activeSemesterId }
+      });
+      setAiSuggestions(Array.isArray(data) ? data : []);
+      if (!data || data.length === 0) {
         addToast('No suggestions found. Faculty might be overloaded.', 'warning');
       } else {
         addToast('AI Suggestions generated!', 'success');
@@ -493,28 +579,88 @@ export default function Schedules() {
     fetchSchedules();
   }, [currentDate]);
 
-  const activeConflictsCount = schedules.filter(s => s.isConflicting).length;
+  /**
+   * The conflict count had two competing sources: this button counted overlaps
+   * found by client-side detection, while the panel (now the lens) was fed by
+   * the API's conflict table. A generator conflict — an unplaced subject, a
+   * workload cap — produces no client-side overlap, so the button stayed hidden
+   * while real conflicts existed. The server's record is authoritative; local
+   * detection only catches grid overlaps the server has not recorded yet.
+   */
+  const localOverlapCount = schedules.filter(s => s.isConflicting).length;
+  const activeConflictsCount = Math.max(activeConflicts.length, localOverlapCount);
 
   return (
     <>
       {/* Main Content Area */}
       <main className="flex-1 max-w-full mx-auto px-6 sm:px-10 lg:px-12 py-8 w-full relative">
         
+        {/* Print-only chrome. Hidden on screen; see the @media print block in
+            index.css. A draft posted on a department door is the failure the
+            watermark prevents (FLOW-04). */}
+        <div className="print-header mb-4 pb-2">
+          <div className="flex items-baseline justify-between">
+            <span className="font-display text-lead">De La Salle Araneta University — ATLAS</span>
+            <span className="font-ui text-caption">
+              {localStorage.getItem('atlas_department') || ''} · {semesters.find(s => s.id === activeSemesterId)
+                ? `A.Y. ${semesters.find(s => s.id === activeSemesterId).academic_year} ${formatSemesterTerm(semesters.find(s => s.id === activeSemesterId).term)}`
+                : ''}
+            </span>
+          </div>
+        </div>
+        {publishState.status !== 'published' && (
+          <div className="print-draft-watermark" aria-hidden="true">DRAFT</div>
+        )}
+
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden p-8">
           <div className="flex justify-between items-center mb-8">
             <div className="flex-1">
-              <h3 className="text-3xl font-black text-slate-900 tracking-tighter leading-none mb-2">Department Faculty Schedules</h3>
-              <p className="text-slate-400 font-medium text-sm">Weekly view of schedules for the professors in your department.</p>
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="text-3xl font-black text-slate-900 tracking-tighter leading-none">Department Faculty Schedules</h3>
+                {/* The schedule's publication state is the first thing anyone
+                    needs to read, and it was previously invisible (FLOW-05). */}
+                <Badge status={publishState.status === 'published' ? 'published' : 'draft'} />
+              </div>
+              <p className="text-slate-400 font-medium text-sm">
+                {publishState.total > 0
+                  ? `${publishState.total} classes · ${publishState.status === 'published' ? 'official and visible to all departments' : 'not yet published'}`
+                  : 'Weekly view of schedules for the professors in your department.'}
+              </p>
             </div>
             <div className="flex gap-4 items-center">
-              {activeConflictsCount > 0 && (
-                <button
-                  onClick={() => setIsConflictPanelOpen(true)}
-                  className="flex items-center bg-red-600 hover:bg-red-700 text-white px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider animate-pulse shadow-md transition-all whitespace-nowrap"
+              {/* Publishing is what makes a schedule official (DEP-1). Chairs see
+                  the restricted variant naming who can do it, rather than a
+                  control that fails after the fact. */}
+              {isAdmin ? (
+                <AtlasButton
+                  onClick={() => setIsPublishOpen(true)}
+                  variant={publishState.status === 'published' ? 'secondary' : 'primary'}
+                  disabled={publishState.total === 0}
+                  className="no-print"
                 >
-                  <AlertTriangle className="w-4 h-4 mr-2" />
-                  {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''}
-                </button>
+                  {publishState.status === 'published' ? 'Unpublish' : 'Publish Schedule'}
+                </AtlasButton>
+              ) : (
+                <AtlasButton
+                  restricted
+                  restrictionReason={restrictionReason('admin', 'publish schedules')}
+                  className="no-print"
+                >
+                  Publish Schedule
+                </AtlasButton>
+              )}
+              {activeConflictsCount > 0 && (
+                // Destructive-adjacent controls are outlines, not solid red
+                // fills — a red fill reads as alarm in a dense grid, and the
+                // lens is where the system is allowed to be loud.
+                <AtlasButton
+                  variant="destructive"
+                  icon={AlertTriangle}
+                  onClick={() => setIsLensOpen(true)}
+                  className="no-print"
+                >
+                  {activeConflictsCount} {activeConflictsCount === 1 ? 'Conflict' : 'Conflicts'}
+                </AtlasButton>
               )}
               {/* Professor Filter */}
               <div className="min-w-[280px] relative group">
@@ -634,7 +780,11 @@ export default function Schedules() {
           {isGlobalLoading ? (
             <div className="flex justify-center py-20"><Sparkles className="w-8 h-8 text-indigo-400 animate-spin" /></div>
           ) : (
-            <div className="flex relative mt-12 overflow-x-auto min-w-[900px] pb-8">
+            /* The scroll container and the wide content must be separate elements:
+               `overflow-x-auto` and `min-w-[900px]` on the same div meant the div
+               grew to 900px and overflowed its parent instead of scrolling. */
+            <div className="print-grid relative mt-12 overflow-x-auto pb-8">
+            <div className="flex relative min-w-[900px]">
               {/* Time column (7:30 AM to 7:30 PM - 12 hours) */}
               <div className="w-20 flex flex-col relative border-r border-slate-200 pr-4 shrink-0" style={{ height: '1400px' }}>
                 {Array.from({length: 13}).map((_, i) => (
@@ -675,12 +825,50 @@ export default function Schedules() {
                         
                         const color = getFacultyColor(sched.faculty_name);
 
+                        // While the lens is active only conflicting blocks stay
+                        // lit and reachable. Dimmed blocks leave the tab order
+                        // and the accessibility tree so AT users are not walked
+                        // through 60 irrelevant classes to find 7.
+                        const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
+                        const lensDim = isLensOpen && !inConflict;
+                        const lensLit = isLensOpen && inConflict;
+
+                        const blockLabel =
+                          `${formatSubjectCode(sched)}, ${sched.subject_name}, ` +
+                          `${sched.faculty_name}, ${sched.room_name || 'no room'}, ` +
+                          `${day} ${sched.start_time} to ${sched.end_time}` +
+                          (canManage ? '. Press Delete to remove this class.' : '');
+
                         return (
-                          <div 
+                          // A11Y-02: these were plain divs with cursor-default.
+                          // tabIndex in this file was 0 and onKeyDown was 0
+                          // app-wide, so the product's primary work surface
+                          // could not be reached, read or edited without a
+                          // mouse. Now each class is a real control with a
+                          // spoken name and a keyboard action.
+                          <div
                             key={sched.id}
-                            className={`absolute w-[calc(100%-10px)] mx-[5px] rounded-2xl border shadow-xs flex flex-col overflow-hidden transition-all hover:scale-[1.02] hover:z-30 hover:shadow-2xl cursor-default group border-l-[6px] ${color.bg} ${color.border} ${color.accent}`}
+                            role="button"
+                            tabIndex={lensDim ? -1 : 0}
+                            aria-hidden={lensDim || undefined}
+                            aria-label={blockLabel}
+                            onKeyDown={(e) => {
+                              if ((e.key === 'Delete' || e.key === 'Backspace') && canManage) {
+                                e.preventDefault();
+                                handleDeleteSchedule(sched);
+                              }
+                            }}
+                            className={`print-block absolute w-[calc(100%-10px)] mx-[5px] rounded-2xl border shadow-xs flex flex-col overflow-hidden transition-all hover:scale-[1.02] hover:z-30 hover:shadow-2xl group border-l-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-offset-2 focus-visible:z-30 ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''} ${color.bg} ${color.border} ${color.accent}`}
                             style={{ top: `${top}%`, height: `${height}%` }}
                           >
+                            {lensLit && (
+                              <span
+                                className="absolute top-1 right-1 z-10 text-sem-conflict font-bold text-sm leading-none"
+                                aria-hidden="true"
+                              >
+                                ▲
+                              </span>
+                            )}
                             <div className="px-3 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex justify-between items-center shrink-0">
                               <span className="text-xs font-black uppercase tracking-wider text-slate-900">{formatSubjectCode(sched)}</span>
                               <div className="flex items-center gap-1.5">
@@ -731,20 +919,56 @@ export default function Schedules() {
                 })}
               </div>
             </div>
+            </div>
           )}
+        </div>
+        <div className="print-footer mt-4 pt-2 font-ui text-caption">
+          Generated {new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+          {' · '}
+          {publishState.status === 'published'
+            ? `Published by ${localStorage.getItem('atlas_user_name') || 'System Administrator'}`
+            : 'Draft — not an official schedule'}
         </div>
       </main>
 
-      <ConflictPanel
-        isOpen={isConflictPanelOpen}
-        onClose={() => setIsConflictPanelOpen(false)}
-        conflicts={activeConflicts.length > 0 ? activeConflicts : schedules.filter(s => s.isConflicting).map(s => ({
-          ...s,
-          type: 'General',
-          conflictWith: s.conflictDetails?.[0]
-        }))}
-        onResolveConflict={handleSolveConflict}
-        onResolveAll={handleSolveAllConflicts}
+      {/* Publishing is what makes a schedule official, so it names its blast
+          radius and requires the term typed back (Phase 2 Screen 2). */}
+      <ConfirmDialog
+        isOpen={isPublishOpen}
+        onClose={() => { setIsPublishOpen(false); setPublishBlockedReason(''); }}
+        onConfirm={handleTogglePublish}
+        title={
+          publishBlockedReason
+            ? 'This schedule cannot be published yet'
+            : publishState.status === 'published'
+              ? 'Return this schedule to draft?'
+              : 'Publish this schedule?'
+        }
+        description={
+          publishState.status === 'published'
+            ? `${publishState.total} classes will stop being official and the published notice will be removed.`
+            : `This makes ${publishState.total} classes official and visible to all departments. Published schedules must be returned to draft before they can be edited.`
+        }
+        confirmLabel={publishState.status === 'published' ? 'Return to Draft' : 'Publish Schedule'}
+        confirmPhrase={publishState.status === 'published' ? undefined : 'PUBLISH'}
+        destructive={publishState.status === 'published'}
+        loading={isPublishing}
+        blocked={Boolean(publishBlockedReason)}
+        blockedReason={publishBlockedReason}
+      />
+
+      {/* Replaces the ConflictPanel slide-over, which sat physically apart from
+          the grid so resolving a conflict meant reading a description and then
+          hunting for the block it referred to (HEU-08). */}
+      <ConflictLens
+        isOpen={isLensOpen}
+        conflicts={activeConflicts}
+        onClose={() => { setIsLensOpen(false); setLensCauseFilter(null); }}
+        onResolve={handleSolveConflict}
+        onRegenerate={() => { setIsLensOpen(false); setIsGenerateModalOpen(true); }}
+        resolvingId={resolvingId}
+        causeFilter={lensCauseFilter}
+        onFilterCause={setLensCauseFilter}
       />
 
       <Modal
@@ -1013,14 +1237,11 @@ export default function Schedules() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-xs font-black text-rose-600 uppercase tracking-[0.2em]">Unplaced Subjects ({generationResults.unplaced_items.length})</h4>
-                    <button
-                      type="button"
-                      onClick={handleSolveAllConflicts}
-                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black rounded-xl shadow-xs transition-all flex items-center gap-1.5 uppercase tracking-wider"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Auto-Solve All
-                    </button>
+                    {/* The second "Auto-Solve All" was here. Same removal
+                        reasoning as the panel's: it looped a resolver that
+                        force-placed on failure, so one click could double-book
+                        an entire term and report success. Unplaced subjects are
+                        resolved one at a time below. */}
                   </div>
                   <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
                     {generationResults.unplaced_items.map((item, idx) => (

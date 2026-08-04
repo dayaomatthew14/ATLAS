@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile,
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-import pandas as pd
+import openpyxl
+import math
 import io
 import json
 import re
@@ -369,10 +370,10 @@ async def _process_curriculum_import(
     db: Session,
     current_user: models.User,
     custom_mapping: Optional[str] = None,
-    user_selected_sheet: Optional[str] = None
+    selected_sheet: Optional[str] = None
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can import curriculum Excel files")
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators, Program Chairs, and Coordinators can import curriculum Excel files")
 
     # Determine target department
     target_dept_id = department_id
@@ -391,19 +392,20 @@ async def _process_curriculum_import(
         target_dept_id = first_dept.id
 
     try:
-        xl = pd.ExcelFile(io.BytesIO(contents))
+        import openpyxl, math
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
         
         items_to_add = []
         skipped_items = []
         all_parsed_data = [] 
         
         mapping_keywords = {
-            'code': ["course code", "code", "subject code", "course no", "course number", "course #", "catalog", "subj code", "subject #"],
-            'name': ["course title", "title", "subject name", "course name", "description", "subject", "course description", "subject description"],
-            'units': ["units", "unit", "credit", "total units", "credits", "credit units", "total credit", "tot. units"],
-            'lec_units': ["lec", "lecture", "lec units", "lec. units", "lec hrs", "lecture units"],
-            'lab_units': ["lab", "laboratory", "lab units", "lab. units", "lab hrs", "laboratory units"],
-            'pre_requisite': ["pre-req", "prerequisite", "prerequisites", "pre-requisite", "prereq", "co-requisites", "prereq/coreq"],
+            'code': ["course code", "code", "subject code", "catalog"],
+            'name': ["course title", "title", "subject name", "description", "subject"],
+            'units': ["units", "unit", "credit", "total units"],
+            'lec_units': ["lec", "lecture", "lec units", "lec. units"],
+            'lab_units': ["lab", "laboratory", "lab units", "lab. units"],
+            'pre_requisite': ["pre-req", "prerequisite", "prerequisite(s)", "pre-requisite", "prereq"],
             'year_level': ["year", "yr", "grade"],
             'semester_term': ["sem", "semester", "term"]
         }
@@ -417,8 +419,13 @@ async def _process_curriculum_import(
             except:
                 pass
 
-        # STAGE 2 — DYNAMIC STRUCTURE-BASED SHEET IDENTIFICATION & TIE-BREAKING
+        best_sheet = None
+        max_score = -1
+        extracted_program_name = "Unknown Program"
+        extracted_ay = "Unknown AY"
+        
         program_patterns = [
+            r'BACHELOR OF SCIENCE IN [A-Z\s]+',
             r'BACHELOR OF [A-Z\s]+',
             r'DOCTOR OF [A-Z\s]+',
             r'MASTER OF [A-Z\s]+',
@@ -428,143 +435,129 @@ async def _process_curriculum_import(
             r'\bDVM\b'
         ]
 
-        sheet_scores = []
-        for sheet_name in xl.sheet_names:
+        def is_na(v):
+            if v is None: return True
+            if isinstance(v, float) and math.isnan(v): return True
+            return False
+
+        for sheet_name in wb.sheetnames:
             try:
-                df_probe = pd.read_excel(xl, sheet_name=sheet_name, nrows=35, header=None)
+                ws_probe = wb[sheet_name]
+                raw_probe_rows = [list(r) for r in list(ws_probe.iter_rows(values_only=True))[:25]]
             except Exception:
                 continue
 
-            probe_text = " ".join([str(v).upper() for v in df_probe.values.flatten() if pd.notna(v)])
-            probe_vals = [str(v).strip().lower() for v in df_probe.values.flatten() if pd.notna(v)]
+            probe_vals = []
+            for r in raw_probe_rows:
+                for v in r:
+                    if not is_na(v):
+                        probe_vals.append(str(v).strip())
+
+            probe_text = " ".join([v.upper() for v in probe_vals])
+            probe_vals_lower = [v.lower() for v in probe_vals]
             
             score = 0
-            has_code_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['code']) for val in probe_vals)
-            has_title_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['name']) for val in probe_vals)
-            has_unit_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['units']) for val in probe_vals)
-            has_lec_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['lec_units']) for val in probe_vals)
-            has_lab_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['lab_units']) for val in probe_vals)
-            has_section_hdr = any(y in probe_text for y in ['YEAR', '1ST YEAR', 'FIRST YEAR', '2ND YEAR', 'SECOND YEAR', 'SEMESTER'])
-
+            has_code_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['code']) for val in probe_vals_lower)
+            has_title_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['name']) for val in probe_vals_lower)
+            has_unit_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['units']) for val in probe_vals_lower)
+            
             if has_code_hdr: score += 40
             if has_title_hdr: score += 30
             if has_unit_hdr: score += 20
-            if has_lec_hdr: score += 10
-            if has_lab_hdr: score += 10
-            if has_section_hdr: score += 15
             
-            # Penalize known non-curriculum sheet names
-            lower_name = sheet_name.lower().strip()
-            if any(ign in lower_name for ign in ['addendum', 'coding', 'notes', 'legend', 'reference', 'instruction', 'blank']):
-                score -= 50
-
             ay_match = re.search(r'AY\s*(\d{4})', probe_text)
-            ay_val = f"AY {ay_match.group(1)}" if ay_match else "Unknown AY"
-            if ay_match: score += 10
+            if ay_match:
+                score += 10
             
-            prog_name = "Unknown Program"
-            for pattern in program_patterns:
-                match = re.search(pattern, probe_text)
-                if match:
-                    prog_name = match.group(0).strip()
-                    score += 15
+            for pat in program_patterns:
+                if re.search(pat, probe_text):
+                    score += 10
                     break
+                    
+            if score > max_score and (has_code_hdr or has_title_hdr):
+                max_score = score
+                best_sheet = sheet_name
 
-            if score > 0:
-                sheet_scores.append({
-                    "sheet_name": sheet_name,
-                    "score": score,
-                    "program_name": prog_name,
-                    "academic_year": ay_val
-                })
+        if not best_sheet:
+            best_sheet = wb.sheetnames[0]
 
-        sheet_scores.sort(key=lambda x: x["score"], reverse=True)
-
-        selected_sheet = user_selected_sheet
-        is_sheet_tie = False
-
-        if not selected_sheet:
-            if not sheet_scores or sheet_scores[0]["score"] < 40:
+        # Sheet detection is a heuristic, so the caller must be able to overrule
+        # it. Commit 7c1bf6d claimed this parameter existed; it did not, which
+        # meant a workbook whose real curriculum sat on a lower-scoring tab
+        # could not be imported at all.
+        sheet_auto_selected = True
+        if selected_sheet:
+            if selected_sheet not in wb.sheetnames:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No valid curriculum table was detected. Please verify the Excel file."
+                    status_code=400,
+                    detail=f"'{selected_sheet}' is not a sheet in this workbook. Available: {', '.join(wb.sheetnames)}"
                 )
-
-            # Tie-break check: top 2 sheets within 10 points
-            if len(sheet_scores) > 1 and (sheet_scores[0]["score"] - sheet_scores[1]["score"]) <= 10:
-                is_sheet_tie = True
-
-            best_candidate = sheet_scores[0]
-            best_sheet = best_candidate["sheet_name"]
-            extracted_program_name = best_candidate["program_name"]
-            extracted_ay = best_candidate["academic_year"]
-            max_score = best_candidate["score"]
-        else:
             best_sheet = selected_sheet
-            cand = next((s for s in sheet_scores if s["sheet_name"] == selected_sheet), None)
-            if cand:
-                extracted_program_name = cand["program_name"]
-                extracted_ay = cand["academic_year"]
-                max_score = cand["score"]
-            else:
-                max_score = 50
-                extracted_program_name = "Unknown Program"
-                extracted_ay = "Unknown AY"
+            sheet_auto_selected = False
 
-        if program_code:
-            extracted_program_name = program_code
+        print(f"DEBUG: Selected sheet '{best_sheet}' with confidence score {max_score}")
 
-        print(f"DEBUG: Selected Sheet -> '{best_sheet}' (Score: {max_score}), TieBreak: {is_sheet_tie}")
+        ws_best = wb[best_sheet]
+        raw_probe_rows = [list(r) for r in list(ws_best.iter_rows(values_only=True))[:25]]
+        probe_vals = []
+        for r in raw_probe_rows:
+            for v in r:
+                if not is_na(v):
+                    probe_vals.append(str(v).strip())
+        probe_text = " ".join([v.upper() for v in probe_vals])
 
-        print(f"DEBUG: Identity Detected -> Program: {extracted_program_name}, Year: {extracted_ay}")
+        ay_match = re.search(r'(?:AY|ACADEMIC YEAR)\s*:?\s*(\d{4}\s*[-–]\s*\d{4}|\d{4})', probe_text)
+        if ay_match:
+            extracted_ay = f"AY {ay_match.group(1).strip()}"
+        else:
+            ay_simple = re.search(r'\b(20\d{2}\s*[-–]\s*20\d{2})\b', probe_text)
+            if ay_simple:
+                extracted_ay = f"AY {ay_simple.group(1).strip()}"
 
-        # Duplicate Import Handling
+        for pat in program_patterns:
+            prog_match = re.search(pat, probe_text)
+            if prog_match:
+                extracted_program_name = prog_match.group(0).strip()
+                break
+
+        if extracted_program_name == "Unknown Program":
+            clean_sheet_title = best_sheet.replace("_", " ").replace("-", " ").strip()
+            if len(clean_sheet_title) > 2 and not clean_sheet_title.lower().startswith("sheet"):
+                extracted_program_name = clean_sheet_title.upper()
+
+        words = [w for w in re.split(r'[\s\-]+', extracted_program_name) if w not in ["OF", "IN", "SCIENCE", "BACHELOR", "ASSOCIATE", "DOCTOR", "MASTER", "AND"]]
+        if words:
+            program_code = "".join([w[0] for w in words])
+        else:
+            program_code = extracted_program_name[:4].upper()
+            
+        if len(program_code) < 2:
+            program_code = (best_sheet[:4] if len(best_sheet) >= 4 else best_sheet).upper()
+
+        full_block_name = f"{program_code} ({extracted_ay})" if extracted_ay != "Unknown AY" else f"{program_code} (Curriculum)"
+
         existing_block = db.query(models.CurriculumBlock).filter(
+            models.CurriculumBlock.department_id == target_dept_id,
             models.CurriculumBlock.program_name == extracted_program_name,
-            models.CurriculumBlock.academic_year == extracted_ay,
-            models.CurriculumBlock.department_id == target_dept_id
+            models.CurriculumBlock.academic_year == extracted_ay
         ).first()
 
-        # If a match exists and we aren't explicitly replacing, throw a special error
-        # The frontend will catch this and ask the user to 'Replace' (which would pass a replace=true flag)
-        replace_existing = False # This should come from Form params
-        
-        if existing_block and not dry_run:
-            # Check if 'replace' was passed in the future? 
-            # For now, let's implement the 'Ask' via a 409 Conflict status
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, 
-                detail={
-                    "message": f"A curriculum block for '{extracted_program_name}' ({extracted_ay}) already exists.",
-                    "block_id": existing_block.id,
-                    "program": extracted_program_name,
-                    "ay": extracted_ay
-                }
-            )
-
-        # Create the Isolated Block (if not dry run)
-        curriculum_block = None
-        if not dry_run:
+        if existing_block:
+            curriculum_block = existing_block
+            print(f"DEBUG: Found existing block '{extracted_program_name} ({extracted_ay})' (ID: {curriculum_block.id})")
+        else:
             curriculum_block = models.CurriculumBlock(
+                department_id=target_dept_id,
                 program_name=extracted_program_name,
                 academic_year=extracted_ay,
-                department_id=target_dept_id,
-                filename="Uploaded File" # Placeholder
+                filename="Uploaded File"
             )
             db.add(curriculum_block)
-            db.flush() # Get the ID without committing yet
+            db.flush()
+            print(f"DEBUG: Created new block '{full_block_name}' (ID: {curriculum_block.id})")
 
-        # STEP 3 — PRE-PROCESSING (Rule 197 - Precise Merged Cell Handling)
-        from openpyxl import load_workbook
-        wb = load_workbook(io.BytesIO(contents), data_only=True)
+        ws = wb[best_sheet]
         
-        if best_sheet not in wb.sheetnames:
-            raise HTTPException(status_code=400, detail="Identified sheet not found in workbook.")
-            
-        ws = wb[str(best_sheet)] # type: ignore
-        
-        # Explicitly unmerge and fill ONLY within actual merged regions
-        # This preserves genuinely empty cells (like identifier columns in totals rows)
         merged_cells = list(ws.merged_cells.ranges)
         for merged_range in merged_cells:
             min_col, min_row, max_col, max_row = merged_range.bounds
@@ -574,13 +567,11 @@ async def _process_curriculum_import(
                 for c in range(min_col, max_col + 1):
                     ws.cell(row=r, column=c).value = top_left_value # type: ignore
         
-        # Convert the precisely-filled sheet to a DataFrame
-        data = list(ws.values)
-        df = pd.DataFrame(data)
+        raw_rows = [list(r) for r in ws.iter_rows(values_only=True)]
         
         # Helper functions for context normalization
         def normalize_year(value: object) -> Optional[str]:
-            if value is None or (isinstance(value, float) and pd.isna(value)):
+            if is_na(value):
                 return None
             s = str(value).strip().upper()
             if not s or s in {"NAN", "NONE", "N/A"}: return None
@@ -594,7 +585,7 @@ async def _process_curriculum_import(
             return None
 
         def normalize_semester(value: object) -> Optional[str]:
-            if value is None or (isinstance(value, float) and pd.isna(value)):
+            if is_na(value):
                 return None
             s = str(value).strip().upper()
             if not s or s in {"NAN", "NONE", "N/A"}: return None
@@ -617,8 +608,8 @@ async def _process_curriculum_import(
         looking_for_headers = True
         col_map = {} 
 
-        for idx, row in df.iterrows():
-            row_text = " ".join([str(v).strip().upper() for v in row.values if pd.notna(v)])
+        for idx, row in enumerate(raw_rows):
+            row_text = " ".join([str(v).strip().upper() for v in row if not is_na(v)])
             if not row_text: continue
 
             # 1. Independent Section & Zone Header Detection
@@ -662,7 +653,7 @@ async def _process_curriculum_import(
                 continue
 
             # 2. Universal Table Header Detection
-            row_vals = [str(v).strip().lower() for v in row.values]
+            row_vals = [str(v).strip().lower() if not is_na(v) else "" for v in row]
             temp_map = {}
             for key, keywords in mapping_keywords.items():
                 for i, val in enumerate(row_vals):
@@ -685,23 +676,23 @@ async def _process_curriculum_import(
             # 3. Subject Row Capture
             if not is_in_active_zone or not col_map or 'code' not in col_map: continue
             
-            code_raw = row[col_map['code']]
-            name_raw = row[col_map['name']] if 'name' in col_map else ""
-            units_raw = row[col_map['units']] if 'units' in col_map else 0
+            code_raw = row[col_map['code']] if col_map['code'] < len(row) else None
+            name_raw = row[col_map['name']] if 'name' in col_map and col_map['name'] < len(row) else ""
+            units_raw = row[col_map['units']] if 'units' in col_map and col_map['units'] < len(row) else 0
             
             def parse_num(val):
-                if pd.isna(val): return 0
+                if is_na(val): return 0
                 s = re.sub(r'[\(\)\[\]\*\s]', '', str(val).strip())
                 try: return int(float(s))
                 except: return 0
             
             units = parse_num(units_raw)
             
-            if pd.isna(code_raw):
+            if is_na(code_raw):
                 if units > 0:
                     print(f"DEBUG: Row {idx} skipped: Subtotal row (units={units}, code=None)")
                     continue 
-                if not pd.isna(name_raw) and current_year_context == 'Elective':
+                if not is_na(name_raw) and current_year_context == 'Elective':
                     sub_cat = str(name_raw).strip()
                     if sub_cat and len(sub_cat) > 3:
                         current_sem_context = sub_cat
@@ -710,7 +701,7 @@ async def _process_curriculum_import(
             
             # Cleanup code and name for identifier
             code = str(int(code_raw)) if isinstance(code_raw, float) and code_raw.is_integer() else str(code_raw).strip()
-            name = str(name_raw).strip() if not pd.isna(name_raw) else ""
+            name = str(name_raw).strip() if not is_na(name_raw) else ""
             print(f"DEBUG: Found Subject candidate at row {idx}: {code} - {name} ({units} units)")
             # STEP 7 — CONSECUTIVE DEDUPLICATION (Scenario A, Rule 260)
             current_identifier = (code, name, units)
@@ -724,8 +715,8 @@ async def _process_curriculum_import(
             if not code or any(b in code.lower() for b in blacklist) or len(code) < 2:
                 continue
             
-            lec_units = parse_num(row[col_map['lec_units']] if 'lec_units' in col_map else 0)
-            lab_units = parse_num(row[col_map['lab_units']] if 'lab_units' in col_map else 0)
+            lec_units = parse_num(row[col_map['lec_units']] if 'lec_units' in col_map and col_map['lec_units'] < len(row) else 0)
+            lab_units = parse_num(row[col_map['lab_units']] if 'lab_units' in col_map and col_map['lab_units'] < len(row) else 0)
             
             if units == 0 and (lec_units > 0 or lab_units > 0):
                 units = lec_units + lab_units
@@ -737,7 +728,7 @@ async def _process_curriculum_import(
                 continue
 
             def clean_prereqs(val):
-                if not val or pd.isna(val): return None
+                if not val or is_na(val): return None
                 s = str(val).lower().strip()
                 if s in ['none', 'n/a', '0', 'nan', 'none.', 'no']: return None
                 parts = str(val).replace('\r\n', ',').replace('\n', ',').replace('&', ',').replace(';', ',').replace(' AND ', ',').replace(' OR ', ',')
@@ -750,7 +741,8 @@ async def _process_curriculum_import(
                         codes.append(tok_clean)
                 return ", ".join(codes) if codes else None
 
-            pre_req = clean_prereqs(row[col_map['pre_requisite']] if 'pre_requisite' in col_map else None)
+            pre_req_raw = row[col_map['pre_requisite']] if 'pre_requisite' in col_map and col_map['pre_requisite'] < len(row) else None
+            pre_req = clean_prereqs(pre_req_raw)
             is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE', 'RZAL', 'RIZAL'))
 
             # DYNAMIC A/B SUBJECT SPLITTING ([BASE SUBJECT CODE]A/B -> [BASE SUBJECT CODE]A + [BASE SUBJECT CODE]B)
@@ -770,12 +762,11 @@ async def _process_curriculum_import(
 
                 for ccode, ctype_val, u_val, lec_u, lab_u in split_specs:
                     item_data = {
-                        "block_id": curriculum_block.id if curriculum_block else None,
+                        "block_id": curriculum_block.id,
                         "code": ccode, "name": name, "units": u_val, "type": ctype_val,
                         "department_id": target_dept_id, "program_code": program_code,
                         "year_level": current_year_context, "semester_term": current_sem_context,
                         "lec_units": lec_u, "lab_units": lab_u, "pre_requisite": pre_req,
-                        "pre_requisites": pre_req, "year": current_year_context, "semester": current_sem_context, "course": program_code,
                         "is_major": is_major_val,
                         "validation_issues": []
                     }
@@ -786,7 +777,7 @@ async def _process_curriculum_import(
                         skipped_items.append({**item_data, "reason": "Already exists in this file"})
                     else:
                         items_to_add.append(models.Curriculum(
-                            block_id=curriculum_block.id if curriculum_block else None,
+                            block_id=curriculum_block.id,
                             code=ccode, name=name, units=u_val, type=ctype_val,
                             department_id=target_dept_id, program_code=program_code,
                             year_level=current_year_context, semester_term=current_sem_context,
@@ -809,12 +800,11 @@ async def _process_curriculum_import(
                     ctype = 'lecture'
 
             item_data = {
-                "block_id": curriculum_block.id if curriculum_block else None,
+                "block_id": curriculum_block.id,
                 "code": code, "name": name, "units": units, "type": ctype,
                 "department_id": target_dept_id, "program_code": program_code,
                 "year_level": current_year_context, "semester_term": current_sem_context,
                 "lec_units": lec_units, "lab_units": lab_units, "pre_requisite": pre_req,
-                "pre_requisites": pre_req, "year": current_year_context, "semester": current_sem_context, "course": program_code,
                 "is_major": is_major_val,
                 "validation_issues": []
             }
@@ -838,7 +828,7 @@ async def _process_curriculum_import(
                 skipped_items.append({**item_data, "reason": "Already exists in this file"})
             else:
                 items_to_add.append(models.Curriculum(
-                    block_id=curriculum_block.id if curriculum_block else None,
+                    block_id=curriculum_block.id,
                     code=code, name=name, units=units, type=ctype,
                     department_id=target_dept_id, program_code=program_code,
                     year_level=current_year_context, semester_term=current_sem_context,
@@ -854,23 +844,23 @@ async def _process_curriculum_import(
         summary_labels_values = []
 
         found_summary_start = -1
-        for i, row in df.iterrows():
-            row_text = " ".join([str(v).strip().upper() for v in row.values if pd.notna(v)])
+        for i, row in enumerate(raw_rows):
+            row_text = " ".join([str(v).strip().upper() for v in row if not is_na(v)])
             if "SUMMARY OF UNITS" in row_text or "TOTAL UNITS" in row_text:
-                found_summary_start = int(i) # type: ignore
+                found_summary_start = i
                 break
         
         if found_summary_start != -1:
-            for i in range(found_summary_start, len(df)):
-                s_row = df.iloc[i]
-                s_row_text = " ".join([str(v).strip().upper() for v in s_row.values if pd.notna(v)])
-                numeric_vals = [v for v in s_row.values if isinstance(v, (int, float)) and v > 0]
-                label_vals = [v.strip() for v in s_row.values if isinstance(v, str) and len(v) > 2]
+            for i in range(found_summary_start, len(raw_rows)):
+                s_row = raw_rows[i]
+                s_row_text = " ".join([str(v).strip().upper() for v in s_row if not is_na(v)])
+                numeric_vals = [v for v in s_row if isinstance(v, (int, float)) and v > 0]
+                label_vals = [v.strip() for v in s_row if isinstance(v, str) and len(v.strip()) > 2]
                 if numeric_vals:
                     val = numeric_vals[-1]
                     label = label_vals[0] if label_vals else "Unnamed Category"
                     summary_labels_values.append({"label": label, "value": val})
-                    if "TOTAL" in s_row_text or i == len(df) - 1:
+                    if "TOTAL" in s_row_text or i == len(raw_rows) - 1:
                         excel_grand_total = val
 
         # STEP 8 — OUTPUT STRUCTURE (FULLY DYNAMIC)
@@ -899,10 +889,14 @@ async def _process_curriculum_import(
             "program_name": extracted_program_name,
             "academic_year": extracted_ay,
             "selected_sheet": best_sheet,
-            "selected_sheet_reason": f"Detected valid subject table in worksheet '{best_sheet}' (Score: {max_score}/125).",
-            "candidate_sheets": sheet_scores,
-            "is_sheet_tie_break": is_sheet_tie,
-            "scanned_rows": len(df),
+            "available_sheets": wb.sheetnames,
+            "sheet_auto_selected": sheet_auto_selected,
+            "selected_sheet_reason": (
+                f"Reading '{best_sheet}' because it has Course Code, Title, Units and Lec/Lab columns (confidence {max_score})."
+                if sheet_auto_selected
+                else f"Reading '{best_sheet}' because you chose it."
+            ),
+            "scanned_rows": len(raw_rows),
             "total_rows": len(all_parsed_data),
             "detected_subjects": len(all_parsed_data),
             "created_subjects": len(items_to_add),
@@ -953,6 +947,13 @@ async def _process_curriculum_import(
                 "course": program_code
             }
 
+    except HTTPException:
+        # A deliberate 4xx raised inside this block -- an unknown sheet name,
+        # a missing department -- is a message for the user, not a crash. It was
+        # being caught below and re-raised as a 500 with the status code
+        # stringified into the detail ("Import failed: 400: ...").
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         import traceback
@@ -971,7 +972,9 @@ async def import_curriculum(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     contents = await file.read()
-    return await _process_curriculum_import(contents, department_id, program_code, dry_run, db, current_user, mapping, selected_sheet)
+    return await _process_curriculum_import(
+        contents, department_id, program_code, dry_run, db, current_user, mapping, selected_sheet
+    )
 
 @router.post("/bulk", response_model=schemas.ImportResponse)
 def bulk_create_curriculum(
@@ -1057,15 +1060,16 @@ async def get_excel_headers(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can preview Excel headers")
     contents = await file.read()
     try:
-        xl = pd.ExcelFile(io.BytesIO(contents))
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
         sheets_data = {}
-        for sheet in xl.sheet_names:
-            df = pd.read_excel(xl, sheet_name=sheet, nrows=10, header=None)
-            if df.empty: continue
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            raw_rows = [list(r) for r in list(ws.iter_rows(values_only=True))[:10]]
+            if not raw_rows: continue
             rows = []
-            for _, row in df.iterrows():
-                rows.append([str(v) if not pd.isna(v) else "" for v in row.values])
-            sheets_data[sheet] = {"sample_rows": rows, "sheet_name": sheet}
+            for row in raw_rows:
+                rows.append([str(v) if v is not None and not (isinstance(v, float) and math.isnan(v)) else "" for v in row])
+            sheets_data[sheet_name] = {"sample_rows": rows, "sheet_name": sheet_name}
         return sheets_data
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read Excel file: {str(e)}")

@@ -1,13 +1,24 @@
 import unittest
 import re
 import io
-import pandas as pd
+import openpyxl
 from typing import List, Dict, Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app import models, schemas
 from backend.app.services.schedule_generator import generate_schedules, is_room_conflict
 from backend.app.routers.curriculum import _process_curriculum_import
+
+def _make_excel_bytes(rows):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if ws is None:
+        ws = wb.create_sheet("Sheet")
+    for r in rows:
+        ws.append(r)
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 def setup_test_db():
     engine = create_engine("sqlite:///:memory:")
@@ -168,12 +179,9 @@ class TestLabLecHandling(unittest.TestCase):
                 ["ANAT101A", "Veterinary Anatomy Lec", 3, 0, 3, "NONE"],
                 ["ANAT101B", "Veterinary Anatomy Lab", 0, 2, 2, "NONE"]
             ]
-            out1 = io.BytesIO()
-            with pd.ExcelWriter(out1, engine='openpyxl') as writer:
-                pd.DataFrame(df1_data).to_excel(writer, index=False, header=False)
-            
+            out1_bytes = _make_excel_bytes(df1_data)
             target_d_id: int = int(dept.id) # type: ignore
-            res1 = await _process_curriculum_import(out1.getvalue(), target_d_id, "DVM", True, db, MockUser())
+            res1 = await _process_curriculum_import(out1_bytes, target_d_id, "DVM", True, db, MockUser())
             report1 = res1.get("report", [])
             self.assertEqual(len(report1), 4)
 
@@ -189,11 +197,8 @@ class TestLabLecHandling(unittest.TestCase):
                 ["SECOND SEMESTER", "", "", "", "", ""],
                 ["CS201A/B", "Data Structures Lec/Lab", 2, 1, 3, "CC101A,CC101B"]
             ]
-            out2 = io.BytesIO()
-            with pd.ExcelWriter(out2, engine='openpyxl') as writer:
-                pd.DataFrame(df2_data).to_excel(writer, index=False, header=False)
-
-            res2 = await _process_curriculum_import(out2.getvalue(), target_d_id, "BSCS", True, db, MockUser())
+            out2_bytes = _make_excel_bytes(df2_data)
+            res2 = await _process_curriculum_import(out2_bytes, target_d_id, "BSCS", True, db, MockUser())
             report2 = res2.get("report", [])
             self.assertEqual(len(report2), 5) # CC101A, CC101B, MATH101, CS201A, CS201B
 
@@ -210,11 +215,8 @@ class TestLabLecHandling(unittest.TestCase):
                 ["2ND SEMESTER", "", "", "", "", ""],
                 ["MATH102", "Calculus I", 4, 0, 4, "MATH101"]
             ]
-            out3 = io.BytesIO()
-            with pd.ExcelWriter(out3, engine='openpyxl') as writer:
-                pd.DataFrame(df3_data).to_excel(writer, index=False, header=False)
-
-            res3 = await _process_curriculum_import(out3.getvalue(), target_d_id, "BSCpE", True, db, MockUser())
+            out3_bytes = _make_excel_bytes(df3_data)
+            res3 = await _process_curriculum_import(out3_bytes, target_d_id, "BSCpE", True, db, MockUser())
             report3 = res3.get("report", [])
             self.assertEqual(len(report3), 5) # CPE101A, CPE101B, PHYS101A, PHYS101B, MATH102
 
@@ -229,11 +231,8 @@ class TestLabLecHandling(unittest.TestCase):
                 ["ACCT101", "Financial Accounting", 3, 0, 3, "NONE"],
                 ["BUS102A/B", "Business Analytics Lec/Lab", 2, 1, 3, "NONE"]
             ]
-            out4 = io.BytesIO()
-            with pd.ExcelWriter(out4, engine='openpyxl') as writer:
-                pd.DataFrame(df4_data).to_excel(writer, index=False, header=False)
-
-            res4 = await _process_curriculum_import(out4.getvalue(), target_d_id, "BSBA", True, db, MockUser())
+            out4_bytes = _make_excel_bytes(df4_data)
+            res4 = await _process_curriculum_import(out4_bytes, target_d_id, "BSBA", True, db, MockUser())
             report4 = res4.get("report", [])
             self.assertEqual(len(report4), 3) # ACCT101, BUS102A, BUS102B
 
@@ -289,17 +288,15 @@ class TestLabLecHandling(unittest.TestCase):
                 ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
                 ["CS101", "Intro to CS", 3, 0, 3, "NONE"]
             ]
-            out = io.BytesIO()
-            with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
+            out_bytes = _make_excel_bytes(df_data)
 
             # TEST 4: Admin import succeeds
-            imp_res = await _process_curriculum_import(out.getvalue(), dept_id_val, "BSCS", True, db, AdminUser())
+            imp_res = await _process_curriculum_import(out_bytes, dept_id_val, "BSCS", True, db, AdminUser())
             self.assertTrue(imp_res.get("is_dry_run"))
 
             # TEST 5: Chair import fails -> 403
             with self.assertRaises(HTTPException) as ctx5:
-                await _process_curriculum_import(out.getvalue(), dept_id_val, "BSCS", True, db, ChairUser())
+                await _process_curriculum_import(out_bytes, dept_id_val, "BSCS", True, db, ChairUser())
             self.assertEqual(ctx5.exception.status_code, 403)
 
         asyncio.run(test_import())
@@ -528,11 +525,9 @@ class TestLabLecHandling(unittest.TestCase):
                 ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
                 ["CS102", "Data Structures", 3, 0, 3, "CS101\n MATH101 \r\n ENGL101"]
             ]
-            out = io.BytesIO()
-            with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
+            out_bytes = _make_excel_bytes(df_data)
 
-            imp_res = await _process_curriculum_import(out.getvalue(), d1_id, "BSCS", True, db, AdminUser())
+            imp_res = await _process_curriculum_import(out_bytes, d1_id, "BSCS", True, db, AdminUser())
             report = imp_res.get("report", [])
             self.assertEqual(len(report), 1)
             self.assertEqual(report[0]["pre_requisite"], "CS101, MATH101, ENGL101")

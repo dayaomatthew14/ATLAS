@@ -10,8 +10,22 @@ venv/
 env/
 .pytest_cache/
 
+# Secrets — never commit real credentials; commit .env.example instead
+.env
+.env.*
+!.env.example
+
 # Database
 atlas.db
+*.db
+*.sqlite
+*.sqlite3
+
+# User-uploaded content — profile photos are personal data, not source
+backend/uploads/
+
+# Per-developer Claude Code settings; launch.json IS shared
+.claude/settings.local.json
 
 # OS
 .DS_Store

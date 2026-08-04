@@ -30,7 +30,8 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import Modal from '../../components/Modal';
-import { api } from '../../utils/api';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+import { api, API_BASE } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 
 const formatSemesterTerm = (term) => {
@@ -55,6 +56,8 @@ export default function DashboardHome() {
   const [allSemesters, setAllSemesters] = useState([]);
   const [recentLogs, setRecentLogs] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [deleteSemesterId, setDeleteSemesterId] = useState(null);
+  const [deleteSemesterBlocked, setDeleteSemesterBlocked] = useState('');
   const [isSemesterModalOpen, setIsSemesterModalOpen] = useState(false);
   const [newSemesterData, setNewSemesterData] = useState({ academic_year: '', term: '1st Semester' });
 
@@ -231,15 +234,25 @@ export default function DashboardHome() {
     }
   };
 
-  const handleDeleteSemester = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this semester? Associated records may be affected.')) return;
+  const handleDeleteSemester = (id) => {
+    // "Associated records may be affected" was both vague and, until DEP-5,
+    // untrue in a dangerous way — deleting a term silently orphaned every class
+    // in it. The server now refuses with a count, and this dialog relays it.
+    setDeleteSemesterId(id);
+  };
+
+  const confirmDeleteSemester = async () => {
+    if (!deleteSemesterId) return;
     setIsProcessing(true);
     try {
-      await api.delete(`/semesters/${id}`);
-      addToast('Semester deleted successfully', 'success');
+      await api.delete(`/semesters/${deleteSemesterId}`);
+      addToast('Academic term deleted.', 'success');
+      setDeleteSemesterId(null);
+      setDeleteSemesterBlocked('');
       fetchStats();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to delete semester', 'error');
+      if (e.status === 409) setDeleteSemesterBlocked(e.message);
+      else addToast(e.message || 'Could not delete the term.', 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -265,8 +278,15 @@ export default function DashboardHome() {
     setIsProcessing(true);
     try {
       if (action === 'pdf') {
-        window.open(`${api.defaults.baseURL}/schedules/export/pdf?semester_id=1`, '_blank');
-        addToast('Generating official PDF schedule...', 'success');
+        // HEU-03: `api` is a plain object with no `defaults`, so this threw a
+        // TypeError the moment the button was clicked. It also hardcoded
+        // semester_id=1 rather than using the active term.
+        if (!activeSemester) {
+          addToast('Set an active term before exporting a schedule.', 'warning');
+          return;
+        }
+        window.open(`${API_BASE}/schedules/export/pdf?semester_id=${activeSemester.id}`, '_blank');
+        addToast('Preparing the schedule PDF.', 'success');
       } else if (action === 'resolve') {
         await api.post('/ai-scheduler/resolve-conflicts', []);
         addToast('AI resolution sequence completed!', 'success');
@@ -992,6 +1012,19 @@ export default function DashboardHome() {
           </div>
         </Modal>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteSemesterId)}
+        onClose={() => { setDeleteSemesterId(null); setDeleteSemesterBlocked(''); }}
+        onConfirm={confirmDeleteSemester}
+        title={deleteSemesterBlocked ? 'This term cannot be deleted' : 'Delete this academic term?'}
+        description="A term that still holds classes or subject assignments cannot be deleted."
+        confirmLabel="Delete Term"
+        destructive
+        loading={isProcessing}
+        blocked={Boolean(deleteSemesterBlocked)}
+        blockedReason={deleteSemesterBlocked}
+      />
     </div>
   );
 }

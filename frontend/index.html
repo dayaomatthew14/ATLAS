@@ -7,6 +7,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!--
+      ATLAS type tiers (Phase 1 §1.1):
+        Source Serif 4 600  — page titles, empty-state headlines, print headers
+        IBM Plex Sans       — all interface text
+        IBM Plex Mono       — time, room, section and unit codes
+
+      These load but are not yet applied: nothing uses font-display/ui/data
+      until screens are migrated, so this is a no-op visually today.
+
+      NOTE: this is the CDN, not self-hosted. The preconnect hints above were
+      already here but no stylesheet was ever linked, so the app's declared
+      'Plus Jakarta Sans' has never actually been fetched. Before production,
+      drop WOFF2 subsets in /public/fonts and swap this for @font-face —
+      roughly 120KB, and it removes a third-party request on every page load.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap"
+      rel="stylesheet"
+    >
     <title>ATLAS - Automated Timetabling</title>
     <script>
       (function() {

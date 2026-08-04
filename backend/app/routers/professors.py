@@ -8,6 +8,38 @@ router = APIRouter(
     tags=["Professors"]
 )
 
+SCOPED_ROLES = ['program_chair', 'coordinator']
+
+
+def resolve_user_department(db: Session, current_user: models.User):
+    """Return the Department for a user's department code/name, or None."""
+    if not current_user.department:
+        return None
+    return db.query(models.Department).filter(
+        (models.Department.code == current_user.department) |
+        (models.Department.name == current_user.department)
+    ).first()
+
+
+def assert_faculty_in_scope(db: Session, current_user: models.User, faculty: models.Faculty):
+    """
+    Reject access to a faculty record outside the caller's department.
+
+    Admins are unrestricted. Every other role is confined to its own department;
+    an unresolvable department fails closed rather than granting global access.
+    """
+    if current_user.role == 'admin':
+        return
+    if current_user.role not in SCOPED_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    dept = resolve_user_department(db, current_user)
+    if not dept or faculty.department_id != dept.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access faculty outside your department"
+        )
+
 @router.get("", response_model=List[schemas.FacultyResponse])
 @router.get("/", response_model=List[schemas.FacultyResponse], include_in_schema=False)
 def get_professors(
@@ -22,17 +54,12 @@ def get_professors(
 
     query = db.query(models.Faculty)
     
-    if current_user.role in ['program_chair', 'coordinator']:
-        if not current_user.department:
-            return []
-        # Find department ID for the user
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
+    if current_user.role in SCOPED_ROLES:
+        # Fail closed. This previously fell back to returning every faculty
+        # member in the university when the department could not be resolved.
+        dept = resolve_user_department(db, current_user)
         if not dept:
-            # Fallback: Return all faculty if dept code doesn't map to a single ID
-            return query.offset(skip).limit(limit).all()
+            return []
         query = query.filter(models.Faculty.department_id == dept.id)
     elif department_id:
         query = query.filter(models.Faculty.department_id == department_id)
@@ -85,7 +112,8 @@ def get_professor(
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
-        
+
+    assert_faculty_in_scope(db, current_user, faculty)
     return faculty
 
 @router.post("", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED)
@@ -131,11 +159,24 @@ def update_professor(
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
-        
+
+    assert_faculty_in_scope(db, current_user, db_faculty)
+
     update_data = faculty.model_dump(exclude_unset=True)
+
+    # A scoped user must not be able to move a faculty member into another
+    # department, which would put the record permanently out of their reach.
+    if current_user.role in SCOPED_ROLES and 'department_id' in update_data:
+        dept = resolve_user_department(db, current_user)
+        if not dept or update_data['department_id'] != dept.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot reassign faculty to another department"
+            )
+
     for key, value in update_data.items():
         setattr(db_faculty, key, value)
-        
+
     db.commit()
     db.refresh(db_faculty)
     return db_faculty
@@ -152,7 +193,9 @@ def delete_professor(
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
-             
+
+    assert_faculty_in_scope(db, current_user, db_faculty)
+
     db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id == faculty_id).delete(synchronize_session=False)
     db.query(models.SubjectOffering).filter(models.SubjectOffering.faculty_id == faculty_id).delete(synchronize_session=False)
     db.delete(db_faculty)
@@ -170,6 +213,9 @@ def get_unavailability(
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
+
+    assert_faculty_in_scope(db, current_user, faculty)
+
     blocks = db.query(models.FacultyUnavailability).filter(
         models.FacultyUnavailability.faculty_id == faculty_id
     ).all()
@@ -187,6 +233,15 @@ def add_unavailability(
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
+
+    assert_faculty_in_scope(db, current_user, faculty)
+
+    if block.end_time <= block.start_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unavailability end time must be after the start time"
+        )
+
     new_block = models.FacultyUnavailability(
         faculty_id=faculty_id,
         day_of_week=block.day_of_week,
@@ -198,6 +253,71 @@ def add_unavailability(
     db.refresh(new_block)
     return new_block
 
+@router.put("/{faculty_id}/unavailability", response_model=List[schemas.FacultyUnavailabilityResponse])
+def replace_unavailability(
+    faculty_id: int,
+    blocks: List[schemas.FacultyUnavailabilityCreate],
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Replace a faculty member's entire unavailability set in one transaction.
+
+    The UI previously saved by deleting every existing block one at a time and
+    then POSTing each new one -- N+1 sequential requests where a failure
+    partway through left the person with half their availability recorded and
+    nothing to indicate it (audit finding FLOW-03). This either applies the
+    whole set or changes nothing.
+    """
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
+    assert_faculty_in_scope(db, current_user, faculty)
+
+    valid_days = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'}
+    for b in blocks:
+        if b.day_of_week not in valid_days:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{b.day_of_week} is not a scheduling day. Use Mon to Sat."
+            )
+        if b.end_time <= b.start_time:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unavailability on {b.day_of_week} must end after it starts."
+            )
+
+    try:
+        db.query(models.FacultyUnavailability).filter(
+            models.FacultyUnavailability.faculty_id == faculty_id
+        ).delete(synchronize_session=False)
+
+        created = [
+            models.FacultyUnavailability(
+                faculty_id=faculty_id,
+                day_of_week=b.day_of_week,
+                start_time=b.start_time,
+                end_time=b.end_time,
+            )
+            for b in blocks
+        ]
+        if created:
+            db.add_all(created)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not save availability, so nothing was changed: {e}"
+        )
+
+    return db.query(models.FacultyUnavailability).filter(
+        models.FacultyUnavailability.faculty_id == faculty_id
+    ).all()
+
 @router.delete("/{faculty_id}/unavailability/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_unavailability(
     faculty_id: int,
@@ -207,6 +327,12 @@ def remove_unavailability(
 ):
     if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
+    assert_faculty_in_scope(db, current_user, faculty)
+
     block = db.query(models.FacultyUnavailability).filter(
         models.FacultyUnavailability.id == block_id,
         models.FacultyUnavailability.faculty_id == faculty_id

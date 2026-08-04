@@ -3,6 +3,18 @@ import { useNavigate, Outlet, useLocation, Link } from 'react-router-dom';
 import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder, AlertCircle, Activity, HelpCircle, Sparkles, X, ShieldCheck } from 'lucide-react';
 import { api } from '../utils/api';
 import SystemGuideModal from '../components/SystemGuideModal';
+import AppShell from '../components/shell/AppShell';
+
+/**
+ * Semester.term is stored as '1st' | '2nd' | '3rd semester' — the third value
+ * is inconsistent with the other two (audit finding, Phase 2 Screen 7). The UI
+ * normalises here so the inconsistency stays in one place.
+ */
+const TERM_LABELS = {
+  '1st': '1st Term',
+  '2nd': '2nd Term',
+  '3rd semester': 'Midyear',
+};
 
 const getProfilePictureUrl = (path) => {
   if (!path) return '';
@@ -37,6 +49,57 @@ export default function Dashboard() {
   const [conflictCount, setConflictCount] = useState(0);
   const department = localStorage.getItem('atlas_department');
   const dashboardTitle = department ? `${department} ${roleDisplay} Portal` : 'DLSAU Tertiary Education';
+
+  // --- Shell state (Sprint 3) --------------------------------------------
+  // The context bar must always show the academic term, which previously
+  // appeared only as a card on Overview (audit finding IA-01).
+  const [activeTerm, setActiveTerm] = useState(null);
+  // Distinct from `activeTerm === null`. Without this the bar asserted
+  // "No active term" during the fetch, which is a false negative shown on
+  // every page load — the opposite of what the context bar exists to do.
+  const [termLoading, setTermLoading] = useState(true);
+  const [density, setDensity] = useState(
+    () => localStorage.getItem('atlas_density') || 'comfortable'
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadActiveTerm = () => {
+      api.get('/semesters')
+        .then((sems) => {
+          if (cancelled) return;
+          const list = Array.isArray(sems) ? sems : [];
+          setActiveTerm(list.find((s) => s.is_active) || null);
+        })
+        .catch(() => { /* leave activeTerm null; the bar reports no active term */ })
+        .finally(() => { if (!cancelled) setTermLoading(false); });
+    };
+
+    loadActiveTerm();
+
+    // The context bar exists so nobody works in the wrong term, which means it
+    // must not go stale the moment someone changes the active term. Terms
+    // dispatches this after activating one, matching the existing
+    // `atlas_profile_updated` pattern.
+    window.addEventListener('atlas_term_changed', loadActiveTerm);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('atlas_term_changed', loadActiveTerm);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (density === 'compact') document.documentElement.setAttribute('data-density', 'compact');
+    else document.documentElement.removeAttribute('data-density');
+    localStorage.setItem('atlas_density', density);
+  }, [density]);
+
+  const termLabel = termLoading
+    ? null
+    : activeTerm
+      ? `A.Y. ${activeTerm.academic_year} · ${TERM_LABELS[activeTerm.term] || activeTerm.term}`
+      : 'No active term';
 
   useEffect(() => {
     const handleProfileUpdate = () => {
@@ -73,25 +136,9 @@ export default function Dashboard() {
     navigate('/login');
   };
 
-  const adminNavItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'User Governance', icon: ShieldCheck, path: '/dashboard/users' },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum' },
-    { name: 'Campus Rooms', icon: MapPin, path: '/dashboard/rooms' },
-    { name: 'Academic Terms', icon: Calendar, path: '/dashboard/semesters' },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
-  ];
-
-  const standardNavItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules' },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum' },
-    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms' },
-    { name: 'Professors', icon: Users, path: '/dashboard/teachers' },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
-  ];
-
-  const filteredNavItems = role === 'admin' ? adminNavItems : standardNavItems;
+  // The adminNavItems / standardNavItems arrays moved into NavRail, which now
+  // serves one label per destination to every role. The admin list previously
+  // omitted Schedule and Faculty entirely (INV-01).
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [tourStep, setTourStep] = useState(1);
@@ -154,132 +201,25 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans flex flex-col relative text-slate-800 selection:bg-emerald-600 selection:text-white">
-      {/* DLSAU Campus Background Layer matching Login */}
-      <div className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none opacity-[0.06] filter blur-[2px]" style={{ backgroundImage: `url('/dlsau_bg.jpg')` }}></div>
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-emerald-950/10 via-slate-900/5 to-emerald-950/15 pointer-events-none"></div>
-
-      {/* Top Navbar */}
-      <nav className="bg-gradient-to-r from-emerald-950/95 via-green-900/95 to-emerald-950/95 backdrop-blur-2xl border-b border-white/10 text-white shadow-2xl sticky top-0 z-50 transition-all">
-        <div className="w-full px-6 sm:px-10 lg:px-12">
-          <div className="flex items-center justify-between h-24 gap-6">
-            <Link to="/dashboard" className="flex items-center space-x-3.5 group shrink-0">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-12 h-12 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
-              <div className="hidden sm:block">
-                <span className="font-black text-3xl sm:text-4xl tracking-tighter block leading-none">ATLAS</span>
-              </div>
-            </Link>
-
-            <div className="hidden md:flex flex-1 justify-center items-center gap-2 lg:gap-3 xl:gap-4">
-              {filteredNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = item.path === '/dashboard'
-                  ? location.pathname === '/dashboard'
-                  : location.pathname.startsWith(item.path);
-
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.path}
-                    className={`flex items-center px-4 py-2.5 rounded-2xl text-sm lg:text-base font-bold whitespace-nowrap transition-all duration-200 ${isActive
-                      ? 'bg-white text-green-900 shadow-lg transform -translate-y-0.5 font-extrabold'
-                      : 'text-green-100/90 hover:bg-white/10 hover:text-white'
-                      }`}
-                  >
-                    <Icon className={`w-5 h-5 mr-2.5 shrink-0 ${isActive ? 'text-green-800' : 'text-green-200/90'}`} />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center gap-3.5 shrink-0">
-              {/* Header User Guide Button (Icon only) */}
-              <button
-                type="button"
-                onClick={() => setIsGuideOpen(true)}
-                className="hidden sm:flex items-center justify-center bg-white/10 hover:bg-white/20 hover:scale-105 w-10 h-10 rounded-2xl border border-white/15 transition-all shadow-xs shrink-0 group"
-                title="Open ATLAS User Guide"
-              >
-                <HelpCircle className="w-5 h-5 text-amber-300 group-hover:text-amber-200 transition-colors shrink-0" />
-              </button>
-
-              <div className="relative shrink-0">
-                <button
-                  onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex items-center space-x-3.5 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-2xl border border-white/15 transition-all shadow-xs"
-                >
-                  <div className="w-10 h-10 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center shrink-0">
-                    {profilePicture ? (
-                      <img src={getProfilePictureUrl(profilePicture)} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-pink-600 font-black text-sm uppercase">
-                        {(() => {
-                          const name = profileName;
-                          const parts = name.trim().split(/\s+/);
-                          if (parts.length >= 2) {
-                            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-                          }
-                          return name.substring(0, 2).toUpperCase();
-                        })()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="hidden lg:block text-left max-w-[160px] xl:max-w-[220px]">
-                    <p className="text-xs sm:text-sm font-black uppercase tracking-tight text-white leading-none mb-1 truncate">
-                      {profileName}
-                    </p>
-                    <p className="text-[11px] font-bold text-yellow-400 uppercase tracking-wider leading-none truncate" title={department || 'Tertiary Education'}>
-                      {department || 'Tertiary Education'}
-                    </p>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-green-300 transition-transform shrink-0 ${isProfileOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {isProfileOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setIsProfileOpen(false)}
-                    ></div>
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl py-2 z-50 border border-gray-100 animate-in fade-in slide-in-from-top-2">
-                      <div className="px-4 py-2 border-b border-gray-50 mb-1">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Account</p>
-                        <p className="text-sm font-bold text-gray-700 truncate">{profileName}</p>
-                      </div>
-                      <button onClick={() => { setIsProfileOpen(false); setIsGuideOpen(true); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                        <HelpCircle className="w-4 h-4 mr-3 text-amber-500" />
-                        System Guide
-                      </button>
-                      <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/profile'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                        <Users className="w-4 h-4 mr-3 text-gray-400" />
-                        View Profile
-                      </button>
-                      <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/settings'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                        <Folder className="w-4 h-4 mr-3 text-gray-400" />
-                        Settings
-                      </button>
-                      <div className="border-t border-gray-50 mt-1 pt-1">
-                        <button
-                          onClick={handleLogout}
-                          className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 font-bold transition-colors"
-                        >
-                          <LogOut className="w-4 h-4 mr-3" />
-                          Log Out
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="flex-1 flex flex-col overflow-y-auto relative z-10">
+    <>
+      <AppShell
+        role={role}
+        department={department}
+        termLabel={termLabel}
+        canChangeTerm={role === 'admin'}
+        onOpenTerm={() => navigate('/dashboard/semesters')}
+        isPublished={false}
+        conflictCount={conflictCount}
+        profileName={profileName}
+        profilePicture={profilePicture}
+        getProfilePictureUrl={getProfilePictureUrl}
+        density={density}
+        onToggleDensity={() => setDensity((d) => (d === 'compact' ? 'comfortable' : 'compact'))}
+        onOpenGuide={() => setIsGuideOpen(true)}
+        onLogout={handleLogout}
+      >
         <Outlet />
-      </main>
+      </AppShell>
 
       {/* Interactive Guided System Tour Controller */}
       {isTourActive && (
@@ -337,6 +277,6 @@ export default function Dashboard() {
           navigate('/dashboard');
         }}
       />
-    </div>
+    </>
   );
 }

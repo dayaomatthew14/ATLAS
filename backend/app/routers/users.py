@@ -10,6 +10,9 @@ router = APIRouter(
     tags=["Users"]
 )
 
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
+MAX_PROFILE_PICTURE_BYTES = 5 * 1024 * 1024  # 5 MB
+
 @router.get("")
 def get_users(
     skip: int = 0, 
@@ -83,15 +86,18 @@ def create_user(
     if current_user.role in ['program_chair', 'coordinator']:
         if user.department != current_user.department:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create users in your department")
-        if user.role not in ['faculty', 'student']:
+        if user.role not in ['program_chair', 'coordinator']:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot create users with this role")
             
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
         
+    # UserCreate carries a plaintext `password`; the model stores `password_hash`.
+    # Passing the raw dict through made every call to this endpoint a 500.
     user_data = user.model_dump()
-    new_user = models.User(**user_data)
+    raw_password = user_data.pop('password')
+    new_user = models.User(**user_data, password_hash=auth.get_password_hash(raw_password))
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -112,11 +118,20 @@ def update_user(
     if current_user.role in ['program_chair', 'coordinator']:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this user")
-        if user.role and user.role not in ['faculty', 'student']:
+        if user.role and user.role not in ['program_chair', 'coordinator']:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign this role")
     elif current_user.role != 'admin' and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     update_data = user.model_dump(exclude_unset=True)
+
+    # Department scoping is what every other permission check keys off, so
+    # reassigning it is an administrator action. A chair moving a user into
+    # another department would push that account out of their own reach.
+    if 'department' in update_data and current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can change a user's department."
+        )
 
     for key, value in update_data.items():
         setattr(db_user, key, value)
@@ -162,7 +177,7 @@ def toggle_user_verification(
     return {"id": db_user.id, "is_verified": db_user.is_verified, "msg": f"Verification status updated"}
 
 @router.post("/{user_id}/upload-picture")
-def upload_profile_picture(
+async def upload_profile_picture(
     user_id: int, 
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
@@ -175,15 +190,33 @@ def upload_profile_picture(
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
-    # Generate unique filename
+    # The extension comes from a client-controlled filename, so it is matched
+    # against an allow-list rather than trusted. Taking it verbatim allowed
+    # path separators through and let an upload escape the profiles directory.
     raw_filename = file.filename or "profile.jpg"
-    file_ext = raw_filename.split(".")[-1] if "." in raw_filename else "jpg"
-    filename = f"user_{user_id}_{os.urandom(4).hex()}.{file_ext}"
+    candidate_ext = raw_filename.rsplit(".", 1)[-1].lower() if "." in raw_filename else ""
+    if candidate_ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported image type. Allowed: {', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}"
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_PROFILE_PICTURE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Image is too large. Maximum size is {MAX_PROFILE_PICTURE_BYTES // (1024 * 1024)} MB."
+        )
+    if not contents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
+
+    filename = f"user_{user_id}_{os.urandom(4).hex()}.{candidate_ext}"
     file_location = f"uploads/profiles/{filename}"
-    
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
-        
+    os.makedirs("uploads/profiles", exist_ok=True)
+    with open(file_location, "wb") as file_object:
+        file_object.write(contents)
+
+
     # Delete old picture if exists
     if db_user.profile_picture:
         try:
@@ -209,8 +242,11 @@ def change_password(
             detail="Incorrect current password"
         )
     setattr(current_user, 'password_hash', auth.get_password_hash(payload.new_password))
+    # Invalidate tokens issued before the change, matching what reset-password
+    # already did. Without this a stolen token outlived the password it came from.
+    current_user.session_version += 1  # type: ignore
     db.commit()
-    return {"msg": "Password updated successfully"}
+    return {"msg": "Password updated successfully. Please sign in again on your other devices."}
 
 @router.post("/purge-all-users")
 @router.delete("/purge-all-users")

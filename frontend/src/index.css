@@ -2,6 +2,274 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Safety net: no single component should be able to force the whole page to
+  scroll sideways. `clip` is used rather than `hidden` because `hidden` turns
+  the element into a scroll container, which breaks `position: sticky` on the
+  dashboard navbar. Wide content (schedule grids, tables) must still opt into
+  its own `overflow-x-auto` container so it stays reachable.
+*/
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* Horizontal scrolling without a visible scrollbar, for the nav strip. */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ==========================================================================
+   ATLAS DESIGN TOKENS  —  Phase 1 §1.1
+   Additive only. Nothing here is consumed by existing screens yet; screens
+   opt in from Sprint 2 onward. Every ratio below was computed against
+   WCAG 2.1 and is recorded so it can be re-checked when a value changes.
+   ========================================================================== */
+:root {
+  /* --- Institutional green ------------------------------------------------ */
+  --atlas-green-900: #05301F;   /* white 14.49 · gold 5.97 · canvas 13.61     */
+  --atlas-green-800: #03502A;   /* white 9.61  — primary hover                */
+  --atlas-green-700: #046A38;   /* white 6.72  · canvas 6.31 — primary/focus  */
+  --atlas-green-300: #8FBFA6;   /* on green-900 7.02 — focus ring, dark bars  */
+  --atlas-green-100: #E6F0EA;   /* selected rows, active-day fills            */
+  --atlas-green-050: #F2F7F4;   /* row hover — distinct from selection        */
+
+  /* Gold is a seal, never body text.
+     ONLY legal on --atlas-green-900 (5.97). On white 2.43 and on green-700
+     2.77 it fails; both are forbidden. */
+  --atlas-gold-500: #C8A227;
+
+  /* --- Ink ---------------------------------------------------------------- */
+  --atlas-ink: #14181A;         /* surface 17.87 · canvas 16.78               */
+  --atlas-slate: #5A6560;       /* surface 6.06  · canvas 5.69                */
+  --atlas-disabled: #7E8782;    /* surface 3.70 — WCAG-exempt, kept legible   */
+
+  /* --- Lines --------------------------------------------------------------
+     Two border tokens, deliberately. --atlas-line is 1.27:1 and is fine for
+     hairlines and dividers, where adjacent content conveys structure. It is
+     NOT legal on an interactive control: WCAG 1.4.11 needs 3:1 for a
+     boundary that identifies a component, so form fields use line-input. */
+  --atlas-line: #E1E5E2;
+  --atlas-line-input: #7D8881;  /* surface 3.68 · canvas 3.45                 */
+
+  /* --- Surfaces ----------------------------------------------------------- */
+  --atlas-surface: #FFFFFF;
+  --atlas-canvas: #F7F8F7;
+
+  /* --- Semantic ----------------------------------------------------------- */
+  --sem-conflict: #B3261E;      /* surface 6.54 · on its tint 5.70            */
+  --sem-conflict-bg: #FBECEB;
+  --sem-warning: #8F5F00;       /* surface 5.52 · on its tint 5.01            */
+  --sem-warning-bg: #FCF3E3;
+  --sem-info: #1B5E8C;          /* surface 6.94 · on its tint 6.13            */
+  --sem-info-bg: #EAF2F8;
+
+  /* --- Department identifiers ---------------------------------------------
+     Annotation, never theme. All clear 3:1 as non-text marks, but their
+     MUTUAL contrast is only 1.02–1.26 — they differ in hue, not luminance,
+     so they are unreliable in greyscale and under deuteranopia.
+     HARD RULE: the hue never appears without its department code as
+     adjacent visible text. Unregistered codes (DEPT_7) fall back to slate. */
+  --dept-cast: #2E5E7E;         /* surface 6.96 */
+  --dept-cbma: #8A5A2B;         /* surface 5.87 */
+  --dept-cvmas: #4A6B4A;        /* surface 6.01 */
+  --dept-coed: #6B4A72;         /* surface 7.37 */
+  --dept-unregistered: var(--atlas-slate);
+
+  /* --- Elevation ----------------------------------------------------------
+     Two levels, both green-tinted so overlays belong to the palette.
+     Nothing at rest carries a shadow. --shadow-sticky is a seam, not a glow. */
+  --shadow-overlay: 0 4px 12px rgb(5 48 31 / 0.10), 0 1px 3px rgb(5 48 31 / 0.06);
+  --shadow-sticky: 0 1px 0 var(--atlas-line);
+
+  /* --- Motion -------------------------------------------------------------- */
+  --dur-state: 150ms;
+  --dur-overlay: 200ms;
+  --dur-lens: 250ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* --- Timetable metrics (Comfortable) -------------------------------------
+     Derived from schedule_generator.py: 07:30–19:30, 6 day columns,
+     90-min lecture and 120-min lab blocks.
+     Minimum viable grid width = (6 x 140) + 64 = 904px, which is what sets
+     the 1208px and 1024px breakpoints rather than any stock value. */
+  --tt-halfhour: 28px;
+  --tt-hour: 56px;
+  --tt-daycol-min: 140px;
+  --tt-gutter: 64px;
+  --row-h: 44px;
+}
+
+/* Compact density. 60px is the floor for a 90-min block:
+   20px code + 18px time + 16px padding + 2px border = 58px. */
+[data-density="compact"] {
+  --tt-halfhour: 20px;
+  --tt-hour: 40px;
+  --tt-daycol-min: 120px;
+  --tt-gutter: 56px;
+  --row-h: 32px;
+}
+
+/* 1ms rather than 0ms: a 1ms transition still fires transitionend, so
+   listeners that advance the conflict stepper do not silently stall. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-state: 1ms;
+    --dur-overlay: 1ms;
+    --dur-lens: 1ms;
+  }
+}
+
+/* ==========================================================================
+   PRINT  —  Phase 2 Screen 2 (audit finding FLOW-04)
+   Schedules get printed and posted on department doors. The app called
+   window.print() with no print stylesheet at all, so the printout carried the
+   dark green navigation, the campus background photo and the sidebar.
+   Treat print as a real screen.
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    overflow: visible !important;
+  }
+
+  /* Chrome, controls and overlays are not part of the document. */
+  header,
+  nav,
+  [role="dialog"],
+  [aria-label="Notifications"],
+  .no-print {
+    display: none !important;
+  }
+
+  main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Let the grid lay out at its natural size instead of scrolling. */
+  .print-grid,
+  .print-grid * {
+    overflow: visible !important;
+  }
+
+  .print-grid {
+    break-inside: avoid;
+  }
+
+  /* Ink over fills: keep the hairlines, drop the tints. */
+  .print-block {
+    border: 1px solid var(--atlas-green-900) !important;
+    background: #fff !important;
+    color: var(--atlas-ink) !important;
+    box-shadow: none !important;
+  }
+
+  .print-header {
+    display: block !important;
+    border-bottom: 2px solid var(--atlas-green-900);
+  }
+
+  .print-footer {
+    display: block !important;
+    border-top: 1px solid var(--atlas-green-900);
+  }
+
+  /* A draft posted on a door is exactly what this prevents. */
+  .print-draft-watermark {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 120px;
+    color: rgb(5 48 31 / 0.08);
+    transform: rotate(-30deg);
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 0.2em;
+  }
+}
+
+/* ==========================================================================
+   CONFLICT LENS  —  Phase 1 §1.5
+   ========================================================================== */
+
+/* Non-conflicting blocks recede so the conflicts carry the screen. */
+.lens-dimmed {
+  opacity: 0.15;
+  transition: opacity var(--dur-lens) var(--ease-standard);
+}
+.lens-rules-dimmed {
+  opacity: 0.4;
+  transition: opacity var(--dur-lens) var(--ease-standard);
+}
+
+/*
+  45-degree hatch over the block's own fill. This is the reason the lens does
+  not depend on colour: the texture and the glyph both survive greyscale
+  printing and colour vision deficiency, where a red fill would not.
+*/
+.lens-conflict {
+  position: relative;
+  opacity: 1 !important;
+  z-index: 20;
+}
+.lens-conflict::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--sem-conflict) 0,
+    var(--sem-conflict) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+  opacity: 0.35;
+}
+
+/* The single pulse when the stepper moves to a block. Nothing else in the
+   system pulses, which is what makes it readable as "this one". */
+@keyframes lens-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.lens-current {
+  animation: lens-pulse 150ms var(--ease-standard) 2;
+  outline: 2px solid var(--sem-conflict);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Hold the end state instead of pulsing. */
+  .lens-current {
+    animation: none;
+    outline-color: var(--atlas-green-700);
+  }
+}
+
+/* Print-only elements stay hidden on screen. */
+.print-header,
+.print-footer,
+.print-draft-watermark {
+  display: none;
+}
+
 /* Dynamic Appearance Themes Config */
 :root, html[data-theme="green"] {
   --color-primary-50: 240 253 244;

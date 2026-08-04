@@ -6,11 +6,16 @@ import {
 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+
+// Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
+const MIN_PASSWORD_LENGTH = 12;
 
 export default function Settings() {
   const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState('list'); // 'list', 'notifications', 'security', 'appearance', 'preferences'
   const [isLoading, setIsLoading] = useState(false);
+  const [isLogoutAllOpen, setIsLogoutAllOpen] = useState(false);
 
   // --- Notifications Preferences State ---
   const [notifPreferences, setNotifPreferences] = useState({
@@ -139,8 +144,12 @@ export default function Settings() {
       addToast('New passwords do not match', 'error');
       return;
     }
-    if (newPassword.length < 6) {
-      addToast('New password must be at least 6 characters long', 'error');
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      addToast(`New password must be at least ${MIN_PASSWORD_LENGTH} characters long`, 'error');
+      return;
+    }
+    if (newPassword !== newPassword.trim()) {
+      addToast('New password cannot start or end with a space', 'error');
       return;
     }
 
@@ -174,16 +183,16 @@ export default function Settings() {
   };
 
   // Session Logout of All Devices
-  const handleLogoutAllDevices = async () => {
-    if (!window.confirm('Are you sure you want to log out of all other devices? This will reset your active sessions.')) {
-      return;
-    }
+  const handleLogoutAllDevices = () => setIsLogoutAllOpen(true);
+
+  const confirmLogoutAllDevices = async () => {
     setIsLoading(true);
     try {
       await api.post('/auth/logout-all', {});
-      addToast('Successfully logged out of all other devices', 'success');
+      addToast('Signed out on all other devices.', 'success');
+      setIsLogoutAllOpen(false);
     } catch (err) {
-      addToast('Failed to terminate sessions', 'error');
+      addToast(err.message || 'Could not end the other sessions.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -906,6 +915,16 @@ export default function Settings() {
         </div>
       )}
 
+      <ConfirmDialog
+        isOpen={isLogoutAllOpen}
+        onClose={() => setIsLogoutAllOpen(false)}
+        onConfirm={confirmLogoutAllDevices}
+        title="Sign out on all other devices?"
+        description="Anyone signed in as you elsewhere will be signed out. This device stays signed in."
+        confirmLabel="Sign Out Everywhere"
+        destructive
+        loading={isLoading}
+      />
     </div>
   );
 }

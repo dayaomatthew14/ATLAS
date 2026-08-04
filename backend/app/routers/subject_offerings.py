@@ -10,13 +10,14 @@ router = APIRouter(
     tags=["Subject Offerings"]
 )
 
+from pydantic import ConfigDict
+
 class SubjectOfferingExtendedResponse(schemas.SubjectOfferingResponse):
     faculty_name: str
     subject_code: str
     subject_name: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("", response_model=List[SubjectOfferingExtendedResponse])
 def get_subject_offerings(

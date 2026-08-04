@@ -4,6 +4,10 @@ import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
+import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../components/ui/Dialog';
+import AtlasButton from '../../components/ui/Button';
+import UnavailabilityGrid, { blocksToCells, cellsToBlocks } from '../../components/ui/UnavailabilityGrid';
+import { restrictionReason } from '../../components/ui/tokens';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const formatTime = (timeStr) => {
@@ -174,15 +178,49 @@ export default function Teachers() {
     end_time: '17:30'
   });
 
+  // The grid edits a local draft; nothing is written until Save, so a partial
+  // save is not possible (FLOW-03).
+  const [availabilityCells, setAvailabilityCells] = useState(() => new Set());
+  const [isSavingAvailability, setIsSavingAvailability] = useState(false);
+  const [deleteTeacherTarget, setDeleteTeacherTarget] = useState(null);
+  const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
+
+  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
+  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+
   const handleOpenAvailability = async (teacher) => {
     setSelectedTeacher(teacher);
     setIsAvailabilityModalOpen(true);
     setIsAddingUnavailability(false);
     try {
       const data = await api.get(`/professors/${teacher.id}/unavailability`).catch(() => []);
-      setUnavailability(data);
+      const blocks = Array.isArray(data) ? data : [];
+      setUnavailability(blocks);
+      setAvailabilityCells(blocksToCells(blocks));
     } catch (e) {
       setUnavailability([]);
+      setAvailabilityCells(new Set());
+    }
+  };
+
+  const handleSaveAvailability = async () => {
+    if (!selectedTeacher) return;
+    setIsSavingAvailability(true);
+    try {
+      const blocks = cellsToBlocks(availabilityCells);
+      await api.put(`/professors/${selectedTeacher.id}/unavailability`, blocks);
+      addToast(
+        blocks.length
+          ? `Availability saved for ${selectedTeacher.name}.`
+          : `${selectedTeacher.name} is now available all week.`,
+        'success'
+      );
+      setIsAvailabilityModalOpen(false);
+      fetchTeachers();
+    } catch (err) {
+      addToast(err.message || 'Could not save availability.', 'error');
+    } finally {
+      setIsSavingAvailability(false);
     }
   };
 
@@ -381,55 +419,39 @@ export default function Teachers() {
       };
     });
 
+    // Field names must match schemas.FacultyCreate / FacultyUpdate. `faculty_type`
+    // was silently dropped by the API, so the employment type never saved.
     const submissionData = {
       first_name,
       last_name,
       email: editingTeacher?.email || `${formData.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().replace(/\s+/g, '.')}@dlsau.edu.ph`,
-      password: 'ChangeMe123!',
-      role: 'faculty',
-      department: localStorage.getItem('atlas_department') || 'CAST',
       max_units: parseInt(formData.max_units) || 18,
-      faculty_type: formData.type,
+      type: formData.type,
     };
 
     try {
       let newUser;
       if (editingTeacher) {
-        newUser = await api.put(`/professors/${editingTeacher.id}/`, submissionData);
-
-        // Clear existing unavailability for this teacher to sync with new selection
-        const existing = await api.get(`/professors/${editingTeacher.id}/unavailability`);
-        if (Array.isArray(existing)) {
-          for (const item of existing) {
-            try {
-              await api.delete(`/professors/${editingTeacher.id}/unavailability/${item.id}`);
-            } catch (err) {
-              console.error('Failed to clear old availability block', item.id, err);
-            }
-          }
-        }
+        // No trailing slash: the API sets redirect_slashes=False, so
+        // `/professors/{id}/` 404s instead of matching `/professors/{id}`.
+        newUser = await api.put(`/professors/${editingTeacher.id}`, submissionData);
       } else {
-        newUser = await api.post('/professors/', submissionData);
+        newUser = await api.post('/professors', submissionData);
       }
 
-      // Save the new set of unavailability records
-      if (finalUnavailability.length > 0) {
-        for (const u of finalUnavailability) {
-          try {
-            await api.post(
-              `/professors/${newUser.id}/unavailability`,
-              {
-                day_of_week: u.day_of_week,
-                start_time: u.start_time,
-                end_time: u.end_time
-              }
-            );
-          } catch (err) {
-            console.error('Failed to save unavailability block', u, err);
-            addToast(`Failed to save unavailability for ${u.day_of_week}`, 'error');
-          }
-        }
-      }
+      // One atomic request replaces the whole availability set (DEP-3). This
+      // used to be a DELETE per existing block followed by a POST per new one:
+      // N+1 sequential calls where a mid-flight failure left the faculty
+      // member with partial availability and only a console error to show it
+      // (FLOW-03).
+      await api.put(
+        `/professors/${newUser.id}/unavailability`,
+        finalUnavailability.map((u) => ({
+          day_of_week: u.day_of_week,
+          start_time: u.start_time,
+          end_time: u.end_time,
+        }))
+      );
 
       fetchTeachers();
       handleCloseModal();
@@ -439,15 +461,27 @@ export default function Teachers() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this teacher?')) {
-      try {
-        await api.delete(`/professors/${id}`);
-        fetchTeachers();
-        addToast('Teacher removed successfully', 'success');
-      } catch (error) {
-        addToast(error.message || 'Error removing teacher', 'error');
-      }
+  // HEU-04: a native confirm cannot name who is being removed or say what goes
+  // with them. Deleting a faculty member also drops their availability and
+  // subject assignments (professors.delete_professor), which the old prompt
+  // never mentioned.
+  const handleDelete = (id) => {
+    const t = teachers.find((x) => x.id === id);
+    setDeleteTeacherTarget(t || { id, name: 'this faculty member' });
+  };
+
+  const confirmDeleteTeacher = async () => {
+    if (!deleteTeacherTarget) return;
+    setIsDeletingTeacher(true);
+    try {
+      await api.delete(`/professors/${deleteTeacherTarget.id}`);
+      addToast(`${deleteTeacherTarget.name} removed.`, 'success');
+      setDeleteTeacherTarget(null);
+      fetchTeachers();
+    } catch (error) {
+      addToast(error.message || 'Could not remove the faculty member.', 'error');
+    } finally {
+      setIsDeletingTeacher(false);
     }
   };
 
@@ -761,85 +795,50 @@ export default function Teachers() {
         </form>
       </Modal>
 
-      <Modal
+      {/* Availability. Was a read-only two-column list of blocked windows, with
+          editing only possible from the teacher form via a day dropdown and two
+          time fields. It is now a direct-manipulation week grid on the same time
+          axis as the schedule, saved in one request (DEP-3). */}
+      <AtlasConfirmDialog
+        isOpen={Boolean(deleteTeacherTarget)}
+        onClose={() => setDeleteTeacherTarget(null)}
+        onConfirm={confirmDeleteTeacher}
+        title={`Remove ${deleteTeacherTarget?.name || ''}?`}
+        description="Their availability and subject assignments are removed with them. Classes already scheduled are retained."
+        confirmLabel="Remove Faculty Member"
+        destructive
+        loading={isDeletingTeacher}
+      />
+
+      <AtlasDialog
         isOpen={isAvailabilityModalOpen}
         onClose={() => setIsAvailabilityModalOpen(false)}
-        title={`Availability: ${selectedTeacher?.name}`}
+        title={`Availability — ${selectedTeacher?.name || ''}`}
+        description="Marked time is when this faculty member cannot teach. The scheduler will not place classes there."
+        dismissible={!isSavingAvailability}
+        footer={
+          <>
+            <AtlasButton variant="ghost" onClick={() => setIsAvailabilityModalOpen(false)} disabled={isSavingAvailability}>
+              Cancel
+            </AtlasButton>
+            {canManage ? (
+              <AtlasButton onClick={handleSaveAvailability} loading={isSavingAvailability}>
+                Save Availability
+              </AtlasButton>
+            ) : (
+              <AtlasButton restricted restrictionReason={restrictionReason('program_chair', 'set faculty availability')}>
+                Save Availability
+              </AtlasButton>
+            )}
+          </>
+        }
       >
-        <div className="space-y-6">
-          <div className="bg-amber-50/50 border border-amber-200 p-5 rounded-3xl flex items-start space-x-4">
-            <div className="bg-white p-2 rounded-xl shadow-sm">
-              <Clock className="w-5 h-5 text-amber-600" />
-            </div>
-            <p className="text-sm text-amber-900 font-medium leading-relaxed">
-              Define time windows where this faculty is <span className="font-black text-amber-700">unavailable</span>. The AI Scheduling Engine will strictly avoid assigning classes during these hours.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] bg-emerald-50 px-3 py-1 rounded-full">Available Days</h4>
-                <div className="h-px flex-1 bg-emerald-100"></div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2">
-                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => {
-                  const dayCode = day.substring(0, 3);
-                  const isBlocked = unavailability.some(b => b.day_of_week === dayCode);
-                  if (isBlocked) return null;
-
-                  return (
-                    <div key={day} className="flex items-center p-3 bg-emerald-50/30 border border-emerald-100 rounded-2xl group transition-all">
-                      <div className="w-8 h-8 bg-white text-emerald-600 rounded-xl flex items-center justify-center font-black text-xs shadow-sm border border-emerald-100 mr-3">
-                        {dayCode.toUpperCase()}
-                      </div>
-                      <span className="text-sm font-bold text-emerald-900">{day}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h4 className="text-[10px] font-black text-rose-600 uppercase tracking-[0.2em] bg-rose-50 px-3 py-1 rounded-full">Unavailable (Blocked)</h4>
-                <div className="h-px flex-1 bg-rose-100"></div>
-              </div>
-
-              {unavailability.length === 0 ? (
-                <div className="py-8 text-center border-2 border-dashed border-slate-100 rounded-[2rem]">
-                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">No blocked times set</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {unavailability.map((block, idx) => (
-                    <div key={idx} className="group flex items-center justify-between p-3 bg-white border border-rose-100 rounded-2xl shadow-sm transition-all">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-rose-50 text-rose-700 rounded-xl flex items-center justify-center font-black text-[10px] border border-rose-100">
-                          {block.day_of_week?.substring(0, 3).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-xs font-black text-slate-900 leading-none mb-1">{block.day_of_week}</p>
-                          <p className="text-[10px] text-slate-600 font-bold tracking-tight">
-                            {formatTime(block.start_time)} — {formatTime(block.end_time)}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveUnavailability(block.id)}
-                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </Modal>
+        <UnavailabilityGrid
+          cells={availabilityCells}
+          onChange={setAvailabilityCells}
+          disabled={!canManage || isSavingAvailability}
+        />
+      </AtlasDialog>
       {/* Subject Offerings Modal */}
       <Modal
         isOpen={isSubjectModalOpen}

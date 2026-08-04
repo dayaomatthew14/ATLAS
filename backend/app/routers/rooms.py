@@ -61,13 +61,20 @@ def update_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins, program chairs, and coordinators can manage rooms")
-        
+    # Rooms are shared university-wide -- the model has no owning department, so
+    # any chair can reach any room. Creating one is additive and cannot corrupt
+    # another department's schedule, but renaming or deleting mutates a resource
+    # other departments already reference, so those are administrator-only.
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can edit rooms. Rooms are shared across all departments."
+        )
+
     db_room = db.query(models.Room).filter(models.Room.id == room_id).first()
     if not db_room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
-        
+
     update_data = room.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_room, key, value)
@@ -85,13 +92,28 @@ def delete_room(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins, program chairs, and coordinators can manage rooms")
-        
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can delete rooms. Rooms are shared across all departments."
+        )
+
     db_room = db.query(models.Room).filter(models.Room.id == room_id).first()
     if not db_room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
-        
+
+    # Rooms are shared university-wide (the model has no owning department), so
+    # any chair can reach any room. Refuse to delete one that is still in use
+    # rather than silently detaching another department's classes from it.
+    in_use = db.query(models.Schedule).filter(models.Schedule.room_id == room_id).count()
+    if in_use:
+        noun = "class" if in_use == 1 else "classes"
+        pronoun = "it" if in_use == 1 else "them"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{db_room.name} is used by {in_use} scheduled {noun}. Reassign {pronoun} before deleting the room."
+        )
+
     room_name = db_room.name
     db.delete(db_room)
     db.commit()

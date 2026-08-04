@@ -1,200 +1,252 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Search, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
-import { Activity, Shield, Terminal, Search, Filter, Trash2, Download, Clock, User, Zap, AlertCircle, CheckCircle2 } from 'lucide-react';
+import Button from '../../components/ui/Button';
+import DataTable from '../../components/ui/DataTable';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+import { SelectInput } from '../../components/ui/Field';
+import Badge from '../../components/ui/Badge';
+import { focusRing, pluralize, restrictionReason } from '../../components/ui/tokens';
+
+/**
+ * Activity. Phase 2 Screen 8.
+ *
+ * HEU-05: this screen rendered `log.user` and filtered on `log.activity_type`.
+ * Neither field is returned by the API — SystemLogResponse carries user_id,
+ * action, details, status and timestamp, plus a computed `type` hardcoded to
+ * "USER_ACTIVITY". So every row showed an empty user, every status chip read
+ * "USER ACTIVITY", and the "AI Generation" and "Security" filters could never
+ * match anything. The columns now follow the actual response.
+ */
+
+const POLL_MS = 15000;
 
 export default function SystemLogs() {
   const { addToast } = useToast();
-  const [searchTerm, setSearchTerm] = useState('');
+  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
+  const isAdmin = role === 'admin';
+
   const [logs, setLogs] = useState([]);
+  const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filterType, setFilterType] = useState('All Types');
+  const [loadError, setLoadError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [, setTick] = useState(0);
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [actionFilter, setActionFilter] = useState('all');
+  const [isClearOpen, setIsClearOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+
+  const firstLoad = useRef(true);
 
   const fetchLogs = async () => {
-    setIsLoading(true);
+    if (firstLoad.current) setIsLoading(true);
+    setLoadError('');
     try {
-      const data = await api.get('/logs');
+      const data = await api.get('/logs?limit=200');
       setLogs(Array.isArray(data) ? data : []);
+      setLastUpdated(Date.now());
     } catch (e) {
-      console.error('Failed to fetch logs');
-      setLogs([]);
+      if (firstLoad.current) setLoadError('Could not load the activity log.');
     } finally {
       setIsLoading(false);
+      firstLoad.current = false;
     }
   };
 
   useEffect(() => {
     fetchLogs();
-    const interval = setInterval(fetchLogs, 15000); // Poll every 15s
-    return () => clearInterval(interval);
+    const poll = setInterval(fetchLogs, POLL_MS);
+    // Drives the "updated Ns ago" label without refetching.
+    const clock = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => { clearInterval(poll); clearInterval(clock); };
   }, []);
 
-  const handleExport = () => {
-    window.open(`${api.defaults.baseURL}/logs/export`, '_blank');
-    addToast('Downloading system logs...', 'success');
+  // user_id -> name. The API returns the id only; the old screen read a `user`
+  // field that was never sent, so the column was always blank.
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.get('/users').then((d) => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [isAdmin]);
+
+  const userName = (id) => {
+    if (!id) return 'System';
+    const u = users.find((x) => x.id === id);
+    if (!u) return `User ${id}`;
+    return u.name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
   };
 
-  const handleClear = async () => {
-    if (window.confirm('Are you sure you want to clear all system logs? This cannot be undone.')) {
-      try {
-        await api.delete('/logs');
-        addToast('System logs cleared', 'success');
-        fetchLogs();
-      } catch (e) {
-        addToast('Failed to clear logs', 'error');
-      }
+  // Populated from what is actually in the log, not from invented categories.
+  const actionOptions = useMemo(
+    () => [...new Set(logs.map((l) => l.action).filter(Boolean))].sort(),
+    [logs]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return logs.filter((l) => {
+      const matchesSearch =
+        !q ||
+        (l.action || '').toLowerCase().includes(q) ||
+        (l.details || '').toLowerCase().includes(q) ||
+        userName(l.user_id).toLowerCase().includes(q);
+      const matchesStatus = statusFilter === 'all' || l.status === statusFilter;
+      const matchesAction = actionFilter === 'all' || l.action === actionFilter;
+      return matchesSearch && matchesStatus && matchesAction;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logs, users, search, statusFilter, actionFilter]);
+
+  const isFiltered = search.trim() !== '' || statusFilter !== 'all' || actionFilter !== 'all';
+  const clearFilters = () => { setSearch(''); setStatusFilter('all'); setActionFilter('all'); };
+
+  const confirmClear = async () => {
+    setIsClearing(true);
+    try {
+      await api.delete('/logs');
+      addToast('Activity log cleared.', 'success');
+      setIsClearOpen(false);
+      fetchLogs();
+    } catch (e) {
+      addToast(e.message || 'Could not clear the activity log.', 'error');
+    } finally {
+      setIsClearing(false);
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'success': return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
-      case 'warning': return <AlertCircle className="w-4 h-4 text-yellow-500" />;
-      case 'error': return <Shield className="w-4 h-4 text-rose-500" />;
-      default: return <Clock className="w-4 h-4 text-blue-500" />;
-    }
-  };
+  const secondsAgo = lastUpdated ? Math.floor((Date.now() - lastUpdated) / 1000) : null;
 
-  const getStatusBg = (status) => {
-    switch (status) {
-      case 'success': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-      case 'warning': return 'bg-yellow-50 text-yellow-700 border-yellow-100';
-      case 'error': return 'bg-rose-50 text-rose-700 border-rose-100';
-      default: return 'bg-blue-50 text-blue-700 border-blue-100';
-    }
-  };
-
-  const filteredLogs = logs.filter(log => {
-    const matchesSearch = log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (log.user?.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesFilter = filterType === 'All Types' ||
-      (filterType === 'AI Generation' && log.activity_type?.includes('AI')) ||
-      (filterType === 'User Activity' && !log.activity_type?.includes('AI')) ||
-      (filterType === 'Errors' && log.status === 'error');
-    return matchesSearch && matchesFilter;
-  });
+  const columns = [
+    {
+      key: 'time',
+      label: 'When',
+      width: '150px',
+      render: (l) => <span className="font-data text-atlas-slate">{l.time}</span>,
+    },
+    { key: 'action', label: 'Action' },
+    {
+      key: 'details',
+      label: 'Detail',
+      render: (l) => <span className="text-atlas-slate">{l.details || '—'}</span>,
+    },
+    {
+      key: 'user_id',
+      label: 'By',
+      width: '170px',
+      render: (l) => userName(l.user_id),
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      width: '110px',
+      render: (l) => {
+        if (l.status === 'error') return <Badge status="conflict" label="Error" />;
+        if (l.status === 'warning') return <Badge status="review" label="Warning" />;
+        return <Badge status="approved" label="OK" />;
+      },
+    },
+  ];
 
   return (
-    <div className="flex-1 flex flex-col p-6 lg:p-10 space-y-8 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 flex items-center">
-            <Terminal className="w-8 h-8 mr-4 text-green-700" />
-            System Logs
-          </h1>
-          <p className="text-slate-500 font-medium mt-1">Audit trail and AI generation history for the institution.</p>
+    <div className="p-6 lg:p-8">
+      <header className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
+        <div className="min-w-0">
+          <h1 className="font-display text-page text-atlas-ink">Activity</h1>
+          <p className="font-ui text-body text-atlas-slate mt-1">
+            {isAdmin
+              ? 'Every recorded action across the system.'
+              : `${localStorage.getItem('atlas_department') || 'Your department'} and system-wide events.`}
+          </p>
         </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={handleClear}
-            className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors flex items-center shadow-sm"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Clear All
-          </button>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="secondary" icon={RefreshCw} onClick={fetchLogs}>Refresh</Button>
+          {isAdmin ? (
+            <Button variant="destructive" icon={Trash2} onClick={() => setIsClearOpen(true)}>
+              Clear Log
+            </Button>
+          ) : (
+            <Button restricted restrictionReason={restrictionReason('admin', 'clear the activity log')}>
+              Clear Log
+            </Button>
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* Toolbar */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center">
-        <div className="relative flex-1 w-full">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      <div className="flex flex-col md:flex-row gap-3 mb-5">
+        <div className="relative flex-1 min-w-0">
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
+            aria-hidden="true"
+          />
+          <label htmlFor="log-search" className="sr-only">Search activity</label>
           <input
-            type="text"
-            placeholder="Search logs by message or user..."
-            className="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent focus:bg-white focus:border-green-600 rounded-xl outline-none transition-all text-sm font-medium"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            id="log-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search action, detail, or person"
+            className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
+                        bg-atlas-surface border border-atlas-control placeholder:text-atlas-disabled
+                        hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
           />
         </div>
-        <div className="flex items-center space-x-2 w-full md:w-auto">
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="flex-1 md:w-40 px-4 py-3 bg-slate-50 border-transparent rounded-xl text-sm font-bold text-slate-600 outline-none cursor-pointer"
-          >
-            <option>All Types</option>
-            <option>AI Generation</option>
-            <option>User Activity</option>
-            <option>Security</option>
-            <option>Errors</option>
-          </select>
-          <button className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 transition-colors">
-            <Filter className="w-5 h-5" />
-          </button>
+        <div className="flex gap-3">
+          <SelectInput
+            label="Status"
+            className="w-40"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            options={[
+              { value: 'all', label: 'All statuses' },
+              { value: 'success', label: 'OK' },
+              { value: 'warning', label: 'Warning' },
+              { value: 'error', label: 'Error' },
+            ]}
+          />
+          <SelectInput
+            label="Action"
+            className="w-56"
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            options={[{ value: 'all', label: 'All actions' }, ...actionOptions.map((a) => ({ value: a, label: a }))]}
+          />
         </div>
       </div>
 
-      {/* Logs Table */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden relative group">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-green-600 to-yellow-400 opacity-50"></div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Event Message</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">User</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Timestamp</th>
-                <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-slate-50/80 transition-colors group/row">
-                  <td className="px-6 py-5">
-                    <div className={`inline-flex items-center px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-widest ${getStatusBg(log.status)}`}>
-                      <span className="mr-1.5">{getStatusIcon(log.status)}</span>
-                      {log.type.replace('_', ' ')}
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <p className="text-sm font-bold text-slate-700 leading-snug">{log.message}</p>
-                    {log.type === 'AI_GEN' && (
-                      <div className="flex items-center mt-1.5 text-[10px] text-indigo-500 font-bold uppercase tracking-widest">
-                        <Zap className="w-3 h-3 mr-1" /> AI Optimization Engine
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center">
-                      <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mr-3">
-                        <User className="w-4 h-4 text-slate-400" />
-                      </div>
-                      <span className="text-sm font-bold text-slate-600">{log.user}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 whitespace-nowrap">
-                    <span className="text-xs font-black text-slate-400 tracking-tighter uppercase">{log.time}</span>
-                  </td>
-                  <td className="px-6 py-5">
-                    <button className="text-xs font-black text-green-700 hover:text-green-800 uppercase tracking-widest opacity-0 group-hover/row:opacity-100 transition-opacity">
-                      Details
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <DataTable
+        caption={`Activity, ${pluralize(filtered.length, 'entry', 'entries')}`}
+        columns={columns}
+        rows={filtered}
+        isLoading={isLoading}
+        error={loadError}
+        onRetry={fetchLogs}
+        isFiltered={isFiltered && filtered.length === 0}
+        onClearFilters={clearFilters}
+        emptyTitle="No activity recorded yet."
+        emptyBody="Actions appear here as people use the system."
+      />
 
-        {filteredLogs.length === 0 && (
-          <div className="py-20 text-center">
-            <Activity className="w-16 h-16 text-slate-100 mx-auto mb-4" />
-            <p className="text-sm font-black text-slate-300 uppercase tracking-widest">No matching logs found</p>
-          </div>
-        )}
-      </div>
+      {/* The footer used to claim "Auto-updating in real-time" for a 15-second
+          poll, with nothing to show when it last succeeded. */}
+      <p className="mt-3 font-ui text-caption text-atlas-slate">
+        Showing {pluralize(filtered.length, 'entry', 'entries')}
+        {secondsAgo !== null && ` · updated ${secondsAgo < 5 ? 'just now' : `${secondsAgo}s ago`} · refreshes every ${POLL_MS / 1000}s`}
+      </p>
 
-      {/* Footer Meta */}
-      <div className="flex items-center justify-between text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-2">
-        <p>Showing {filteredLogs.length} recent system events</p>
-        <p className="flex items-center">
-          <Activity className="w-3 h-3 mr-2 text-green-500 animate-pulse" />
-          Auto-updating in real-time
-        </p>
-      </div>
+      <ConfirmDialog
+        isOpen={isClearOpen}
+        onClose={() => setIsClearOpen(false)}
+        onConfirm={confirmClear}
+        title="Clear the entire activity log?"
+        description={`This permanently deletes ${pluralize(logs.length, 'entry', 'entries')}. The audit trail cannot be recovered.`}
+        confirmLabel="Clear Log"
+        confirmPhrase="CLEAR"
+        destructive
+        loading={isClearing}
+      />
     </div>
   );
 }

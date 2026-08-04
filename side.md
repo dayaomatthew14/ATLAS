@@ -1,74 +1,76 @@
-# Automated Generation Protocols (Sprint 3)
+# Automated Generation Protocols & Technical Specification
 
-This document outlines the operational protocols, limits, and "What-If" scenarios for the ATLAS AI-Driven Automated Schedule Generation Engine.
+**ATLAS AI Scheduling Engine — Version 1.4**
 
-## General Scope and Generation Flow
-
-1. **Initialization (Start)**: A Program Chair or authorized Faculty member inputs the foundational parameters (available professors, subjects, student populations, available rooms, maximum units per faculty).
-2. **Trigger**: The user presses the "Generate Schedule" trigger. 
-3. **Execution**: The backend AI algorithm analyzes the parameters, applying constraint-satisfaction logic to organize the timetables.
-4. **Resolution (End)**: The system outputs a complete academic schedule mapped out across the week, optimizing for zero conflicts.
-
-## Scope & Limitations
-- **Hard Constraints (Strict)**: 
-  - A professor cannot be assigned to two classes simultaneously.
-  - A room cannot be double-booked during the same time slot.
-  - Room capacity must handle the enrolled class size.
-  - Faculty cannot exceed their maximum allowable teaching units.
-  *If a schedule mathematically cannot satisfy these hard constraints due to a lack of resources, the algorithm must halt that specific branch of generation.*
-- **Soft Constraints (Flexible)**: 
-  - Faculty preferred time blocks (e.g., morning vs. evening preferences).
-  - Minimizing gap hours between a professor's classes.
-  *The algorithm attempts to optimize for soft constraints but will override them if necessary to satisfy hard constraints and fulfill the full course load.*
-- **Limitation**: The AI does not predict spontaneous absences or handle mid-semester emergency re-assignments. It optimizes static, upfront data configured prior to a semester.
-
-## Handling Multiple Generation Requests
-**What if multiple Program Chairs click "Generate" at the identical moment?**
-- **Concurrency & Queuing**: The generation process is highly CPU-intensive. If executed synchronously, multiple requests will crash or halt the FastAPI application thread.
-- **Protocol**: 
-  - All generation requests are decoupled from the main HTTP thread and dispatched to a Background Task Queue.
-  - Requests are processed serially to prevent server overload.
-  - A "Task ID" is immediately returned to the frontend.
-  - The UI will display an asynchronous loading state ("Generation in progress... Please wait"), occasionally polling the backend (or awaiting WebSockets) to check the task status without freezing the UI.
-- **Locking Mechanism**: A Database lock will be enforced per "Department" or "Semester" so that two admins do not generate schedules for the exact same subset simultaneously, which would cause database overwrite chaos.
-
-## Handling Unresolvable Conflicts
-**What if the algorithm hits a bottleneck it cannot solve automatically?**
-- **Self-Correction (Backtracking)**: The system first utilizes algorithmic backtracking. If placing Subject A causes a conflict for Subject B, the AI attempts to shuffle previously placed subjects to clear a functional path.
-- **Partial Generation Protocol**: If a mathematical impossibility is reached (e.g., 50 classes need to be scheduled, but only 5 rooms exist), the AI **does not** fail silently or infinitely loop. 
-  - It schedules the maximum possible number of classes securely.
-  - It sets the remainder of unscheduled items in a `pending` state.
-  - It logs the unresolved obstacles strictly into the `conflicts` database table.
-- **Human Handoff**: The frontend dashboard will display a distinct notification: *"Generation Complete with Pending Conflicts"*. Human administrators can review the dashboard, manually override constraints (e.g., forced room sharing, ignoring limits), and patch the remaining holes.
+This document details the operational protocols, mathematical constraints, laboratory vs. lecture handling rules, and conflict resolution handoffs for the **ATLAS AI-Driven Automated Schedule Generation Engine**.
 
 ---
 
-## Technical Prognosis: AI Integration & API Suitability
+## 1. Scope and Generation Flow
 
-When building the automated sequence for the FastAPI backend, we must choose the correct calculation engine. Below is a prognosis of possible AI approaches and how they interact with our current system architecture.
+1. **Parameter Ingestion**: Program Chairs or Administrators select the target active semester and the set of faculty members (`faculty_ids`) for schedule generation.
+2. **Pre-Generation Cleanup**: The engine automatically purges any existing **unlocked draft schedules** and unresolved conflict records for the selected faculty scope within the active semester and department.
+3. **Execution**: The constraint-satisfaction heuristic algorithm (`backend/app/services/schedule_generator.py`) processes all assigned `SubjectOffering` records for the department.
+4. **Output & Persistence**:
+   - Valid schedule assignments are created as `Schedule` database entities with status `draft` and `is_locked = False`.
+   - Workload limit breaches emit `bumped_warnings` and log `max_units_exceeded` conflict records.
+   - Unscheduled courses are logged as pending conflicts in the `conflicts` database table for human administrative review.
 
-### 1. Generative LLM APIs (OpenAI GPT-4o, Google Gemini)
-- **Concept**: Sending all subjects, rooms, and faculty to an LLM via REST API and asking it to return a formatted JSON schedule.
-- **Usability Prognosis**: **POOR**. Large Language Models are probabilistic, not deterministic. They notoriously "hallucinate" logical constraints and struggle with rigid mathematical sudoku-style puzzles (like school scheduling). They are highly prone to accidentally double-booking rooms or ignoring soft constraints. 
-- **Cost/Latency**: High latency (10-30+ seconds per generation request) and expensive at scale due to massive token payloads.
+---
 
-### 2. Constraint Programming Solvers (Google OR-Tools, Timefold/OptaPlanner)
-- **Concept**: Utilizing heavily optimized native solver libraries (like Google OR-Tools) or dedicated cloud constraint APIs. The backend models the scheduling problems mathematically (Variables, Domains, constraints).
-- **Usability Prognosis**: **EXCELLENT**. These solvers are algorithmic logic engines. If a schedule is mathematically possible, they will find it. If it is impossible, they can be programmed to halt or drop specific variables gracefully. They guarantee 0% hallucination and strict adherence to Hard Constraints.
-- **Cost/Latency**: Milliseconds to seconds. Native libraries (like OR-Tools) execute entirely backend-side and require zero third-party API keys or subscription costs.
+## 2. Hard & Soft Constraint Engine Rules
 
-### Current Infrastructure Constraints (ATLAS v1)
+### Hard Constraints (Strict Enforced Rules)
 
-If integrating Google OR-Tools or a similar local scheduling engine into our current FastAPI infrastructure, we face several immediate constraints that must be handled structurally:
+1. **Faculty Workload Limits**:
+   - Faculty members cannot exceed their assigned `max_units` (e.g. 18 units for full-time faculty, customized caps for part-time faculty).
+   - If assigning a course would breach the limit: `proposed_hours + current_hours > max_units`, the engine halts placement for that course, emits a workload warning, and logs a conflict (`max_units_exceeded`).
 
-1. **The Event Loop Bottleneck (Synchronous Execution)**:
-   - **Constraint**: Finding an optimal schedule configuration across 500+ classes is computationally heavy. If run directly inside a standard FastAPI route, it will block the Python Event Loop. Every other user trying to load the website or fetch data during that period will experience endless hanging requests.
-   - **Protocol Fix**: We must utilize `fastapi.BackgroundTasks` or integrate `Celery/Redis`. The user hits `/api/generate`, receives a `202 Accepted` immediately, and the heavy matrix multiplication runs silently in the background.
+2. **Professor Availability & Overlaps**:
+   - A professor cannot be assigned to two classes simultaneously (`check_overlap`).
+   - Scheduling respects `FacultyUnavailability` entries; no class will be placed during a professor's blacklisted timeslots (`is_prof_unavail`).
 
-2. **SQLite Concurrent Write Locking**:
-   - **Constraint**: The project currently runs on SQLite (`atlas.db`). SQLite locks the entire database when writing. If the Schedule AI finishes executing and attempts to rapidly bulk-insert 500 schedule rows while a student is simultaneously trying to update their profile, the database will throw a `database is locked` runtime error.
-   - **Protocol Fix**: The AI must extract all necessary data into memory *before* solving. Once solved, it must commit the final schedule using a singular, quick bulk transaction (`session.bulk_save_objects`) rather than inserting them row-by-row. If the project scales, a migration to PostgreSQL is absolutely necessary.
+3. **Room Allocation & Laboratory Requirements**:
+   - **Lecture Subjects** (`c.type == 'lecture'` or `c.lec_units > 0`): Lecture courses are scheduled across standard 1.5-hour timeslot pairs (MW, TTh, FS). **`room_id` is set to `NULL`** because general lecture classrooms are managed globally outside room locking.
+   - **Laboratory Subjects** (`c.type == 'lab'` or `c.lab_units > 0`): Laboratory courses require a designated room (`room_id`) belonging to room types `'lab'` or `'computer_lab'`. No room double-booking is permitted (`is_room_conflict`).
 
-3. **Memory Limits (RAM Exertion)**:
-   - **Constraint**: Pure backtracking algorithms have an exponential time/memory complexity ($O(n!)$). If not carefully bounded by timeout constraints, the server could exhaust its RAM attempting to find the "perfect" schedule for a massive academic department.
-   - **Protocol Fix**: The AI must be capped with an explicit time boundary (e.g., *halt search and return best-possible schedule after 30 seconds*).
+### Soft Constraints (Optimization Heuristics)
+
+1. **Preferred Timeslot Pairs**:
+   - Primary preference: Monday/Wednesday (`MW_PAIR`), Tuesday/Thursday (`TTH_PAIR`), Friday/Saturday (`FS_PAIR`).
+2. **Consecutive Hours Minimization**:
+   - Classes are placed in standard structured slots to avoid random gap hours in faculty teaching schedules.
+
+---
+
+## 3. Timeslots & Duration Matrix
+
+### Lecture Timeslots (1.5 Hours per session)
+- Slot 1: `07:30 - 09:00`
+- Slot 2: `09:00 - 10:30`
+- Slot 3: `10:30 - 12:00`
+- Slot 4: `13:00 - 14:30`
+- Slot 5: `14:30 - 16:00`
+- Slot 6: `16:00 - 17:30`
+- Slot 7: `17:30 - 19:00`
+
+### Laboratory Timeslots (2.0 Hours per session)
+- Slot 1: `07:30 - 09:30`
+- Slot 2: `09:30 - 11:30`
+- Slot 3: `11:30 - 13:30`
+- Slot 4: `13:30 - 15:30`
+- Slot 5: `15:30 - 17:30`
+- Slot 6: `17:30 - 19:30`
+
+---
+
+## 4. Conflict Handling & Human Handoff Protocol
+
+When mathematical impossibility or resource shortage prevents 100% schedule placement:
+1. **Self-Correction**: The engine attempts iterative slot shuffling across day pairs and room options.
+2. **Partial Generation**: The engine commits all successfully scheduled classes cleanly.
+3. **Conflict Logging**: Unplaced courses are recorded in the `conflicts` table with detailed rationale strings:
+   - `max_units_exceeded`: *"Faculty Workload limit exceeded for [Faculty Name] (Full-Time): 18.0 + 3.0 > 18.0 max units"*
+   - `no_lab_room_available`: *"[Course Code] could not be scheduled because no laboratory room was available."*
+   - `unplaced_lecture`: *"[Course Code] could not be scheduled due to faculty availability or schedule conflict."*
+4. **Frontend Conflict Drawer**: The React frontend displays the **Conflict Resolution Panel**, highlighting pending conflicts with single-click manual resolution handoffs (`/api/ai-scheduler/solve-conflict`).

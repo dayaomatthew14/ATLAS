@@ -101,7 +101,7 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
     faculty_hours_used = {f.id: 0.0 for f in faculties}
     all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id).all()
     for s in all_schedules:
-        if s.faculty_id in faculty_hours_used:
+        if s.faculty_id in faculty_hours_used and s.start_time and s.end_time:
             faculty_hours_used[s.faculty_id] += get_duration_hours(s.start_time, s.end_time) # type: ignore
 
     # Load unavailabilities

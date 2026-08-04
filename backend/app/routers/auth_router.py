@@ -148,10 +148,22 @@ def read_users_me(
 
 @router.post("/register", response_model=schemas.UserResponse)
 def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
+    # This endpoint is public, so the requested role must never be trusted.
+    # Administrator accounts are provisioned server-side only.
+    if user.role not in schemas.SELF_REGISTRATION_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Self-registration is limited to "
+                f"{' and '.join(sorted(schemas.SELF_REGISTRATION_ROLES))} accounts. "
+                "Administrator accounts must be created by an existing administrator."
+            )
+        )
+
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     hashed_password = auth.get_password_hash(user.password)
     otp = generate_otp()
     
@@ -221,13 +233,10 @@ def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_
     if user.is_verified:
         return {"msg": "User already verified"}
         
-    # Allow '123456' as a fallback OTP for testing and development
-    if user.verification_otp != payload.otp:
-        if payload.otp == "123456":
-            pass
-        else:
-            raise HTTPException(status_code=400, detail="Invalid OTP")
-        
+    if not user.verification_otp or not secrets.compare_digest(str(user.verification_otp), str(payload.otp)):
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+
     user.is_verified = True # type: ignore
     user.verification_otp = None # type: ignore
     db.commit()
@@ -287,13 +296,17 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
 @router.post("/reset-password")
 def reset_password(payload: schemas.ResetPassword, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
-    # Allow '123456' as a fallback OTP for testing and development
-    if not user or (user.reset_otp != payload.otp and payload.otp != "123456"):
+    if not user or not user.reset_otp or not secrets.compare_digest(str(user.reset_otp), str(payload.otp)):
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
-        
-    if user.reset_otp_expiry and datetime.now(timezone.utc).replace(tzinfo=None) > user.reset_otp_expiry.replace(tzinfo=None):
+
+    # A reset code with no expiry recorded is treated as expired rather than valid.
+    if not user.reset_otp_expiry:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    if datetime.now(timezone.utc).replace(tzinfo=None) > user.reset_otp_expiry.replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="OTP has expired")
-        
+
+
     user.password_hash = auth.get_password_hash(payload.new_password) # type: ignore
     user.reset_otp = None # type: ignore
     user.reset_otp_expiry = None # type: ignore
@@ -337,43 +350,3 @@ def logout_all(response: Response, current_user: models.User = Depends(auth.get_
     secure_val = True if is_prod else False
     response.delete_cookie("atlas_token", samesite=samesite_val, secure=secure_val)
     return {"msg": "Logged out of all devices successfully"}
-
-@router.get("/seed")
-def seed_admin(db: Session = Depends(database.get_db)):
-    admin = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
-    if not admin:
-        hashed = auth.get_password_hash("password123")
-        new_admin = models.User(
-            first_name="System",
-            last_name="Administrator",
-            email="admin@dlsau.edu.ph",
-            password_hash=hashed,
-            role="admin",
-            department=None,
-            is_verified=True
-        )
-        db.add(new_admin)
-        db.commit()
-        return {"msg": "Admin created"}
-    else:
-        return {"msg": "Admin already exists"}
-
-@router.get("/clear-all-users")
-@router.post("/clear-all-users")
-def clear_all_users(db: Session = Depends(database.get_db)):
-    """Clear all user accounts for testing."""
-    from sqlalchemy import text
-    try:
-        db.execute(text("UPDATE departments SET owner_id = NULL;"))
-        db.execute(text("DELETE FROM users;"))
-        db.commit()
-        return {"msg": "All users purged successfully! System ready for fresh registration."}
-    except Exception as e:
-        db.rollback()
-        try:
-            db.execute(text("TRUNCATE TABLE users CASCADE;"))
-            db.commit()
-            return {"msg": "All users purged via CASCADE."}
-        except Exception as err:
-            db.rollback()
-            return {"msg": "Failed to purge users", "error": str(err)}

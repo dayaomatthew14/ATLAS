@@ -6,9 +6,20 @@ import bcrypt
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 from . import database, models, schemas
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your_jwt_secret_key_here") # In production, use env var
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY is not set. Tokens signed with a known default can be forged by "
+        "anyone, so the application refuses to start without it. Generate one with:\n"
+        '  python -c "import secrets; print(secrets.token_urlsafe(64))"\n'
+        "then set it in backend/.env (see backend/.env.example)."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480 # 8 hours
 
