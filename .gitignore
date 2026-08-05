@@ -24,8 +24,11 @@ atlas.db
 # User-uploaded content — profile photos are personal data, not source
 backend/uploads/
 
-# Per-developer Claude Code settings; launch.json IS shared
-.claude/settings.local.json
+# Per-developer AI assistant settings & session caches
+.claude/
+.claude.json
+.gemini/
+.agents/scratch/
 
 # OS
 .DS_Store
