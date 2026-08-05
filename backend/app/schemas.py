@@ -65,6 +65,9 @@ class UserCreate(UserBase):
 class UserResponse(UserBase):
     id: int
     created_at: datetime
+    # `department` carries the college code; this is the readable name that goes
+    # with it. Without declaring it here the response_model silently drops it.
+    department_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):

@@ -1,3 +1,5 @@
+import { clearSession } from './session';
+
 let rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
 const isLocalHost = (typeof window !== 'undefined') && (
   window.location.hostname === 'localhost' || 
@@ -55,14 +57,12 @@ async function request(endpoint, options = {}) {
     const response = await fetch(url, config);
 
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
-      localStorage.removeItem('atlas_token');
-      localStorage.removeItem('atlas_role');
-      localStorage.removeItem('atlas_user_name');
-      localStorage.removeItem('atlas_department');
-      localStorage.removeItem('atlas_profile_picture');
+      clearSession();
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-      } catch (e) { }
+      } catch {
+        /* the session is already gone locally; a failed logout call changes nothing */
+      }
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }

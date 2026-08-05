@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { User, Mail, Shield, Building, Edit2, Save, X, Phone, Calendar, Camera, ChevronDown } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -27,6 +27,8 @@ export default function Profile() {
   
   useEffect(() => {
     fetchProfile();
+    // Load once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   const fetchProfile = async () => {
@@ -287,7 +289,7 @@ export default function Profile() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-black text-green-600/70 uppercase tracking-widest mb-1 truncate">Department</p>
-                <p className="text-lg font-black text-green-900 leading-tight truncate" title={user.department}>{user.department || 'N/A'}</p>
+                <p className="text-lg font-black text-green-900 leading-tight truncate" title={user.department_name || user.department}>{user.department_name || user.department || 'Not assigned'}</p>
               </div>
             </div>
             

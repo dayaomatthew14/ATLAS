@@ -1,9 +1,11 @@
 import os
 import shutil
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/users",
@@ -150,14 +152,41 @@ def delete_user(
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
     if current_user.role in ['program_chair', 'coordinator']:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
     elif current_user.role != 'admin':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Two guards against locking the institution out of its own system. There is
+    # no recovery path if the last administrator goes: accounts come from
+    # self-registration and only an administrator can grant the role back.
+    if db_user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You cannot delete your own account. Ask another administrator to do it.",
+        )
+
+    if db_user.role == 'admin':
+        remaining = db.query(models.User).filter(
+            models.User.role == 'admin', models.User.id != db_user.id
+        ).count()
+        if remaining == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This is the only administrator account. Promote another user to "
+                    "administrator before deleting it."
+                ),
+            )
+
     db.delete(db_user)
     db.commit()
+    log_activity(
+        db, current_user.id, "Delete User",
+        f"Deleted account {db_user.email}", "success",
+    )
     return None
 
 @router.post("/{user_id}/toggle-verification")
@@ -248,14 +277,52 @@ def change_password(
     db.commit()
     return {"msg": "Password updated successfully. Please sign in again on your other devices."}
 
-@router.post("/purge-all-users")
-@router.delete("/purge-all-users")
-def purge_all_users(
+"""
+`purge-all-users` was registered here on both POST and DELETE. It ran
+`db.query(models.User).delete()` -- every account including the administrator
+calling it, with no confirmation and no way back. Whatever it was for during
+development, it has no place in a deployed system, so it is gone.
+"""
+
+
+@router.post("/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: int,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    """
+    Issue a one-time temporary password for a locked-out account.
+
+    The only reset path used to be self-service via an emailed OTP, so a chair
+    who had lost access to their inbox could not be helped by anyone. The
+    generated password is returned once, is never stored in readable form, and
+    every existing session for that account is invalidated.
+    """
     if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can purge user accounts")
-    deleted_count = db.query(models.User).delete()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can reset another user's password.",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Long enough to clear the 12-character policy with room to spare.
+    temporary = secrets.token_urlsafe(12)
+    db_user.password_hash = auth.get_password_hash(temporary)  # type: ignore
+    db_user.session_version = (db_user.session_version or 1) + 1  # type: ignore
     db.commit()
-    return {"message": "All users deleted successfully", "deleted_count": deleted_count}
+
+    log_activity(
+        db, current_user.id, "Reset Password",
+        f"Issued a temporary password for {db_user.email}", "success",
+    )
+    return {
+        "temporary_password": temporary,
+        "msg": (
+            f"Temporary password issued for {db_user.email}. Give it to them directly "
+            "and have them change it after signing in. It is shown only once."
+        ),
+    }

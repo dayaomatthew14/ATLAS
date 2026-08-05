@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, Printer, FileSpreadsheet } from 'lucide-react';
+import { ChevronDown, Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, Printer, FileSpreadsheet } from 'lucide-react';
 import Modal from '../../components/Modal';
-// ConflictPanel is superseded by ConflictLens; the file is deleted in the
-// final clean-up sprint together with the other superseded components.
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
@@ -11,6 +9,7 @@ import ConflictLens from '../../components/ui/ConflictLens';
 import Badge from '../../components/ui/Badge';
 import { ConfirmDialog } from '../../components/ui/Dialog';
 import { restrictionReason } from '../../components/ui/tokens';
+import { isAdmin as isAdminRole, canEditSchedules } from '../../utils/session';
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -59,17 +58,13 @@ const formatSubjectCode = (sched) => {
 
 export default function Schedules() {
   const { addToast } = useToast();
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
-  
+
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [semesters, setSemesters] = useState([]);
-  const [departmentSections, setDepartmentSections] = useState([]);
   const [selectedGenSemester, setSelectedGenSemester] = useState('');
   const [selectedGenProfessors, setSelectedGenProfessors] = useState([]);
   const [generationResults, setGenerationResults] = useState(null);
@@ -80,7 +75,7 @@ export default function Schedules() {
   const [activeConflicts, setActiveConflicts] = useState([]);
 
   // --- Publication (FLOW-05 / DEP-1) -------------------------------------
-  const isAdmin = (localStorage.getItem('atlas_role') || '').toLowerCase() === 'admin';
+  const isAdmin = isAdminRole();
   const [publishState, setPublishState] = useState({
     status: 'draft', total: 0, published: 0, unresolved_conflicts: 0,
   });
@@ -227,7 +222,7 @@ export default function Schedules() {
       if (semToFetch) fetchGlobalSchedules(semToFetch);
       fetchSchedules();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to delete schedule', 'error');
+      addToast(e.message || 'Failed to delete schedule', 'error');
     }
   };
 
@@ -247,7 +242,7 @@ export default function Schedules() {
       fetchActiveConflicts();
       setIsClearConfirmOpen(false);
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to clear schedules', 'error');
+      addToast(e.message || 'Failed to clear schedules', 'error');
     }
   };
 
@@ -262,7 +257,7 @@ export default function Schedules() {
       fetchSchedules();
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to restore schedules', 'error');
+      addToast(e.message || 'Failed to restore schedules', 'error');
     }
   };
 
@@ -353,6 +348,8 @@ export default function Schedules() {
       }));
       setAllTeachers(formatted);
     }).catch(console.error);
+    // Load once on mount; the fetchers are re-created each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleGenerateSubmit = async (e) => {
@@ -371,54 +368,18 @@ export default function Schedules() {
       fetchGlobalSchedules(selectedGenSemester);
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Generation failed', 'error');
+      addToast(e.message || 'Generation failed', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+  const canManageSchedules = canEditSchedules();
 
-  // Date Helpers
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-
-  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
-
-  const prevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-  };
-
-  const nextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-  };
-
-  const renderCalendarDays = () => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const daysInMonth = getDaysInMonth(year, month);
-    const firstDay = getFirstDayOfMonth(year, month);
-    const days = [];
-
-    for (let i = 0; i < firstDay; i++) {
-      days.push({ day: null, currentMonth: false });
-    }
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      days.push({ day: d, currentMonth: true, date: new Date(year, month, d) });
-    }
-
-    const remaining = 42 - days.length;
-    for (let i = 1; i <= remaining; i++) {
-      days.push({ day: i, currentMonth: false });
-    }
-
-    return days;
-  };
+  // A month-grid calendar (monthNames, getDaysInMonth, getFirstDayOfMonth,
+  // prevMonth, nextMonth, renderCalendarDays and the `currentDate` state that
+  // fed them) used to sit here. Nothing rendered any of it — this screen shows
+  // a week grid — so it was ~40 lines of unreachable date arithmetic.
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState([]);
@@ -521,12 +482,11 @@ export default function Schedules() {
       setIsModalOpen(false);
       addToast('Schedule created successfully', 'success');
     } catch (error) {
-      addToast(error.response?.data?.detail || error.message || 'Failed to create schedule', 'error');
+      addToast(error.message || 'Failed to create schedule', 'error');
     }
   };
 
   const fetchSchedules = async () => {
-    setIsLoading(true);
     try {
       const rawData = await api.get('/schedules');
       const formattedData = Array.isArray(rawData) ? rawData.map(s => ({
@@ -537,47 +497,17 @@ export default function Schedules() {
     } catch (error) {
       console.error('Failed to fetch schedules', error);
       setSchedules([]);
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const handleAIGeneration = (response) => {
-    // Refresh schedules from server after generation
-    fetchSchedules();
-  };
-
-  const handleAutoResolveAll = async () => {
-    // Note: In our current implementation, conflicts are detected on-the-fly or logged in the DB.
-    // The backend /resolve-conflicts expects models.Conflict IDs.
-    // If we want to resolve schedule IDs directly, we'd need a different endpoint or wrap them.
-    // For now, we'll fetch the unresolved conflict logs from the backend first.
-    try {
-      const dbConflicts = await api.get('/ai-scheduler/conflicts');
-      const unresolvedIds = dbConflicts.filter(c => !c.resolved_at).map(c => c.id);
-      
-      if (unresolvedIds.length === 0) {
-        addToast('No unresolved system conflicts found.', 'info');
-        return;
-      }
-
-      addToast('ATLAS AI is finding alternative slots...', 'info');
-      const res = await api.post('/ai-scheduler/resolve-conflicts', unresolvedIds);
-      
-      if (res.resolved_count > 0) {
-        addToast(`Successfully resolved ${res.resolved_count} conflicts!`, 'success');
-        fetchSchedules();
-      } else {
-        addToast('AI could not find conflict-free slots for the remaining items.', 'warning');
-      }
-    } catch (e) {
-      addToast('Failed to execute AI Auto-Resolution', 'error');
-    }
-  };
+  // `handleAutoResolveAll` was removed with the button that called it. It
+  // looped the single-conflict resolver, which force-placed into the first free
+  // room on failure, so one click could double-book a whole term and report
+  // success. `handleAIGeneration` was a one-line wrapper nothing referenced.
 
   useEffect(() => {
     fetchSchedules();
-  }, [currentDate]);
+  }, []);
 
   /**
    * The conflict count had two competing sources: this button counted overlaps
@@ -679,7 +609,7 @@ export default function Schedules() {
                 </div>
               </div>
 
-              {canManage && (
+              {canManageSchedules && (
                 <div className="flex gap-3 items-center ml-2">
                   <button
                     onClick={() => {
@@ -837,7 +767,7 @@ export default function Schedules() {
                           `${formatSubjectCode(sched)}, ${sched.subject_name}, ` +
                           `${sched.faculty_name}, ${sched.room_name || 'no room'}, ` +
                           `${day} ${sched.start_time} to ${sched.end_time}` +
-                          (canManage ? '. Press Delete to remove this class.' : '');
+                          (canManageSchedules ? '. Press Delete to remove this class.' : '');
 
                         return (
                           // A11Y-02: these were plain divs with cursor-default.
@@ -853,7 +783,7 @@ export default function Schedules() {
                             aria-hidden={lensDim || undefined}
                             aria-label={blockLabel}
                             onKeyDown={(e) => {
-                              if ((e.key === 'Delete' || e.key === 'Backspace') && canManage) {
+                              if ((e.key === 'Delete' || e.key === 'Backspace') && canManageSchedules) {
                                 e.preventDefault();
                                 handleDeleteSchedule(sched);
                               }
@@ -881,7 +811,7 @@ export default function Schedules() {
                                   };
                                   return `${formatT(sched.start_time)}-${formatT(sched.end_time)}`;
                                 })()}</span>
-                                {canManage && (
+                                {canManageSchedules && (
                                   <button
                                     type="button"
                                     onClick={(e) => {

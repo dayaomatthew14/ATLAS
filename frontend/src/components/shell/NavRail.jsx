@@ -1,46 +1,86 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Calendar, BookOpen, Users, MapPin, Activity, ShieldCheck, CalendarRange,
+  LayoutDashboard, Calendar, BookOpen, Users, MapPin, Activity, ShieldCheck,
+  CalendarRange, Library,
 } from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';
+import { ROLES } from '../../utils/session';
 
 /**
- * ATLAS navigation rail. Phase 2 Screen 1.
+ * ATLAS navigation rail.
  *
  * Replaces the horizontal top nav, which forced the page to 1304px at a 946px
  * viewport because six nowrap links in a flex-1 container could not shrink.
  * A rail also frees the horizontal axis for the timetable, which needs 904px.
  *
- * One label per destination, for every role. The previous nav gave admins
- * "Campus Rooms" and chairs "Rooms" for the same route (IA-02), and omitted
- * Schedule and Faculty from the admin nav entirely (INV-01) even though the
- * router grants admins both.
+ * The rail is grouped by *what kind of thing is being managed*, and the two
+ * role shapes are genuinely different rather than one list with items hidden.
+ * An administrator governs institutional reference data — who may act, what may
+ * be taught, when, and where — and does not appear in departmental operations
+ * at all. Faculty and schedule editing are therefore absent from their rail,
+ * not disabled within it: a control that exists but always refuses is worse
+ * than one that was never offered.
  */
 
-// Working destinations — every role.
-const WORKING = [
-  { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/dashboard/schedules', label: 'Schedule', icon: Calendar },
-  { to: '/dashboard/curriculum', label: 'Curriculum', icon: BookOpen },
-  { to: '/dashboard/teachers', label: 'Faculty', icon: Users },
-  { to: '/dashboard/rooms', label: 'Rooms', icon: MapPin },
-  { to: '/dashboard/logs', label: 'Activity', icon: Activity },
+const CHAIR_SECTIONS = [
+  {
+    items: [{ to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true }],
+  },
+  {
+    label: 'Scheduling',
+    items: [
+      { to: '/dashboard/schedules', label: 'Schedule', icon: Calendar, badge: 'conflicts' },
+      { to: '/dashboard/teachers', label: 'Faculty', icon: Users },
+    ],
+  },
+  {
+    label: 'Reference',
+    items: [
+      { to: '/dashboard/curriculum', label: 'Curriculum', icon: BookOpen },
+      { to: '/dashboard/rooms', label: 'Rooms', icon: MapPin },
+    ],
+  },
+  {
+    label: 'Oversight',
+    items: [{ to: '/dashboard/logs', label: 'Activity', icon: Activity }],
+  },
 ];
 
-// Administration — admin only. Absent, not disabled: these are whole
-// capabilities outside a chair's remit, so they should not appear at all.
-const ADMINISTRATION = [
-  { to: '/dashboard/users', label: 'Users', icon: ShieldCheck },
-  { to: '/dashboard/semesters', label: 'Terms', icon: CalendarRange },
+const ADMIN_SECTIONS = [
+  {
+    items: [{ to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true }],
+  },
+  {
+    label: 'People',
+    items: [{ to: '/dashboard/users', label: 'Users', icon: ShieldCheck }],
+  },
+  {
+    label: 'Academic structure',
+    items: [
+      { to: '/dashboard/colleges', label: 'Colleges & Programmes', icon: Library },
+      { to: '/dashboard/curriculum', label: 'Curriculum', icon: BookOpen },
+      { to: '/dashboard/semesters', label: 'Academic Terms', icon: CalendarRange },
+    ],
+  },
+  {
+    label: 'Campus',
+    items: [{ to: '/dashboard/rooms', label: 'Rooms', icon: MapPin }],
+  },
+  {
+    label: 'Oversight',
+    items: [
+      { to: '/dashboard/schedules', label: 'Schedule', icon: Calendar, badge: 'conflicts' },
+      { to: '/dashboard/logs', label: 'Activity', icon: Activity },
+    ],
+  },
 ];
 
 function RailItem({ item, badge, onNavigate, expanded }) {
   const Icon = item.icon;
   // `expanded` forces labels on regardless of viewport — the drawer is always
   // 240px wide even on a phone, so it should never render as an icon rail.
-  const labelClass = expanded ? 'truncate' : 'truncate hidden wide:inline';
-  const srLabelClass = expanded ? 'hidden' : 'sr-only wide:hidden';
+  const labelClass = expanded ? 'truncate' : 'hidden';
+  const srLabelClass = expanded ? 'hidden' : 'sr-only';
   return (
     <NavLink
       to={item.to}
@@ -48,12 +88,13 @@ function RailItem({ item, badge, onNavigate, expanded }) {
       onClick={onNavigate}
       className={({ isActive }) =>
         [
-          'group relative flex items-center gap-3 h-10 px-3 rounded-field',
+          'group relative flex items-center h-10 rounded-field',
+          expanded ? 'gap-3 px-3' : 'justify-center px-0',
           'font-ui text-body transition-colors duration-state ease-standard',
           focusRingOnDark,
           isActive
-            ? 'bg-white text-atlas-900 font-semibold'
-            : 'text-atlas-100 hover:bg-white/10 hover:text-white',
+            ? 'bg-white/95 text-atlas-900 font-semibold shadow-[inset_0_1px_0_0_rgb(255_255_255/0.9)]'
+            : 'text-atlas-100 hover:bg-white/[.14] hover:text-white',
         ].join(' ')
       }
       // aria-current is set by NavLink automatically as aria-current="page".
@@ -69,7 +110,7 @@ function RailItem({ item, badge, onNavigate, expanded }) {
           className={
             expanded
               ? 'ml-auto shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-caption tabular-nums'
-              : 'absolute right-1 top-1 wide:static wide:ml-auto shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-caption tabular-nums'
+              : 'absolute right-1 top-1 shrink-0 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-[10px] leading-none tabular-nums'
           }
         >
           {badge}
@@ -83,7 +124,7 @@ function RailItem({ item, badge, onNavigate, expanded }) {
           it, so it is reachable without a pointer. */}
       {!expanded && (
         <span
-          className="wide:hidden pointer-events-none absolute left-full ml-2 px-2 py-1 rounded-field
+          className="pointer-events-none absolute left-full ml-2 px-2 py-1 rounded-field
                      bg-atlas-900 text-white font-ui text-caption whitespace-nowrap opacity-0
                      group-hover:opacity-100 group-focus-visible:opacity-100
                      transition-opacity duration-state ease-standard z-railflyout shadow-overlay"
@@ -97,34 +138,39 @@ function RailItem({ item, badge, onNavigate, expanded }) {
 }
 
 export default function NavRail({ role, conflictCount = 0, onNavigate, expanded = false }) {
-  const isAdmin = role === 'admin';
+  const sections = role === ROLES.ADMIN ? ADMIN_SECTIONS : CHAIR_SECTIONS;
 
   return (
     <nav
+      id="primary-nav"
       aria-label="Primary"
-      className="h-full w-full bg-atlas-900 px-3 py-4 flex flex-col gap-1 overflow-y-auto"
+      className="h-full w-full glass-dark border-y-0 border-l-0 px-3 py-4 flex flex-col gap-1 overflow-y-auto"
     >
-      {WORKING.map((item) => (
-        <RailItem
-          key={item.to}
-          item={item}
-          badge={item.to === '/dashboard/schedules' ? conflictCount : 0}
-          onNavigate={onNavigate}
-          expanded={expanded}
-        />
-      ))}
-
-      {isAdmin && (
-        <>
-          <hr className="my-3 border-white/15" />
-          <p className={`px-3 pb-1 font-ui text-micro uppercase text-atlas-300 ${expanded ? '' : 'hidden wide:block'}`}>
-            Administration
-          </p>
-          {ADMINISTRATION.map((item) => (
-            <RailItem key={item.to} item={item} onNavigate={onNavigate} expanded={expanded} />
+      {sections.map((section, i) => (
+        <div key={section.label || `top-${i}`} className="flex flex-col gap-1">
+          {section.label && (
+            <>
+              <hr className="my-2 border-white/15" aria-hidden="true" />
+              <p
+                className={`px-3 pb-1 font-ui text-micro uppercase text-atlas-300 ${
+                  expanded ? '' : 'sr-only'
+                }`}
+              >
+                {section.label}
+              </p>
+            </>
+          )}
+          {section.items.map((item) => (
+            <RailItem
+              key={item.to}
+              item={item}
+              badge={item.badge === 'conflicts' ? conflictCount : 0}
+              onNavigate={onNavigate}
+              expanded={expanded}
+            />
           ))}
-        </>
-      )}
+        </div>
+      ))}
     </nav>
   );
 }

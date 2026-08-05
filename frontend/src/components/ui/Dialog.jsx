@@ -40,7 +40,7 @@ export default function Dialog({
   return (
     <div className="fixed inset-0 z-overlay flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-atlas-900/50 transition-opacity duration-overlay ease-standard"
+        className="absolute inset-0 bg-atlas-900/40 backdrop-blur-sm transition-opacity duration-overlay ease-standard"
         onClick={dismissible ? onClose : undefined}
         aria-hidden="true"
       />
@@ -53,7 +53,7 @@ export default function Dialog({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         className={`relative w-full ${width} max-h-[calc(100vh-2rem)] flex flex-col
-                    bg-atlas-surface rounded-panel border border-atlas-line shadow-overlay
+                    glass-strong rounded-panel
                     transition-opacity duration-overlay ease-standard`}
       >
         <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
@@ -73,7 +73,7 @@ export default function Dialog({
               onClick={onClose}
               aria-label="Close dialog"
               className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-field
-                          text-atlas-slate hover:text-atlas-ink hover:bg-atlas-50
+                          text-atlas-slate hover:text-atlas-ink hover:bg-white/85
                           transition-colors duration-state ease-standard ${focusRing}`}
             >
               <X className="w-4 h-4" aria-hidden="true" />
@@ -84,7 +84,7 @@ export default function Dialog({
         <div className="px-6 pb-6 overflow-y-auto">{children}</div>
 
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-atlas-line bg-atlas-canvas rounded-b-panel">
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/40 bg-white/30 rounded-b-panel">
             {footer}
           </div>
         )}

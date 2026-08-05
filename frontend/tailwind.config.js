@@ -34,29 +34,35 @@ export default {
         // --- ATLAS design tokens (Phase 1 §1.1) -----------------------------
         // New namespaces only. No existing utility changes meaning, so this
         // config is a no-op visually until screens opt in from Sprint 2.
+        // Written as `rgb(var(--x-rgb) / <alpha-value>)` so opacity modifiers
+        // actually work. As bare `var(--hex)` entries, `bg-atlas-900/50`
+        // produced an invalid colour and silently resolved to transparent —
+        // which is how the modal overlay and the mobile nav scrim ended up
+        // invisible. The `-rgb` channel triplets live in index.css beside the
+        // hex vars, which the print stylesheet still consumes directly.
         atlas: {
-          900: 'var(--atlas-green-900)',
-          800: 'var(--atlas-green-800)',
-          700: 'var(--atlas-green-700)',
-          300: 'var(--atlas-green-300)',
-          100: 'var(--atlas-green-100)',
-          50: 'var(--atlas-green-050)',
-          gold: 'var(--atlas-gold-500)',
-          ink: 'var(--atlas-ink)',
-          slate: 'var(--atlas-slate)',
-          disabled: 'var(--atlas-disabled)',
-          line: 'var(--atlas-line)',
-          control: 'var(--atlas-line-input)',
-          surface: 'var(--atlas-surface)',
-          canvas: 'var(--atlas-canvas)',
+          900: 'rgb(var(--atlas-green-900-rgb) / <alpha-value>)',
+          800: 'rgb(var(--atlas-green-800-rgb) / <alpha-value>)',
+          700: 'rgb(var(--atlas-green-700-rgb) / <alpha-value>)',
+          300: 'rgb(var(--atlas-green-300-rgb) / <alpha-value>)',
+          100: 'rgb(var(--atlas-green-100-rgb) / <alpha-value>)',
+          50: 'rgb(var(--atlas-green-050-rgb) / <alpha-value>)',
+          gold: 'rgb(var(--atlas-gold-500-rgb) / <alpha-value>)',
+          ink: 'rgb(var(--atlas-ink-rgb) / <alpha-value>)',
+          slate: 'rgb(var(--atlas-slate-rgb) / <alpha-value>)',
+          disabled: 'rgb(var(--atlas-disabled-rgb) / <alpha-value>)',
+          line: 'rgb(var(--atlas-line-rgb) / <alpha-value>)',
+          control: 'rgb(var(--atlas-line-input-rgb) / <alpha-value>)',
+          surface: 'rgb(var(--atlas-surface-rgb) / <alpha-value>)',
+          canvas: 'rgb(var(--atlas-canvas-rgb) / <alpha-value>)',
         },
         sem: {
-          conflict: 'var(--sem-conflict)',
-          'conflict-bg': 'var(--sem-conflict-bg)',
-          warning: 'var(--sem-warning)',
-          'warning-bg': 'var(--sem-warning-bg)',
-          info: 'var(--sem-info)',
-          'info-bg': 'var(--sem-info-bg)',
+          conflict: 'rgb(var(--sem-conflict-rgb) / <alpha-value>)',
+          'conflict-bg': 'rgb(var(--sem-conflict-bg-rgb) / <alpha-value>)',
+          warning: 'rgb(var(--sem-warning-rgb) / <alpha-value>)',
+          'warning-bg': 'rgb(var(--sem-warning-bg-rgb) / <alpha-value>)',
+          info: 'rgb(var(--sem-info-rgb) / <alpha-value>)',
+          'info-bg': 'rgb(var(--sem-info-bg-rgb) / <alpha-value>)',
         },
         dept: {
           cast: 'var(--dept-cast)',

@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Users as UsersIcon, Clock, Calendar, ShieldAlert, UserCheck, X, Check, Trash2, Search } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Users as UsersIcon, Clock, UserCheck, X, Check, Trash2, Search } from 'lucide-react';
 import Table from '../../components/Table';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../components/ui/Dialog';
 import AtlasButton from '../../components/ui/Button';
-import UnavailabilityGrid, { blocksToCells, cellsToBlocks } from '../../components/ui/UnavailabilityGrid';
+import UnavailabilityGrid from '../../components/ui/UnavailabilityGrid';
+import { blocksToCells, cellsToBlocks } from '../../utils/availability';
 import { restrictionReason } from '../../components/ui/tokens';
+import { canManageFaculty as canManageFacultyRole, getRole, ROLES } from '../../utils/session';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const formatTime = (timeStr) => {
@@ -170,13 +172,6 @@ export default function Teachers() {
 
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const [unavailability, setUnavailability] = useState([]);
-  const [isAddingUnavailability, setIsAddingUnavailability] = useState(false);
-  const [newUnavail, setNewUnavail] = useState({
-    day_of_week: 'Mon',
-    start_time: '07:30',
-    end_time: '17:30'
-  });
 
   // The grid edits a local draft; nothing is written until Save, so a partial
   // save is not possible (FLOW-03).
@@ -185,20 +180,15 @@ export default function Teachers() {
   const [deleteTeacherTarget, setDeleteTeacherTarget] = useState(null);
   const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
 
-  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+  const canManageFaculty = canManageFacultyRole();
 
   const handleOpenAvailability = async (teacher) => {
     setSelectedTeacher(teacher);
     setIsAvailabilityModalOpen(true);
-    setIsAddingUnavailability(false);
     try {
       const data = await api.get(`/professors/${teacher.id}/unavailability`).catch(() => []);
-      const blocks = Array.isArray(data) ? data : [];
-      setUnavailability(blocks);
-      setAvailabilityCells(blocksToCells(blocks));
-    } catch (e) {
-      setUnavailability([]);
+      setAvailabilityCells(blocksToCells(Array.isArray(data) ? data : []));
+    } catch {
       setAvailabilityCells(new Set());
     }
   };
@@ -229,12 +219,8 @@ export default function Teachers() {
     setIsSubjectModalOpen(true);
     setCourseCodeFilter('All');
     setSemesterFilter('1st');
-    const userRole = localStorage.getItem('atlas_role');
-    if (userRole === 'coordinator') {
-      setSubjectCategoryFilter('gened');
-    } else {
-      setSubjectCategoryFilter('major');
-    }
+    // Coordinators handle General Education; chairs handle major subjects.
+    setSubjectCategoryFilter(getRole() === ROLES.COORDINATOR ? 'gened' : 'major');
     try {
       const semData = await api.get('/semesters');
       const active = semData.find(s => s.is_active);
@@ -357,6 +343,8 @@ export default function Teachers() {
 
   useEffect(() => {
     fetchTeachers();
+    // Load once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleOpenModal = (teacher = null) => {
@@ -485,43 +473,10 @@ export default function Teachers() {
     }
   };
 
-  const handleRemoveUnavailability = async (blockId) => {
-    try {
-      await api.delete(`/professors/${selectedTeacher.id}/unavailability/${blockId}`);
-      setUnavailability(prev => prev.filter(b => b.id !== blockId));
-
-      setTeachers(prev => prev.map(t => {
-        if (t.id === selectedTeacher.id) {
-          return { ...t, unavailability: (t.unavailability || []).filter(b => b.id !== blockId) };
-        }
-        return t;
-      }));
-
-      addToast('Blocked time removed', 'success');
-    } catch (error) {
-      addToast('Failed to remove blocked time', 'error');
-    }
-  };
-
-  const handleAddUnavailability = async (e) => {
-    e.preventDefault();
-    try {
-      const data = await api.post(`/professors/${selectedTeacher.id}/unavailability`, newUnavail);
-      setUnavailability(prev => [...prev, data]);
-
-      setTeachers(prev => prev.map(t => {
-        if (t.id === selectedTeacher.id) {
-          return { ...t, unavailability: [...(t.unavailability || []), data] };
-        }
-        return t;
-      }));
-
-      setIsAddingUnavailability(false);
-      addToast('Blocked time added', 'success');
-    } catch (error) {
-      addToast('Failed to add blocked time', 'error');
-    }
-  };
+  // `handleAddUnavailability` and `handleRemoveUnavailability` lived here. They
+  // were the per-block add/delete calls from the old read-only availability
+  // list; the week grid replaced them with a single atomic PUT (DEP-3) and
+  // neither had a caller afterwards.
 
   return (
     <div className="p-8 animate-in fade-in duration-700">
@@ -821,7 +776,7 @@ export default function Teachers() {
             <AtlasButton variant="ghost" onClick={() => setIsAvailabilityModalOpen(false)} disabled={isSavingAvailability}>
               Cancel
             </AtlasButton>
-            {canManage ? (
+            {canManageFaculty ? (
               <AtlasButton onClick={handleSaveAvailability} loading={isSavingAvailability}>
                 Save Availability
               </AtlasButton>
@@ -836,7 +791,7 @@ export default function Teachers() {
         <UnavailabilityGrid
           cells={availabilityCells}
           onChange={setAvailabilityCells}
-          disabled={!canManage || isSavingAvailability}
+          disabled={!canManageFaculty || isSavingAvailability}
         />
       </AtlasDialog>
       {/* Subject Offerings Modal */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Monitor, FlaskConical, Presentation } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -7,6 +7,7 @@ import DataTable from '../../components/ui/DataTable';
 import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, NumberInput, SelectInput, RadioGroup } from '../../components/ui/Field';
 import { restrictionReason, focusRing, pluralize } from '../../components/ui/tokens';
+import { canAddRooms, canEditRooms } from '../../utils/session';
 
 /**
  * Rooms. Phase 2 Screen 3.
@@ -31,12 +32,11 @@ const EMPTY_FORM = { name: '', building: '', capacity: '', type: 'lecture' };
 
 export default function Rooms() {
   const { addToast } = useToast();
-  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
 
   // Rooms are shared, so creating is open to every scheduling role, but editing
   // and deleting mutate a resource other departments reference (DEP-2).
-  const canCreate = ['admin', 'program_chair', 'coordinator'].includes(role);
-  const canModify = role === 'admin';
+  const canCreate = canAddRooms();
+  const canModify = canEditRooms();
 
   const [rooms, setRooms] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -254,7 +254,7 @@ export default function Rooms() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by room or building"
             className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
-                        bg-atlas-surface border border-atlas-control placeholder:text-atlas-disabled
+                        bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
                         hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
           />
         </div>
@@ -301,7 +301,7 @@ export default function Rooms() {
           <p className="font-ui text-body text-atlas-slate" aria-busy="true">Loading…</p>
         )}
         {!isLoading && filtered.length === 0 && (
-          <div className="rounded-panel border border-atlas-line bg-atlas-surface p-8 text-center">
+          <div className="glass rounded-panel p-8 text-center">
             <h2 className="font-display text-section text-atlas-ink">
               {isFiltered ? 'No results match your filters.' : 'No rooms registered.'}
             </h2>
@@ -314,7 +314,7 @@ export default function Rooms() {
           const t = typeMeta(r.type);
           const Icon = t.icon;
           return (
-            <div key={r.id} className="rounded-panel border border-atlas-line bg-atlas-surface p-4">
+            <div key={r.id} className="glass rounded-panel p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-data text-body text-atlas-ink">{r.name}</p>
@@ -322,7 +322,7 @@ export default function Rooms() {
                 </div>
                 <span className="font-data text-body tabular-nums text-atlas-ink shrink-0">{r.capacity}</span>
               </div>
-              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-atlas-line">
+              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-white/45">
                 <span className="inline-flex items-center gap-2 font-ui text-caption text-atlas-slate">
                   <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                   {t.label}

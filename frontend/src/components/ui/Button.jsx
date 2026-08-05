@@ -16,19 +16,33 @@ import { focusRing, focusRingOnDark } from './tokens';
  * explanation is reachable; a truly disabled one does not.
  */
 
+/**
+ * Glass buttons.
+ *
+ * The primary action stays a solid green fill. That is deliberate: it is the
+ * one control on a screen that must be unmistakably the primary action, and a
+ * translucent primary competes with everything behind it for legibility.
+ * Making *every* button glass is how this pattern turns into a page where
+ * nothing looks clickable. The lit top edge does the glass work instead.
+ *
+ * Secondary, ghost and destructive are true glass — translucent fill, bright
+ * top edge, blur — because they sit on panels that are themselves glass and
+ * would otherwise read as opaque patches punched through the material.
+ */
 const VARIANTS = {
   primary:
     'bg-atlas-700 text-white hover:bg-atlas-800 active:bg-atlas-900 ' +
-    'disabled:bg-atlas-700/[.38] disabled:text-white/70',
+    'shadow-[inset_0_1px_0_0_rgb(255_255_255/0.28),0_2px_8px_-2px_rgb(5_48_31/0.35)] ' +
+    'disabled:bg-atlas-700/[.38] disabled:text-white/70 disabled:shadow-none',
   secondary:
-    'border border-atlas-700 text-atlas-700 bg-transparent hover:bg-atlas-50 active:bg-atlas-100 ' +
-    'disabled:border-atlas-control disabled:text-atlas-disabled disabled:bg-transparent',
+    'glass text-atlas-700 hover:bg-white/90 active:bg-white ' +
+    'disabled:bg-atlas-canvas/60 disabled:text-atlas-disabled disabled:shadow-none',
   ghost:
-    'text-atlas-slate bg-transparent hover:bg-atlas-50 hover:text-atlas-ink active:bg-atlas-100 ' +
-    'disabled:text-atlas-disabled disabled:bg-transparent',
+    'glass-hover text-atlas-slate bg-transparent border border-transparent hover:text-atlas-ink ' +
+    'active:bg-white/80 disabled:text-atlas-disabled disabled:bg-transparent',
   destructive:
-    'border border-sem-conflict text-sem-conflict bg-transparent hover:bg-sem-conflict-bg ' +
-    'active:bg-sem-conflict-bg disabled:border-atlas-control disabled:text-atlas-disabled',
+    'glass text-sem-conflict !border-sem-conflict/40 hover:bg-sem-conflict-bg/80 ' +
+    'active:bg-sem-conflict-bg disabled:text-atlas-disabled disabled:shadow-none',
 };
 
 const SIZES = {

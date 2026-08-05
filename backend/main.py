@@ -13,7 +13,8 @@ from app.database import engine
 from app.routers import (
     auth_router, curriculum, rooms, 
     users, schedules, semesters, faculty, ai_scheduler, logs, ai_rules,
-    notifications_router, conflicts, subject_offerings, professors
+    notifications_router, conflicts, subject_offerings, professors,
+    academics_router
 )
 
 from sqlalchemy import text, inspect
@@ -81,9 +82,118 @@ def init_db():
     except Exception as e:
         print(f"Database initialization warning: {e}")
 
+def seed_academic_taxonomy(db):
+    """
+    Make the four colleges and twelve programmes real records, then fold the
+    per-user `DEPT_{id}` workspaces into them.
+
+    Idempotent: safe to run on every start. Existing curriculum is repointed,
+    never deleted -- a block whose name matches no seeded programme keeps its
+    rows and surfaces in the Unassigned group instead.
+    """
+    from app.academics import COLLEGES, match_program_code
+
+    # 1. Colleges.
+    by_code = {}
+    for spec in COLLEGES:
+        college = db.query(models.Department).filter(models.Department.code == spec["code"]).first()
+        if not college:
+            college = models.Department(code=spec["code"], name=spec["name"], description=spec["name"])
+            db.add(college)
+            db.flush()
+        else:
+            college.name = spec["name"]
+        by_code[spec["code"]] = college
+
+    # 2. Programmes.
+    programs_by_code = {}
+    for spec in COLLEGES:
+        for code, name in spec["programs"]:
+            program = db.query(models.Program).filter(models.Program.code == code).first()
+            if not program:
+                program = models.Program(code=code, name=name, department_id=by_code[spec["code"]].id)
+                db.add(program)
+                db.flush()
+            else:
+                program.name = name
+                program.department_id = by_code[spec["code"]].id
+            programs_by_code[code] = program
+    db.commit()
+
+    # 3. Fold the legacy per-user workspaces into real colleges. Their `name`
+    #    is the only clue to what they were meant to be ("CAST", "CAST -
+    #    Computer Engineering & Computer Science"), so match on that.
+    legacy = db.query(models.Department).filter(
+        ~models.Department.code.in_(list(by_code.keys()))
+    ).all()
+
+    remap = {}
+    for old in legacy:
+        target = None
+        haystack = (old.name or "").upper()
+        for code in by_code:
+            if haystack.startswith(code) or f" {code}" in haystack or haystack == code:
+                target = by_code[code]
+                break
+        remap[old.id] = target  # None => nothing sensible to map onto
+
+    for old_id, target in remap.items():
+        if target is None:
+            continue
+        for model in (models.CurriculumBlock, models.Curriculum, models.Faculty, models.SystemLog):
+            db.query(model).filter(model.department_id == old_id).update(
+                {model.department_id: target.id}, synchronize_session=False
+            )
+    db.commit()
+
+    # 4. Users pointed at a legacy code now point at the college it became.
+    legacy_by_code = {d.code: remap.get(d.id) for d in legacy}
+    for user in db.query(models.User).all():
+        current = (user.department or "").strip()
+        if not current or current in by_code:
+            continue
+        target = legacy_by_code.get(current)
+        # A user may also carry a bare college name rather than a code.
+        if target is None:
+            target = by_code.get(current.upper())
+        user.department = target.code if target is not None else None
+    db.commit()
+
+    # 5. Delete the emptied legacy workspaces. Anything that could not be
+    #    mapped is left alone rather than dropped with its curriculum.
+    for old in legacy:
+        if remap.get(old.id) is None:
+            continue
+        db.delete(old)
+    db.commit()
+
+    # 6. Attach curriculum blocks to programmes by name.
+    unmatched = 0
+    for block in db.query(models.CurriculumBlock).all():
+        if block.program_id:
+            continue
+        code = match_program_code(block.program_name)
+        if code and code in programs_by_code:
+            program = programs_by_code[code]
+            block.program_id = program.id
+            block.department_id = program.department_id
+        else:
+            unmatched += 1
+    db.commit()
+
+    print(f"Academic taxonomy: {len(by_code)} colleges, {len(programs_by_code)} programmes ready.")
+    if unmatched:
+        print(f"  {unmatched} curriculum block(s) match no programme; shown under Unassigned.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    try:
+        with database.SessionLocal() as db:
+            seed_academic_taxonomy(db)
+    except Exception as e:
+        print(f"Academic taxonomy seeding result: {e}")
     try:
         with database.SessionLocal() as db:
             admin_user = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
@@ -174,6 +284,7 @@ app.include_router(notifications_router.router)
 app.include_router(conflicts.router)
 app.include_router(subject_offerings.router)
 app.include_router(professors.router)
+app.include_router(academics_router.router)
 
 @app.get("/api/health")
 def health_check():

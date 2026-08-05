@@ -1,38 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Calendar, 
-  Users, 
-  BookOpen, 
-  MapPin, 
-  AlertTriangle, 
-  TrendingUp, 
-  Clock, 
-  ChevronRight,
-  ChevronDown,
-  Plus,
-  Zap,
-  ShieldCheck,
-  Activity,
-  Sparkles,
-  Upload,
-  Sliders,
-  Trash2,
-  Check,
-  CheckCircle2,
-  AlertCircle,
-  Server,
-  Database,
-  Lock,
-  UserCheck,
-  UserX,
-  FileText,
-  ArrowRight
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, BookOpen, MapPin, AlertTriangle, TrendingUp, Clock, ChevronRight, Zap, ShieldCheck, Activity, Sparkles, Check, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import Modal from '../../components/Modal';
-import { ConfirmDialog } from '../../components/ui/Dialog';
 import { api, API_BASE } from '../../utils/api';
+import { getRole, getUserName, getDepartment, ROLES } from '../../utils/session';
 import { useToast } from '../../components/ToastProvider';
+import { ROLE_LABELS } from '../../components/ui/tokens';
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -46,20 +18,13 @@ export default function DashboardHome() {
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const userRole = (localStorage.getItem('atlas_role') || '').toLowerCase().trim();
-  const isAdmin = userRole === 'admin';
-  const roleDisplay = userRole === 'coordinator' ? 'Coordinator' : (isAdmin ? 'System Administrator' : 'Program Chair');
-  const departmentName = localStorage.getItem('atlas_department') || 'DLSAU Academic Department';
+  const userRole = getRole();
+  const roleDisplay = ROLE_LABELS[userRole] || 'Signed in';
 
   // Common Data States
   const [activeSemester, setActiveSemester] = useState(null);
-  const [allSemesters, setAllSemesters] = useState([]);
   const [recentLogs, setRecentLogs] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [deleteSemesterId, setDeleteSemesterId] = useState(null);
-  const [deleteSemesterBlocked, setDeleteSemesterBlocked] = useState('');
-  const [isSemesterModalOpen, setIsSemesterModalOpen] = useState(false);
-  const [newSemesterData, setNewSemesterData] = useState({ academic_year: '', term: '1st Semester' });
 
   // Academic Dashboard States (Program Chair & Coordinator)
   const [stats, setStats] = useState([
@@ -70,42 +35,16 @@ export default function DashboardHome() {
   ]);
   const [schedulesCount, setSchedulesCount] = useState(0);
   const [conflictsCount, setConflictsCount] = useState(0);
-  const [roomUtilization, setRoomUtilization] = useState(0);
   const [roomsCount, setRoomsCount] = useState(0);
   const [facultyCount, setFacultyCount] = useState(0);
   const [facultyMissingAvail, setFacultyMissingAvail] = useState(0);
   const [offeringsCount, setOfferingsCount] = useState(0);
 
   // Admin Dashboard States (System Administrator)
-  const [usersList, setUsersList] = useState([]);
-  const [pendingUsers, setPendingUsers] = useState([]);
-  const [healthStatus, setHealthStatus] = useState({
-    backend: 'ONLINE',
-    database: 'CONNECTED',
-    auth: 'SECURE',
-    latency: '14ms'
-  });
 
   const fetchStats = async () => {
     try {
-      if (isAdmin) {
-        // Fetch Admin-specific governance data
-        const [users, semesters, logsData] = await Promise.all([
-          api.get('/users').catch(() => []),
-          api.get('/semesters').catch(() => []),
-          api.get('/logs?limit=8').catch(() => [])
-        ]);
-
-        const safeUsers = Array.isArray(users) ? users : [];
-        const safeSemesters = Array.isArray(semesters) ? semesters : [];
-        const safeLogs = Array.isArray(logsData) ? logsData : [];
-
-        setUsersList(safeUsers);
-        setPendingUsers(safeUsers.filter(u => u.is_verified === false));
-        setAllSemesters(safeSemesters);
-        setActiveSemester(safeSemesters.find(s => s.is_active) || null);
-        setRecentLogs(safeLogs);
-      } else {
+      {
         // Fetch Academic Scheduling data for Program Chair & Coordinator
         const [schedules, semesters, faculty, conflicts, logsData, rooms] = await Promise.all([
           api.get('/schedules').catch(() => []),
@@ -122,7 +61,6 @@ export default function DashboardHome() {
         const safeRooms = Array.isArray(rooms) ? rooms : [];
         const safeLogs = Array.isArray(logsData) ? logsData : [];
 
-        setAllSemesters(safeSemesters);
         const activeSem = safeSemesters.find(s => s.is_active);
         setActiveSemester(activeSem || null);
         setRecentLogs(safeLogs);
@@ -132,7 +70,6 @@ export default function DashboardHome() {
 
         setSchedulesCount(safeSchedules.length);
         setConflictsCount(conflicts?.count || 0);
-        setRoomUtilization(computedRoomUtilization);
 
         setRoomsCount(safeRooms.length);
         setFacultyCount(safeFaculty.length);
@@ -163,9 +100,11 @@ export default function DashboardHome() {
     }
   };
 
+  // Load once on mount. This screen only ever serves chairs and coordinators
+  // now, so there is no role to re-key the fetch on.
   useEffect(() => {
     fetchStats();
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -192,10 +131,6 @@ export default function DashboardHome() {
             e.preventDefault();
             navigate('/dashboard/profile');
             break;
-          case 'e':
-            e.preventDefault();
-            if (isAdmin) setIsSemesterModalOpen(true);
-            break;
           default:
             break;
         }
@@ -203,76 +138,7 @@ export default function DashboardHome() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, isAdmin]);
-
-  // Admin User Verification Toggle Handler
-  const handleToggleVerification = async (userId) => {
-    setIsProcessing(true);
-    try {
-      await api.post(`/users/${userId}/toggle-verification`, {});
-      addToast('User verification status updated!', 'success');
-      fetchStats();
-    } catch (err) {
-      addToast(err.message || 'Failed to update verification', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Admin Semester Management Handlers
-  const handleSetActiveSemester = async (id) => {
-    setIsProcessing(true);
-    try {
-      await api.put(`/semesters/${id}`, { is_active: true });
-      addToast('Active semester updated', 'success');
-      fetchStats();
-      setIsSemesterModalOpen(false);
-    } catch (e) {
-      addToast('Failed to update active semester', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleDeleteSemester = (id) => {
-    // "Associated records may be affected" was both vague and, until DEP-5,
-    // untrue in a dangerous way — deleting a term silently orphaned every class
-    // in it. The server now refuses with a count, and this dialog relays it.
-    setDeleteSemesterId(id);
-  };
-
-  const confirmDeleteSemester = async () => {
-    if (!deleteSemesterId) return;
-    setIsProcessing(true);
-    try {
-      await api.delete(`/semesters/${deleteSemesterId}`);
-      addToast('Academic term deleted.', 'success');
-      setDeleteSemesterId(null);
-      setDeleteSemesterBlocked('');
-      fetchStats();
-    } catch (e) {
-      if (e.status === 409) setDeleteSemesterBlocked(e.message);
-      else addToast(e.message || 'Could not delete the term.', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleCreateSemester = async (e) => {
-    e.preventDefault();
-    setIsProcessing(true);
-    try {
-      await api.post('/semesters', { ...newSemesterData, is_active: true });
-      addToast('New semester created and set to active', 'success');
-      setNewSemesterData({ academic_year: '', term: '1st Semester' });
-      fetchStats();
-      setIsSemesterModalOpen(false);
-    } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to create semester', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  }, [navigate]);
 
   const handleQuickAction = async (action) => {
     setIsProcessing(true);
@@ -306,10 +172,6 @@ export default function DashboardHome() {
     }
   };
 
-  // Admin Metrics Calculations
-  const chairCount = usersList.filter(u => (u.role || '').toLowerCase() === 'program_chair').length;
-  const coordCount = usersList.filter(u => (u.role || '').toLowerCase() === 'coordinator').length;
-  const adminRoleCount = usersList.filter(u => (u.role || '').toLowerCase() === 'admin').length;
 
   return (
     <div className="min-h-full bg-[#f1f5f9] p-6 lg:p-10 space-y-8 font-sans text-slate-800 relative overflow-hidden">
@@ -318,317 +180,9 @@ export default function DashboardHome() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-yellow-100/30 rounded-full blur-[120px] pointer-events-none"></div>
 
       <div className="relative z-10 space-y-8">
-        
-        {/* ========================================================================= */}
-        {/* VIEW 1: SYSTEM ADMINISTRATOR DASHBOARD (role === 'admin')                 */}
-        {/* ========================================================================= */}
-        {isAdmin ? (
-          <>
-            {/* Admin Header Section */}
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-600 via-green-500 to-emerald-700 rounded-[2.5rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-              <div className="relative bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-950 backdrop-blur-2xl border border-white/20 rounded-[2.2rem] p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between shadow-2xl text-white gap-6">
-                <div className="space-y-2 text-center md:text-left">
-                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-                    <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 px-3 py-1 rounded-full text-[10px] font-black tracking-[0.2em] uppercase">
-                      ATLAS Administration Portal
-                    </span>
-                    <span className="bg-white/10 text-green-100 border border-white/15 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                      System Governance & Security Command Center
-                    </span>
-                  </div>
-                  
-                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 pt-1">
-                    <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                      Active Semester Scope: <span className="text-amber-300">{activeSemester ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}` : 'None Configured'}</span>
-                    </h1>
-                    {activeSemester && (
-                      <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2.5 py-0.5 rounded-md text-[9px] font-black tracking-widest uppercase">
-                        STATUS: ACTIVE
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    onClick={() => setIsSemesterModalOpen(true)}
-                    className="px-5 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg uppercase tracking-wider shrink-0"
-                  >
-                    Manage Academic Terms
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Admin Overview Cards (4 Grid Cards) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {/* Card 1: User Accounts */}
-              <Link to="/dashboard/users" className="bg-white/85 backdrop-blur-xl border border-white/80 p-6 rounded-[2rem] shadow-xl hover:shadow-2xl hover:border-emerald-200 transition-all duration-300 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">User Governance</p>
-                  <h3 className="text-3xl font-black text-emerald-950 tracking-tight mt-1">{usersList.length} Accounts</h3>
-                  <p className={`text-xs font-bold mt-1 ${pendingUsers.length > 0 ? 'text-amber-600' : 'text-slate-500'}`}>
-                    {pendingUsers.length > 0 ? `⚠ ${pendingUsers.length} Pending Approval` : 'All Verified'}
-                  </p>
-                </div>
-                <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-100 shrink-0">
-                  <Users className="w-6 h-6" />
-                </div>
-              </Link>
-
-              {/* Card 2: Active Semester */}
-              <div onClick={() => setIsSemesterModalOpen(true)} className="cursor-pointer bg-white/85 backdrop-blur-xl border border-white/80 p-6 rounded-[2rem] shadow-xl hover:shadow-2xl hover:border-emerald-200 transition-all duration-300 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Active Term</p>
-                  <h3 className="text-xl font-black text-emerald-950 tracking-tight mt-1">
-                    {activeSemester ? `${activeSemester.academic_year}` : 'None'}
-                  </h3>
-                  <p className="text-xs font-bold text-slate-500 mt-1">
-                    {activeSemester ? formatSemesterTerm(activeSemester.term) : 'Inoperative'}
-                  </p>
-                </div>
-                <div className="p-3 rounded-2xl bg-amber-50 text-amber-700 border border-amber-100 shrink-0">
-                  <Clock className="w-6 h-6" />
-                </div>
-              </div>
-
-              {/* Card 3: Infrastructure Health */}
-              <div className="bg-white/85 backdrop-blur-xl border border-white/80 p-6 rounded-[2rem] shadow-xl hover:shadow-2xl hover:border-emerald-200 transition-all duration-300 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">System Health</p>
-                  <h3 className="text-3xl font-black text-emerald-700 tracking-tight mt-1">100% Online</h3>
-                  <p className="text-xs font-bold text-slate-500 mt-1">API Latency: {healthStatus.latency}</p>
-                </div>
-                <div className="p-3 rounded-2xl bg-cyan-50 text-cyan-700 border border-cyan-100 shrink-0">
-                  <Server className="w-6 h-6" />
-                </div>
-              </div>
-
-              {/* Card 4: Security Status */}
-              <Link to="/dashboard/logs" className="bg-white/85 backdrop-blur-xl border border-white/80 p-6 rounded-[2rem] shadow-xl hover:shadow-2xl hover:border-emerald-200 transition-all duration-300 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Security Status</p>
-                  <h3 className="text-3xl font-black text-emerald-950 tracking-tight mt-1">0 Alerts</h3>
-                  <p className="text-xs font-bold text-slate-500 mt-1">Audit Trail Clean</p>
-                </div>
-                <div className="p-3 rounded-2xl bg-purple-50 text-purple-700 border border-purple-100 shrink-0">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-              </Link>
-            </div>
-
-            {/* Admin Quick Workflows */}
-            <div className="bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-950 rounded-[2.2rem] p-6 shadow-2xl border border-white/20 text-white space-y-4">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <h3 className="text-xl font-black tracking-tight text-white flex items-center">
-                  <Zap className="w-5 h-5 mr-2 text-amber-400" />
-                  Administrative Governance Workflows
-                </h3>
-                <span className="text-[10px] font-black text-amber-300 uppercase tracking-widest">Platform Controls</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Link
-                  to="/dashboard/users"
-                  className="flex items-center justify-between p-4 bg-white/10 hover:bg-white text-white hover:text-emerald-950 rounded-xl transition-all font-black text-xs uppercase tracking-wider border border-white/10 shadow-md"
-                >
-                  <div className="flex items-center">
-                    <Users className="w-4 h-4 mr-2 text-amber-300" />
-                    👥 Manage Users
-                  </div>
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
-
-                <button
-                  onClick={() => setIsSemesterModalOpen(true)}
-                  className="flex items-center justify-between p-4 bg-white/10 hover:bg-white text-white hover:text-emerald-950 rounded-xl transition-all font-black text-xs uppercase tracking-wider border border-white/10 shadow-md"
-                >
-                  <div className="flex items-center">
-                    <Calendar className="w-4 h-4 mr-2 text-amber-300" />
-                    🗓️ Academic Terms
-                  </div>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-
-                <Link
-                  to="/dashboard/logs"
-                  className="flex items-center justify-between p-4 bg-white/10 hover:bg-white text-white hover:text-emerald-950 rounded-xl transition-all font-black text-xs uppercase tracking-wider border border-white/10 shadow-md"
-                >
-                  <div className="flex items-center">
-                    <Activity className="w-4 h-4 mr-2 text-amber-300" />
-                    🛡️ View Audit Logs
-                  </div>
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
-
-                <button
-                  onClick={() => handleQuickAction('notify')}
-                  disabled={isProcessing}
-                  className="flex items-center justify-between p-4 bg-white/10 hover:bg-white text-white hover:text-emerald-950 rounded-xl transition-all font-black text-xs uppercase tracking-wider border border-white/10 shadow-md disabled:opacity-50"
-                >
-                  <div className="flex items-center">
-                    <Zap className="w-4 h-4 mr-2 text-amber-300" />
-                    📢 System Broadcast
-                  </div>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Admin Middle Grid: Pending Approvals & Infrastructure Diagnostics */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* User Governance & Pending Approvals (2 Cols) */}
-              <div className="lg:col-span-2 bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-6 sm:p-8 shadow-xl space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <h3 className="text-xl font-black text-emerald-950 tracking-tight flex items-center">
-                      <Users className="w-5 h-5 mr-2 text-emerald-700" />
-                      Pending Account Approvals ({pendingUsers.length})
-                    </h3>
-                    <p className="text-xs font-bold text-slate-500 mt-0.5">Approve registration requests for Program Chairs and Department Coordinators</p>
-                  </div>
-                  <Link to="/dashboard/users" className="text-xs font-black text-emerald-700 hover:text-emerald-900 uppercase tracking-wider">
-                    Full Roster →
-                  </Link>
-                </div>
-
-                {/* Pending Users Roster */}
-                {pendingUsers.length > 0 ? (
-                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-                    {pendingUsers.map(user => (
-                      <div key={user.id} className="flex items-center justify-between p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80">
-                        <div>
-                          <p className="font-black text-slate-900 text-sm">{user.name || user.email}</p>
-                          <p className="text-xs font-bold text-slate-500">
-                            {user.role === 'program_chair' ? 'Program Chair' : (user.role === 'coordinator' ? 'Coordinator' : 'Administrator')} • {user.department || 'DLSAU'}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleToggleVerification(user.id)}
-                          disabled={isProcessing}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition-all shadow-md uppercase tracking-wider flex items-center"
-                        >
-                          <Check className="w-3.5 h-3.5 mr-1" /> Approve Access
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-6 text-center rounded-2xl bg-emerald-50/50 border border-emerald-100 text-emerald-800 text-xs font-bold">
-                    ✓ All user accounts verified and active. No pending approvals required.
-                  </div>
-                )}
-
-                {/* Role Distribution Summary */}
-                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4 text-xs font-bold text-slate-600">
-                  <span>Role Distribution:</span>
-                  <div className="flex gap-3">
-                    <span className="bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-                      Chairs: <strong className="text-slate-900 font-black">{chairCount}</strong>
-                    </span>
-                    <span className="bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-                      Coordinators: <strong className="text-slate-900 font-black">{coordCount}</strong>
-                    </span>
-                    <span className="bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-                      Admins: <strong className="text-slate-900 font-black">{adminRoleCount}</strong>
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Infrastructure Diagnostics (1 Col) */}
-              <div className="bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-6 sm:p-8 shadow-xl space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center">
-                    <Server className="w-5 h-5 mr-2 text-cyan-600" />
-                    Infrastructure Diagnostics
-                  </h3>
-                </div>
-
-                <div className="space-y-3.5 text-xs font-bold">
-                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="flex items-center text-slate-700">
-                      <Server className="w-4 h-4 mr-2 text-emerald-600" />
-                      FastAPI Backend API
-                    </span>
-                    <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-md font-black text-[10px]">
-                      ✓ ONLINE
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="flex items-center text-slate-700">
-                      <Database className="w-4 h-4 mr-2 text-cyan-600" />
-                      PostgreSQL Database
-                    </span>
-                    <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-md font-black text-[10px]">
-                      ✓ CONNECTED
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="flex items-center text-slate-700">
-                      <Lock className="w-4 h-4 mr-2 text-purple-600" />
-                      JWT Auth Engine
-                    </span>
-                    <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-md font-black text-[10px]">
-                      ✓ SECURE
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <span className="flex items-center text-slate-700">
-                      <ShieldCheck className="w-4 h-4 mr-2 text-amber-600" />
-                      Security Audits
-                    </span>
-                    <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-md font-black text-[10px]">
-                      ✓ 0 ALERTS
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Admin Audit Trail Feed */}
-            <div className="bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-7 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-xl font-black text-emerald-950 tracking-tight flex items-center">
-                  <Activity className="w-5 h-5 mr-2 text-emerald-700" />
-                  System Audit Trail & Event Monitoring
-                </h3>
-                <Link to="/dashboard/logs" className="text-xs font-black text-emerald-700 hover:text-emerald-900 uppercase tracking-wider">
-                  View Full Audit Logs →
-                </Link>
-              </div>
-
-              {recentLogs.length > 0 ? (
-                <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
-                  {recentLogs.map(log => (
-                    <div key={log.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50/80 border border-slate-100 text-xs">
-                      <div className="flex items-center space-x-3 truncate">
-                        <span className="text-emerald-700 font-bold">•</span>
-                        <span className="font-bold text-slate-800 truncate">{log.action}: {log.details}</span>
-                      </div>
-                      <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="py-8 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  No system activity logs recorded
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          /* ========================================================================= */
-          /* VIEW 2: PROGRAM CHAIR & COORDINATOR ACADEMIC CONTROL PANEL (!isAdmin)    */
-          /* ========================================================================= */
-          <>
+        {/* The administrator branch that used to sit here is gone: /dashboard
+            now resolves through Overview.jsx, which renders AdminOverview for
+            administrators and this screen for chairs and coordinators. */}
             {/* Header Section */}
             <div className="relative group">
               <div className="absolute -inset-1 bg-gradient-to-r from-emerald-600 via-green-500 to-emerald-700 rounded-[2.8rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
@@ -636,13 +190,13 @@ export default function DashboardHome() {
                 <div className="relative z-10 max-w-xl text-center lg:text-left">
                   <div className="inline-flex items-center space-x-2 bg-amber-400/20 text-amber-300 border border-amber-400/30 px-4 py-1.5 rounded-full text-[10px] font-black tracking-[0.2em] uppercase mb-4 backdrop-blur-md">
                     <Zap className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-                    <span>{userRole === 'coordinator' ? 'Coordinator Command Center' : 'Program Chair Command Center'}</span>
+                    <span>{userRole === ROLES.COORDINATOR ? 'Coordinator Workspace' : 'Program Chair Workspace'}</span>
                   </div>
                   <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-white leading-tight">
                     Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-200">Schedule.</span>
                   </h1>
                   <p className="text-green-100/90 text-sm sm:text-base lg:text-lg font-medium mb-6 leading-relaxed max-w-2xl">
-                    Welcome, <span className="text-amber-300 font-bold">{localStorage.getItem('atlas_user_name') || roleDisplay}</span>. Your command center for the <span className="text-white font-bold">{localStorage.getItem('atlas_department') ? `${localStorage.getItem('atlas_department')} department` : 'academic institution'}</span>.
+                    Welcome, <span className="text-amber-300 font-bold">{getUserName() || roleDisplay}</span>. Your command center for the <span className="text-white font-bold">{getDepartment() ? `${getDepartment()} department` : 'academic institution'}</span>.
                   </p>
                   <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
                     <Link to="/dashboard/schedules" className="px-7 py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-2xl text-xs sm:text-sm font-black transition-all transform hover:scale-105 shadow-xl shadow-amber-500/20 flex items-center uppercase tracking-wider">
@@ -886,145 +440,9 @@ export default function DashboardHome() {
                 </div>
               </div>
             </div>
-          </>
-        )}
 
       </div>
 
-      {/* Admin Semester Management Modal */}
-      {isAdmin && (
-        <Modal
-          isOpen={isSemesterModalOpen}
-          onClose={() => setIsSemesterModalOpen(false)}
-          title="Manage Academic Term"
-          maxWidth="max-w-md"
-        >
-          <div className="space-y-6 pt-2">
-            <div>
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
-                Select Active Term
-              </label>
-              <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
-                {allSemesters.map(sem => (
-                  <div 
-                    key={sem.id} 
-                    className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
-                      sem.is_active 
-                        ? 'bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-900 text-white border-emerald-700 shadow-md' 
-                        : 'bg-slate-50 border-slate-100 text-slate-800 hover:border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <p className={`font-black text-sm ${sem.is_active ? 'text-white' : 'text-slate-900'}`}>{sem.academic_year}</p>
-                      <p className={`text-xs font-bold ${sem.is_active ? 'text-emerald-200/90' : 'text-slate-500'}`}>{formatSemesterTerm(sem.term)}</p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {!sem.is_active ? (
-                        <button
-                          onClick={() => handleSetActiveSemester(sem.id)}
-                          className="px-3.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm"
-                          disabled={isProcessing}
-                        >
-                          Set Active
-                        </button>
-                      ) : (
-                        <div className="flex items-center text-emerald-400 text-xs font-black uppercase tracking-widest">
-                          <CheckCircle2 className="w-4 h-4 mr-1 text-emerald-400" /> Active
-                        </div>
-                      )}
-                      <button
-                        onClick={() => handleDeleteSemester(sem.id)}
-                        className={`p-1.5 rounded-xl transition-colors ${
-                          sem.is_active ? 'text-emerald-300/70 hover:text-rose-300' : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50'
-                        }`}
-                        disabled={isProcessing}
-                        title="Delete Semester"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {allSemesters.length === 0 && (
-                  <div className="text-center p-4 text-slate-400 font-bold text-xs">No academic terms found.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="pt-6 border-t border-slate-100 space-y-4">
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">
-                Add Academic Term
-              </label>
-              <form onSubmit={handleCreateSemester} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Academic Year</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. 2026-2027"
-                    className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-600"
-                    value={newSemesterData.academic_year}
-                    onChange={(e) => setNewSemesterData({ ...newSemesterData, academic_year: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Semester Term</label>
-                  <select
-                    className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-600"
-                    value={newSemesterData.term}
-                    onChange={(e) => setNewSemesterData({ ...newSemesterData, term: e.target.value })}
-                  >
-                    <option value="1st Semester">1st Semester</option>
-                    <option value="2nd Semester">2nd Semester</option>
-                    <option value="3rd Semester">3rd Semester</option>
-                  </select>
-                </div>
-
-                <label className="flex items-center gap-3 cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 text-emerald-600 rounded-lg focus:ring-emerald-500"
-                    checked={newSemesterData.is_active}
-                    onChange={(e) => setNewSemesterData({ ...newSemesterData, is_active: e.target.checked })}
-                  />
-                  <span className="text-xs font-black text-slate-700">Set as Active Academic Term</span>
-                </label>
-
-                <div className="pt-4 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsSemesterModalOpen(false)}
-                    className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isProcessing}
-                    className="flex-1 py-3.5 bg-emerald-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-900/20 disabled:opacity-50"
-                  >
-                    Save Term
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      <ConfirmDialog
-        isOpen={Boolean(deleteSemesterId)}
-        onClose={() => { setDeleteSemesterId(null); setDeleteSemesterBlocked(''); }}
-        onConfirm={confirmDeleteSemester}
-        title={deleteSemesterBlocked ? 'This term cannot be deleted' : 'Delete this academic term?'}
-        description="A term that still holds classes or subject assignments cannot be deleted."
-        confirmLabel="Delete Term"
-        destructive
-        loading={isProcessing}
-        blocked={Boolean(deleteSemesterBlocked)}
-        blockedReason={deleteSemesterBlocked}
-      />
     </div>
   );
 }

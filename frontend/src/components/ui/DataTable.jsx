@@ -1,4 +1,3 @@
-import React from 'react';
 import Button from './Button';
 
 /**
@@ -32,17 +31,17 @@ export default function DataTable({
   rowActions,
 }) {
   const headCell =
-    'sticky top-0 z-sticky bg-atlas-surface shadow-sticky px-4 py-3 ' +
+    'sticky top-0 z-sticky bg-white/85 backdrop-blur-md shadow-sticky px-4 py-3 ' +
     'font-ui text-micro uppercase text-atlas-slate text-left whitespace-nowrap';
 
   if (isLoading) {
     return (
-      <div className="rounded-panel border border-atlas-line bg-atlas-surface overflow-hidden" aria-busy="true">
-        <div className="h-11 border-b border-atlas-line bg-atlas-surface" />
+      <div className="glass rounded-panel overflow-hidden" aria-busy="true">
+        <div className="h-11 border-b border-white/45 bg-atlas-surface" />
         {[0, 1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="flex items-center gap-4 px-4 border-b border-atlas-line last:border-0"
+            className="flex items-center gap-4 px-4 border-b border-white/45 last:border-0"
             style={{ height: 'var(--row-h)' }}
           >
             <div className="h-3 w-1/4 rounded-sm bg-atlas-line animate-pulse motion-reduce:animate-none" />
@@ -57,7 +56,7 @@ export default function DataTable({
 
   if (error) {
     return (
-      <div className="rounded-panel border border-atlas-line bg-sem-info-bg p-6 text-center">
+      <div className="glass rounded-panel !border-sem-info/30 p-6 text-center">
         <p className="font-ui text-body text-atlas-ink">{error}</p>
         {onRetry && (
           <div className="mt-3 flex justify-center">
@@ -72,7 +71,7 @@ export default function DataTable({
     // An empty result set and an empty dataset are different states with
     // different remedies. The existing UI shows "No data found" for both.
     return (
-      <div className="rounded-panel border border-atlas-line bg-atlas-surface p-12 text-center">
+      <div className="glass rounded-panel p-12 text-center">
         <h3 className="font-display text-section text-atlas-ink">
           {isFiltered ? 'No results match your filters.' : emptyTitle}
         </h3>
@@ -93,7 +92,7 @@ export default function DataTable({
   }
 
   return (
-    <div className="rounded-panel border border-atlas-line bg-atlas-surface overflow-x-auto">
+    <div className="glass rounded-panel overflow-x-auto">
       <table className="w-full border-collapse">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
@@ -130,8 +129,8 @@ export default function DataTable({
                 key={row[keyField]}
                 aria-selected={selected || undefined}
                 className={[
-                  'border-t border-atlas-line transition-colors duration-state ease-standard',
-                  selected ? 'bg-atlas-100' : 'hover:bg-atlas-50',
+                  'border-t border-white/45 transition-colors duration-state ease-standard',
+                  selected ? 'bg-atlas-100/80' : 'hover:bg-white/55',
                 ].join(' ')}
                 style={{ height: 'var(--row-h)' }}
               >
@@ -146,7 +145,7 @@ export default function DataTable({
                       // not the order in the class attribute, and numerics
                       // silently rendered in Plex Sans.
                       c.numeric ? 'text-right font-data tabular-nums' : 'font-ui',
-                      i === 0 ? `sticky left-0 ${selected ? 'bg-atlas-100' : 'bg-atlas-surface'}` : '',
+                      i === 0 ? `sticky left-0 ${selected ? 'bg-atlas-100' : 'bg-white/80 backdrop-blur-md'}` : '',
                     ].join(' ')}
                   >
                     {c.render ? c.render(row) : row[c.key]}

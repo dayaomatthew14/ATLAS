@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-// Rows3/Rows4 do not exist in lucide-react 0.292 — Rows and AlignJustify do.
-import { Menu, ChevronDown, HelpCircle, LogOut, User, Settings as SettingsIcon, Rows, AlignJustify } from 'lucide-react';
+import {
+  Menu, ChevronDown, HelpCircle, LogOut, User, Settings as SettingsIcon,
+  PanelLeftClose, PanelLeftOpen,
+} from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';
 
 /**
@@ -22,8 +24,8 @@ export default function TopBar({
   profileName,
   profilePicture,
   getProfilePictureUrl,
-  density,
-  onToggleDensity,
+  railCollapsed,
+  onToggleRail,
   onOpenGuide,
   onLogout,
   onOpenDrawer,
@@ -56,10 +58,31 @@ export default function TopBar({
     `hover:bg-white/10 hover:text-white transition-colors duration-state ease-standard ${focusRingOnDark}`;
 
   return (
-    <header className="h-14 shrink-0 bg-atlas-900 flex items-center gap-3 px-4 z-topbar">
-      {/* Drawer trigger, below the rail breakpoint only. */}
-      <button type="button" onClick={onOpenDrawer} className={`${iconBtn} lg:hidden`} aria-label="Open navigation">
+    <header className="h-14 shrink-0 glass-dark border-x-0 border-t-0 flex items-center gap-3 px-4 z-topbar">
+      {/* One slot, two jobs, split at the breakpoint where the rail exists.
+          Below 1024 the navigation is an off-canvas drawer, so this opens it.
+          At 1024 and up the rail is on screen, so this collapses and expands
+          it — the control that was missing, which is why the rail only ever
+          changed width when the window did. */}
+      <button
+        type="button"
+        onClick={onOpenDrawer}
+        className={`${iconBtn} lg:hidden`}
+        aria-label="Open navigation"
+      >
         <Menu className="w-5 h-5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={onToggleRail}
+        className={`${iconBtn} hidden lg:inline-flex`}
+        aria-label={railCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+        aria-expanded={!railCollapsed}
+        aria-controls="primary-nav"
+      >
+        {railCollapsed
+          ? <PanelLeftOpen className="w-5 h-5" aria-hidden="true" />
+          : <PanelLeftClose className="w-5 h-5" aria-hidden="true" />}
       </button>
 
       {/* Institutional lockup */}
@@ -100,18 +123,6 @@ export default function TopBar({
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={onToggleDensity}
-          className={iconBtn}
-          aria-label={`Switch to ${density === 'compact' ? 'comfortable' : 'compact'} density`}
-          aria-pressed={density === 'compact'}
-        >
-          {density === 'compact'
-            ? <AlignJustify className="w-5 h-5" aria-hidden="true" />
-            : <Rows className="w-5 h-5" aria-hidden="true" />}
-        </button>
-
         <button type="button" onClick={onOpenGuide} className={iconBtn} aria-label="Open the ATLAS user guide">
           <HelpCircle className="w-5 h-5" aria-hidden="true" />
         </button>
@@ -138,8 +149,7 @@ export default function TopBar({
           {menuOpen && (
             <div
               role="menu"
-              className="absolute right-0 mt-2 w-56 rounded-panel bg-atlas-surface border border-atlas-line
-                         shadow-overlay py-1 z-overlay"
+              className="absolute right-0 mt-2 w-56 rounded-panel glass-strong py-1 z-overlay"
             >
               <p className="px-3 py-2 border-b border-atlas-line">
                 <span className="block font-ui text-micro uppercase text-atlas-slate">Signed in as</span>

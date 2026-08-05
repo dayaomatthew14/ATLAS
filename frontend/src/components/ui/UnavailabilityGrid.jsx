@@ -1,6 +1,6 @@
 import React from 'react';
 import { focusRing } from './tokens';
-
+import { DAYS, SLOT_COUNT, slotMinutes, cellKey, label12h } from '../../utils/availability';
 /**
  * Weekly unavailability editor. Phase 2 Screen 6.
  *
@@ -14,62 +14,6 @@ import { focusRing } from './tokens';
  * Model: a Set of "Day-HHMM" half-hour cell keys, converted to contiguous
  * {day_of_week, start_time, end_time} blocks on save.
  */
-
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-// 07:30-19:30, matching schedule_generator's slot range.
-const START_MINUTES = 7 * 60 + 30;
-const SLOT_COUNT = 24; // 12 hours in half-hour steps
-
-const slotMinutes = (i) => START_MINUTES + i * 30;
-const toHHMM = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-const cellKey = (day, i) => `${day}-${i}`;
-
-const label12h = (mins) => {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  const period = h >= 12 ? 'PM' : 'AM';
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${period}`;
-};
-
-/** Blocks from the API -> the cell Set this component edits. */
-export function blocksToCells(blocks = []) {
-  const cells = new Set();
-  blocks.forEach((b) => {
-    const day = String(b.day_of_week || '').substring(0, 3);
-    if (!DAYS.includes(day)) return;
-    const [sh, sm] = String(b.start_time).split(':').map(Number);
-    const [eh, em] = String(b.end_time).split(':').map(Number);
-    const from = sh * 60 + sm;
-    const to = eh * 60 + em;
-    for (let i = 0; i < SLOT_COUNT; i += 1) {
-      const t = slotMinutes(i);
-      if (t >= from && t < to) cells.add(cellKey(day, i));
-    }
-  });
-  return cells;
-}
-
-/** The cell Set -> contiguous blocks for the API. */
-export function cellsToBlocks(cells) {
-  const blocks = [];
-  DAYS.forEach((day) => {
-    let runStart = null;
-    for (let i = 0; i <= SLOT_COUNT; i += 1) {
-      const filled = i < SLOT_COUNT && cells.has(cellKey(day, i));
-      if (filled && runStart === null) runStart = i;
-      if (!filled && runStart !== null) {
-        blocks.push({
-          day_of_week: day,
-          start_time: `${toHHMM(slotMinutes(runStart))}:00`,
-          end_time: `${toHHMM(slotMinutes(i))}:00`,
-        });
-        runStart = null;
-      }
-    }
-  });
-  return blocks;
-}
 
 export default function UnavailabilityGrid({ cells, onChange, disabled = false }) {
   const [focus, setFocus] = React.useState({ day: 0, slot: 0 });
@@ -178,7 +122,7 @@ export default function UnavailabilityGrid({ cells, onChange, disabled = false }
                     className={[
                       'w-full border-b border-r border-atlas-line transition-colors duration-state ease-standard',
                       i % 2 === 1 ? 'border-b-atlas-line' : 'border-b-transparent',
-                      on ? 'bg-sem-warning' : 'bg-atlas-surface hover:bg-atlas-50',
+                      on ? 'bg-sem-warning' : 'bg-atlas-surface hover:bg-white/85',
                       disabled ? 'cursor-not-allowed' : 'cursor-pointer',
                       focusRing,
                     ].join(' ')}

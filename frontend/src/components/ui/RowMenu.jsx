@@ -19,8 +19,6 @@ export default function RowMenu({ items = [], label = 'Row actions' }) {
   const triggerRef = React.useRef(null);
   const itemRefs = React.useRef([]);
 
-  const enabled = items.filter((i) => !i.disabled);
-
   React.useEffect(() => {
     if (!open) return;
     const onClickAway = (e) => {
@@ -58,7 +56,7 @@ export default function RowMenu({ items = [], label = 'Row actions' }) {
         aria-label={label}
         onClick={() => { setActiveIndex(0); setOpen((v) => !v); }}
         className={`w-10 h-10 inline-flex items-center justify-center rounded-field text-atlas-slate
-                    hover:bg-atlas-50 hover:text-atlas-ink transition-colors duration-state
+                    hover:bg-white/85 hover:text-atlas-ink transition-colors duration-state
                     ease-standard ${focusRing}`}
       >
         <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
@@ -94,7 +92,7 @@ export default function RowMenu({ items = [], label = 'Row actions' }) {
                   ? 'text-atlas-disabled cursor-not-allowed'
                   : item.destructive
                     ? 'text-sem-conflict hover:bg-sem-conflict-bg focus-visible:bg-sem-conflict-bg'
-                    : 'text-atlas-ink hover:bg-atlas-50 focus-visible:bg-atlas-50',
+                    : 'text-atlas-ink hover:bg-white/85 focus-visible:bg-atlas-50',
               ].join(' ')}
             >
               {item.label}

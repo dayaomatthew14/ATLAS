@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, X } from 'lucide-react';
 import Button from './Button';
 import { focusRing } from './tokens';
 
@@ -132,13 +132,13 @@ export default function ConflictLens({
                   onClick={onClose}
                   aria-label="Dismiss conflict resolver"
                   className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-field
-                              text-atlas-slate hover:bg-atlas-50 ${focusRing}`}
+                              text-atlas-slate hover:bg-white/85 ${focusRing}`}
                 >
                   <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
 
-              <ul className="mt-3 divide-y divide-atlas-line">
+              <ul className="mt-3 divide-y divide-white/45">
                 {groupByCause(conflicts).map((g) => (
                   <li key={g.cause} className="flex items-center justify-between py-2">
                     <span className="font-ui text-body text-atlas-ink">{g.cause}</span>
@@ -178,7 +178,7 @@ export default function ConflictLens({
                   onClick={onClose}
                   aria-label="Dismiss conflict resolver"
                   className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-field
-                              text-atlas-slate hover:bg-atlas-50 ${focusRing}`}
+                              text-atlas-slate hover:bg-white/85 ${focusRing}`}
                 >
                   <X className="w-4 h-4" aria-hidden="true" />
                 </button>

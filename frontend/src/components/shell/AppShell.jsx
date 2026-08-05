@@ -28,8 +28,8 @@ export default function AppShell({
   profileName,
   profilePicture,
   getProfilePictureUrl,
-  density,
-  onToggleDensity,
+  railCollapsed,
+  onToggleRail,
   onOpenGuide,
   onLogout,
   children,
@@ -51,7 +51,7 @@ export default function AppShell({
   }, [drawerOpen]);
 
   return (
-    <div className="min-h-screen h-screen flex flex-col bg-atlas-canvas text-atlas-ink">
+    <div className="glass-canvas min-h-screen h-screen flex flex-col text-atlas-ink">
       {/* First tabbable element on the page. */}
       <a
         href="#main"
@@ -69,24 +69,30 @@ export default function AppShell({
         profileName={profileName}
         profilePicture={profilePicture}
         getProfilePictureUrl={getProfilePictureUrl}
-        density={density}
-        onToggleDensity={onToggleDensity}
+        railCollapsed={railCollapsed}
+        onToggleRail={onToggleRail}
         onOpenGuide={onOpenGuide}
         onLogout={onLogout}
         onOpenDrawer={() => setDrawerOpen(true)}
       />
 
-      <ContextBar
-        department={department}
-        role={role}
-        termLabel={termLabel}
-        isPublished={isPublished}
-      />
+      {role !== 'admin' && (
+        <ContextBar
+          department={department}
+          role={role}
+          termLabel={termLabel}
+          isPublished={isPublished}
+        />
+      )}
 
       <div className="flex-1 flex min-h-0">
         {/* Persistent rail from 1024 up. 64px icons, 240px with labels at 1440. */}
-        <div className="hidden lg:block w-16 wide:w-60 shrink-0 border-r border-white/10">
-          <NavRail role={role} conflictCount={conflictCount} />
+        <div
+          className={`hidden lg:block shrink-0 transition-[width] duration-overlay ease-standard ${
+            railCollapsed ? 'w-16' : 'w-60'
+          }`}
+        >
+          <NavRail role={role} conflictCount={conflictCount} expanded={!railCollapsed} />
         </div>
 
         {/* Off-canvas drawer below 1024. The previous nav simply vanished under

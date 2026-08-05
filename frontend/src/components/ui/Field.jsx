@@ -15,10 +15,10 @@ import { focusRing } from './tokens';
  */
 
 const controlBase =
-  'w-full h-10 px-3 rounded-field font-ui text-body text-atlas-ink bg-atlas-surface ' +
+  'w-full h-10 px-3 rounded-field font-ui text-body text-atlas-ink bg-white/70 backdrop-blur-sm ' +
   'border border-atlas-control transition-colors duration-state ease-standard ' +
   'placeholder:text-atlas-disabled hover:border-atlas-slate ' +
-  'disabled:bg-atlas-canvas disabled:border-atlas-line disabled:text-atlas-disabled ' +
+  'focus:bg-white/95 disabled:bg-atlas-canvas/70 disabled:border-atlas-line disabled:text-atlas-disabled ' +
   'disabled:cursor-not-allowed';
 
 const errorRing = 'border-sem-conflict bg-sem-conflict-bg';

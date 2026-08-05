@@ -32,11 +32,16 @@ export const focusRingOnDark =
  * mutual contrast is only 1.02–1.26 — they differ in hue, not luminance, so
  * they are unreliable in greyscale and under deuteranopia.
  * ----------------------------------------------------------------------- */
+/**
+ * Names are kept in step with backend/app/academics.py, which is the authority.
+ * These four are now seeded institutional records rather than the per-user
+ * `DEPT_{id}` workspaces this map was originally written to paper over.
+ */
 export const DEPARTMENTS = {
-  CAST: { code: 'CAST', name: 'Arts & Sciences', hue: 'var(--dept-cast)' },
-  CBMA: { code: 'CBMA', name: 'Business Management & Accountancy', hue: 'var(--dept-cbma)' },
-  CVMAS: { code: 'CVMAS', name: 'Veterinary Medicine & Animal Science', hue: 'var(--dept-cvmas)' },
-  COED: { code: 'COED', name: 'Education', hue: 'var(--dept-coed)' },
+  CAST: { code: 'CAST', name: 'College of Arts, Sciences & Technology', hue: 'var(--dept-cast)' },
+  CBMA: { code: 'CBMA', name: 'College of Business, Management & Accountancy', hue: 'var(--dept-cbma)' },
+  CVMAS: { code: 'CVMAS', name: 'College of Veterinary Medicine & Agricultural Sciences', hue: 'var(--dept-cvmas)' },
+  COED: { code: 'COED', name: 'College of Education', hue: 'var(--dept-coed)' },
 };
 
 /**

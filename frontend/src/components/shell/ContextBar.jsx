@@ -1,4 +1,3 @@
-import React from 'react';
 import { resolveDepartment, ROLE_LABELS } from '../ui/tokens';
 
 /**
@@ -15,31 +14,40 @@ export default function ContextBar({ department, role, termLabel, isPublished = 
   const dept = resolveDepartment(department);
   const roleLabel = ROLE_LABELS[role] || 'Signed in';
 
+  // An administrator is not scoped to a college — they govern all four. Showing
+  // them a college chip was noise at best, and actively misleading while the
+  // seeded admin still carried the leftover "TD1 / Test Dept" workspace.
+  const showCollege = role !== 'admin';
+
   return (
     <div
       // Announced when scope changes so the change is not silent for AT users.
       role="status"
       aria-live="polite"
-      className="h-9 shrink-0 bg-atlas-900 border-t border-white/10 flex items-center
+      className="h-9 shrink-0 glass-dark border-x-0 border-b-0 flex items-center
                  gap-4 px-4 z-contextbar"
     >
       {/* Department. The registry hue never appears without its code — the four
           hues differ in luminance by only 1.02–1.26 and are unreliable alone.
           An unregistered DEPT_n renders neutral so orphaned workspaces stay
           visible rather than passing as a real department (INV-00). */}
-      <span className="flex items-center gap-2 min-w-0">
-        <span
-          aria-hidden="true"
-          className="inline-block w-[3px] h-4 rounded-sm shrink-0"
-          style={{ backgroundColor: dept.hue }}
-        />
-        <span className="font-ui text-body text-white truncate">{dept.code}</span>
-        <span className="hidden lg:inline font-ui text-caption text-atlas-300 truncate">
-          {dept.name}
-        </span>
-      </span>
+      {showCollege && (
+        <>
+          <span className="flex items-center gap-2 min-w-0">
+            <span
+              aria-hidden="true"
+              className="inline-block w-[3px] h-4 rounded-sm shrink-0"
+              style={{ backgroundColor: dept.hue }}
+            />
+            <span className="font-ui text-body text-white truncate">{dept.code}</span>
+            <span className="hidden lg:inline font-ui text-caption text-atlas-300 truncate">
+              {dept.name}
+            </span>
+          </span>
 
-      <span className="hidden sm:inline w-px h-4 bg-white/15 shrink-0" aria-hidden="true" />
+          <span className="hidden sm:inline w-px h-4 bg-white/15 shrink-0" aria-hidden="true" />
+        </>
+      )}
 
       <span className="font-ui text-caption text-atlas-100 truncate">{roleLabel}</span>
 
@@ -57,7 +65,7 @@ export default function ContextBar({ department, role, termLabel, isPublished = 
           <>
             <span className="font-ui text-caption text-atlas-gold">Published</span>
             <span className="block w-10 h-[3px] rounded-sm bg-atlas-gold" aria-hidden="true" />
-            <span className="sr-only">This term's schedule is published.</span>
+            <span className="sr-only">This term&apos;s schedule is published.</span>
           </>
         )}
       </span>

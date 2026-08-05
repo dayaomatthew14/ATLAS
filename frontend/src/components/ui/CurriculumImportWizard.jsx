@@ -198,7 +198,7 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
           <label
             htmlFor="curriculum-file"
             className={`flex flex-col items-center justify-center gap-3 p-10 rounded-panel border-2
-                        border-dashed border-atlas-control cursor-pointer hover:bg-atlas-50
+                        border-dashed border-atlas-control cursor-pointer hover:bg-white/85
                         transition-colors duration-state ease-standard ${focusRing}`}
           >
             <Upload className="w-6 h-6 text-atlas-slate" aria-hidden="true" />
@@ -343,7 +343,7 @@ function ImportRow({ row, onPatch, showIssues = false }) {
                 font-ui text-table text-atlas-ink ${focusRing}`;
 
   return (
-    <tr className={`border-t border-atlas-line ${row._included ? '' : 'opacity-50'}`}>
+    <tr className={`border-t border-white/45 ${row._included ? '' : 'opacity-50'}`}>
       <td className="p-2 w-8">
         <input
           type="checkbox"

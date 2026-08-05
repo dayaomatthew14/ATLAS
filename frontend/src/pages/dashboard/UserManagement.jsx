@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Search, RefreshCw } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -8,7 +8,7 @@ import RowMenu from '../../components/ui/RowMenu';
 import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { SelectInput } from '../../components/ui/Field';
 import Badge, { DepartmentMark } from '../../components/ui/Badge';
-import { DEPARTMENTS, ROLE_LABELS, focusRing, pluralize } from '../../components/ui/tokens';
+import { ROLE_LABELS, focusRing, pluralize } from '../../components/ui/tokens';
 
 /**
  * Users. Phase 2 Screen 4.
@@ -52,6 +52,11 @@ export default function UserManagement() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const [colleges, setColleges] = useState([]);
+  const [resetTarget, setResetTarget] = useState(null);
+  const [issuedPassword, setIssuedPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
   const fetchUsers = async () => {
     setIsLoading(true);
     setLoadError('');
@@ -66,23 +71,22 @@ export default function UserManagement() {
     }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => {
+    fetchUsers();
+    // Colleges are institutional records now, so the picker is bound to them
+    // rather than to whatever strings happen to sit on existing accounts.
+    api.get('/colleges')
+      .then((data) => setColleges(Array.isArray(data) ? data : []))
+      .catch(() => setColleges([]));
+  }, []);
 
-  // There is no /api/departments endpoint, so the option list is the registered
-  // four plus whatever codes already exist on user records. This does not fix
-  // INV-00 -- departments are still per-user strings -- but it stops the UI
-  // creating new orphans, which a free-text field was one typo away from.
-  const departmentOptions = useMemo(() => {
-    const existing = [...new Set(users.map((u) => u.department).filter(Boolean))];
-    const registered = Object.keys(DEPARTMENTS);
-    const unregistered = existing.filter((d) => !registered.includes(d.toUpperCase())).sort();
-    return [
-      { group: 'Registered', options: registered.map((c) => ({ value: c, label: `${c} — ${DEPARTMENTS[c].name}` })) },
-      ...(unregistered.length
-        ? [{ group: 'Unassigned workspaces', options: unregistered.map((c) => ({ value: c, label: c })) }]
-        : []),
-    ];
-  }, [users]);
+  const departmentOptions = useMemo(
+    () => [
+      { value: '', label: 'No college assigned' },
+      ...colleges.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` })),
+    ],
+    [colleges]
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -160,6 +164,23 @@ export default function UserManagement() {
     }
   };
 
+  const confirmReset = async () => {
+    if (!resetTarget) return;
+    setIsResetting(true);
+    try {
+      const res = await api.post(`/users/${resetTarget.id}/reset-password`, {});
+      // Shown once, never stored. The admin reads it out to the user directly,
+      // which is the whole point: the self-service reset needs an inbox the
+      // locked-out user may no longer be able to reach.
+      setIssuedPassword(res.temporary_password || '');
+    } catch (err) {
+      addToast(err.message || 'Could not reset the password.', 'error');
+      setResetTarget(null);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const columns = [
     {
       key: 'name',
@@ -201,6 +222,10 @@ export default function UserManagement() {
           onSelect: () => toggleVerification(u),
         },
         {
+          label: 'Reset password',
+          onSelect: () => { setResetTarget(u); setIssuedPassword(''); },
+        },
+        {
           label: 'Delete user',
           destructive: true,
           onSelect: () => setDeleteTarget(u),
@@ -235,7 +260,7 @@ export default function UserManagement() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, email, or department"
             className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
-                        bg-atlas-surface border border-atlas-control placeholder:text-atlas-disabled
+                        bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
                         hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
           />
         </div>
@@ -306,6 +331,51 @@ export default function UserManagement() {
             options={departmentOptions}
           />
         </form>
+      </Dialog>
+
+      <Dialog
+        isOpen={Boolean(resetTarget)}
+        onClose={() => { setResetTarget(null); setIssuedPassword(''); }}
+        title={issuedPassword ? 'Temporary password issued' : `Reset password for ${resetTarget ? displayName(resetTarget) : ''}?`}
+        description={
+          issuedPassword
+            ? undefined
+            : 'Their current password stops working immediately and they are signed out everywhere.'
+        }
+        size="confirm"
+        dismissible={!isResetting}
+        footer={
+          issuedPassword ? (
+            <Button onClick={() => { setResetTarget(null); setIssuedPassword(''); }}>Done</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => setResetTarget(null)} disabled={isResetting}>Cancel</Button>
+              <Button variant="destructive" onClick={confirmReset} loading={isResetting}>
+                Reset Password
+              </Button>
+            </>
+          )
+        }
+      >
+        {issuedPassword ? (
+          <div className="flex flex-col gap-3">
+            <p className="font-ui text-body text-atlas-ink">
+              Give this to {resetTarget ? displayName(resetTarget) : 'the user'} directly. It is shown
+              once and cannot be retrieved again.
+            </p>
+            <p className="font-data text-lead text-atlas-ink bg-atlas-canvas border border-atlas-line rounded-field px-4 py-3 break-all select-all">
+              {issuedPassword}
+            </p>
+            <p className="font-ui text-caption text-atlas-slate">
+              Ask them to change it from Settings once they are signed in.
+            </p>
+          </div>
+        ) : (
+          <p className="font-ui text-body text-atlas-slate">
+            Use this when someone cannot receive the self-service reset email — the temporary
+            password is shown to you here so you can pass it on another way.
+          </p>
+        )}
       </Dialog>
 
       <ConfirmDialog

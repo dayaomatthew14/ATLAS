@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { LogIn, Key, User, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
 import { api } from '../utils/api';
-import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
-
+import { saveSession, getLandingView } from '../utils/session';
 
 // Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
 const MIN_PASSWORD_LENGTH = 12;
@@ -10,8 +10,6 @@ const MIN_PASSWORD_LENGTH = 12;
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
-
-
 
   // State Machine for flows
   // 'login', 'register', 'verify', 'forgot_email', 'forgot_otp', 'forgot_reset'
@@ -118,20 +116,8 @@ export default function Login() {
         const response = await api.postForm('/auth/login', formData);
 
         if (response && response.role) {
-          if (response.access_token) {
-            localStorage.setItem('atlas_token', response.access_token);
-          }
-          localStorage.setItem('atlas_role', response.role);
-          localStorage.setItem('atlas_user_name', response.name || '');
-          if (response.department) {
-            localStorage.setItem('atlas_department', response.department);
-          }
-          if (response.profile_picture) {
-            localStorage.setItem('atlas_profile_picture', response.profile_picture);
-          } else {
-            localStorage.removeItem('atlas_profile_picture');
-          }
-          navigate('/dashboard');
+          saveSession(response);
+          navigate(getLandingView());
         }
       }
       else if (mode === 'register') {
@@ -171,23 +157,8 @@ export default function Login() {
         const response = await api.postForm('/auth/login', formData);
 
         if (response && response.role) {
-          // Persist the token here too. Without it the post-verification
-          // session had no Authorization header and every API call 401'd
-          // wherever the cookie is blocked as cross-site.
-          if (response.access_token) {
-            localStorage.setItem('atlas_token', response.access_token);
-          }
-          localStorage.setItem('atlas_role', response.role);
-          localStorage.setItem('atlas_user_name', response.name || '');
-          if (response.department) {
-            localStorage.setItem('atlas_department', response.department);
-          }
-          if (response.profile_picture) {
-            localStorage.setItem('atlas_profile_picture', response.profile_picture);
-          } else {
-            localStorage.removeItem('atlas_profile_picture');
-          }
-          navigate('/dashboard');
+          saveSession(response);
+          navigate(getLandingView());
         }
       }
       else if (mode === 'forgot_email') {
@@ -277,7 +248,7 @@ export default function Login() {
       const response = await api.post('/auth/resend-verification', { email });
       setSuccess(response.msg);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to resend code.');
+      setError(err.message || 'Failed to resend code.');
     } finally {
       setLoading(false);
     }
@@ -312,7 +283,7 @@ export default function Login() {
     );
   };
 
-function CustomSelectInput({ name, icon: Icon, value, setter, label, options, hasError }) {
+function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -390,7 +361,6 @@ function CustomSelectInput({ name, icon: Icon, value, setter, label, options, ha
     return (
       <CustomSelectInput
         key={name}
-        name={name}
         icon={icon}
         value={value}
         setter={setter}

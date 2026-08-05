@@ -30,24 +30,26 @@ def generate_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    # Generation belongs to the college that owns the timetable. The admin
+    # branch that used to sit here fell back to `Department.first()` when the
+    # administrator had no department of their own, so generating as an admin
+    # silently built a schedule for whichever college happened to sort first.
     dept = None
-    if current_user.role == 'admin':
-        if current_user.department:
-            dept = db.query(models.Department).filter(
-                (models.Department.code == current_user.department) | 
-                (models.Department.name == current_user.department)
-            ).first()
-        if not dept:
-            dept = db.query(models.Department).first()
-    elif current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['program_chair', 'coordinator']:
         if not current_user.department:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You must be assigned to a department")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your account is not assigned to a college. Ask an administrator to set one."
+            )
         dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
+            (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
         ).first()
     else:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Program Chairs, Coordinators, and System Administrators can generate schedules")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrators do not generate schedules. This is done by the program chair or coordinator."
+        )
     
     if not dept:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department not found")
@@ -281,8 +283,8 @@ def solve_conflict(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    if current_user.role not in ['program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not resolve conflicts. This is done by the program chair or coordinator.")
 
     conflict = None
     if req.conflict_id:

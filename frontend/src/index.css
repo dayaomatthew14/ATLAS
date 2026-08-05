@@ -31,6 +31,37 @@ body {
    WCAG 2.1 and is recorded so it can be re-checked when a value changes.
    ========================================================================== */
 :root {
+  /* --- Channel triplets ----------------------------------------------------
+     Every token below also exists as bare "R G B" channels.
+
+     Tailwind can only apply an opacity modifier (`bg-atlas-900/50`) when the
+     palette entry is written as `rgb(var(--x) / <alpha-value>)`. The hex vars
+     cannot be interpolated that way, so `bg-atlas-900/50` silently produced an
+     invalid colour and fell back to *transparent* — which is why the modal
+     overlay and the mobile navigation scrim were invisible. The hex vars are
+     kept because the print stylesheet and several inline styles consume them
+     directly as colours. */
+  --atlas-green-900-rgb: 5 48 31;
+  --atlas-green-800-rgb: 3 80 42;
+  --atlas-green-700-rgb: 4 106 56;
+  --atlas-green-300-rgb: 143 191 166;
+  --atlas-green-100-rgb: 230 240 234;
+  --atlas-green-050-rgb: 242 247 244;
+  --atlas-gold-500-rgb: 200 162 39;
+  --atlas-ink-rgb: 20 24 26;
+  --atlas-slate-rgb: 90 101 96;
+  --atlas-disabled-rgb: 126 135 130;
+  --atlas-line-rgb: 225 229 226;
+  --atlas-line-input-rgb: 125 136 129;
+  --atlas-surface-rgb: 255 255 255;
+  --atlas-canvas-rgb: 247 248 247;
+  --sem-conflict-rgb: 179 38 30;
+  --sem-conflict-bg-rgb: 251 236 235;
+  --sem-warning-rgb: 143 95 0;
+  --sem-warning-bg-rgb: 252 243 227;
+  --sem-info-rgb: 27 94 140;
+  --sem-info-bg-rgb: 234 242 248;
+
   /* --- Institutional green ------------------------------------------------ */
   --atlas-green-900: #05301F;   /* white 14.49 · gold 5.97 · canvas 13.61     */
   --atlas-green-800: #03502A;   /* white 9.61  — primary hover                */
@@ -60,6 +91,43 @@ body {
   /* --- Surfaces ----------------------------------------------------------- */
   --atlas-surface: #FFFFFF;
   --atlas-canvas: #F7F8F7;
+
+  /* --- Glass --------------------------------------------------------------
+     Translucent surfaces, defined once here and consumed through the shared
+     primitives so every panel, dialog, table and button reads as one material
+     rather than as per-screen decoration.
+
+     The fill is deliberately high — 0.72 rather than the 0.2–0.4 that most
+     glassmorphism reaches for. Body text sits on these panels, and a lighter
+     fill lets whatever is behind it swing the effective contrast, which is
+     exactly how this pattern breaks WCAG 1.4.3 without anyone noticing.
+     Against the ambient wash below, 0.72 keeps --atlas-ink above 14:1.
+
+     Two edges, not one: a bright top rule and a neutral border. The highlight
+     is what makes a translucent panel read as a lit pane of glass rather than
+     as a washed-out card. */
+  --glass-fill: rgb(255 255 255 / 0.72);
+  --glass-fill-strong: rgb(255 255 255 / 0.86);  /* dialogs, menus — over content */
+  --glass-border: rgb(255 255 255 / 0.55);
+  --glass-edge: rgb(255 255 255 / 0.85);         /* the lit top edge */
+  --glass-blur: 18px;
+  --glass-shadow:
+    0 1px 1px rgb(5 48 31 / 0.04),
+    0 8px 24px -8px rgb(5 48 31 / 0.14),
+    inset 0 1px 0 0 var(--glass-edge);
+
+  /* On the chrome the same material is dark rather than light. This is the
+     institutional green at 88%, not a white veil: `.glass-dark` owns the fill
+     outright, because an unlayered class beats a Tailwind `bg-*` utility and a
+     translucent white laid over one would have quietly washed the rail out. */
+  --glass-fill-dark: rgb(5 48 31 / 0.88);
+  --glass-border-dark: rgb(255 255 255 / 0.14);
+
+  /* The ambient wash the glass refracts. Without something behind it, a
+     translucent panel on a flat canvas is just a lighter flat panel. */
+  --glass-ambient-a: rgb(4 106 56 / 0.14);
+  --glass-ambient-b: rgb(200 162 39 / 0.10);
+  --glass-ambient-c: rgb(46 94 126 / 0.09);
 
   /* --- Semantic ----------------------------------------------------------- */
   --sem-conflict: #B3261E;      /* surface 6.54 · on its tint 5.70            */
@@ -113,6 +181,136 @@ body {
   --tt-daycol-min: 120px;
   --tt-gutter: 56px;
   --row-h: 32px;
+}
+
+/* ==========================================================================
+   GLASS MATERIAL
+   One material, three weights. Applied through the shared primitives so the
+   whole application is recoloured from here rather than screen by screen.
+   ========================================================================== */
+
+.glass {
+  background-color: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+}
+
+/*
+  Hover-only glass, for controls that are transparent at rest. `hover:glass`
+  cannot work — Tailwind variants only compose with utilities it generates, and
+  `.glass` is a plain class — so the hover state is declared here instead.
+*/
+.glass-hover:hover:not(:disabled) {
+  background-color: var(--glass-fill);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+}
+
+/* Overlays sit above arbitrary content, so they carry more fill. */
+.glass-strong {
+  background-color: var(--glass-fill-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
+/* The same material on the green-900 chrome. */
+.glass-dark {
+  background-color: var(--glass-fill-dark);
+  border: 1px solid var(--glass-border-dark);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+}
+
+/*
+  The ambient wash. Three broad, low-opacity pools fixed to the viewport, so
+  panels refract something as the page scrolls rather than sliding over a flat
+  field. `fixed` rather than a scrolling pseudo-element keeps the cost to one
+  composited layer.
+*/
+.glass-canvas {
+  position: relative;
+  background-color: var(--atlas-canvas);
+}
+.glass-canvas::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 42rem at 12% -8%, var(--glass-ambient-a), transparent 60%),
+    radial-gradient(48rem 38rem at 92% 6%, var(--glass-ambient-b), transparent 62%),
+    radial-gradient(52rem 40rem at 68% 104%, var(--glass-ambient-c), transparent 60%);
+}
+/*
+  Everything the shell renders sits above the wash.
+
+  `position: relative` only — deliberately no `z-index`.
+
+  This rule is declared after `@tailwind utilities` and matches with the same
+  specificity as a `z-*` utility, so adding `z-index: 1` here silently beat the
+  top bar's own `z-topbar` (50) and flattened it to 1. That tied it with the
+  content wrapper, which also matched this rule, and DOM order handed the win to
+  the content — so the account menu rendered behind the page.
+
+  Leaving z-index at `auto` keeps these children out of the stacking-context
+  business entirely: they still paint above the wash because a positioned
+  element outranks the `z-index: 0` pseudo-element that precedes it in DOM
+  order, and descendants like the account menu (z-overlay) resolve against the
+  root stacking context, where they belong.
+*/
+.glass-canvas > * {
+  position: relative;
+}
+
+/*
+  Fallbacks. Both matter, and skipping them is the usual reason this pattern
+  fails an audit.
+
+  1. No backdrop-filter (older Firefox, and anything with it disabled): a 0.72
+     fill over a busy wash without the blur is genuinely hard to read, so the
+     surface goes opaque instead.
+  2. prefers-reduced-transparency: a real accessibility setting people turn on
+     because translucency makes text hard to read. Honour it.
+*/
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-strong { background-color: var(--atlas-surface); }
+  .glass-dark { background-color: rgb(255 255 255 / 0.14); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong {
+    background-color: var(--atlas-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-dark {
+    background-color: rgb(255 255 255 / 0.14);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-canvas::before { display: none; }
+}
+
+/* Printing a translucent panel wastes ink and prints grey text on grey. */
+@media print {
+  .glass,
+  .glass-strong,
+  .glass-dark {
+    background: #fff !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .glass-canvas::before { display: none !important; }
 }
 
 /* 1ms rather than 0ms: a 1ms transition still fires transitionend, so
@@ -270,8 +468,21 @@ body {
   display: none;
 }
 
-/* Dynamic Appearance Themes Config */
-:root, html[data-theme="green"] {
+/* --------------------------------------------------------------------------
+   Institutional green scale, consumed by tailwind.config.js as
+   `rgb(var(--color-primary-N) / <alpha-value>)`. Every `green-*` utility in the
+   not-yet-migrated screens resolves through here.
+
+   Three alternate palettes (dark / blue / purple) used to live below this
+   block, selected by an Appearance picker in Settings. They could not work:
+   the ATLAS token layer (--atlas-*) that the shell and every migrated screen
+   render from is fixed institutional green, so switching the palette recoloured
+   only the legacy screens and left the application half green, half blue. The
+   "dark" option recoloured the primary ramp to grey without producing a dark
+   interface at all — `dark:` appears four times in the entire codebase. The
+   picker and the three dead palettes are gone; see the cleanup notes.
+   ----------------------------------------------------------------------- */
+:root {
   --color-primary-50: 240 253 244;
   --color-primary-100: 220 252 231;
   --color-primary-200: 187 247 208;
@@ -285,48 +496,6 @@ body {
   --color-primary-950: 5 46 22;
 }
 
-html[data-theme="dark"] {
-  --color-primary-50: 248 250 252;
-  --color-primary-100: 241 245 249;
-  --color-primary-200: 226 232 240;
-  --color-primary-300: 203 213 225;
-  --color-primary-400: 148 163 184;
-  --color-primary-500: 100 116 139;
-  --color-primary-600: 71 85 105;
-  --color-primary-700: 51 65 85;
-  --color-primary-800: 30 41 59;
-  --color-primary-900: 15 23 42;
-  --color-primary-950: 2 6 23;
-}
-
-html[data-theme="blue"] {
-  --color-primary-50: 239 246 255;
-  --color-primary-100: 219 234 254;
-  --color-primary-200: 191 219 254;
-  --color-primary-300: 147 197 253;
-  --color-primary-400: 96 165 250;
-  --color-primary-500: 59 130 246;
-  --color-primary-600: 37 99 235;
-  --color-primary-700: 29 78 216;
-  --color-primary-800: 30 64 175;
-  --color-primary-900: 30 58 138;
-  --color-primary-950: 23 37 84;
-}
-
-html[data-theme="purple"] {
-  --color-primary-50: 250 245 255;
-  --color-primary-100: 243 232 255;
-  --color-primary-200: 233 213 255;
-  --color-primary-300: 216 180 254;
-  --color-primary-400: 192 132 252;
-  --color-primary-500: 168 85 247;
-  --color-primary-600: 147 51 234;
-  --color-primary-700: 126 34 206;
-  --color-primary-800: 107 33 168;
-  --color-primary-900: 88 28 135;
-  --color-primary-950: 59 7 100;
-}
-
 body {
   margin: 0;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
@@ -334,151 +503,3 @@ body {
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
-
-/* Direct class overrides to bypass tailwind compiler caching and hex hardcoding issues */
-.bg-green-50 { background-color: rgb(var(--color-primary-50)) !important; }
-.bg-green-100 { background-color: rgb(var(--color-primary-100)) !important; }
-.bg-green-200 { background-color: rgb(var(--color-primary-200)) !important; }
-.bg-green-300 { background-color: rgb(var(--color-primary-300)) !important; }
-.bg-green-400 { background-color: rgb(var(--color-primary-400)) !important; }
-.bg-green-500 { background-color: rgb(var(--color-primary-500)) !important; }
-.bg-green-600 { background-color: rgb(var(--color-primary-600)) !important; }
-.bg-green-700 { background-color: rgb(var(--color-primary-700)) !important; }
-.bg-green-800 { background-color: rgb(var(--color-primary-800)) !important; }
-.bg-green-900 { background-color: rgb(var(--color-primary-900)) !important; }
-.bg-green-950 { background-color: rgb(var(--color-primary-950)) !important; }
-
-.text-green-50 { color: rgb(var(--color-primary-50)) !important; }
-.text-green-100 { color: rgb(var(--color-primary-100)) !important; }
-.text-green-200 { color: rgb(var(--color-primary-200)) !important; }
-.text-green-300 { color: rgb(var(--color-primary-300)) !important; }
-.text-green-400 { color: rgb(var(--color-primary-400)) !important; }
-.text-green-500 { color: rgb(var(--color-primary-500)) !important; }
-.text-green-600 { color: rgb(var(--color-primary-600)) !important; }
-.text-green-700 { color: rgb(var(--color-primary-700)) !important; }
-.text-green-800 { color: rgb(var(--color-primary-800)) !important; }
-.text-green-900 { color: rgb(var(--color-primary-900)) !important; }
-.text-green-950 { color: rgb(var(--color-primary-950)) !important; }
-
-.border-green-50 { border-color: rgb(var(--color-primary-50)) !important; }
-.border-green-100 { border-color: rgb(var(--color-primary-100)) !important; }
-.border-green-200 { border-color: rgb(var(--color-primary-200)) !important; }
-.border-green-300 { border-color: rgb(var(--color-primary-300)) !important; }
-.border-green-400 { border-color: rgb(var(--color-primary-400)) !important; }
-.border-green-500 { border-color: rgb(var(--color-primary-500)) !important; }
-.border-green-600 { border-color: rgb(var(--color-primary-600)) !important; }
-.border-green-700 { border-color: rgb(var(--color-primary-700)) !important; }
-.border-green-800 { border-color: rgb(var(--color-primary-800)) !important; }
-.border-green-900 { border-color: rgb(var(--color-primary-900)) !important; }
-.border-green-950 { border-color: rgb(var(--color-primary-950)) !important; }
-
-.hover\:bg-green-50:hover { background-color: rgb(var(--color-primary-50)) !important; }
-.hover\:bg-green-100:hover { background-color: rgb(var(--color-primary-100)) !important; }
-.hover\:bg-green-200:hover { background-color: rgb(var(--color-primary-200)) !important; }
-.hover\:bg-green-300:hover { background-color: rgb(var(--color-primary-300)) !important; }
-.hover\:bg-green-400:hover { background-color: rgb(var(--color-primary-400)) !important; }
-.hover\:bg-green-500:hover { background-color: rgb(var(--color-primary-500)) !important; }
-.hover\:bg-green-600:hover { background-color: rgb(var(--color-primary-600)) !important; }
-.hover\:bg-green-700:hover { background-color: rgb(var(--color-primary-700)) !important; }
-.hover\:bg-green-800:hover { background-color: rgb(var(--color-primary-800)) !important; }
-.hover\:bg-green-900:hover { background-color: rgb(var(--color-primary-900)) !important; }
-.hover\:bg-green-950:hover { background-color: rgb(var(--color-primary-950)) !important; }
-
-.hover\:text-green-50:hover { color: rgb(var(--color-primary-50)) !important; }
-.hover\:text-green-100:hover { color: rgb(var(--color-primary-100)) !important; }
-.hover\:text-green-200:hover { color: rgb(var(--color-primary-200)) !important; }
-.hover\:text-green-300:hover { color: rgb(var(--color-primary-300)) !important; }
-.hover\:text-green-400:hover { color: rgb(var(--color-primary-400)) !important; }
-.hover\:text-green-500:hover { color: rgb(var(--color-primary-500)) !important; }
-.hover\:text-green-600:hover { color: rgb(var(--color-primary-600)) !important; }
-.hover\:text-green-700:hover { color: rgb(var(--color-primary-700)) !important; }
-.hover\:text-green-800:hover { color: rgb(var(--color-primary-800)) !important; }
-.hover\:text-green-900:hover { color: rgb(var(--color-primary-900)) !important; }
-.hover\:text-green-950:hover { color: rgb(var(--color-primary-950)) !important; }
-
-/* Transparency and Opacity Classes commonly used in Tailwind green */
-.bg-green-900\/50 { background-color: rgba(var(--color-primary-900), 0.5) !important; }
-.bg-green-700\/50 { background-color: rgba(var(--color-primary-700), 0.5) !important; }
-.bg-green-50\/40 { background-color: rgba(var(--color-primary-50), 0.4) !important; }
-.bg-green-50\/50 { background-color: rgba(var(--color-primary-50), 0.5) !important; }
-.bg-green-50\/70 { background-color: rgba(var(--color-primary-50), 0.7) !important; }
-.bg-green-50\/30 { background-color: rgba(var(--color-primary-50), 0.3) !important; }
-.bg-green-900\/20 { background-color: rgba(var(--color-primary-900), 0.2) !important; }
-.shadow-green-900\/20 { --tw-shadow-color: rgba(var(--color-primary-900), 0.2) !important; }
-.shadow-green-700\/20 { --tw-shadow-color: rgba(var(--color-primary-700), 0.2) !important; }
-
-.hover\:bg-green-700\/50:hover { background-color: rgba(var(--color-primary-700), 0.5) !important; }
-.focus\:ring-green-500\/25:focus { --tw-ring-color: rgba(var(--color-primary-500), 0.25) !important; }
-.focus\:ring-green-600:focus { --tw-ring-color: rgb(var(--color-primary-600)) !important; }
-.focus\:ring-green-500:focus { --tw-ring-color: rgb(var(--color-primary-500)) !important; }
-
-/* Additional border direction overrides */
-.border-t-green-50 { border-top-color: rgb(var(--color-primary-50)) !important; }
-.border-t-green-100 { border-top-color: rgb(var(--color-primary-100)) !important; }
-.border-t-green-200 { border-top-color: rgb(var(--color-primary-200)) !important; }
-.border-t-green-300 { border-top-color: rgb(var(--color-primary-300)) !important; }
-.border-t-green-400 { border-top-color: rgb(var(--color-primary-400)) !important; }
-.border-t-green-500 { border-top-color: rgb(var(--color-primary-500)) !important; }
-.border-t-green-600 { border-top-color: rgb(var(--color-primary-600)) !important; }
-.border-t-green-700 { border-top-color: rgb(var(--color-primary-700)) !important; }
-.border-t-green-800 { border-top-color: rgb(var(--color-primary-800)) !important; }
-.border-t-green-900 { border-top-color: rgb(var(--color-primary-900)) !important; }
-
-.border-b-green-50 { border-bottom-color: rgb(var(--color-primary-50)) !important; }
-.border-b-green-100 { border-bottom-color: rgb(var(--color-primary-100)) !important; }
-.border-b-green-200 { border-bottom-color: rgb(var(--color-primary-200)) !important; }
-.border-b-green-300 { border-bottom-color: rgb(var(--color-primary-300)) !important; }
-.border-b-green-400 { border-bottom-color: rgb(var(--color-primary-400)) !important; }
-.border-b-green-500 { border-bottom-color: rgb(var(--color-primary-500)) !important; }
-.border-b-green-600 { border-bottom-color: rgb(var(--color-primary-600)) !important; }
-.border-b-green-700 { border-bottom-color: rgb(var(--color-primary-700)) !important; }
-.border-b-green-800 { border-bottom-color: rgb(var(--color-primary-800)) !important; }
-.border-b-green-900 { border-bottom-color: rgb(var(--color-primary-900)) !important; }
-
-.border-l-green-50 { border-left-color: rgb(var(--color-primary-50)) !important; }
-.border-l-green-100 { border-left-color: rgb(var(--color-primary-100)) !important; }
-.border-l-green-200 { border-left-color: rgb(var(--color-primary-200)) !important; }
-.border-l-green-300 { border-left-color: rgb(var(--color-primary-300)) !important; }
-.border-l-green-400 { border-left-color: rgb(var(--color-primary-400)) !important; }
-.border-l-green-500 { border-left-color: rgb(var(--color-primary-500)) !important; }
-.border-l-green-600 { border-left-color: rgb(var(--color-primary-600)) !important; }
-.border-l-green-700 { border-left-color: rgb(var(--color-primary-700)) !important; }
-.border-l-green-800 { border-left-color: rgb(var(--color-primary-800)) !important; }
-.border-l-green-900 { border-left-color: rgb(var(--color-primary-900)) !important; }
-
-.border-r-green-50 { border-right-color: rgb(var(--color-primary-50)) !important; }
-.border-r-green-100 { border-right-color: rgb(var(--color-primary-100)) !important; }
-.border-r-green-200 { border-right-color: rgb(var(--color-primary-200)) !important; }
-.border-r-green-300 { border-right-color: rgb(var(--color-primary-300)) !important; }
-.border-r-green-400 { border-right-color: rgb(var(--color-primary-400)) !important; }
-.border-r-green-500 { border-right-color: rgb(var(--color-primary-500)) !important; }
-.border-r-green-600 { border-right-color: rgb(var(--color-primary-600)) !important; }
-.border-r-green-700 { border-right-color: rgb(var(--color-primary-700)) !important; }
-.border-r-green-800 { border-right-color: rgb(var(--color-primary-800)) !important; }
-.border-r-green-900 { border-right-color: rgb(var(--color-primary-900)) !important; }
-
-/* Gradient stop overrides */
-.from-green-50 { --tw-gradient-from: rgb(var(--color-primary-50)) !important; --tw-gradient-to: rgb(var(--color-primary-50) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-100 { --tw-gradient-from: rgb(var(--color-primary-100)) !important; --tw-gradient-to: rgb(var(--color-primary-100) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-200 { --tw-gradient-from: rgb(var(--color-primary-200)) !important; --tw-gradient-to: rgb(var(--color-primary-200) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-300 { --tw-gradient-from: rgb(var(--color-primary-300)) !important; --tw-gradient-to: rgb(var(--color-primary-300) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-400 { --tw-gradient-from: rgb(var(--color-primary-400)) !important; --tw-gradient-to: rgb(var(--color-primary-400) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-500 { --tw-gradient-from: rgb(var(--color-primary-500)) !important; --tw-gradient-to: rgb(var(--color-primary-500) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-600 { --tw-gradient-from: rgb(var(--color-primary-600)) !important; --tw-gradient-to: rgb(var(--color-primary-600) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-700 { --tw-gradient-from: rgb(var(--color-primary-700)) !important; --tw-gradient-to: rgb(var(--color-primary-700) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-800 { --tw-gradient-from: rgb(var(--color-primary-800)) !important; --tw-gradient-to: rgb(var(--color-primary-800) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-.from-green-900 { --tw-gradient-from: rgb(var(--color-primary-900)) !important; --tw-gradient-to: rgb(var(--color-primary-900) / 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; }
-
-.to-green-50 { --tw-gradient-to: rgb(var(--color-primary-50)) !important; }
-.to-green-100 { --tw-gradient-to: rgb(var(--color-primary-100)) !important; }
-.to-green-200 { --tw-gradient-to: rgb(var(--color-primary-200)) !important; }
-.to-green-300 { --tw-gradient-to: rgb(var(--color-primary-300)) !important; }
-.to-green-400 { --tw-gradient-to: rgb(var(--color-primary-400)) !important; }
-.to-green-500 { --tw-gradient-to: rgb(var(--color-primary-500)) !important; }
-.to-green-600 { --tw-gradient-to: rgb(var(--color-primary-600)) !important; }
-.to-green-700 { --tw-gradient-to: rgb(var(--color-primary-700)) !important; }
-.to-green-800 { --tw-gradient-to: rgb(var(--color-primary-800)) !important; }
-.to-green-900 { --tw-gradient-to: rgb(var(--color-primary-900)) !important; }
-
-
-

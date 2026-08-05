@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/ui/Dialog';
 import { SelectInput } from '../../components/ui/Field';
 import Badge from '../../components/ui/Badge';
 import { focusRing, pluralize, restrictionReason } from '../../components/ui/tokens';
+import { isAdmin as isAdminRole } from '../../utils/session';
 
 /**
  * Activity. Phase 2 Screen 8.
@@ -24,8 +25,7 @@ const POLL_MS = 15000;
 
 export default function SystemLogs() {
   const { addToast } = useToast();
-  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const isAdmin = role === 'admin';
+  const isAdmin = isAdminRole();
 
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
@@ -189,7 +189,7 @@ export default function SystemLogs() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search action, detail, or person"
             className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
-                        bg-atlas-surface border border-atlas-control placeholder:text-atlas-disabled
+                        bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
                         hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
           />
         </div>

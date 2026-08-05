@@ -25,6 +25,19 @@ class User(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class Department(Base):
+    """
+    A college of the university.
+
+    This table used to hold one private workspace per user account: registration
+    minted `DEPT_{user_id}` and pointed the user at it, so three separate rows
+    could all mean CAST and `users.department` referenced a code that existed
+    nowhere. It now holds exactly the four institutional colleges, seeded at
+    startup. The table name is unchanged because Curriculum, CurriculumBlock,
+    Faculty and SystemLog all carry `department_id` foreign keys to it.
+
+    `owner_id` is retained only so existing rows keep loading; a college is not
+    owned by anyone and nothing sets it any more.
+    """
     __tablename__ = "departments"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
@@ -35,6 +48,27 @@ class Department(Base):
     curriculum_items = relationship("Curriculum", back_populates="department")
     faculty_members = relationship("Faculty", back_populates="department")
     blocks = relationship("CurriculumBlock", back_populates="department")
+    programs = relationship("Program", back_populates="college", order_by="Program.name")
+
+class Program(Base):
+    """
+    A degree programme offered by a college.
+
+    Programmes were previously free text captured from an Excel filename during
+    curriculum import, which is how a block came to be named
+    "BACHELOR OF SCIENCE IN COMPUTER ENGINEERING AY" -- the stray "AY" is a
+    parser artefact that became part of the programme's identity. They are now
+    institutional records seeded at startup, and a curriculum block points at
+    one.
+    """
+    __tablename__ = "programs"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(20), nullable=False, unique=True)
+    name = Column(String(255), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+
+    college = relationship("Department", back_populates="programs")
+    blocks = relationship("CurriculumBlock", back_populates="program")
 
 class CurriculumBlock(Base):
     __tablename__ = "curriculum_blocks"
@@ -43,9 +77,13 @@ class CurriculumBlock(Base):
     academic_year = Column(String(50), nullable=False)
     filename = Column(String(255), nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    # Nullable on purpose: a block that matches no seeded programme stays
+    # visible in the Unassigned group rather than being hidden or deleted.
+    program_id = Column(Integer, ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
     status = Column(String(20), default='PUBLISHED') # DRAFT, PUBLISHED, ARCHIVED
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     department = relationship("Department", back_populates="blocks")
+    program = relationship("Program", back_populates="blocks")
     curriculum_items = relationship("Curriculum", back_populates="block")
 
 class Curriculum(Base):

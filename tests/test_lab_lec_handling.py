@@ -411,7 +411,7 @@ class TestLabLecHandling(unittest.TestCase):
     def test_remediation_suite_14_scenarios(self):
         from datetime import time
         from fastapi import HTTPException
-        from backend.app.routers.users import purge_all_users
+        from backend.app.routers.users import delete_user
         from backend.app.routers.subject_offerings import create_subject_offering
         from backend.app.services.schedule_generator import generate_schedules
 
@@ -449,20 +449,49 @@ class TestLabLecHandling(unittest.TestCase):
             role = "student"
             department = "CAST"
 
-        # TEST 2-5: Non-admin role purge attempts -> 403
-        for user_obj in [StudentUser(), FacultyUser(), CoordUser(), ChairUser()]:
-            with self.assertRaises(HTTPException) as ctx:
-                purge_all_users(db, user_obj)
-            self.assertEqual(ctx.exception.status_code, 403)
-
-        # TEST 6: Admin purge request -> Allowed (200 OK)
-        purge_res = purge_all_users(db, AdminUser())
-        self.assertIn("deleted_count", purge_res)
-
-        # Re-seed test DB after purge
-        admin_u = models.User(id=1, first_name="Admin", last_name="User", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
-        db.add_all([admin_u, dept1, dept2])
+        # The `purge-all-users` endpoint these scenarios used to exercise has
+        # been removed -- it deleted every account including the caller's, with
+        # no confirmation and no recovery. What replaces it here are the two
+        # guards that now stop an administrator locking everyone out.
+        #
+        # Seeded defensively: the old flow purged the table first, so it could
+        # assume id 1 was free. It is not.
+        admin_u = db.query(models.User).filter(models.User.id == 1).first()
+        if admin_u is None:
+            admin_u = models.User(id=1, first_name="Admin", last_name="User", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
+            db.add(admin_u)
+        admin_u.role = "admin"
+        if db.query(models.User).filter(models.User.id == 7).first() is None:
+            db.add(models.User(id=7, first_name="Other", last_name="Chair", email="chair7@dlsau.edu.ph", role="program_chair", department="CBM", password_hash="pw"))
         db.commit()
+
+        # A chair may not delete an account outside their own department.
+        with self.assertRaises(HTTPException) as ctx:
+            delete_user(7, db, ChairUser())
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        # An administrator may not delete their own account.
+        with self.assertRaises(HTTPException) as ctx:
+            delete_user(1, db, AdminUser())
+        self.assertEqual(ctx.exception.status_code, 409)
+
+        # ...nor the last remaining administrator.
+        class OtherAdmin:
+            id = 99
+            role = "admin"
+            department = "CAST"
+
+        with self.assertRaises(HTTPException) as ctx:
+            delete_user(1, db, OtherAdmin())
+        self.assertEqual(ctx.exception.status_code, 409)
+
+        # With a second administrator present the guard lifts. Delete the spare
+        # rather than id 1, which the scenarios below still rely on.
+        db.add(models.User(id=8, first_name="Second", last_name="Admin", email="admin2@dlsau.edu.ph", role="admin", password_hash="pw"))
+        db.commit()
+        delete_user(8, db, AdminUser())
+        self.assertIsNone(db.query(models.User).filter(models.User.id == 8).first())
+        self.assertIsNotNone(db.query(models.User).filter(models.User.id == 1).first())
 
         # TEST 11: Cross-department subject offering -> 403 Rejected
         fac1 = models.Faculty(first_name="Prof", last_name="One", department_id=d1_id, max_units=18, type="full_time")

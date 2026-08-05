@@ -12,26 +12,17 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
-@router.api_route("/clear-all-users", methods=["GET", "POST", "DELETE"])
-@router.api_route("/reset-all-users", methods=["GET", "POST", "DELETE"])
-def reset_all_users(
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role != 'admin':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operation restricted to System Administrators."
-        )
-    try:
-        from sqlalchemy import text
-        db.execute(text("UPDATE departments SET owner_id = NULL"))
-        db.execute(text("TRUNCATE TABLE users CASCADE"))
-        db.commit()
-    except Exception:
-        db.query(models.User).delete()
-        db.commit()
-    return {"message": "All users purged successfully", "count": 0}
+"""
+`reset-all-users` / `clear-all-users` were registered here.
+
+One handler, two paths, three methods each -- including **GET**. It ran
+`TRUNCATE TABLE users CASCADE`, falling back to deleting every User row, and
+returned "All users purged successfully". Because GET was accepted, any link
+follow, browser prefetch or crawler hitting that URL while an administrator
+session was live would empty the users table and cascade through everything
+referencing it. Destructive operations are never safe on GET; this one should
+not exist at all, so it does not.
+"""
 
 def generate_otp():
     return ''.join(secrets.choice(string.digits) for _ in range(6))
@@ -100,16 +91,22 @@ def login_for_access_token(
         max_age=30*24*60*60 if remember_me else None
     )
     
-    # Get department ID for logging if available
+    # `department` carries the college CODE, not its name. The frontend keys
+    # every lookup -- the context-bar chip, the college hue, the display name --
+    # off the code, so returning "College of Arts, Sciences & Technology" here
+    # resolved to "Unassigned workspace" on screen. The readable name travels
+    # alongside it rather than in place of it.
     dept_id = None
+    dept_code = user.department
     dept_name = user.department
     if user.department:
         dept = db.query(models.Department).filter(
-            (models.Department.code == user.department) | 
+            (models.Department.code == user.department) |
             (models.Department.name == user.department)
         ).first()
         if dept:
             dept_id = dept.id
+            dept_code = dept.code
             dept_name = dept.name
             
     log_activity(db, user.id, "Login", f"User {user.email} logged in", "success", department_id=dept_id) # type: ignore
@@ -119,7 +116,8 @@ def login_for_access_token(
         "token_type": "bearer",
         "role": user.role,
         "name": f"{user.first_name} {user.last_name}",
-        "department": dept_name,
+        "department": dept_code,
+        "department_name": dept_name,
         "profile_picture": user.profile_picture
     }
 
@@ -129,6 +127,7 @@ def read_users_me(
     db: Session = Depends(database.get_db)
 ):
     dept = db.query(models.Department).filter(models.Department.code == current_user.department).first()
+    # Same rule as sign-in: the code identifies, the name is for reading.
     dept_name = dept.name if dept else current_user.department
     
     return {
@@ -138,7 +137,8 @@ def read_users_me(
         "last_name": current_user.last_name,
         "contact_number": current_user.contact_number,
         "role": current_user.role,
-        "department": dept_name,
+        "department": current_user.department,
+        "department_name": dept_name,
         "sex": current_user.sex,
         "date_of_birth": current_user.date_of_birth,
         "profile_picture": current_user.profile_picture,
@@ -164,9 +164,22 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # The college must already exist. Registration used to mint a private
+    # `DEPT_{id}` workspace per account, which is how three separate rows all
+    # came to mean CAST and how `users.department` came to hold a code that
+    # matched no record. Colleges are institutional now: you join one.
+    requested = (user.department or "").strip().upper()
+    college = db.query(models.Department).filter(models.Department.code == requested).first()
+    if college is None:
+        known = [c.code for c in db.query(models.Department).order_by(models.Department.code).all()]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Select a college. Choose one of: {', '.join(known)}."
+        )
+
     hashed_password = auth.get_password_hash(user.password)
     otp = generate_otp()
-    
+
     db_user = models.User(
         email=str(user.email),
         first_name=str(user.first_name),
@@ -174,31 +187,15 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
         contact_number=str(user.contact_number) if user.contact_number else None,
         password_hash=str(hashed_password),
         role=str(user.role),
-        department=str(user.department) if user.department else None,
+        department=college.code,
         is_verified=False,
         verification_otp=str(otp)
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    
-    # Automatically provision a private Department workspace for the newly registered chair/dean
-    friendly_dept_name = user.department if user.department else "General"
-    unique_dept_code = f"DEPT_{db_user.id}"
-    
-    new_dept = models.Department(
-        code=unique_dept_code,
-        name=friendly_dept_name,
-        description=f"Isolated department workspace for {db_user.first_name} {db_user.last_name} ({friendly_dept_name})",
-        owner_id=db_user.id
-    )
-    db.add(new_dept)
-    
-    # Update user's department field to the unique department code
-    db_user.department = unique_dept_code  # type: ignore
-    db.commit()
-    db.refresh(db_user)
-    
+
+
     log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success") # type: ignore
     
     # Send OTP via Email (Primary)
@@ -216,7 +213,8 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
         "last_name": db_user.last_name,
         "contact_number": db_user.contact_number,
         "role": db_user.role,
-        "department": friendly_dept_name,
+        "department": college.code,
+        "department_name": college.name,
         "sex": db_user.sex,
         "date_of_birth": db_user.date_of_birth,
         "profile_picture": db_user.profile_picture,

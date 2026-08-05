@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, HelpCircle, CheckCircle2, AlertTriangle, Calendar, MapPin, Users, BookOpen, Clock, Download, RotateCcw, ArrowRight, X, Compass, ShieldCheck } from 'lucide-react';
+import { Sparkles, HelpCircle, MapPin, Users, BookOpen, Clock, Download, RotateCcw, ArrowRight, Compass, ShieldCheck } from 'lucide-react';
 import Modal from './Modal';
 
 export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
@@ -46,8 +46,8 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
     },
     {
       step: 5,
-      title: '5. Run AI & Auto-Solve',
-      desc: 'Click Generate to schedule subjects. Click Solve Issue ✨ for conflicts.',
+      title: '5. Generate the Schedule',
+      desc: 'Generate the timetable, then work through any conflicts one at a time.',
       link: '/dashboard/schedules',
       linkText: 'Go to Schedules',
       icon: Sparkles,
@@ -63,41 +63,45 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
       text: 'Auto-schedules lecture (1.5h) and lab (2.0h) subjects across Mon/Wed, Tue/Thu, and Fri/Sat slot pairs.'
     },
     {
-      name: 'Conflict Auto-Solver ✨',
+      // "Auto-Solve All" was described here after the button was removed. It
+      // looped a resolver that force-placed on failure, so it could double-book
+      // a whole term and report success. Conflicts are stepped through one at a
+      // time now, and the guide has to say so.
+      name: 'Conflict resolution',
       icon: ShieldCheck,
       color: 'text-emerald-500',
-      text: 'Click "Solve Issue ✨" or "Auto-Solve All" to automatically adjust workload caps or find open rooms.'
+      text: 'Open the conflict view from the Schedule screen and resolve them one at a time, so each change is a decision you made.'
     },
     {
-      name: '1-Click Restore 🔄',
+      name: 'Undo and restore',
       icon: RotateCcw,
       color: 'text-rose-500',
-      text: 'Accidentally deleted a subject or cleared schedules? Click "Undo / Restore ✨" in the dark banner to restore.'
+      text: 'Deleted a class or cleared the schedule? Use Undo / Restore in the banner that appears at the bottom right.'
     },
     {
-      name: 'Export CSV & Print PDF 📊',
+      name: 'Export and print',
       icon: Download,
       color: 'text-indigo-500',
-      text: 'Download formatted Excel/CSV files or print clean PDF calendar reports from the Schedules tab.'
+      text: 'Download a CSV for Excel, or print to PDF. Unpublished schedules print with a DRAFT watermark.'
     }
   ];
 
   const faqs = [
     {
       q: 'Why is a subject marked "Unplaced"?',
-      a: 'This happens if a professor reached their max unit cap or if rooms are booked. Click "Solve Issue ✨" to auto-resolve.'
+      a: 'The faculty member reached their unit cap, or no free room matched the subject type. Open the conflict view to resolve it.'
     },
     {
       q: 'How do I edit or delete a schedule entry?',
-      a: 'Go to Schedules → Hover over any schedule box and click the Trash 🗑️ icon to delete or "+ Create" to add manually.'
+      a: 'On the Schedule screen, hover a class and use the delete icon, or press Delete with it focused. Use Create to add one manually.'
     },
     {
       q: 'Can I restore cleared schedules?',
-      a: 'Yes! Clicking "Clear All" or deleting a slot shows an instant "Undo / Restore ✨" banner at the bottom right.'
+      a: 'Yes. Clearing or deleting shows an Undo / Restore banner at the bottom right.'
     },
     {
       q: 'Are changes saved automatically?',
-      a: 'Yes, all schedule generation and conflict resolutions are saved to the database in real-time.'
+      a: 'Yes. Generation and conflict resolutions are saved as they happen.'
     }
   ];
 
@@ -107,7 +111,7 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide 📖" maxWidth="sm:max-w-3xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide" maxWidth="sm:max-w-3xl">
       <div className="space-y-6 pt-1">
         {/* Banner Header with Guided Tour CTA */}
         <div className="bg-gradient-to-r from-emerald-900 via-green-800 to-emerald-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-white/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -128,16 +132,16 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
             }}
             className="px-6 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black rounded-full uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shrink-0 transform hover:scale-105"
           >
-            <Compass className="w-4 h-4" /> START TOUR 🎯
+            <Compass className="w-4 h-4" /> Start tour
           </button>
         </div>
 
         {/* Tab Selection */}
         <div className="flex items-center gap-4 sm:gap-8 border-b border-slate-100 pb-1 overflow-x-auto">
           {[
-            { id: 'workflow', label: '🚀 RECOMMENDED STEPS' },
-            { id: 'features', label: '⚙️ FEATURE GUIDE' },
-            { id: 'faq', label: '❓ FAQ & ANSWERS' }
+            { id: 'workflow', label: 'Setup steps' },
+            { id: 'features', label: 'Features' },
+            { id: 'faq', label: 'FAQ' }
           ].map(t => (
             <button
               key={t.id}
@@ -217,13 +221,13 @@ export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
 
         {/* Footer */}
         <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">ATLAS GUIDE SYSTEM</span>
+          <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">ATLAS user guide</span>
           <button
             type="button"
             onClick={onClose}
             className="px-7 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-full uppercase tracking-wider shadow-md transition-all transform hover:scale-105"
           >
-            CLOSE GUIDE
+            Close
           </button>
         </div>
       </div>

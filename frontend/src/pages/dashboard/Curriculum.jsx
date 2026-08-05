@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Upload, Edit, Trash2, BookOpen, GraduationCap, AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
+import { Plus, Upload, Edit, Trash2, BookOpen, AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import AtlasButton from '../../components/ui/Button';
 import CurriculumImportWizard from '../../components/ui/CurriculumImportWizard';
 import { ConfirmDialog } from '../../components/ui/Dialog';
+import { canManageCurriculum as canManageCurriculumRole } from '../../utils/session';
 
 function Curriculum() {
   const { addToast } = useToast();
@@ -43,8 +44,7 @@ function Curriculum() {
     department_id: 1
   });
 
-  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+  const canManageCurriculum = canManageCurriculumRole();
 
   const handleStatusChange = async (blockId, newStatus, e) => {
     if (e) e.stopPropagation();
@@ -93,27 +93,11 @@ function Curriculum() {
       setSelectedBlock(newBlock);
       setSelectedCourse(newBlock.program_name);
     } catch (err) {
-      addToast(err.response?.data?.detail || err.message || 'Failed to create curriculum block', 'error');
+      addToast(err.message || 'Failed to create curriculum block', 'error');
     } finally {
       setIsLoading(false);
     }
   };
-
-  const columns = [
-    { key: 'code', label: 'Code' },
-    { key: 'name', label: 'Subject Name' },
-    { key: 'units', label: 'Units' },
-    {
-      key: 'type',
-      label: 'Type',
-      render: (item) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.type === 'lecture' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-          }`}>
-          {item.type}
-        </span>
-      )
-    },
-  ];
 
   const normalizeYear = (value) => {
     if (value === null || value === undefined) return '';
@@ -259,6 +243,9 @@ function Curriculum() {
 
   useEffect(() => {
     fetchCurriculum();
+    // fetchCurriculum is re-created every render; the values it actually reads
+    // (selectedCourse, selectedBlock) are both listed, so the closure is never stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCourse, selectedBlock]);
 
   const handleOpenModal = (item = null) => {
@@ -352,7 +339,7 @@ function Curriculum() {
       }
     } catch (error) {
       console.error('Save curriculum error:', error);
-      addToast(error.response?.data?.detail || error.message || 'Error saving curriculum subject', 'error');
+      addToast(error.message || 'Error saving curriculum subject', 'error');
     }
   };
 
@@ -447,7 +434,7 @@ function Curriculum() {
                 <th className="px-3 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-16 text-center">Lab</th>
                 <th className="px-3 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-16 text-center">Units</th>
                 <th className="px-5 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-32 text-center">Pre-requisite</th>
-                {canManage && <th className="px-5 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-20 text-right">Actions</th>}
+                {canManageCurriculum && <th className="px-5 py-3 font-black text-slate-400 text-[10px] uppercase tracking-widest w-20 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -466,7 +453,7 @@ function Curriculum() {
                   <td className="px-3 py-4 text-slate-900 font-bold text-center align-top">{subj?.lab_units ?? 0}</td>
                   <td className="px-3 py-4 text-slate-900 font-black text-center align-top">{subj?.units ?? 0}</td>
                   <td className="px-5 py-4 text-slate-600 font-medium text-center align-top text-xs">{subj?.pre_requisites || 'NONE'}</td>
-                  {canManage && (
+                  {canManageCurriculum && (
                     <td className="px-5 py-4 text-right align-top">
                       <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
                          <button 
@@ -504,7 +491,7 @@ function Curriculum() {
               it a flowchart set an expectation the screen never met. */}
           <h1 className="text-4xl font-black text-slate-900 tracking-tight mt-1">Curriculum</h1>
           <p className="text-slate-500 font-semibold text-sm mt-1">
-            {canManage
+            {canManageCurriculum
               ? 'Subjects, units and prerequisites by programme and academic year.'
               : 'Browse published curricula and set the active curriculum for scheduling.'}
           </p>
@@ -534,7 +521,7 @@ function Curriculum() {
           </div>
           
           <div className="flex items-center space-x-2 px-2">
-            {canManage ? (
+            {canManageCurriculum ? (
               <>
                 <input 
                   type="file" 
@@ -602,7 +589,7 @@ function Curriculum() {
                       {block.status || 'PUBLISHED'}
                     </span>
 
-                    {canManage && (
+                    {canManageCurriculum && (
                       <div className="flex items-center space-x-2">
                         <select
                           value={block.status || 'PUBLISHED'}
@@ -640,7 +627,7 @@ function Curriculum() {
                     <span className="bg-slate-100/80 backdrop-blur-sm px-3 py-1.5 rounded-xl group-hover:bg-green-50 group-hover:text-green-700 transition-colors text-[10px]">{block.total_units} Units</span>
                   </div>
 
-                  {!canManage && (
+                  {!canManageCurriculum && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
