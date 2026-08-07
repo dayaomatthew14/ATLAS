@@ -25,12 +25,18 @@ import { pluralize } from '../../components/ui/tokens';
  * inconsistent with the other two, and the create endpoint additionally accepts
  * the long forms and maps them. Both directions are normalised here so the
  * inconsistency stays in one place instead of leaking into the interface.
+ *
+ * The academic year runs on three numbered terms, so the third reads "3rd Term"
+ * like the other two. It was labelled "Midyear", which named a different thing
+ * — a short session between years — and did not match the curriculum sheets,
+ * where every programme lists a First, Second and Third Term. The stored enum
+ * value is untouched; only what the interface calls it has changed.
  */
-const TERM_TO_LABEL = { '1st': '1st Term', '2nd': '2nd Term', '3rd semester': 'Midyear' };
+const TERM_TO_LABEL = { '1st': '1st Term', '2nd': '2nd Term', '3rd semester': '3rd Term' };
 const TERM_OPTIONS = [
   { value: '1st Semester', label: '1st Term' },
   { value: '2nd Semester', label: '2nd Term' },
-  { value: '3rd Semester', label: 'Midyear' },
+  { value: '3rd Semester', label: '3rd Term' },
 ];
 const termLabel = (t) => TERM_TO_LABEL[t] || t || '—';
 

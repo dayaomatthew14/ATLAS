@@ -145,6 +145,9 @@ class CurriculumBlockBase(BaseModel):
     program_name: str
     academic_year: str
     filename: Optional[str] = None
+    # Optional so an imported block with no matching programme can still be
+    # created and surface under Unassigned rather than being rejected.
+    program_id: Optional[int] = None
     department_id: int
     status: Optional[str] = 'PUBLISHED'
 

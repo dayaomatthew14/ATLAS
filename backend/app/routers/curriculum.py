@@ -48,6 +48,7 @@ def get_curriculum_blocks(
                 "academic_year": block.academic_year,
                 "filename": block.filename,
                 "department_id": block.department_id,
+                "program_id": getattr(block, "program_id", None),
                 "status": getattr(block, "status", "PUBLISHED") or "PUBLISHED",
                 "created_at": block.created_at,
                 "subject_count": len(subjects),
@@ -78,6 +79,7 @@ def get_curriculum_blocks(
                 "academic_year": block.academic_year,
                 "filename": block.filename,
                 "department_id": block.department_id,
+                "program_id": getattr(block, "program_id", None),
                 "status": b_status,
                 "created_at": block.created_at,
                 "subject_count": len(subjects),
@@ -96,6 +98,15 @@ def create_curriculum_block(
         
     target_dept_id = block_data.department_id
 
+    # A version belongs to a programme; the college follows from it. Deriving
+    # the college here stops a block being filed under one college while its
+    # programme sits in another.
+    if block_data.program_id:
+        program = db.query(models.Program).filter(models.Program.id == block_data.program_id).first()
+        if not program:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Programme not found.")
+        target_dept_id = program.department_id
+
     existing = db.query(models.CurriculumBlock).filter(
         models.CurriculumBlock.program_name == block_data.program_name,
         models.CurriculumBlock.academic_year == block_data.academic_year,
@@ -109,6 +120,7 @@ def create_curriculum_block(
             "academic_year": existing.academic_year,
             "filename": existing.filename,
             "department_id": existing.department_id,
+            "program_id": getattr(existing, "program_id", None),
             "status": getattr(existing, "status", "PUBLISHED") or "PUBLISHED",
             "created_at": existing.created_at,
             "subject_count": len(subjects),
@@ -120,6 +132,7 @@ def create_curriculum_block(
         academic_year=block_data.academic_year.strip(),
         filename=block_data.filename or "Manual Entry",
         department_id=target_dept_id,
+        program_id=block_data.program_id,
         status=block_data.status or 'PUBLISHED'
     )
     db.add(new_block)
@@ -134,6 +147,7 @@ def create_curriculum_block(
         "academic_year": new_block.academic_year,
         "filename": new_block.filename,
         "department_id": new_block.department_id,
+        "program_id": getattr(new_block, "program_id", None),
         "status": getattr(new_block, "status", "PUBLISHED") or "PUBLISHED",
         "created_at": new_block.created_at,
         "subject_count": 0,
@@ -179,8 +193,10 @@ def update_curriculum_block_status(
 
 @router.get("", response_model=List[schemas.CurriculumResponse])
 def get_curriculum(
-    skip: int = 0, 
-    limit: int = 100, 
+    skip: int = 0,
+    # Was 100. A single curriculum version can hold more than that — DVM has
+    # 117 subjects — so the default quietly truncated a whole programme.
+    limit: int = 1000,
     department_id: Optional[int] = None,
     program_code: Optional[str] = None,
     block_id: Optional[int] = None,
@@ -250,13 +266,15 @@ def create_curriculum_item(
         curriculum_item.type = 'lab'
 
     ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", curriculum_item.code, re.IGNORECASE)
-    if ab_match:
+    # Split only when both halves are real; see the import path for why an
+    # A/B code with no laboratory units must not gain a fabricated one.
+    if ab_match and curriculum_item.lab_units > 0 and curriculum_item.lec_units > 0:
         base_code = ab_match.group(1).strip()
         code_a = f"{base_code}A"
         code_b = f"{base_code}B"
-        
-        u_lec = curriculum_item.lec_units if curriculum_item.lec_units > 0 else (curriculum_item.units if curriculum_item.lab_units == 0 else max(1, curriculum_item.units - curriculum_item.lab_units))
-        u_lab = curriculum_item.lab_units if curriculum_item.lab_units > 0 else 1
+
+        u_lec = curriculum_item.lec_units
+        u_lab = curriculum_item.lab_units
 
         existing_a = db.query(models.Curriculum).filter(
             models.Curriculum.block_id == curriculum_item.block_id,
@@ -421,6 +439,7 @@ async def _process_curriculum_import(
 
         best_sheet = None
         max_score = -1
+        best_ay = 0
         extracted_program_name = "Unknown Program"
         extracted_ay = "Unknown AY"
         
@@ -440,10 +459,16 @@ async def _process_curriculum_import(
             if isinstance(v, float) and math.isnan(v): return True
             return False
 
+        # Year/term section headers are what a full curriculum grid is made of,
+        # so they are the strongest evidence a sheet holds the real curriculum.
+        section_re = re.compile(r'\b(FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH)\s+YEAR\b')
+        term_re = re.compile(r'\b(FIRST|SECOND|THIRD|SUMMER|MIDYEAR)\s+TERM\b')
+
         for sheet_name in wb.sheetnames:
             try:
                 ws_probe = wb[sheet_name]
-                raw_probe_rows = [list(r) for r in list(ws_probe.iter_rows(values_only=True))[:25]]
+                all_rows = [list(r) for r in ws_probe.iter_rows(values_only=True)]
+                raw_probe_rows = all_rows[:25]
             except Exception:
                 continue
 
@@ -455,27 +480,58 @@ async def _process_curriculum_import(
 
             probe_text = " ".join([v.upper() for v in probe_vals])
             probe_vals_lower = [v.lower() for v in probe_vals]
-            
+
             score = 0
             has_code_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['code']) for val in probe_vals_lower)
             has_title_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['name']) for val in probe_vals_lower)
             has_unit_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['units']) for val in probe_vals_lower)
-            
+
             if has_code_hdr: score += 40
             if has_title_hdr: score += 30
             if has_unit_hdr: score += 20
-            
+
             ay_match = re.search(r'AY\s*(\d{4})', probe_text)
             if ay_match:
                 score += 10
-            
+
             for pat in program_patterns:
                 if re.search(pat, probe_text):
                     score += 10
                     break
-                    
-            if score > max_score and (has_code_hdr or has_title_hdr):
-                max_score = score
+
+            # Completeness, measured over the whole sheet rather than the first
+            # 25 rows.
+            #
+            # Without this every sheet in a workbook scored identically on
+            # header presence alone, and the tie was broken by sheet order — so
+            # a workbook carrying ten tabs imported whichever happened to be
+            # first. For BSCS that was a superseded AY2018 copy sitting ahead of
+            # the current "UPDATED" sheet, and the import silently produced the
+            # wrong curriculum while reporting high confidence.
+            sections = 0
+            subject_rows = 0
+            for row in all_rows:
+                cells = [str(v).strip() for v in row if not is_na(v)]
+                if not cells:
+                    continue
+                joined = " ".join(cells).upper()
+                if section_re.search(joined) and term_re.search(joined):
+                    sections += 1
+                # A subject row: a code-shaped token plus at least one number.
+                elif any(re.match(r'^[A-Z]{2,6}\s?\d{2,4}', c.upper()) for c in cells) and \
+                     any(re.fullmatch(r'\d{1,2}(\.\d+)?', c) for c in cells):
+                    subject_rows += 1
+
+            score += sections * 25 + min(subject_rows, 200)
+
+            # Most recent effectivity wins a genuine tie: a workbook usually
+            # keeps the superseded year alongside the current one.
+            ay_year = int(ay_match.group(1)) if ay_match else 0
+
+            candidate = (score, ay_year)
+            best = (max_score, best_ay)
+            if candidate > best and (has_code_hdr or has_title_hdr):
+                max_score, best_ay = candidate
                 best_sheet = sheet_name
 
         if not best_sheet:
@@ -579,7 +635,10 @@ async def _process_curriculum_import(
             if m: return m.group(1)
             m = re.search(r"\b(1ST|2ND|3RD|4TH|5TH)\b", s)
             if m: return m.group(1)[0]
-            word_map = {"FIRST": "1", "SECOND": "2", "THIRD": "3", "FOURTH": "4", "FIFTH": "5"}
+            # SIXTH matters: DVM is a six-year programme, and without it the
+            # whole sixth year was skipped on import — 33 units of clinical
+            # internship silently absent from the curriculum.
+            word_map = {"FIRST": "1", "SECOND": "2", "THIRD": "3", "FOURTH": "4", "FIFTH": "5", "SIXTH": "6"}
             for k, v in word_map.items():
                 if k in s: return v
             return None
@@ -606,6 +665,7 @@ async def _process_curriculum_import(
         current_sem_context = None
         is_in_active_zone = False
         looking_for_headers = True
+        seen_any_section = False
         col_map = {} 
 
         for idx, row in enumerate(raw_rows):
@@ -613,9 +673,26 @@ async def _process_curriculum_import(
             if not row_text: continue
 
             # 1. Independent Section & Zone Header Detection
-            y_match = re.search(r'(1ST|2ND|3RD|4TH|5TH|FIRST|SECOND|THIRD|FOURTH|FIFTH)\s+YEAR|YEAR\s+([1-5])', row_text)
-            s_match = re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)', row_text)
-            
+            #
+            # `row_text` joins every cell, prerequisites included, and a great
+            # many subjects carry one like "4th Year Standing" or "3rd Year
+            # Standing". Matched blindly, those read as a new Year 4 section and
+            # the subject on that row was dropped without a word — BSCS lost its
+            # entire Fourth Year (On the Job Training) exactly this way, and a
+            # dozen more subjects besides.
+            #
+            # A section header announces a section and nothing else. A row that
+            # carries both a course code and a unit count is a subject, whatever
+            # its prerequisite happens to say.
+            cell_strs = [str(v).strip() for v in row if not is_na(v)]
+            looks_like_subject = (
+                any(re.match(r'^[A-Z]{2,6}\s?\d{2,4}', c.upper()) for c in cell_strs)
+                and any(re.fullmatch(r'\d{1,2}(\.\d+)?', c) for c in cell_strs)
+            )
+
+            y_match = None if looks_like_subject else re.search(r'(1ST|2ND|3RD|4TH|5TH|6TH|FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH)\s+YEAR|YEAR\s+([1-6])', row_text)
+            s_match = None if looks_like_subject else re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)', row_text)
+
             section_updated = False
             if y_match:
                 y_raw = y_match.group(1) or y_match.group(2)
@@ -635,16 +712,24 @@ async def _process_curriculum_import(
                 is_in_active_zone = True
                 looking_for_headers = True 
                 last_row_identifier = None # Reset for new zone
+                seen_any_section = True
                 print(f"DEBUG: Found Section Header at row {idx}: Year={current_year_context}, Sem={current_sem_context}")
                 continue
 
-            # Electives Start
+            # Professional Electives pool.
+            #
+            # A curriculum sheet lists these after the year/term grid: subjects
+            # a student chooses from, not subjects taught in a given term. The
+            # import covers what is scheduled term by term, so the pool closes
+            # the active zone rather than opening a pseudo-term. Keeping it out
+            # is also what makes each programme's imported total equal the
+            # TOTAL UNITS printed on its own sheet.
             if "ELECTIVES" in row_text:
-                current_year_context = 'Elective'
-                current_sem_context = 'Elective'
-                is_in_active_zone = True
-                looking_for_headers = True
-                last_row_identifier = None # Reset for new zone
+                current_year_context = None
+                current_sem_context = None
+                is_in_active_zone = False
+                looking_for_headers = False
+                last_row_identifier = None
                 continue
 
             # Summary of Units Trigger (Close Zone)
@@ -666,15 +751,27 @@ async def _process_curriculum_import(
                 col_map = temp_map
                 looking_for_headers = False
                 is_in_active_zone = True
-                if not current_year_context:
-                    current_year_context = '1'
-                if not current_sem_context:
-                    current_sem_context = '1st'
+                # Only assume Year 1 / 1st Term for a sheet that has no year or
+                # term structure at all. Applying it after a section has been
+                # seen would refile whatever follows the last term -- the
+                # electives pool, most obviously -- into First Year.
+                if not seen_any_section:
+                    if not current_year_context:
+                        current_year_context = '1'
+                    if not current_sem_context:
+                        current_sem_context = '1st'
                 print(f"DEBUG: Mapped columns at row {idx}: {col_map}")
                 continue
 
             # 3. Subject Row Capture
+            #
+            # A subject is imported only when it sits inside a year AND a term.
+            # Everything a curriculum sheet carries outside that grid --
+            # electives pools, unit summaries, signatories -- is not something
+            # that gets scheduled, so it is not curriculum for this purpose.
             if not is_in_active_zone or not col_map or 'code' not in col_map: continue
+            if not current_year_context or not current_sem_context: continue
+            if not str(current_year_context).isdigit(): continue
             
             code_raw = row[col_map['code']] if col_map['code'] < len(row) else None
             name_raw = row[col_map['name']] if 'name' in col_map and col_map['name'] < len(row) else ""
@@ -747,13 +844,18 @@ async def _process_curriculum_import(
 
             # DYNAMIC A/B SUBJECT SPLITTING ([BASE SUBJECT CODE]A/B -> [BASE SUBJECT CODE]A + [BASE SUBJECT CODE]B)
             ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", code, re.IGNORECASE)
-            if ab_match:
+            # Split only when the row really carries both halves. Some subjects
+            # are written "IAS101A/B" but list Lec 2 / Lab 0 / Units 2 — a
+            # lecture-only subject with a combined-style code. Splitting those
+            # invented a 1-unit laboratory that exists nowhere in the workbook
+            # and pushed the term's total above the printed subtotal.
+            if ab_match and lab_units > 0 and lec_units > 0:
                 base_code = ab_match.group(1).strip()
                 code_a = f"{base_code}A"
                 code_b = f"{base_code}B"
 
-                u_lec = lec_units if lec_units > 0 else (units if lab_units == 0 else max(1, units - lab_units))
-                u_lab = lab_units if lab_units > 0 else 1
+                u_lec = lec_units
+                u_lab = lab_units
 
                 split_specs = [
                     (code_a, "lecture", u_lec, u_lec, 0),
@@ -1119,17 +1221,8 @@ async def delete_curriculum_block(
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_curriculum_item(
-    id: int,
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can delete curriculum items")
-    item = db.query(models.Curriculum).filter(models.Curriculum.id == id).first()
-    if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
-    db.delete(item)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+"""
+A second DELETE /{id} handler sat here, duplicating the one above.
+FastAPI matches the first registration, so it never ran — and it skipped the
+audit-log write the live handler performs.
+"""

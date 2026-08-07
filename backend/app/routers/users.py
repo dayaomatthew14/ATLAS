@@ -3,6 +3,7 @@ import shutil
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 from .. import models, schemas, database, auth
 from .logs import log_activity
@@ -40,6 +41,23 @@ def get_users(
         query = query.filter(models.User.role == role)
         
     users = query.offset(skip).limit(limit).all()
+
+    # Last sign-in, from the audit trail. The Login action is already written on
+    # every successful authentication, so this needs no new column and no
+    # backfill -- one grouped query rather than one per user.
+    last_login = {}
+    if users:
+        rows = (
+            db.query(models.SystemLog.user_id, func.max(models.SystemLog.timestamp))
+            .filter(
+                models.SystemLog.action == 'Login',
+                models.SystemLog.user_id.in_([u.id for u in users]),
+            )
+            .group_by(models.SystemLog.user_id)
+            .all()
+        )
+        last_login = {uid: ts for uid, ts in rows}
+
     result = []
     for u in users:
         user_dict = {
@@ -53,6 +71,9 @@ def get_users(
             "contact_number": u.contact_number,
             "is_verified": u.is_verified,
             "created_at": u.created_at,
+            # None means never signed in, which is a different state from
+            # "signed in long ago" and the interface says so.
+            "last_login": last_login.get(u.id),
         }
         result.append(user_dict)
     
@@ -99,11 +120,23 @@ def create_user(
     # Passing the raw dict through made every call to this endpoint a 500.
     user_data = user.model_dump()
     raw_password = user_data.pop('password')
-    new_user = models.User(**user_data, password_hash=auth.get_password_hash(raw_password))
+    new_user = models.User(
+        **user_data,
+        password_hash=auth.get_password_hash(raw_password),
+        # An account created here is vouched for by the person creating it, so
+        # it skips the e-mail/SMS verification a self-registration needs. Left
+        # unverified it could not sign in at all, which is the whole reason for
+        # creating it by hand -- typically because the OTP never arrived.
+        is_verified=True,
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
+    log_activity(
+        db, current_user.id, "Create User",
+        f"Created {new_user.role} account {new_user.email}", "success",
+    )
     return new_user
 
 @router.put("/{user_id}", response_model=schemas.UserResponse)
@@ -134,6 +167,24 @@ def update_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can change a user's department."
         )
+
+    # Demoting the last administrator locks the institution out exactly as
+    # deleting them does, and until now only the delete path was guarded. There
+    # is no way back: accounts come from self-registration, and only an
+    # administrator can grant the role again.
+    new_role = update_data.get('role')
+    if new_role and db_user.role == 'admin' and new_role != 'admin':
+        remaining = db.query(models.User).filter(
+            models.User.role == 'admin', models.User.id != db_user.id
+        ).count()
+        if remaining == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This is the only administrator account. Promote another user to "
+                    "administrator before changing this one's role."
+                ),
+            )
 
     for key, value in update_data.items():
         setattr(db_user, key, value)

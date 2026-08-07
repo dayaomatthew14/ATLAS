@@ -2,7 +2,6 @@ import React from 'react';
 import { Upload, FileSpreadsheet, AlertTriangle, Check } from 'lucide-react';
 import Button from './Button';
 import Dialog from './Dialog';
-import { SelectInput } from './Field';
 import { focusRing, pluralize } from './tokens';
 import { api } from '../../utils/api';
 
@@ -14,15 +13,30 @@ import { api } from '../../utils/api';
  * exclude a bad row — a single wrong unit value meant fixing it by hand after
  * the import had already landed.
  *
- * Five steps: Upload, Confirm sheet, Review by zone, Resolve issues, Commit.
+ * Five steps: Upload, Detect, Review by zone, Resolve issues, Commit.
+ *
+ * The "use a different sheet" override is gone. Sheet detection now scores each
+ * tab on how much curriculum it actually holds — year/term sections and subject
+ * rows across the whole sheet, not header words in the first 25 rows — so a
+ * workbook carrying ten tabs resolves to the real one on its own. Asking an
+ * administrator to choose between "BSCS NEW AY2018" and "UPDATED" was asking a
+ * question they had no basis to answer.
  * The importer already returns `zones` (year/term groups with subtotals) and
  * per-row `validation_issues`; both were being thrown away in favour of a flat
  * list. This uses what the API was already computing.
  */
 
-const STEPS = ['Upload', 'Confirm sheet', 'Review', 'Issues', 'Commit'];
+const STEPS = ['Upload', 'Detect', 'Review', 'Issues', 'Commit'];
 
-export default function CurriculumImportWizard({ isOpen, onClose, onImported, departmentId }) {
+export default function CurriculumImportWizard({
+  isOpen, onClose, onImported, departmentId,
+  // When a programme is supplied the import is bound to it: the block is
+  // created against `program_id` up front and the rows are attached to that
+  // block. Without this the bulk endpoint minted an unbound block, which is
+  // why every imported curriculum landed under Unassigned.
+  program = null,
+  academicYear = '',
+}) {
   const [step, setStep] = React.useState(0);
   const [file, setFile] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
@@ -30,11 +44,11 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
 
   const [summary, setSummary] = React.useState(null);
   const [rows, setRows] = React.useState([]);       // editable draft of every parsed row
-  const [sheetChoice, setSheetChoice] = React.useState('');
+
 
   const reset = () => {
     setStep(0); setFile(null); setBusy(false); setError('');
-    setSummary(null); setRows([]); setSheetChoice('');
+    setSummary(null); setRows([]);
   };
 
   const close = () => { reset(); onClose(); };
@@ -46,12 +60,13 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
       const form = new FormData();
       form.append('file', file);
       form.append('dry_run', 'true');
-      if (departmentId) form.append('department_id', String(departmentId));
+      const deptHint = program?.department_id ?? departmentId;
+      if (deptHint) form.append('department_id', String(deptHint));
+      if (program?.code) form.append('program_code', program.code);
       if (sheet) form.append('selected_sheet', sheet);
 
       const res = await api.postForm('/curriculum/import', form);
       setSummary(res.summary || null);
-      setSheetChoice(res.summary?.selected_sheet || '');
       setRows(
         (res.report || []).map((r, i) => ({
           ...r,
@@ -103,16 +118,32 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
     // The dry run already resolved the target department server-side (a chair
     // is pinned to their own; an admin falls back to the first). Prefer that
     // over the caller's hint, which is undefined when no block is selected.
-    const resolvedDept = departmentId ?? rows[0]?.department_id;
+    const resolvedDept = program?.department_id ?? departmentId ?? rows[0]?.department_id;
     if (!resolvedDept) {
       setError('No department could be resolved for this import.');
       setBusy(false);
       return;
     }
     try {
+      // Bind the curriculum to its programme before the rows land, so it
+      // appears under that programme rather than as orphaned data.
+      let blockId;
+      if (program) {
+        const ay = (academicYear || summary?.academic_year || '').trim() || 'Unknown AY';
+        const created = await api.post('/curriculum/blocks', {
+          program_name: program.name,
+          academic_year: ay,
+          program_id: program.id,
+          department_id: resolvedDept,
+          status: 'DRAFT',
+        });
+        blockId = created?.id;
+      }
+
       const res = await api.post('/curriculum/bulk', {
-        program_name: summary?.program_name,
-        academic_year: summary?.academic_year,
+        block_id: blockId,
+        program_name: program?.name || summary?.program_name,
+        academic_year: academicYear || summary?.academic_year,
         department_id: resolvedDept,
         items: included.map((r) => ({
           code: r.code,
@@ -129,7 +160,7 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
           is_major: r.is_major,
         })),
       });
-      onImported(res);
+      onImported({ ...res, block_id: blockId });
       close();
     } catch (e) {
       setError(e.message || 'Could not commit the import.');
@@ -215,7 +246,7 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
         </div>
       )}
 
-      {/* ---- Step 2: Confirm sheet -------------------------------------- */}
+      {/* ---- Step 2: What was detected ---------------------------------- */}
       {step === 1 && (
         <div className="flex flex-col gap-4">
           {busy && <p className="font-ui text-body text-atlas-slate">Reading {file?.name}…</p>}
@@ -227,14 +258,6 @@ export default function CurriculumImportWizard({ isOpen, onClose, onImported, de
                     than presenting a silent choice. */}
                 {summary.selected_sheet_reason}
               </p>
-              {(summary.available_sheets || []).length > 1 && (
-                <SelectInput
-                  label="Use a different sheet"
-                  value={sheetChoice}
-                  onChange={(e) => { setSheetChoice(e.target.value); runDryRun(e.target.value); }}
-                  options={(summary.available_sheets || []).map((s) => ({ value: s, label: s }))}
-                />
-              )}
               <dl className="grid grid-cols-2 gap-3 font-ui text-body">
                 <div><dt className="text-micro uppercase text-atlas-slate">Programme</dt><dd className="text-atlas-ink">{summary.program_name}</dd></div>
                 <div><dt className="text-micro uppercase text-atlas-slate">Academic year</dt><dd className="text-atlas-ink">{summary.academic_year}</dd></div>

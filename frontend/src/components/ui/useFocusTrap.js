@@ -16,21 +16,44 @@ const FOCUSABLE =
  * back to <body> and keyboard users lose their place entirely.
  */
 export default function useFocusTrap(active, containerRef, onDismiss) {
+  /**
+   * Held in a ref so the trap does not depend on the handler's identity.
+   *
+   * Every call site passes an inline arrow — `onClose={() => setOpen(false)}` —
+   * which is a new function on each render. With `onDismiss` in the dependency
+   * array the whole effect tore down and re-ran on *every keystroke inside the
+   * dialog*: the cleanup restored focus to whatever opened it, then the setup
+   * moved focus to the first focusable element, which is the close button. The
+   * symptom was a field that lost focus after each character typed.
+   */
+  const dismissRef = React.useRef(onDismiss);
+  React.useEffect(() => { dismissRef.current = onDismiss; }, [onDismiss]);
+
   React.useEffect(() => {
     if (!active) return;
 
     const previouslyFocused = document.activeElement;
     const container = containerRef.current;
 
+    /**
+     * Focus the dialog itself rather than its first control.
+     *
+     * The first focusable is the close button, so opening a form dialog used to
+     * land on "Close". Both are permitted by the ARIA authoring practices, but
+     * focusing the container announces the dialog's title and description, and
+     * Tab still steps straight into the content from there.
+     */
     if (container) {
-      const first = container.querySelector(FOCUSABLE);
-      (first || container).focus();
+      (container.hasAttribute('tabindex')
+        ? container
+        : container.querySelector(FOCUSABLE) || container
+      ).focus();
     }
 
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onDismiss?.();
+        dismissRef.current?.();
         return;
       }
       if (e.key !== 'Tab' || !container) return;
@@ -61,5 +84,7 @@ export default function useFocusTrap(active, containerRef, onDismiss) {
       document.body.style.overflow = prevOverflow;
       if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
     };
-  }, [active, containerRef, onDismiss]);
+    // `containerRef` is a ref object and is stable, so this effect now runs
+    // exactly twice per dialog: once on open, once on close.
+  }, [active, containerRef]);
 }

@@ -3,7 +3,8 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Schedules from './pages/dashboard/Schedules';
-import Curriculum from './pages/dashboard/Curriculum';
+import CurriculumRoute from './pages/dashboard/CurriculumRoute';
+import CurriculumDetail from './pages/dashboard/CurriculumDetail';
 import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
 import Overview from './pages/dashboard/Overview';
@@ -74,7 +75,17 @@ function App() {
               path="curriculum"
               element={
                 <ProtectedRoute allowedRoles={ALL_ROLES}>
-                  <Curriculum />
+                  <CurriculumRoute />
+                </ProtectedRoute>
+              }
+            />
+            {/* One curriculum, term by term. Administrator-only: a chair reads
+                the catalog but does not revise it. */}
+            <Route
+              path="curriculum/:blockId"
+              element={
+                <ProtectedRoute allowedRoles={adminOnly}>
+                  <CurriculumDetail />
                 </ProtectedRoute>
               }
             />

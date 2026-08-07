@@ -15,7 +15,7 @@ import AppShell from '../components/shell/AppShell';
 const TERM_LABELS = {
   '1st': '1st Term',
   '2nd': '2nd Term',
-  '3rd semester': 'Midyear',
+  '3rd semester': '3rd Term',
 };
 
 const getProfilePictureUrl = (path) => {

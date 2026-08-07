@@ -19,7 +19,7 @@ import { ROLE_LABELS, pluralize } from '../../components/ui/tokens';
  * measured it is not displayed.
  */
 
-const TERM_LABELS = { '1st': '1st Term', '2nd': '2nd Term', '3rd semester': 'Midyear' };
+const TERM_LABELS = { '1st': '1st Term', '2nd': '2nd Term', '3rd semester': '3rd Term' };
 const termLabel = (t) => TERM_LABELS[t] || t || '—';
 
 function Panel({ title, description, action, children }) {
