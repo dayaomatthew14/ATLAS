@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
+from ..services import faculty_load
 from .logs import log_activity
+from .professors import serialise_faculty
 
 router = APIRouter(
     prefix="/api/faculty",
@@ -33,7 +35,16 @@ def get_faculties(
     elif department_id:
         query = query.filter(models.Faculty.department_id == department_id)
         
-    return query.offset(skip).limit(limit).all()
+    faculty_members = query.offset(skip).limit(limit).all()
+
+    # Same response model as /api/professors, so it carries the same load
+    # figures -- a caller must not get 0.00 hrs merely for using this path.
+    semester = faculty_load.active_semester(db)
+    loads = faculty_load.summarise_many(db, faculty_members, semester)
+    return [
+        serialise_faculty(db, f, semester, loads.get(f.id))
+        for f in faculty_members
+    ]
 
 @router.get("/{faculty_id}", response_model=schemas.FacultyResponse)
 def get_faculty(
@@ -50,7 +61,7 @@ def get_faculty(
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
             
-    return faculty
+    return serialise_faculty(db, faculty)
 
 @router.post("", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED)
 def create_faculty(
@@ -77,8 +88,8 @@ def create_faculty(
     
     dept_id_val = getattr(new_faculty, 'department_id', None)
     log_activity(db, current_user.id, "Create Faculty", f"Created faculty record for {new_faculty.first_name} {new_faculty.last_name}", "success", department_id=dept_id_val) # type: ignore
-    
-    return new_faculty
+
+    return serialise_faculty(db, new_faculty)
 
 @router.put("/{faculty_id}", response_model=schemas.FacultyResponse)
 def update_faculty(
@@ -108,8 +119,8 @@ def update_faculty(
     
     dept_id_val = getattr(db_faculty, 'department_id', None)
     log_activity(db, current_user.id, "Update Faculty", f"Updated faculty record for {db_faculty.first_name} {db_faculty.last_name}", "success", department_id=dept_id_val) # type: ignore
-    
-    return db_faculty
+
+    return serialise_faculty(db, db_faculty)
 
 @router.delete("/{faculty_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_faculty(

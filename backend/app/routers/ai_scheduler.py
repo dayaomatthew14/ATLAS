@@ -15,6 +15,10 @@ router = APIRouter(
 class GenerateRequest(BaseModel):
     faculty_ids: List[int]
     auto_bump_units: Optional[bool] = True
+    # Whether laboratory subjects should be given a room. Lectures never are,
+    # either way. Defaults to True so an older client keeps the behaviour it
+    # was written against.
+    assign_lab_rooms: Optional[bool] = True
 
 class SolveConflictRequest(BaseModel):
     conflict_id: Optional[int] = None
@@ -30,51 +34,83 @@ def generate_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role == 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule generation is restricted to Program Chairs and Department Coordinators. System Administrators manage platform settings only.")
-    elif current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Program Chairs and Coordinators can generate schedules")
-        
-    if not current_user.department:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You must be assigned to a department")
-        
-    # Find department id
-    dept = db.query(models.Department).filter(
-        (models.Department.code == current_user.department) | 
-        (models.Department.name == current_user.department)
-    ).first()
+    # Generation belongs to the college that owns the timetable. The admin
+    # branch that used to sit here fell back to `Department.first()` when the
+    # administrator had no department of their own, so generating as an admin
+    # silently built a schedule for whichever college happened to sort first.
+    dept = None
+    if current_user.role in ['program_chair', 'coordinator']:
+        if not current_user.department:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your account is not assigned to a college. Ask an administrator to set one."
+            )
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrators do not generate schedules. This is done by the program chair or coordinator."
+        )
     
     if not dept:
-         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department not found")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department not found")
          
-    # Check if active semester exists
-    active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
-    if not active_semester:
-         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active semester found. Please activate a semester first.")
-    
-    semester = active_semester
-    semester_id = int(active_semester.id) # type: ignore
-         
+    # Generate for the semester the caller actually asked for. This used to be
+    # overwritten with whichever semester happened to be active, so the path
+    # parameter was silently ignored.
+    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    if not semester:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Semester {semester_id} not found. Create the academic term before generating schedules."
+        )
+
+
     # Map input User IDs to Faculty IDs
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
     resolved_faculty_ids = [f.id for f in faculty_records]
 
     # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
-    results = generate_schedules(db, semester_id, resolved_faculty_ids, dept.id, auto_bump_units=False) # type: ignore
-    
+    assign_lab_rooms = True if request.assign_lab_rooms is None else bool(request.assign_lab_rooms)
+    results = generate_schedules(
+        db, semester_id, resolved_faculty_ids, dept.id,
+        auto_bump_units=False,
+        assign_lab_rooms=assign_lab_rooms,
+    ) # type: ignore
+
+    # The generator commits schedules and conflict records in one transaction, so a
+    # failure there discards everything it produced. Never report that as success.
+    if results.get('error'):
+        log_activity(
+            db,
+            int(getattr(current_user, 'id')),
+            "Generate Schedule",
+            f"Schedule generation failed for {dept.name}: {results['error']}",
+            "error",
+            department_id=dept.id  # type: ignore
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Schedule generation failed and no schedules were saved: {results['error']}"
+        )
+
     unplaced_data = results.get('unplaced', [])
     unplaced_count = len(unplaced_data) if isinstance(unplaced_data, list) else 0
     workload_warnings = results.get('bumped_warnings', [])
     warnings_count = len(workload_warnings) if isinstance(workload_warnings, list) else 0
     
-    log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}."
+    room_mode = "laboratories given rooms" if assign_lab_rooms else "no rooms assigned"
+    log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}. Rooms: {room_mode}."
     if warnings_count > 0:
-        log_detail += f" Warning: {warnings_count} faculty workload cap(s) exceeded."
+        log_detail += f" Warning: {warnings_count} faculty teaching-load warning(s) (overload or Part-Time ceiling)."
 
     # Log the activity
     log_activity(
         db,
-        int(current_user.id),
+        int(getattr(current_user, 'id')),
         "Generate Schedule",
         log_detail,
         "success" if (unplaced_count == 0 and warnings_count == 0) else "warning",
@@ -100,10 +136,39 @@ def get_conflicts(
     try:
         if current_user.role not in ['admin', 'program_chair', 'coordinator']:
             return []
-            
-        conflicts = db.query(models.Conflict).filter(
-            models.Conflict.resolved_at == None
-        ).offset(skip).limit(limit).all()
+
+        query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
+
+        # Scope to the caller's department. Without this, a chair saw every
+        # department's conflicts. Resolve the department through curriculum_id
+        # directly, or through the linked schedule for overlap conflicts.
+        if current_user.role in ['program_chair', 'coordinator']:
+            if not current_user.department:
+                return []
+            dept = db.query(models.Department).filter(
+                (models.Department.code == current_user.department) |
+                (models.Department.name == current_user.department)
+            ).first()
+            if not dept:
+                return []
+
+            dept_curriculum_ids = [
+                c.id for c in db.query(models.Curriculum.id).filter(
+                    models.Curriculum.department_id == dept.id
+                ).all()
+            ]
+            dept_schedule_ids = [
+                s.id for s in db.query(models.Schedule.id).filter(
+                    models.Schedule.curriculum_id.in_(dept_curriculum_ids)
+                ).all()
+            ] if dept_curriculum_ids else []
+
+            query = query.filter(
+                models.Conflict.curriculum_id.in_(dept_curriculum_ids) |
+                models.Conflict.schedule_id_1.in_(dept_schedule_ids)
+            )
+
+        conflicts = query.offset(skip).limit(limit).all()
 
         res = []
         for c in conflicts:
@@ -145,6 +210,8 @@ def get_global_schedule(
     
     query = db.query(
         models.Schedule.id,
+        models.Schedule.curriculum_id,
+        models.Schedule.faculty_id,
         models.Curriculum.code.label("subject_code"),
         models.Curriculum.name.label("subject_name"),
         models.Curriculum.type.label("curriculum_type"),
@@ -172,13 +239,18 @@ def get_global_schedule(
     )
 
     if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
+        # Fail closed. Previously an unresolvable department left the query
+        # unfiltered, exposing the whole university's schedule.
+        if not current_user.department:
+            return []
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
         ).first()
-        if dept:
-            query = query.filter(models.Curriculum.department_id == dept.id)
-    
+        if not dept:
+            return []
+        query = query.filter(models.Curriculum.department_id == dept.id)
+
     schedules = query.all()
     
     import re
@@ -196,6 +268,10 @@ def get_global_schedule(
 
         response.append({
             "id": s.id,
+            # The conflict lens matches conflicts to blocks on curriculum_id.
+            # Without it every block dims and none light up.
+            "curriculum_id": s.curriculum_id,
+            "faculty_id": s.faculty_id,
             "subject_code": display_code,
             "subject_name": s.subject_name,
             "faculty_name": f"{s.first_name} {s.last_name}",
@@ -217,8 +293,8 @@ def solve_conflict(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    if current_user.role not in ['program_chair', 'coordinator']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not resolve conflicts. This is done by the program chair or coordinator.")
 
     conflict = None
     if req.conflict_id:
@@ -296,11 +372,14 @@ def solve_conflict(
         if not all_rooms:
             raise HTTPException(status_code=400, detail="No rooms available in database")
 
-        from ..services.schedule_generator import LECTURE_SLOTS, LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_room_conflict, is_prof_conflict
+        from ..services.schedule_generator import LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_room_conflict, is_prof_conflict, lecture_slots_for
         all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
 
         part_type = req.part_type or 'lecture'
-        slots = LAB_SLOTS if part_type == 'lab' else LECTURE_SLOTS
+        # Same grid the generator would have used for this subject. Re-plotting a
+        # conflict on a different grid would give the class a different weekly
+        # load than the one the timetable was built with.
+        slots = LAB_SLOTS if part_type == 'lab' else lecture_slots_for(c_obj)
         day_pairs = [MW_PAIR, TTH_PAIR, FS_PAIR]
 
         placed = False
@@ -337,34 +416,24 @@ def solve_conflict(
                         placed = True
                         break
 
-        # Fallback placement if all standard slots are occupied
+        # DEP-6. There used to be a "fallback placement" here: when no
+        # conflict-free slot existed it forced the class into the first room on
+        # Mon/Wed regardless of what was already there, marked the conflict
+        # resolved, and returned success. That manufactured a double-booking and
+        # reported it as a fix. Refusing is the honest outcome -- the schedule
+        # needs a room, a wider availability window, or a different cap, and
+        # only a human can decide which.
         if not placed:
-            r = all_rooms[0]
-            d1, d2 = 'Mon', 'Wed'
-            start_t, end_t = slots[0][0], slots[0][1]
-            s1 = models.Schedule(
-                semester_id=sem_id,
-                curriculum_id=c_obj.id,
-                faculty_id=faculty_id,
-                room_id=r.id,
-                day_of_week=d1,
-                start_time=start_t,
-                end_time=end_t,
-                section="",
-                status='draft'
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"No conflict-free slot exists for {c_obj.code} with the current rooms "
+                    f"and {f_obj.first_name} {f_obj.last_name}'s availability. "
+                    "Add a room, relax an unavailable window, or raise the teaching-load cap, "
+                    "then try again."
+                )
             )
-            s2 = models.Schedule(
-                semester_id=sem_id,
-                curriculum_id=c_obj.id,
-                faculty_id=faculty_id,
-                room_id=r.id,
-                day_of_week=d2,
-                start_time=start_t,
-                end_time=end_t,
-                section="",
-                status='draft'
-            )
-            db.add_all([s1, s2])
 
         if conflict:
             conflict.resolved_at = datetime.now(timezone.utc) # type: ignore

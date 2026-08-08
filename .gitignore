@@ -10,8 +10,25 @@ venv/
 env/
 .pytest_cache/
 
+# Secrets — never commit real credentials; commit .env.example instead
+.env
+.env.*
+!.env.example
+
 # Database
 atlas.db
+*.db
+*.sqlite
+*.sqlite3
+
+# User-uploaded content — profile photos are personal data, not source
+backend/uploads/
+
+# Per-developer AI assistant settings & session caches
+.claude/
+.claude.json
+.gemini/
+.agents/scratch/
 
 # OS
 .DS_Store

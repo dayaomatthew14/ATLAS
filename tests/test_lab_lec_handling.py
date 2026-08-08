@@ -1,13 +1,24 @@
 import unittest
 import re
 import io
-import pandas as pd
+import openpyxl
 from typing import List, Dict, Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app import models, schemas
 from backend.app.services.schedule_generator import generate_schedules, is_room_conflict
 from backend.app.routers.curriculum import _process_curriculum_import
+
+def _make_excel_bytes(rows):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if ws is None:
+        ws = wb.create_sheet("Sheet")
+    for r in rows:
+        ws.append(r)
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 def setup_test_db():
     engine = create_engine("sqlite:///:memory:")
@@ -168,12 +179,9 @@ class TestLabLecHandling(unittest.TestCase):
                 ["ANAT101A", "Veterinary Anatomy Lec", 3, 0, 3, "NONE"],
                 ["ANAT101B", "Veterinary Anatomy Lab", 0, 2, 2, "NONE"]
             ]
-            out1 = io.BytesIO()
-            with pd.ExcelWriter(out1, engine='openpyxl') as writer:
-                pd.DataFrame(df1_data).to_excel(writer, index=False, header=False)
-            
+            out1_bytes = _make_excel_bytes(df1_data)
             target_d_id: int = int(dept.id) # type: ignore
-            res1 = await _process_curriculum_import(out1.getvalue(), target_d_id, "DVM", True, db, MockUser())
+            res1 = await _process_curriculum_import(out1_bytes, target_d_id, "DVM", True, db, MockUser())
             report1 = res1.get("report", [])
             self.assertEqual(len(report1), 4)
 
@@ -189,11 +197,8 @@ class TestLabLecHandling(unittest.TestCase):
                 ["SECOND SEMESTER", "", "", "", "", ""],
                 ["CS201A/B", "Data Structures Lec/Lab", 2, 1, 3, "CC101A,CC101B"]
             ]
-            out2 = io.BytesIO()
-            with pd.ExcelWriter(out2, engine='openpyxl') as writer:
-                pd.DataFrame(df2_data).to_excel(writer, index=False, header=False)
-
-            res2 = await _process_curriculum_import(out2.getvalue(), target_d_id, "BSCS", True, db, MockUser())
+            out2_bytes = _make_excel_bytes(df2_data)
+            res2 = await _process_curriculum_import(out2_bytes, target_d_id, "BSCS", True, db, MockUser())
             report2 = res2.get("report", [])
             self.assertEqual(len(report2), 5) # CC101A, CC101B, MATH101, CS201A, CS201B
 
@@ -210,11 +215,8 @@ class TestLabLecHandling(unittest.TestCase):
                 ["2ND SEMESTER", "", "", "", "", ""],
                 ["MATH102", "Calculus I", 4, 0, 4, "MATH101"]
             ]
-            out3 = io.BytesIO()
-            with pd.ExcelWriter(out3, engine='openpyxl') as writer:
-                pd.DataFrame(df3_data).to_excel(writer, index=False, header=False)
-
-            res3 = await _process_curriculum_import(out3.getvalue(), target_d_id, "BSCpE", True, db, MockUser())
+            out3_bytes = _make_excel_bytes(df3_data)
+            res3 = await _process_curriculum_import(out3_bytes, target_d_id, "BSCpE", True, db, MockUser())
             report3 = res3.get("report", [])
             self.assertEqual(len(report3), 5) # CPE101A, CPE101B, PHYS101A, PHYS101B, MATH102
 
@@ -229,11 +231,8 @@ class TestLabLecHandling(unittest.TestCase):
                 ["ACCT101", "Financial Accounting", 3, 0, 3, "NONE"],
                 ["BUS102A/B", "Business Analytics Lec/Lab", 2, 1, 3, "NONE"]
             ]
-            out4 = io.BytesIO()
-            with pd.ExcelWriter(out4, engine='openpyxl') as writer:
-                pd.DataFrame(df4_data).to_excel(writer, index=False, header=False)
-
-            res4 = await _process_curriculum_import(out4.getvalue(), target_d_id, "BSBA", True, db, MockUser())
+            out4_bytes = _make_excel_bytes(df4_data)
+            res4 = await _process_curriculum_import(out4_bytes, target_d_id, "BSBA", True, db, MockUser())
             report4 = res4.get("report", [])
             self.assertEqual(len(report4), 3) # ACCT101, BUS102A, BUS102B
 
@@ -289,17 +288,15 @@ class TestLabLecHandling(unittest.TestCase):
                 ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
                 ["CS101", "Intro to CS", 3, 0, 3, "NONE"]
             ]
-            out = io.BytesIO()
-            with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
+            out_bytes = _make_excel_bytes(df_data)
 
             # TEST 4: Admin import succeeds
-            imp_res = await _process_curriculum_import(out.getvalue(), dept_id_val, "BSCS", True, db, AdminUser())
+            imp_res = await _process_curriculum_import(out_bytes, dept_id_val, "BSCS", True, db, AdminUser())
             self.assertTrue(imp_res.get("is_dry_run"))
 
             # TEST 5: Chair import fails -> 403
             with self.assertRaises(HTTPException) as ctx5:
-                await _process_curriculum_import(out.getvalue(), dept_id_val, "BSCS", True, db, ChairUser())
+                await _process_curriculum_import(out_bytes, dept_id_val, "BSCS", True, db, ChairUser())
             self.assertEqual(ctx5.exception.status_code, 403)
 
         asyncio.run(test_import())
@@ -414,7 +411,7 @@ class TestLabLecHandling(unittest.TestCase):
     def test_remediation_suite_14_scenarios(self):
         from datetime import time
         from fastapi import HTTPException
-        from backend.app.routers.users import purge_all_users
+        from backend.app.routers.users import delete_user
         from backend.app.routers.subject_offerings import create_subject_offering
         from backend.app.services.schedule_generator import generate_schedules
 
@@ -452,24 +449,64 @@ class TestLabLecHandling(unittest.TestCase):
             role = "student"
             department = "CAST"
 
-        # TEST 2-5: Non-admin role purge attempts -> 403
-        for user_obj in [StudentUser(), FacultyUser(), CoordUser(), ChairUser()]:
-            with self.assertRaises(HTTPException) as ctx:
-                purge_all_users(db, user_obj)
-            self.assertEqual(ctx.exception.status_code, 403)
-
-        # TEST 6: Admin purge request -> Allowed (200 OK)
-        purge_res = purge_all_users(db, AdminUser())
-        self.assertIn("deleted_count", purge_res)
-
-        # Re-seed test DB after purge
-        admin_u = models.User(id=1, first_name="Admin", last_name="User", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
-        db.add_all([admin_u, dept1, dept2])
+        # The `purge-all-users` endpoint these scenarios used to exercise has
+        # been removed -- it deleted every account including the caller's, with
+        # no confirmation and no recovery. What replaces it here are the two
+        # guards that now stop an administrator locking everyone out.
+        #
+        # Seeded defensively: the old flow purged the table first, so it could
+        # assume id 1 was free. It is not.
+        admin_u = db.query(models.User).filter(models.User.id == 1).first()
+        if admin_u is None:
+            admin_u = models.User(id=1, first_name="Admin", last_name="User", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
+            db.add(admin_u)
+        admin_u.role = "admin"
+        if db.query(models.User).filter(models.User.id == 7).first() is None:
+            db.add(models.User(id=7, first_name="Other", last_name="Chair", email="chair7@dlsau.edu.ph", role="program_chair", department="CBM", password_hash="pw"))
         db.commit()
 
+        # A chair may not delete an account outside their own department.
+        with self.assertRaises(HTTPException) as ctx:
+            delete_user(7, db, ChairUser())
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        # An administrator may not delete their own account.
+        with self.assertRaises(HTTPException) as ctx:
+            delete_user(1, db, AdminUser())
+        self.assertEqual(ctx.exception.status_code, 409)
+
+        # ...nor the last remaining administrator.
+        class OtherAdmin:
+            id = 99
+            role = "admin"
+            department = "CAST"
+
+        with self.assertRaises(HTTPException) as ctx:
+            delete_user(1, db, OtherAdmin())
+        self.assertEqual(ctx.exception.status_code, 409)
+
+        # With a second administrator present the guard lifts. Delete the spare
+        # rather than id 1, which the scenarios below still rely on.
+        db.add(models.User(id=8, first_name="Second", last_name="Admin", email="admin2@dlsau.edu.ph", role="admin", password_hash="pw"))
+        db.commit()
+        delete_user(8, db, AdminUser())
+        self.assertIsNone(db.query(models.User).filter(models.User.id == 8).first())
+        self.assertIsNotNone(db.query(models.User).filter(models.User.id == 1).first())
+
         # TEST 11: Cross-department subject offering -> 403 Rejected
+        #
+        # Both subjects are filed under a PUBLISHED curriculum block. Assignment
+        # now refuses a subject belonging to no curriculum, or to one still in
+        # draft, with 409 -- so a subject left unfiled would be turned away on
+        # those grounds and never reach the department check this scenario is
+        # about.
+        block1 = models.CurriculumBlock(program_name="BSCS", academic_year="AY 2026-2027", department_id=d1_id, status="PUBLISHED")
+        block2 = models.CurriculumBlock(program_name="BSA", academic_year="AY 2026-2027", department_id=d2_id, status="PUBLISHED")
+        db.add_all([block1, block2])
+        db.flush()
+
         fac1 = models.Faculty(first_name="Prof", last_name="One", department_id=d1_id, max_units=18, type="full_time")
-        curr2 = models.Curriculum(code="ACCT101", name="Accounting", units=3, type="lecture", department_id=d2_id)
+        curr2 = models.Curriculum(block_id=block2.id, code="ACCT101", name="Accounting", units=3, type="lecture", department_id=d2_id)
         sem = models.Semester(academic_year="AY 2026-2027", term="1st", is_active=True)
         db.add_all([fac1, curr2, sem])
         db.commit()
@@ -477,6 +514,7 @@ class TestLabLecHandling(unittest.TestCase):
         f1_id = int(fac1.id) # type: ignore
         c2_id = int(curr2.id) # type: ignore
         sem_id = int(sem.id) # type: ignore
+        b1_id = int(block1.id) # type: ignore
 
         cross_offering = schemas.SubjectOfferingCreate(faculty_id=f1_id, curriculum_id=c2_id, semester_id=sem_id)
         with self.assertRaises(HTTPException) as ctx_cross:
@@ -484,7 +522,7 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertEqual(ctx_cross.exception.status_code, 403)
 
         # Same-department offering -> Allowed
-        curr1 = models.Curriculum(code="CS101", name="Intro to CS", units=3, type="lecture", department_id=d1_id)
+        curr1 = models.Curriculum(block_id=b1_id, code="CS101", name="Intro to CS", units=3, type="lecture", department_id=d1_id)
         db.add(curr1)
         db.commit()
         c1_id = int(curr1.id) # type: ignore
@@ -501,7 +539,7 @@ class TestLabLecHandling(unittest.TestCase):
         db.add(locked_sched)
 
         # Add second subject offering CS102 for department 1
-        curr1_2 = models.Curriculum(code="CS102", name="Data Structures", units=3, type="lecture", department_id=d1_id)
+        curr1_2 = models.Curriculum(block_id=b1_id, code="CS102", name="Data Structures", units=3, type="lecture", department_id=d1_id)
         db.add(curr1_2)
         db.commit()
         locked_id = int(locked_sched.id) # type: ignore
@@ -528,11 +566,9 @@ class TestLabLecHandling(unittest.TestCase):
                 ["Course Code", "Course Title", "Lec", "Lab", "Units", "Prerequisite"],
                 ["CS102", "Data Structures", 3, 0, 3, "CS101\n MATH101 \r\n ENGL101"]
             ]
-            out = io.BytesIO()
-            with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                pd.DataFrame(df_data).to_excel(writer, index=False, header=False)
+            out_bytes = _make_excel_bytes(df_data)
 
-            imp_res = await _process_curriculum_import(out.getvalue(), d1_id, "BSCS", True, db, AdminUser())
+            imp_res = await _process_curriculum_import(out_bytes, d1_id, "BSCS", True, db, AdminUser())
             report = imp_res.get("report", [])
             self.assertEqual(len(report), 1)
             self.assertEqual(report[0]["pre_requisite"], "CS101, MATH101, ENGL101")

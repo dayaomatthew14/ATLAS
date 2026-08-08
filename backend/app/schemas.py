@@ -1,6 +1,42 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, computed_field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, computed_field, field_validator
 from typing import Optional, List
 from datetime import datetime, date
+
+# Password policy. No upper bound on length beyond bcrypt's hard limit: capping
+# password length caps its strength, and passphrases are the strongest option
+# most users will actually remember.
+MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_BYTES = 72  # bcrypt rejects anything longer
+
+
+def validate_password(value: str) -> str:
+    if value is None:
+        raise ValueError("Password is required")
+    if len(value) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
+    if len(value.encode('utf-8')) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"Password must be at most {MAX_PASSWORD_BYTES} bytes long")
+    if value != value.strip():
+        raise ValueError("Password cannot start or end with a space")
+    return value
+
+
+# Roles the system recognises. 'admin' is privileged and must never be settable
+# from a public endpoint -- see SELF_REGISTRATION_ROLES below.
+VALID_ROLES = {'admin', 'program_chair', 'coordinator'}
+
+# Roles a visitor may choose for themselves at /api/auth/register.
+SELF_REGISTRATION_ROLES = {'program_chair', 'coordinator'}
+
+
+def _validate_role(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return value
+    normalized = str(value).strip().lower()
+    if normalized not in VALID_ROLES:
+        raise ValueError(f"Invalid role. Must be one of: {', '.join(sorted(VALID_ROLES))}")
+    return normalized
+
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -16,9 +52,22 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
+    @field_validator('role')
+    @classmethod
+    def check_role(cls, v):
+        return _validate_role(v)
+
+    @field_validator('password')
+    @classmethod
+    def check_password(cls, v):
+        return validate_password(v)
+
 class UserResponse(UserBase):
     id: int
     created_at: datetime
+    # `department` carries the college code; this is the readable name that goes
+    # with it. Without declaring it here the response_model silently drops it.
+    department_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):
@@ -42,19 +91,38 @@ class ResetPassword(BaseModel):
     otp: str
     new_password: str
 
+    @field_validator('new_password')
+    @classmethod
+    def check_password(cls, v):
+        return validate_password(v)
+
 class ChangePassword(BaseModel):
     old_password: str
     new_password: str
+
+    @field_validator('new_password')
+    @classmethod
+    def check_password(cls, v):
+        return validate_password(v)
 
 class UserUpdate(BaseModel):
     first_name: Optional[str] = Field(None, pattern=r"^[A-Za-z\s.\-']+$")
     last_name: Optional[str] = Field(None, pattern=r"^[A-Za-z\s.\-']+$")
     contact_number: Optional[str] = Field(None, pattern=r"^(|09\d{9}|\+639\d{9})$")
     role: Optional[str] = None
+    # Without this field Pydantic silently dropped `department` from every
+    # update, so the admin UI's department control returned 200 and changed
+    # nothing. Only administrators may set it -- see users.update_user.
+    department: Optional[str] = None
     is_verified: Optional[bool] = None
     sex: Optional[str] = None
     date_of_birth: Optional[date] = None
     profile_picture: Optional[str] = None
+
+    @field_validator('role')
+    @classmethod
+    def check_role(cls, v):
+        return _validate_role(v)
 
 class DepartmentBase(BaseModel):
     name: str
@@ -77,6 +145,9 @@ class CurriculumBlockBase(BaseModel):
     program_name: str
     academic_year: str
     filename: Optional[str] = None
+    # Optional so an imported block with no matching programme can still be
+    # created and surface under Unassigned rather than being rejected.
+    program_id: Optional[int] = None
     department_id: int
     status: Optional[str] = 'PUBLISHED'
 
@@ -136,16 +207,25 @@ class RoomBase(BaseModel):
     type: str
 
 class RoomCreate(RoomBase):
-    pass
+    # Administrators only. A chair's room is always filed under their own
+    # college, derived from the token -- if this were honoured for them, a chair
+    # could create a laboratory owned by a college they do not belong to.
+    department_id: Optional[int] = None
 
 class RoomUpdate(BaseModel):
     name: Optional[str] = None
     building: Optional[str] = None
     capacity: Optional[int] = None
     type: Optional[str] = None
+    # Reassigning ownership is an administrator action; ignored for other roles.
+    department_id: Optional[int] = None
 
 class RoomResponse(RoomBase):
     id: int
+    department_id: Optional[int] = None
+    # Read from the Room.department_code property, so every consumer gets the
+    # owning college without a second request.
+    department_code: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class FacultyBase(BaseModel):
@@ -169,8 +249,32 @@ class FacultyUpdate(BaseModel):
     type: Optional[str] = None
     department_id: Optional[int] = None
 
+class FacultyWorkWeek(BaseModel):
+    """The Full-Time 40-hour duty week for a term. Absent for Part-Time."""
+    term: str
+    teaching_hours: float
+    off_campus_hours: float
+    consultation_hours: float
+    office_hours: float
+    total_hours: float
+
+
 class FacultyResponse(FacultyBase):
     id: int
+    # Teaching load, in hours per week, from the plotted schedule. This is the
+    # institution's actual basis for load; the *_units fields below are academic
+    # information only and are not what a chair is judged against.
+    reg_hours: float = 0.0
+    # None when no target applies: every Part-Time member (their figures are
+    # unconfirmed) and any unrecognised term. Must not be rendered as 0.
+    required_hours: Optional[float] = None
+    load_status: Optional[str] = None  # UNDERLOAD | REGULAR | OVERLOAD
+    # Exactly one of these is set, and only when a target exists.
+    overload_hours: Optional[float] = None
+    remaining_hours: Optional[float] = None
+    part_time_ceiling_hours: Optional[float] = None
+    exceeds_part_time_ceiling: bool = False
+    work_week: Optional[FacultyWorkWeek] = None
     current_units: Optional[int] = 0
     remaining_units: Optional[int] = 18
     unavailability: Optional[List["FacultyUnavailabilityResponse"]] = []
@@ -335,6 +439,20 @@ class ImportSummary(BaseModel):
     excel_total: Optional[float] = None
     parser_total: Optional[float] = None
     summary_details: Optional[list] = None
+
+    # The importer had been building these for a while, but they were not
+    # declared here so Pydantic dropped them on the way out -- the sheet it
+    # chose and why were computed and then discarded before reaching the UI.
+    selected_sheet: Optional[str] = None
+    available_sheets: Optional[List[str]] = None
+    sheet_auto_selected: Optional[bool] = None
+    selected_sheet_reason: Optional[str] = None
+    scanned_rows: Optional[int] = None
+    detected_subjects: Optional[int] = None
+    created_subjects: Optional[int] = None
+    skipped_rows: Optional[int] = None
+    warnings_count: Optional[int] = None
+    errors_count: Optional[int] = None
 
 class ImportResponse(BaseModel):
     is_dry_run: bool

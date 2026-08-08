@@ -34,11 +34,15 @@ def notify_faculty(
     faculties = db.query(models.Faculty).filter(models.Faculty.department_id == dept.id).all()
     
     sent_count = 0
+    skipped_no_contact = 0
     for faculty in faculties:
-        user = db.query(models.User).filter(models.User.id == faculty.user_id).first()
-        if not user or not user.email:
+        # Faculty records carry their own email/contact_number; there is no link
+        # to a User row (Faculty has no user_id column), so read them directly.
+        if not faculty.email:
+            skipped_no_contact += 1
             continue
-            
+
+
         # Get their schedule
         schedules = db.query(models.Schedule).filter(
             models.Schedule.semester_id == semester_id,
@@ -56,23 +60,25 @@ def notify_faculty(
             schedule_text += f"- {curriculum_item.name if curriculum_item else 'N/A'} ({s.section}): {s.day_of_week} {s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')} @ {room.name if room else 'N/A'}\n"
             
         # Send email
-        email_addr = getattr(user, 'email', '')
         success_email = notifications.send_email_notification(
-            str(email_addr), # type: ignore
+            str(faculty.email),
             "ATLAS - Your Academic Schedule",
-            f"Hello {user.first_name},\n\n{schedule_text}\n\nBest regards,\nATLAS Team"
+            f"Hello {faculty.first_name},\n\n{schedule_text}\n\nBest regards,\nATLAS Team"
         )
-        
+
         # Send SMS if contact number exists
         success_sms = False
-        contact_num = getattr(user, 'contact_number', None)
-        if contact_num:
-            sms_text = f"ATLAS: Hello {user.first_name}, your schedule for the upcoming semester has been generated. Please check your email for details."
-            success_sms = notifications.send_textbee_notification(str(contact_num), sms_text) # type: ignore
-            
+        if faculty.contact_number:
+            sms_text = f"ATLAS: Hello {faculty.first_name}, your schedule for the upcoming semester has been generated. Please check your email for details."
+            success_sms = notifications.send_textbee_notification(str(faculty.contact_number), sms_text)
+
         if success_email or success_sms:
             sent_count += 1
-            
+
     log_activity(db, current_user.id, "Notify Faculty", f"Sent schedule notifications to {sent_count} faculty members in {dept.name}")
-    
-    return {"message": f"Notifications sent to {sent_count} faculty members"}
+
+    return {
+        "message": f"Notifications sent to {sent_count} faculty members",
+        "sent_count": sent_count,
+        "skipped_no_contact": skipped_no_contact
+    }

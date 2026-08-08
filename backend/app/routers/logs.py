@@ -53,8 +53,15 @@ def create_log(
     """
     Manually create a log entry.
     """
+    # Attribution is taken from the authenticated session, not the request body.
+    # Honouring a client-supplied user_id let any user forge audit entries
+    # against another account. Only admins may attribute a log elsewhere.
+    attributed_user_id = current_user.id
+    if log.user_id and current_user.role == 'admin':
+        attributed_user_id = log.user_id
+
     db_log = models.SystemLog(
-        user_id=current_user.id if not log.user_id else log.user_id,
+        user_id=attributed_user_id,
         department_id=log.department_id,
         action=log.action,
         details=log.details,

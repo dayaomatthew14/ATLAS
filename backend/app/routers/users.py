@@ -1,14 +1,20 @@
 import os
 import shutil
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 from .. import models, schemas, database, auth
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/users",
     tags=["Users"]
 )
+
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
+MAX_PROFILE_PICTURE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 @router.get("")
 def get_users(
@@ -35,6 +41,23 @@ def get_users(
         query = query.filter(models.User.role == role)
         
     users = query.offset(skip).limit(limit).all()
+
+    # Last sign-in, from the audit trail. The Login action is already written on
+    # every successful authentication, so this needs no new column and no
+    # backfill -- one grouped query rather than one per user.
+    last_login = {}
+    if users:
+        rows = (
+            db.query(models.SystemLog.user_id, func.max(models.SystemLog.timestamp))
+            .filter(
+                models.SystemLog.action == 'Login',
+                models.SystemLog.user_id.in_([u.id for u in users]),
+            )
+            .group_by(models.SystemLog.user_id)
+            .all()
+        )
+        last_login = {uid: ts for uid, ts in rows}
+
     result = []
     for u in users:
         user_dict = {
@@ -48,6 +71,9 @@ def get_users(
             "contact_number": u.contact_number,
             "is_verified": u.is_verified,
             "created_at": u.created_at,
+            # None means never signed in, which is a different state from
+            # "signed in long ago" and the interface says so.
+            "last_login": last_login.get(u.id),
         }
         result.append(user_dict)
     
@@ -83,19 +109,34 @@ def create_user(
     if current_user.role in ['program_chair', 'coordinator']:
         if user.department != current_user.department:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create users in your department")
-        if user.role not in ['faculty', 'student']:
+        if user.role not in ['program_chair', 'coordinator']:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot create users with this role")
             
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
         
+    # UserCreate carries a plaintext `password`; the model stores `password_hash`.
+    # Passing the raw dict through made every call to this endpoint a 500.
     user_data = user.model_dump()
-    new_user = models.User(**user_data)
+    raw_password = user_data.pop('password')
+    new_user = models.User(
+        **user_data,
+        password_hash=auth.get_password_hash(raw_password),
+        # An account created here is vouched for by the person creating it, so
+        # it skips the e-mail/SMS verification a self-registration needs. Left
+        # unverified it could not sign in at all, which is the whole reason for
+        # creating it by hand -- typically because the OTP never arrived.
+        is_verified=True,
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
+    log_activity(
+        db, current_user.id, "Create User",
+        f"Created {new_user.role} account {new_user.email}", "success",
+    )
     return new_user
 
 @router.put("/{user_id}", response_model=schemas.UserResponse)
@@ -112,11 +153,38 @@ def update_user(
     if current_user.role in ['program_chair', 'coordinator']:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this user")
-        if user.role and user.role not in ['faculty', 'student']:
+        if user.role and user.role not in ['program_chair', 'coordinator']:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign this role")
     elif current_user.role != 'admin' and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     update_data = user.model_dump(exclude_unset=True)
+
+    # Department scoping is what every other permission check keys off, so
+    # reassigning it is an administrator action. A chair moving a user into
+    # another department would push that account out of their own reach.
+    if 'department' in update_data and current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can change a user's department."
+        )
+
+    # Demoting the last administrator locks the institution out exactly as
+    # deleting them does, and until now only the delete path was guarded. There
+    # is no way back: accounts come from self-registration, and only an
+    # administrator can grant the role again.
+    new_role = update_data.get('role')
+    if new_role and db_user.role == 'admin' and new_role != 'admin':
+        remaining = db.query(models.User).filter(
+            models.User.role == 'admin', models.User.id != db_user.id
+        ).count()
+        if remaining == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This is the only administrator account. Promote another user to "
+                    "administrator before changing this one's role."
+                ),
+            )
 
     for key, value in update_data.items():
         setattr(db_user, key, value)
@@ -135,14 +203,41 @@ def delete_user(
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
     if current_user.role in ['program_chair', 'coordinator']:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
     elif current_user.role != 'admin':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Two guards against locking the institution out of its own system. There is
+    # no recovery path if the last administrator goes: accounts come from
+    # self-registration and only an administrator can grant the role back.
+    if db_user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You cannot delete your own account. Ask another administrator to do it.",
+        )
+
+    if db_user.role == 'admin':
+        remaining = db.query(models.User).filter(
+            models.User.role == 'admin', models.User.id != db_user.id
+        ).count()
+        if remaining == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This is the only administrator account. Promote another user to "
+                    "administrator before deleting it."
+                ),
+            )
+
     db.delete(db_user)
     db.commit()
+    log_activity(
+        db, current_user.id, "Delete User",
+        f"Deleted account {db_user.email}", "success",
+    )
     return None
 
 @router.post("/{user_id}/toggle-verification")
@@ -162,7 +257,7 @@ def toggle_user_verification(
     return {"id": db_user.id, "is_verified": db_user.is_verified, "msg": f"Verification status updated"}
 
 @router.post("/{user_id}/upload-picture")
-def upload_profile_picture(
+async def upload_profile_picture(
     user_id: int, 
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
@@ -175,15 +270,33 @@ def upload_profile_picture(
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
-    # Generate unique filename
+    # The extension comes from a client-controlled filename, so it is matched
+    # against an allow-list rather than trusted. Taking it verbatim allowed
+    # path separators through and let an upload escape the profiles directory.
     raw_filename = file.filename or "profile.jpg"
-    file_ext = raw_filename.split(".")[-1] if "." in raw_filename else "jpg"
-    filename = f"user_{user_id}_{os.urandom(4).hex()}.{file_ext}"
+    candidate_ext = raw_filename.rsplit(".", 1)[-1].lower() if "." in raw_filename else ""
+    if candidate_ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported image type. Allowed: {', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}"
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_PROFILE_PICTURE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Image is too large. Maximum size is {MAX_PROFILE_PICTURE_BYTES // (1024 * 1024)} MB."
+        )
+    if not contents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
+
+    filename = f"user_{user_id}_{os.urandom(4).hex()}.{candidate_ext}"
     file_location = f"uploads/profiles/{filename}"
-    
-    with open(file_location, "wb+") as file_object:
-        shutil.copyfileobj(file.file, file_object)
-        
+    os.makedirs("uploads/profiles", exist_ok=True)
+    with open(file_location, "wb") as file_object:
+        file_object.write(contents)
+
+
     # Delete old picture if exists
     if db_user.profile_picture:
         try:
@@ -209,17 +322,58 @@ def change_password(
             detail="Incorrect current password"
         )
     setattr(current_user, 'password_hash', auth.get_password_hash(payload.new_password))
+    # Invalidate tokens issued before the change, matching what reset-password
+    # already did. Without this a stolen token outlived the password it came from.
+    current_user.session_version += 1  # type: ignore
     db.commit()
-    return {"msg": "Password updated successfully"}
+    return {"msg": "Password updated successfully. Please sign in again on your other devices."}
 
-@router.post("/purge-all-users")
-@router.delete("/purge-all-users")
-def purge_all_users(
+"""
+`purge-all-users` was registered here on both POST and DELETE. It ran
+`db.query(models.User).delete()` -- every account including the administrator
+calling it, with no confirmation and no way back. Whatever it was for during
+development, it has no place in a deployed system, so it is gone.
+"""
+
+
+@router.post("/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: int,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    """
+    Issue a one-time temporary password for a locked-out account.
+
+    The only reset path used to be self-service via an emailed OTP, so a chair
+    who had lost access to their inbox could not be helped by anyone. The
+    generated password is returned once, is never stored in readable form, and
+    every existing session for that account is invalidated.
+    """
     if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can purge user accounts")
-    deleted_count = db.query(models.User).delete()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can reset another user's password.",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Long enough to clear the 12-character policy with room to spare.
+    temporary = secrets.token_urlsafe(12)
+    db_user.password_hash = auth.get_password_hash(temporary)  # type: ignore
+    db_user.session_version = (db_user.session_version or 1) + 1  # type: ignore
     db.commit()
-    return {"message": "All users deleted successfully", "deleted_count": deleted_count}
+
+    log_activity(
+        db, current_user.id, "Reset Password",
+        f"Issued a temporary password for {db_user.email}", "success",
+    )
+    return {
+        "temporary_password": temporary,
+        "msg": (
+            f"Temporary password issued for {db_user.email}. Give it to them directly "
+            "and have them change it after signing in. It is shown only once."
+        ),
+    }

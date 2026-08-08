@@ -9,6 +9,15 @@ router = APIRouter(
     tags=["Semesters"]
 )
 
+# Semester.term is stored as '1st' | '2nd' | '3rd semester'. Messages that reach
+# the user should read the way a registrar writes a term, not the way it is
+# stored -- "2026-2027 1st" is not a term name.
+TERM_LABELS = {'1st': '1st Term', '2nd': '2nd Term', '3rd semester': 'Midyear'}
+
+
+def term_display(semester) -> str:
+    return f"{semester.academic_year} {TERM_LABELS.get(semester.term, semester.term)}"
+
 @router.get("", response_model=List[schemas.SemesterResponse])
 def get_semesters(
     skip: int = 0, 
@@ -120,7 +129,33 @@ def delete_semester(
     db_semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     if not db_semester:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Semester not found")
-        
+
+    # Schedule.semester_id is nullable and the relationship has no delete rule,
+    # so deleting a term did not fail -- it silently set semester_id to NULL on
+    # every class in it. Those rows stay in the database but disappear from
+    # every query that filters by term, with no way to find them from the UI.
+    scheduled = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id).count()
+    offerings = db.query(models.SubjectOffering).filter(models.SubjectOffering.semester_id == semester_id).count()
+    if scheduled or offerings:
+        parts = []
+        if scheduled:
+            parts.append(f"{scheduled} scheduled {'class' if scheduled == 1 else 'classes'}")
+        if offerings:
+            parts.append(f"{offerings} subject {'assignment' if offerings == 1 else 'assignments'}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{term_display(db_semester)} still holds {' and '.join(parts)}. "
+                "Clear the schedule for this term before deleting it."
+            )
+        )
+
+    if db_semester.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This is the active term. Activate a different term before deleting it."
+        )
+
     ay = db_semester.academic_year
     term = db_semester.term
     db.delete(db_semester)

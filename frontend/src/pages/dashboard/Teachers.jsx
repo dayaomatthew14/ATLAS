@@ -1,11 +1,59 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Users as UsersIcon, Clock, Calendar, ShieldAlert, UserCheck, X, Check, Trash2, Search } from 'lucide-react';
-import Table from '../../components/Table';
-import Modal from '../../components/Modal';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, Users as UsersIcon, Clock, X, Search, Trash2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
+import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../components/ui/Dialog';
+import AtlasButton from '../../components/ui/Button';
+import DataTable from '../../components/ui/DataTable';
+import { LoadMeter, LoadStatusBadge } from '../../components/ui/Badge';
+import { formatHours, PART_TIME_CEILING_HOURS } from '../../utils/load';
+import { TextInput, NumberInput, RadioGroup, SelectInput } from '../../components/ui/Field';
+import { Page, PageHeader, EmptyState } from '../../components/ui/Page';
+import UnavailabilityGrid from '../../components/ui/UnavailabilityGrid';
+import { blocksToCells, cellsToBlocks } from '../../utils/availability';
+import { restrictionReason, pluralize, focusRing } from '../../components/ui/tokens';
+import { canManageFaculty as canManageFacultyRole, getRole, ROLES } from '../../utils/session';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** Field-level validators, so an error can sit under the input it belongs to. */
+const validateName = (value) => {
+  const v = String(value || '').trim();
+  if (!v) return 'Enter the faculty member’s full name.';
+  if (!/^[A-Za-z\s.'-]+$/.test(v)) return 'Letters, spaces, periods, apostrophes and hyphens only.';
+  if (v.split(/\s+/).length < 2) return 'Include a surname as well as a first name.';
+  return undefined;
+};
+
+/**
+ * Subject units are optional, because they no longer govern anything a chair
+ * can be held to. Teaching load is REG. HOURS against the term's required
+ * figure; this field is curriculum bookkeeping. Demanding it before a faculty
+ * member could be saved asked for a number that changes no outcome.
+ */
+const validateUnits = (value) => {
+  if (value === '' || value === null || value === undefined) return undefined;
+  const n = Number(value);
+  if (Number.isNaN(n)) return 'Enter a number of units, or leave it blank.';
+  if (!Number.isInteger(n)) return 'Units must be a whole number.';
+  if (n < 1 || n > 30) return 'Enter a value between 1 and 30, or leave it blank.';
+  return undefined;
+};
+
+/**
+ * Which subjects a role carries.
+ *
+ * A program chair holds their programme's major subjects; a coordinator holds
+ * General Education. This used to be a dropdown offering All / Major / GenEd,
+ * pre-selected by role but freely changeable — so a coordinator could list and
+ * assign major subjects, which the split exists to prevent. It is a fact about
+ * the signed-in role, not a preference, so it is stated rather than offered.
+ */
+const SUBJECT_SCOPE = {
+  [ROLES.PROGRAM_CHAIR]: { isMajor: true, label: 'Major subjects', assigns: 'major subjects' },
+  [ROLES.COORDINATOR]: { isMajor: false, label: 'General Education', assigns: 'General Education subjects' },
+};
+
 const formatTime = (timeStr) => {
   if (!timeStr) return '';
   const [hours, minutes] = timeStr.split(':');
@@ -35,130 +83,115 @@ export default function Teachers() {
   const [curriculumSubjects, setCurriculumSubjects] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [courseCodeFilter, setCourseCodeFilter] = useState('All');
-  const [subjectCategoryFilter, setSubjectCategoryFilter] = useState('all'); // 'all', 'major', 'gened'
   const [semesterFilter, setSemesterFilter] = useState('1st');
   const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
   const [activeSemester, setActiveSemester] = useState(null);
+  const [hasPublishedCurriculum, setHasPublishedCurriculum] = useState(true);
+  const [isLoadingSubjects, setIsLoadingSubjects] = useState(false);
+
+  /**
+   * The week, as six day marks.
+   *
+   * Blocked days carried colour alone before — a rose tile against an emerald
+   * one — which is unreadable in greyscale and under deuteranopia. Each mark now
+   * also differs in fill and glyph, and the whole strip has one accessible name
+   * rather than six tooltips a keyboard user cannot reach.
+   */
+  const AvailabilityMarks = ({ unavailability }) => {
+    const blocked = new Set((unavailability || []).map((u) => u.day_of_week.substring(0, 3)));
+    const blockedList = DAYS.filter((d) => blocked.has(d));
+    return (
+      <span
+        className="inline-flex gap-1"
+        role="img"
+        aria-label={
+          blockedList.length === 0
+            ? 'Available every day'
+            : `Unavailable ${blockedList.join(', ')}`
+        }
+      >
+        {DAYS.map((day) => {
+          const isBlocked = blocked.has(day);
+          return (
+            <span
+              key={day}
+              aria-hidden="true"
+              className={`w-6 h-6 rounded-field inline-flex items-center justify-center font-data text-caption
+                          ${isBlocked
+                            ? 'bg-sem-conflict-bg text-sem-conflict border border-sem-conflict/30'
+                            : 'bg-atlas-canvas text-atlas-slate border border-atlas-line'}`}
+            >
+              {isBlocked ? '×' : day[0]}
+            </span>
+          );
+        })}
+      </span>
+    );
+  };
 
   const columns = [
     {
       key: 'name',
-      label: 'Teacher Name',
-      render: (item) => (
-        <div className="flex items-center">
-          <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 mr-4 shadow-sm">
-            <UsersIcon className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="font-black text-slate-900 block">{item.name}</span>
-          </div>
-        </div>
-      )
+      label: 'Faculty',
+      render: (item) => <span className="font-ui text-body text-atlas-ink">{item.name}</span>,
     },
     {
       key: 'load',
-      label: 'DLSAU Workload Breakdown',
-      render: (item) => {
-        const isFullTime = item.type === 'full_time' || item.type === 'Full-Time';
-        const current = item.current_units || 0;
-        const max = item.max_units || (isFullTime ? 18 : 12);
-        const remaining = item.remaining_units !== undefined ? item.remaining_units : Math.max(0, max - current);
-        const percentage = Math.min((current / max) * 100, 100);
-        const isOverloaded = current > max;
-        const isAtCapacity = current === max;
-
-        return (
-          <div className="w-56 space-y-1.5">
-            <div className="flex justify-between items-center text-xs font-black">
-              <span className="text-slate-800">
-                {current} / {max} Units
-              </span>
-              <span className={`px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider ${
-                isOverloaded ? 'bg-rose-100 text-rose-700' : isAtCapacity ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-              }`}>
-                {isOverloaded ? 'Overloaded' : isAtCapacity ? 'At Capacity' : 'Normal'}
-              </span>
-            </div>
-
-            <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-              <div
-                className={`h-full transition-all duration-500 rounded-full ${
-                  isOverloaded ? 'bg-rose-500' : percentage >= 85 ? 'bg-amber-500' : 'bg-emerald-600'
-                }`}
-                style={{ width: `${percentage}%` }}
-              />
-            </div>
-
-            <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
-              <span>{isFullTime ? 'Full-Time (18 Max)' : 'Part-Time (Custom)'}</span>
-              <span className="text-emerald-700 font-black">{remaining} Units Remaining</span>
-            </div>
-          </div>
-        );
-      }
+      label: 'REG. hours / week',
+      width: '215px',
+      render: (item) => (
+        <span className="flex flex-col gap-1">
+          <LoadMeter
+            used={item.reg_hours || 0}
+            required={item.required_hours}
+            status={item.load_status}
+            ceiling={item.part_time_ceiling_hours}
+            overCeiling={item.exceeds_part_time_ceiling}
+          />
+          <LoadStatusBadge
+            status={item.load_status}
+            overCeiling={item.exceeds_part_time_ceiling}
+          />
+        </span>
+      ),
     },
     {
       key: 'type',
-      label: 'Type',
+      label: 'Employment',
+      width: '120px',
       render: (item) => (
-        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${item.type === 'full_time'
-            ? 'bg-green-50 text-green-700 border border-green-100'
-            : 'bg-blue-50 text-blue-700 border border-blue-100'
-          }`}>
-          {item.type?.replace('_', ' ') || 'Full Time'}
+        <span className="font-ui text-table text-atlas-slate">
+          {item.type === 'part_time' ? 'Part-time' : 'Full-time'}
         </span>
-      )
+      ),
     },
     {
       key: 'subject_offerings',
-      label: 'Subject Offerings',
+      label: 'Subjects',
+      width: '170px',
       render: (item) => (
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-black text-slate-800">
-            {item.subject_offerings?.length || 0} Subjects
+        <span className="flex items-center gap-3">
+          <span className="font-data text-table tabular-nums text-atlas-ink w-4">
+            {item.subject_offerings?.length || 0}
           </span>
-          <button
-            onClick={() => handleOpenSubjectModal(item)}
-            className="text-[9px] bg-green-50 text-green-700 px-2 py-1 rounded font-black uppercase tracking-widest hover:bg-green-100 transition-colors w-fit"
-          >
-            Manage Subjects
-          </button>
-        </div>
-      )
+          <AtlasButton size="row" variant="ghost" onClick={() => handleOpenSubjectModal(item)}>
+            Manage
+          </AtlasButton>
+        </span>
+      ),
     },
     {
       key: 'availability',
-      label: 'Availability Status',
+      label: 'Availability',
+      width: '230px',
       render: (item) => {
-        const blockedDays = (item.unavailability || []).map(u => u.day_of_week.substring(0, 3));
-
         return (
-          <div className="flex flex-col gap-3">
-            <div className="flex gap-1.5">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
-                const isBlocked = blockedDays.includes(day);
-                return (
-                  <div
-                    key={day}
-                    title={`${day}: ${isBlocked ? 'Blocked' : 'Available'}`}
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black transition-all border ${isBlocked
-                        ? 'bg-rose-50 border-rose-200 text-rose-600 shadow-inner'
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      }`}
-                  >
-                    {day === 'Thu' ? 'TH' : day[0]}
-                  </div>
-                );
-              })}
-            </div>
-            <button
-              onClick={() => handleOpenAvailability(item)}
-              className="flex items-center justify-center space-x-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all font-black text-[10px] uppercase tracking-widest active:scale-95"
-            >
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>View Schedule</span>
-            </button>
-          </div>
+          <span className="flex items-center gap-3">
+            <AvailabilityMarks unavailability={item.unavailability} />
+            <AtlasButton size="row" variant="ghost" icon={Clock} onClick={() => handleOpenAvailability(item)}>
+              Edit
+            </AtlasButton>
+          </span>
         );
       }
     },
@@ -166,23 +199,90 @@ export default function Teachers() {
 
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const [unavailability, setUnavailability] = useState([]);
-  const [isAddingUnavailability, setIsAddingUnavailability] = useState(false);
-  const [newUnavail, setNewUnavail] = useState({
-    day_of_week: 'Mon',
-    start_time: '07:30',
-    end_time: '17:30'
-  });
+
+  // The grid edits a local draft; nothing is written until Save, so a partial
+  // save is not possible (FLOW-03).
+  const [availabilityCells, setAvailabilityCells] = useState(() => new Set());
+  const [isSavingAvailability, setIsSavingAvailability] = useState(false);
+  const [deleteTeacherTarget, setDeleteTeacherTarget] = useState(null);
+  const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  const [isSavingTeacher, setIsSavingTeacher] = useState(false);
+
+  const canManageFaculty = canManageFacultyRole();
+  // Null only if a role outside the scheduling pair ever reaches this screen;
+  // the table then shows every subject rather than silently showing none.
+  const subjectScope = SUBJECT_SCOPE[getRole()] || null;
+
+  /**
+   * The subjects the assignment table shows.
+   *
+   * Computed once instead of the two near-identical inline predicates this
+   * modal used to carry — the second one omitted the search term, so typing a
+   * query that matched nothing rendered an empty table with no "no results"
+   * message at all.
+   */
+  const visibleSubjects = useMemo(() => {
+    const q = subjectSearchQuery.trim().toLowerCase();
+    const isAssigned = (s) => teacherSubjects.some((ts) => ts.curriculum_id === s.id);
+
+    return curriculumSubjects
+      .filter((sub) => {
+        const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
+
+        let matchType = true;
+        if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
+        else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
+        else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
+
+        // Not a filter — the role's scope. A chair never sees General
+        // Education here and a coordinator never sees majors.
+        const matchScope = !subjectScope || Boolean(sub.is_major) === subjectScope.isMajor;
+
+        const matchSearch = !q
+          || String(sub.code || '').toLowerCase().includes(q)
+          || String(sub.name || '').toLowerCase().includes(q);
+
+        return matchSem && matchType && matchScope && matchSearch;
+      })
+      .sort((a, b) => {
+        const aAssigned = isAssigned(a);
+        const bAssigned = isAssigned(b);
+        if (aAssigned && !bAssigned) return -1;
+        if (!aAssigned && bAssigned) return 1;
+        return String(a.code || '').localeCompare(String(b.code || ''));
+      });
+  }, [curriculumSubjects, teacherSubjects, semesterFilter, courseCodeFilter, subjectSearchQuery, subjectScope]);
 
   const handleOpenAvailability = async (teacher) => {
     setSelectedTeacher(teacher);
     setIsAvailabilityModalOpen(true);
-    setIsAddingUnavailability(false);
     try {
       const data = await api.get(`/professors/${teacher.id}/unavailability`).catch(() => []);
-      setUnavailability(data);
-    } catch (e) {
-      setUnavailability([]);
+      setAvailabilityCells(blocksToCells(Array.isArray(data) ? data : []));
+    } catch {
+      setAvailabilityCells(new Set());
+    }
+  };
+
+  const handleSaveAvailability = async () => {
+    if (!selectedTeacher) return;
+    setIsSavingAvailability(true);
+    try {
+      const blocks = cellsToBlocks(availabilityCells);
+      await api.put(`/professors/${selectedTeacher.id}/unavailability`, blocks);
+      addToast(
+        blocks.length
+          ? `Availability saved for ${selectedTeacher.name}.`
+          : `${selectedTeacher.name} is now available all week.`,
+        'success'
+      );
+      setIsAvailabilityModalOpen(false);
+      fetchTeachers();
+    } catch (err) {
+      addToast(err.message || 'Could not save availability.', 'error');
+    } finally {
+      setIsSavingAvailability(false);
     }
   };
 
@@ -191,12 +291,9 @@ export default function Teachers() {
     setIsSubjectModalOpen(true);
     setCourseCodeFilter('All');
     setSemesterFilter('1st');
-    const userRole = localStorage.getItem('atlas_role');
-    if (userRole === 'coordinator') {
-      setSubjectCategoryFilter('gened');
-    } else {
-      setSubjectCategoryFilter('major');
-    }
+    setSubjectSearchQuery('');
+    setHasPublishedCurriculum(true);
+    setIsLoadingSubjects(true);
     try {
       const semData = await api.get('/semesters');
       const active = semData.find(s => s.is_active);
@@ -208,11 +305,31 @@ export default function Teachers() {
         setTeacherSubjects(teacherOfferings);
       }
 
-      const curData = await api.get('/curriculum');
-      setCurriculumSubjects(Array.isArray(curData) ? curData : []);
+      // Only subjects from a PUBLISHED curriculum can be assigned. The blocks
+      // endpoint already returns published blocks of this college and nothing
+      // else, so intersecting on block_id is what keeps a draft curriculum --
+      // one the administrator is still revising -- out of a teaching load.
+      // GET /curriculum is unfiltered by status and is shared with other
+      // screens, so the narrowing is done here rather than there.
+      const [curData, blockData] = await Promise.all([
+        api.get('/curriculum'),
+        api.get('/curriculum/blocks').catch(() => []),
+      ]);
+      const publishedBlockIds = new Set(
+        (Array.isArray(blockData) ? blockData : [])
+          .filter((b) => String(b.status || 'PUBLISHED').toUpperCase() === 'PUBLISHED')
+          .map((b) => b.id)
+      );
+      setHasPublishedCurriculum(publishedBlockIds.size > 0);
+      setCurriculumSubjects(
+        (Array.isArray(curData) ? curData : []).filter((s) => publishedBlockIds.has(s.block_id))
+      );
     } catch (e) {
       console.error(e);
+      setCurriculumSubjects([]);
       addToast('Error fetching data for subjects', 'error');
+    } finally {
+      setIsLoadingSubjects(false);
     }
   };
 
@@ -247,11 +364,13 @@ export default function Teachers() {
           addToast('Subject removed', 'success');
         }
       } else {
+        // Assigning a subject is not itself a teaching load: load is REG. HOURS
+        // off the plotted schedule, and an unplotted subject contributes none.
+        // This used to refuse the assignment outright when subject *units*
+        // passed `max_units`, blocking a chair on a rule the institution does
+        // not have. Overload is now surfaced where it is real -- at plotting
+        // time, by the generator, and on the load meter above.
         const updatedUnits = (selectedTeacherForSubjects.current_units || 0) + subject.units;
-        if (updatedUnits > selectedTeacherForSubjects.max_units) {
-          addToast(`Cannot add subject: Exceeds maximum units (${selectedTeacherForSubjects.max_units})`, 'error');
-          return;
-        }
 
         const res = await api.post('/subject-offerings', {
           faculty_id: selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id,
@@ -319,6 +438,8 @@ export default function Teachers() {
 
   useEffect(() => {
     fetchTeachers();
+    // Load once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleOpenModal = (teacher = null) => {
@@ -365,6 +486,18 @@ export default function Teachers() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Validate against the fields themselves. These used to be absent
+    // entirely — a blank name posted and came back a 422 the user had to
+    // interpret from a toast (ux-guidelines: Error Placement, Inline Validation).
+    const errors = {
+      name: validateName(formData.name),
+      max_units: validateUnits(formData.max_units),
+    };
+    setFormErrors(errors);
+    if (errors.name || errors.max_units) return;
+
+    setIsSavingTeacher(true);
+
     // Split name into first and last cleanly
     const nameParts = formData.name.trim().split(/\s+/);
     const first_name = nameParts[0] || '';
@@ -381,214 +514,383 @@ export default function Teachers() {
       };
     });
 
+    // Field names must match schemas.FacultyCreate / FacultyUpdate. `faculty_type`
+    // was silently dropped by the API, so the employment type never saved.
     const submissionData = {
       first_name,
       last_name,
       email: editingTeacher?.email || `${formData.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().replace(/\s+/g, '.')}@dlsau.edu.ph`,
-      password: 'ChangeMe123!',
-      role: 'faculty',
-      department: localStorage.getItem('atlas_department') || 'CAST',
       max_units: parseInt(formData.max_units) || 18,
-      faculty_type: formData.type,
+      type: formData.type,
     };
 
     try {
       let newUser;
       if (editingTeacher) {
-        newUser = await api.put(`/professors/${editingTeacher.id}/`, submissionData);
-
-        // Clear existing unavailability for this teacher to sync with new selection
-        const existing = await api.get(`/professors/${editingTeacher.id}/unavailability`);
-        if (Array.isArray(existing)) {
-          for (const item of existing) {
-            try {
-              await api.delete(`/professors/${editingTeacher.id}/unavailability/${item.id}`);
-            } catch (err) {
-              console.error('Failed to clear old availability block', item.id, err);
-            }
-          }
-        }
+        // No trailing slash: the API sets redirect_slashes=False, so
+        // `/professors/{id}/` 404s instead of matching `/professors/{id}`.
+        newUser = await api.put(`/professors/${editingTeacher.id}`, submissionData);
       } else {
-        newUser = await api.post('/professors/', submissionData);
+        newUser = await api.post('/professors', submissionData);
       }
 
-      // Save the new set of unavailability records
-      if (finalUnavailability.length > 0) {
-        for (const u of finalUnavailability) {
-          try {
-            await api.post(
-              `/professors/${newUser.id}/unavailability`,
-              {
-                day_of_week: u.day_of_week,
-                start_time: u.start_time,
-                end_time: u.end_time
-              }
-            );
-          } catch (err) {
-            console.error('Failed to save unavailability block', u, err);
-            addToast(`Failed to save unavailability for ${u.day_of_week}`, 'error');
-          }
-        }
-      }
+      // One atomic request replaces the whole availability set (DEP-3). This
+      // used to be a DELETE per existing block followed by a POST per new one:
+      // N+1 sequential calls where a mid-flight failure left the faculty
+      // member with partial availability and only a console error to show it
+      // (FLOW-03).
+      await api.put(
+        `/professors/${newUser.id}/unavailability`,
+        finalUnavailability.map((u) => ({
+          day_of_week: u.day_of_week,
+          start_time: u.start_time,
+          end_time: u.end_time,
+        }))
+      );
 
       fetchTeachers();
       handleCloseModal();
-      addToast(`Teacher ${editingTeacher ? 'updated' : 'added'} successfully`, 'success');
+      addToast(`${formData.name.trim()} ${editingTeacher ? 'updated' : 'added'}.`, 'success');
     } catch (error) {
       addToast(error.message || 'Error saving teacher', 'error');
+    } finally {
+      setIsSavingTeacher(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this teacher?')) {
-      try {
-        await api.delete(`/professors/${id}`);
-        fetchTeachers();
-        addToast('Teacher removed successfully', 'success');
-      } catch (error) {
-        addToast(error.message || 'Error removing teacher', 'error');
-      }
-    }
+  // HEU-04: a native confirm cannot name who is being removed or say what goes
+  // with them. Deleting a faculty member also drops their availability and
+  // subject assignments (professors.delete_professor), which the old prompt
+  // never mentioned.
+  const handleDelete = (id) => {
+    const t = teachers.find((x) => x.id === id);
+    setDeleteTeacherTarget(t || { id, name: 'this faculty member' });
   };
 
-  const handleRemoveUnavailability = async (blockId) => {
+  const confirmDeleteTeacher = async () => {
+    if (!deleteTeacherTarget) return;
+    setIsDeletingTeacher(true);
     try {
-      await api.delete(`/professors/${selectedTeacher.id}/unavailability/${blockId}`);
-      setUnavailability(prev => prev.filter(b => b.id !== blockId));
-
-      setTeachers(prev => prev.map(t => {
-        if (t.id === selectedTeacher.id) {
-          return { ...t, unavailability: (t.unavailability || []).filter(b => b.id !== blockId) };
-        }
-        return t;
-      }));
-
-      addToast('Blocked time removed', 'success');
+      await api.delete(`/professors/${deleteTeacherTarget.id}`);
+      addToast(`${deleteTeacherTarget.name} removed.`, 'success');
+      setDeleteTeacherTarget(null);
+      fetchTeachers();
     } catch (error) {
-      addToast('Failed to remove blocked time', 'error');
+      addToast(error.message || 'Could not remove the faculty member.', 'error');
+    } finally {
+      setIsDeletingTeacher(false);
     }
   };
 
-  const handleAddUnavailability = async (e) => {
-    e.preventDefault();
-    try {
-      const data = await api.post(`/professors/${selectedTeacher.id}/unavailability`, newUnavail);
-      setUnavailability(prev => [...prev, data]);
+  // `handleAddUnavailability` and `handleRemoveUnavailability` lived here. They
+  // were the per-block add/delete calls from the old read-only availability
+  // list; the week grid replaced them with a single atomic PUT (DEP-3) and
+  // neither had a caller afterwards.
 
-      setTeachers(prev => prev.map(t => {
-        if (t.id === selectedTeacher.id) {
-          return { ...t, unavailability: [...(t.unavailability || []), data] };
-        }
-        return t;
-      }));
+  // Load standing is judged in hours against the term's required teaching load,
+  // not against a per-faculty unit cap. Underload is worth surfacing alongside
+  // overload -- a chair has to fill it before the term starts, and the old
+  // single "over cap" count could not say so.
+  const overloaded = teachers.filter(
+    (t) => t.load_status === 'OVERLOAD' || t.exceeds_part_time_ceiling
+  ).length;
 
-      setIsAddingUnavailability(false);
-      addToast('Blocked time added', 'success');
-    } catch (error) {
-      addToast('Failed to add blocked time', 'error');
-    }
-  };
+  // NOT_PLOTTED is deliberately excluded. Those members also read 0.00 hrs, but
+  // counting them as underloaded turns "the timetable has not been generated"
+  // into an alarm about faculty and hides the real underloads among them.
+  const underloaded = teachers.filter((t) => t.load_status === 'UNDERLOAD').length;
+  const notPlotted = teachers.filter((t) => t.load_status === 'NOT_PLOTTED').length;
+  const noActiveTerm = teachers.length > 0 && teachers.every((t) => t.load_status === 'NO_ACTIVE_TERM');
+
+  const loadNote = noActiveTerm
+    ? 'No active term — set one in Academic Semesters to see teaching load.'
+    : [
+        overloaded > 0 ? `${pluralize(overloaded, 'member')} on overload` : null,
+        underloaded > 0 ? `${pluralize(underloaded, 'member')} underloaded` : null,
+        notPlotted > 0 ? `${pluralize(notPlotted, 'member')} awaiting generation` : null,
+      ].filter(Boolean).join(' · ') || undefined;
+
+  // The 40-hour week depends only on the term and employment type, so it is the
+  // same table for every Full-Time member and is shown once rather than
+  // repeated down the page. Taken off the first Full-Time record because that
+  // is where the backend already resolves the active term.
+  const workWeek = teachers.find((t) => t.work_week)?.work_week || null;
+
+  const rowActions = (t) =>
+    canManageFaculty ? (
+      <div className="flex gap-1 justify-end">
+        <AtlasButton size="row" variant="ghost" onClick={() => handleOpenModal(t)} aria-label={`Edit ${t.name}`}>
+          Edit
+        </AtlasButton>
+        <AtlasButton
+          size="row"
+          variant="ghost"
+          onClick={() => handleDelete(t.id)}
+          aria-label={`Remove ${t.name}`}
+          className="text-sem-conflict hover:bg-sem-conflict-bg"
+        >
+          Remove
+        </AtlasButton>
+      </div>
+    ) : null;
 
   return (
-    <div className="p-8 animate-in fade-in duration-700">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-orange-100 p-2.5 rounded-xl shadow-sm">
-              <UserCheck className="w-6 h-6 text-orange-700" />
-            </div>
-            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Manage Professors</h2>
-          </div>
-          <p className="text-slate-500 text-base font-medium">Configure faculty profiles, track teaching loads, and manage schedule constraints.</p>
+    <Page>
+      <PageHeader
+        title="Faculty"
+        meta={
+          isLoading
+            ? 'Loading your college’s faculty…'
+            : `${pluralize(teachers.length, 'member')} · ${pluralize(
+                teachers.reduce((n, t) => n + (t.subject_offerings?.length || 0), 0), 'subject'
+              )} assigned`
+        }
+        note={loadNote}
+        actions={
+          canManageFaculty ? (
+            <AtlasButton icon={Plus} onClick={() => handleOpenModal()}>Add Faculty</AtlasButton>
+          ) : (
+            <AtlasButton restricted restrictionReason={restrictionReason('program_chair', 'add faculty')}>
+              Add Faculty
+            </AtlasButton>
+          )
+        }
+      />
+
+      {/* Without an active term there is no required load and no schedule to
+          measure, so every figure on this page would be blank with nothing to
+          say why. Name the cause and the fix instead of letting the work-week
+          panel silently vanish. */}
+      {noActiveTerm && (
+        <div className="glass rounded-panel p-4 mb-4 rise-flat">
+          <p className="font-ui text-body text-atlas-ink">No active term.</p>
+          <p className="font-ui text-caption text-atlas-slate mt-1">
+            Teaching load is measured against the active term’s required hours —
+            24 hrs/week in the 1st term, 20 in the 2nd and 3rd. Set an active
+            semester in Academic Semesters and the load figures will appear here.
+          </p>
         </div>
+      )}
 
-        <button
-          onClick={() => handleOpenModal()}
-          className="bg-green-700 hover:bg-green-800 text-white px-6 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
-        >
-          <Plus className="w-4 h-4 mr-2" /> Add Professor
-        </button>
-      </div>
+      {/* The Full-Time 40-hour week. Worth stating because 40 hours is the
+          total duty week, not 40 teaching hours -- the distinction the old
+          units-based meter gave a chair no way to see. */}
+      {workWeek && (
+        <div className="glass rounded-panel p-4 mb-4 rise-flat">
+          <p className="font-ui text-micro uppercase text-atlas-slate mb-2">
+            Full-time work week · {workWeek.term} term
+          </p>
+          <dl className="flex flex-wrap gap-x-8 gap-y-2">
+            {[
+              ['Teaching', workWeek.teaching_hours],
+              ['Off-campus', workWeek.off_campus_hours],
+              ['Consultation', workWeek.consultation_hours],
+              ['Office hours', workWeek.office_hours],
+              ['Total', workWeek.total_hours],
+            ].map(([label, value]) => (
+              <div key={label} className="flex flex-col">
+                <dt className="font-ui text-caption text-atlas-slate">{label}</dt>
+                <dd className="font-data text-table tabular-nums text-atlas-ink">
+                  {formatHours(value)} hrs
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="font-ui text-caption text-atlas-slate mt-2">
+            REG. hours come from the plotted schedule — class duration × meetings per week.
+            Part-time faculty have no required figure and teach under{' '}
+            {formatHours(PART_TIME_CEILING_HOURS)} hrs/week.
+          </p>
+        </div>
+      )}
 
-      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden p-2">
-        <Table
+      {/* Table from 1024 up. */}
+      <div className="hidden lg:block rise-flat">
+        <DataTable
+          caption={`Faculty, ${pluralize(teachers.length, 'member')}`}
           columns={columns}
-          data={teachers}
+          rows={teachers}
           isLoading={isLoading}
-          onEdit={handleOpenModal}
-          onDelete={handleDelete}
+          emptyTitle="No faculty yet."
+          emptyBody="Add the professors in your college before generating a timetable."
+          emptyAction={
+            canManageFaculty ? (
+              <AtlasButton icon={Plus} onClick={() => handleOpenModal()}>Add Faculty</AtlasButton>
+            ) : null
+          }
+          rowActions={canManageFaculty ? rowActions : undefined}
         />
       </div>
 
-      <Modal
+      {/* Card list below 1024. A six-column table cannot be read on a phone,
+          and the alternative to a card layout is a horizontal scrollbar
+          (ux-guidelines: Table Handling / Horizontal Scroll). */}
+      <div className="lg:hidden flex flex-col gap-3">
+        {isLoading && (
+          <p className="font-ui text-body text-atlas-slate" aria-busy="true">Loading…</p>
+        )}
+        {!isLoading && teachers.length === 0 && (
+          <EmptyState
+            icon={UsersIcon}
+            title="No faculty yet."
+            body="Add the professors in your college before generating a timetable."
+          />
+        )}
+        {!isLoading && teachers.map((t) => {
+          const isFullTime = t.type === 'full_time' || t.type === 'Full-Time';
+          return (
+            <div key={t.id} className="glass rounded-panel p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-ui text-body text-atlas-ink truncate">{t.name}</p>
+                  <p className="font-ui text-caption text-atlas-slate mt-0.5">
+                    {isFullTime ? 'Full-time' : 'Part-time'} · {pluralize(t.subject_offerings?.length || 0, 'subject')}
+                  </p>
+                </div>
+                <span className="flex flex-col items-end gap-1 shrink-0">
+                  <LoadMeter
+                    used={t.reg_hours || 0}
+                    required={t.required_hours}
+                    status={t.load_status}
+                    ceiling={t.part_time_ceiling_hours}
+                    overCeiling={t.exceeds_part_time_ceiling}
+                  />
+                  <LoadStatusBadge status={t.load_status} overCeiling={t.exceeds_part_time_ceiling} />
+                </span>
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/45 flex items-center justify-between gap-3">
+                <AvailabilityMarks unavailability={t.unavailability} />
+                <span className="flex gap-1 shrink-0">
+                  <AtlasButton size="row" variant="ghost" onClick={() => handleOpenSubjectModal(t)}>Subjects</AtlasButton>
+                  <AtlasButton size="row" variant="ghost" onClick={() => handleOpenAvailability(t)}>Hours</AtlasButton>
+                </span>
+              </div>
+              {canManageFaculty && (
+                <div className="mt-2 flex justify-end gap-1">
+                  <AtlasButton size="row" variant="ghost" onClick={() => handleOpenModal(t)}>Edit</AtlasButton>
+                  <AtlasButton
+                    size="row"
+                    variant="ghost"
+                    onClick={() => handleDelete(t.id)}
+                    className="text-sem-conflict hover:bg-sem-conflict-bg"
+                  >
+                    Remove
+                  </AtlasButton>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <AtlasDialog
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={editingTeacher ? 'Edit Teacher Profile' : 'Add New Faculty Member'}
-        maxWidth="sm:max-w-3xl"
+        title={editingTeacher ? `Edit ${editingTeacher.name}` : 'Add Faculty'}
+        description="Their teaching cap and unavailable hours both constrain generation."
+        dismissible={!isSavingTeacher}
+        footer={
+          <>
+            <AtlasButton variant="ghost" onClick={handleCloseModal} disabled={isSavingTeacher}>
+              Cancel
+            </AtlasButton>
+            <AtlasButton type="submit" form="faculty-form" loading={isSavingTeacher}>
+              {editingTeacher ? 'Save Changes' : 'Add Faculty'}
+            </AtlasButton>
+          </>
+        }
       >
-        <form onSubmit={handleSubmit} className="space-y-8 max-h-[80vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
-          {/* Profile Section */}
-          <div className="grid grid-cols-2 gap-6">
-            <div className="col-span-2">
-              <label htmlFor="teacher_full_name" className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Full Name</label>
-              <input
-                id="teacher_full_name"
-                name="teacher_full_name"
-                type="text"
+        {/* noValidate on purpose. The browser's own bubble fires before our
+            handler, is a transient tooltip rather than a message under the
+            field, and cannot be styled — so it both pre-empts and contradicts
+            the inline errors below (ux-guidelines: Error Placement). */}
+        <form id="faculty-form" noValidate onSubmit={handleSubmit} className="flex flex-col gap-6">
+          {/* Profile. Fields come from the shared Field components, so labels
+              are bound to their inputs, "Required" is stated rather than
+              implied by an asterisk, and an error appears under the field it
+              belongs to instead of only in a toast. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="md:col-span-2">
+              <TextInput
+                label="Full name"
                 required
                 placeholder="e.g. Juan Dela Cruz"
-                className="w-full px-5 py-4 bg-slate-50 border-none focus:ring-2 focus:ring-green-600 rounded-2xl transition-all font-bold text-slate-700 placeholder:text-slate-300 placeholder:font-medium"
+                hint="First name, then surname"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                error={formErrors.name}
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  if (formErrors.name) setFormErrors({ ...formErrors, name: undefined });
+                }}
+                onBlur={() => setFormErrors((prev) => ({ ...prev, name: validateName(formData.name) }))}
               />
             </div>
-            <div>
-              <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Faculty Type</label>
-              <div className="flex bg-slate-50 p-1.5 rounded-2xl gap-1.5">
-                {['full_time', 'part_time'].map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, type })}
-                    className={`flex-1 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${formData.type === type
-                        ? 'bg-white text-green-700 shadow-sm'
-                        : 'text-slate-400 hover:text-slate-600'
-                      }`}
-                  >
-                    {type.replace('_', ' ')}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label htmlFor="teacher_max_units" className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Max Units</label>
-              <input
-                id="teacher_max_units"
-                name="teacher_max_units"
-                type="number"
-                required
-                className="w-full px-5 py-4 bg-slate-50 border-none focus:ring-2 focus:ring-green-600 rounded-2xl transition-all font-bold text-slate-700"
-                value={formData.max_units}
-                onChange={(e) => setFormData({ ...formData, max_units: e.target.value })}
-              />
-            </div>
+
+            <RadioGroup
+              label="Employment"
+              required
+              name="faculty-type"
+              value={formData.type}
+              onChange={(v) => setFormData({ ...formData, type: v })}
+              options={[
+                {
+                  value: 'full_time',
+                  label: 'Full-time',
+                  hint: 'Required load set by the term: 24 hrs 1st, 20 hrs 2nd and 3rd',
+                },
+                {
+                  value: 'part_time',
+                  label: 'Part-time',
+                  hint: 'No required load; teaches under 20 hrs/week',
+                },
+              ]}
+            />
+
+            {/* Units are academic information, not the load basis -- the
+                required teaching load comes from the term and employment type
+                and is not editable here. This field is kept because curriculum
+                planning still counts units, and the hint no longer claims it
+                governs generation, which it no longer does. */}
+            <NumberInput
+              label="Maximum subject units"
+              suffix="units"
+              hint="Optional, 1–30. Curriculum bookkeeping only — it does not cap teaching load."
+              min={1}
+              max={30}
+              value={formData.max_units}
+              error={formErrors.max_units}
+              onChange={(e) => {
+                setFormData({ ...formData, max_units: e.target.value });
+                if (formErrors.max_units) setFormErrors({ ...formErrors, max_units: undefined });
+              }}
+              onBlur={() => setFormErrors((prev) => ({ ...prev, max_units: validateUnits(formData.max_units) }))}
+            />
           </div>
 
-          {/* Availability Section */}
-          <div className="space-y-6 pt-2">
-            <label className="block text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">Time Unavailable</label>
+          {/* Unavailable hours.
+              This had three representations of one fact: day toggles, a panel
+              per selected day, and a "Selected Unavailable Times" chip list
+              repeating what the panels already said. Two now — the toggle row
+              and one row per chosen day — because the third was a summary of
+              something already on screen.
+              The tint is the conflict token, matching the day marks in the
+              table, so "unavailable" looks the same wherever it appears. */}
+          <fieldset className="pt-2">
+            <legend className="font-ui text-micro uppercase text-atlas-slate mb-3">
+              Unavailable hours
+            </legend>
 
-            {/* Day Toggle Buttons */}
-            <div className="flex flex-wrap gap-3">
-              {DAYS.map(day => {
+            <div className="flex flex-wrap gap-2">
+              {DAYS.map((day) => {
                 const isSelected = selectedDays.includes(day);
                 return (
                   <button
                     key={day}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => {
                       if (isSelected) {
-                        setSelectedDays(selectedDays.filter(d => d !== day));
+                        setSelectedDays(selectedDays.filter((d) => d !== day));
                       } else {
                         setSelectedDays([...selectedDays, day]);
                         if (!customRanges[day]) {
@@ -596,10 +898,12 @@ export default function Teachers() {
                         }
                       }
                     }}
-                    className={`px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest border transition-all ${isSelected
-                        ? 'bg-rose-500 border-rose-500 text-white shadow-lg shadow-rose-200 scale-105'
-                        : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
-                      }`}
+                    className={`h-10 px-4 rounded-control font-ui text-body border
+                                transition-colors duration-state ease-standard ${focusRing} ${
+                      isSelected
+                        ? 'bg-sem-conflict-bg border-sem-conflict/40 text-sem-conflict font-medium'
+                        : 'glass text-atlas-slate hover:text-atlas-ink'
+                    }`}
                   >
                     {day}
                   </button>
@@ -607,404 +911,303 @@ export default function Teachers() {
               })}
             </div>
 
-            {/* Time Range Panels */}
-            {selectedDays.length > 0 && (
-              <div className="space-y-4 animate-in slide-in-from-top-4 duration-500">
-                <p className="text-xs font-bold text-slate-500 italic">Set time ranges per selected day (optional):</p>
+            <p className="font-ui text-caption text-atlas-slate mt-2">
+              {selectedDays.length === 0
+                ? 'Available all week. Pick a day to mark it unavailable.'
+                : 'Whole day unless you set specific hours below.'}
+            </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {selectedDays.map(day => {
+            {selectedDays.length > 0 && (
+              <div className="mt-4 rounded-panel border border-atlas-line overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-atlas-canvas border-b border-atlas-line">
+                  <span className="font-ui text-micro uppercase text-atlas-slate">
+                    {pluralize(selectedDays.length, 'day')} unavailable
+                  </span>
+                  <AtlasButton
+                    size="row"
+                    variant="ghost"
+                    icon={Trash2}
+                    onClick={() => { setSelectedDays([]); setCustomRanges({}); }}
+                    className="text-sem-conflict hover:bg-sem-conflict-bg"
+                  >
+                    Clear all
+                  </AtlasButton>
+                </div>
+
+                <ul className="divide-y divide-atlas-line">
+                  {DAYS.filter((d) => selectedDays.includes(d)).map((day) => {
                     const range = customRanges[day] || { start: '07:30', end: '17:30', active: false };
                     return (
-                      <div
-                        key={day}
-                        className={`p-5 rounded-[2rem] border transition-all ${range.active ? 'bg-white border-blue-200 shadow-md ring-1 ring-blue-50' : 'bg-slate-50/50 border-slate-100 opacity-80'
-                          }`}
-                      >
-                        <div className="flex items-center justify-between mb-4">
-                          <span className={`font-black text-sm uppercase tracking-tighter ${range.active ? 'text-blue-600' : 'text-slate-400'}`}>
-                            {day}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedDays(selectedDays.filter(d => d !== day))}
-                            className="text-slate-300 hover:text-rose-500 transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
+                      <li key={day} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                        <span className="font-ui text-body text-atlas-ink w-12 shrink-0">{day}</span>
 
-                        <label className="flex items-center gap-3 cursor-pointer group mb-3">
-                          <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${range.active ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300 group-hover:border-slate-400'
-                            }`}>
-                            {range.active && <Check className="w-3.5 h-3.5 text-white stroke-[4]" />}
-                          </div>
+                        <label className="flex items-center gap-2.5 cursor-pointer shrink-0">
                           <input
                             type="checkbox"
-                            className="hidden"
                             checked={range.active}
                             onChange={(e) => setCustomRanges({
                               ...customRanges,
-                              [day]: { ...range, active: e.target.checked }
+                              [day]: { ...range, active: e.target.checked },
                             })}
+                            className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
                           />
-                          <span className={`text-xs font-bold ${range.active ? 'text-slate-700' : 'text-slate-400'}`}>Use specific time range</span>
+                          <span className="font-ui text-caption text-atlas-slate">Specific hours</span>
                         </label>
 
-                        {!range.active ? (
-                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-8">
-                            Default: {formatTime('07:30')} – {formatTime('17:30')}
-                          </p>
+                        {range.active ? (
+                          <span className="flex items-center gap-2 flex-1 min-w-0">
+                            <label className="sr-only" htmlFor={`unavail-${day}-from`}>
+                              {day} unavailable from
+                            </label>
+                            <input
+                              id={`unavail-${day}-from`}
+                              type="time"
+                              value={range.start}
+                              onChange={(e) => setCustomRanges({
+                                ...customRanges, [day]: { ...range, start: e.target.value },
+                              })}
+                              className={`h-10 px-3 rounded-field font-data text-table text-atlas-ink
+                                          bg-white/70 border border-atlas-control ${focusRing}`}
+                            />
+                            <span className="font-ui text-caption text-atlas-slate">to</span>
+                            <label className="sr-only" htmlFor={`unavail-${day}-to`}>
+                              {day} unavailable until
+                            </label>
+                            <input
+                              id={`unavail-${day}-to`}
+                              type="time"
+                              value={range.end}
+                              onChange={(e) => setCustomRanges({
+                                ...customRanges, [day]: { ...range, end: e.target.value },
+                              })}
+                              className={`h-10 px-3 rounded-field font-data text-table text-atlas-ink
+                                          bg-white/70 border border-atlas-control ${focusRing}`}
+                            />
+                          </span>
                         ) : (
-                          <div className="grid grid-cols-2 gap-3 pl-8 animate-in fade-in duration-300">
-                            <div>
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] block mb-1">From</span>
-                              <div className="relative">
-                                <Clock className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" />
-                                <input
-                                  type="time"
-                                  className="w-full pl-9 pr-3 py-2 bg-blue-50/50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-1 focus:ring-blue-500"
-                                  value={range.start}
-                                  onChange={(e) => setCustomRanges({
-                                    ...customRanges,
-                                    [day]: { ...range, start: e.target.value }
-                                  })}
-                                />
-                              </div>
-                            </div>
-                            <div>
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] block mb-1">To</span>
-                              <div className="relative">
-                                <Clock className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" />
-                                <input
-                                  type="time"
-                                  className="w-full pl-9 pr-3 py-2 bg-blue-50/50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-1 focus:ring-blue-500"
-                                  value={range.end}
-                                  onChange={(e) => setCustomRanges({
-                                    ...customRanges,
-                                    [day]: { ...range, end: e.target.value }
-                                  })}
-                                />
-                              </div>
-                            </div>
-                          </div>
+                          <span className="flex-1 font-ui text-caption text-atlas-slate tabular-nums">
+                            All day · {formatTime('07:30')} – {formatTime('17:30')}
+                          </span>
                         )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
-            {/* Selected Summary Section */}
-            {selectedDays.length > 0 && (
-              <div className="pt-6 border-t border-slate-100">
-                <div className="flex justify-between items-center mb-4">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Selected Unavailable Times</h4>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedDays([]);
-                      setCustomRanges({});
-                    }}
-                    className="text-[10px] font-black text-rose-500 uppercase tracking-widest hover:underline flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3 h-3" /> Clear All
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {selectedDays.map(day => {
-                    const range = customRanges[day] || { start: '07:30', end: '17:30', active: false };
-                    return (
-                      <div
-                        key={day}
-                        className={`flex items-center justify-between px-4 py-2.5 rounded-full border ${range.active
-                            ? 'bg-blue-50 border-blue-200 text-blue-700'
-                            : 'bg-rose-50 border-rose-100 text-rose-700'
-                          }`}
-                      >
-                        <span className="text-[10px] font-black uppercase tracking-widest">
-                          {day}: {range.active ? `${formatTime(range.start)} – ${formatTime(range.end)}` : `${formatTime('07:30')} – ${formatTime('17:30')}`}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedDays(selectedDays.filter(d => d !== day))}
-                          className="hover:scale-110 transition-transform"
+                        <AtlasButton
+                          size="row"
+                          variant="ghost"
+                          icon={X}
+                          onClick={() => setSelectedDays(selectedDays.filter((d) => d !== day))}
+                          aria-label={`Make ${day} available again`}
+                          className="shrink-0 ml-auto"
                         >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
+                          Remove
+                        </AtlasButton>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </div>
             )}
-          </div>
+          </fieldset>
 
-          {/* Footer Actions */}
-          <div className="pt-10 flex justify-end items-center gap-8">
-            <button
-              type="button"
-              onClick={handleCloseModal}
-              className="text-[11px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-[0.25em] transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="bg-green-700 hover:bg-green-800 text-white px-8 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
-            >
-              {editingTeacher ? 'Update Professor' : 'Add Professor'}
-            </button>
-          </div>
+          {/* The submit and cancel buttons now live in the Dialog's own footer,
+              so they sit outside the scrolling body and stay reachable on a
+              short viewport. */}
         </form>
-      </Modal>
+      </AtlasDialog>
 
-      <Modal
+      {/* Availability. Was a read-only two-column list of blocked windows, with
+          editing only possible from the teacher form via a day dropdown and two
+          time fields. It is now a direct-manipulation week grid on the same time
+          axis as the schedule, saved in one request (DEP-3). */}
+      <AtlasConfirmDialog
+        isOpen={Boolean(deleteTeacherTarget)}
+        onClose={() => setDeleteTeacherTarget(null)}
+        onConfirm={confirmDeleteTeacher}
+        title={`Remove ${deleteTeacherTarget?.name || ''}?`}
+        description="Their availability and subject assignments are removed with them. Classes already scheduled are retained."
+        confirmLabel="Remove Faculty Member"
+        destructive
+        loading={isDeletingTeacher}
+      />
+
+      <AtlasDialog
         isOpen={isAvailabilityModalOpen}
         onClose={() => setIsAvailabilityModalOpen(false)}
-        title={`Availability: ${selectedTeacher?.name}`}
+        title={`Availability — ${selectedTeacher?.name || ''}`}
+        description="Marked time is when this faculty member cannot teach. The scheduler will not place classes there."
+        dismissible={!isSavingAvailability}
+        footer={
+          <>
+            <AtlasButton variant="ghost" onClick={() => setIsAvailabilityModalOpen(false)} disabled={isSavingAvailability}>
+              Cancel
+            </AtlasButton>
+            {canManageFaculty ? (
+              <AtlasButton onClick={handleSaveAvailability} loading={isSavingAvailability}>
+                Save Availability
+              </AtlasButton>
+            ) : (
+              <AtlasButton restricted restrictionReason={restrictionReason('program_chair', 'set faculty availability')}>
+                Save Availability
+              </AtlasButton>
+            )}
+          </>
+        }
       >
-        <div className="space-y-6">
-          <div className="bg-amber-50/50 border border-amber-200 p-5 rounded-3xl flex items-start space-x-4">
-            <div className="bg-white p-2 rounded-xl shadow-sm">
-              <Clock className="w-5 h-5 text-amber-600" />
-            </div>
-            <p className="text-sm text-amber-900 font-medium leading-relaxed">
-              Define time windows where this faculty is <span className="font-black text-amber-700">unavailable</span>. The AI Scheduling Engine will strictly avoid assigning classes during these hours.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] bg-emerald-50 px-3 py-1 rounded-full">Available Days</h4>
-                <div className="h-px flex-1 bg-emerald-100"></div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2">
-                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => {
-                  const dayCode = day.substring(0, 3);
-                  const isBlocked = unavailability.some(b => b.day_of_week === dayCode);
-                  if (isBlocked) return null;
-
-                  return (
-                    <div key={day} className="flex items-center p-3 bg-emerald-50/30 border border-emerald-100 rounded-2xl group transition-all">
-                      <div className="w-8 h-8 bg-white text-emerald-600 rounded-xl flex items-center justify-center font-black text-xs shadow-sm border border-emerald-100 mr-3">
-                        {dayCode.toUpperCase()}
-                      </div>
-                      <span className="text-sm font-bold text-emerald-900">{day}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h4 className="text-[10px] font-black text-rose-600 uppercase tracking-[0.2em] bg-rose-50 px-3 py-1 rounded-full">Unavailable (Blocked)</h4>
-                <div className="h-px flex-1 bg-rose-100"></div>
-              </div>
-
-              {unavailability.length === 0 ? (
-                <div className="py-8 text-center border-2 border-dashed border-slate-100 rounded-[2rem]">
-                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">No blocked times set</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {unavailability.map((block, idx) => (
-                    <div key={idx} className="group flex items-center justify-between p-3 bg-white border border-rose-100 rounded-2xl shadow-sm transition-all">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-rose-50 text-rose-700 rounded-xl flex items-center justify-center font-black text-[10px] border border-rose-100">
-                          {block.day_of_week?.substring(0, 3).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-xs font-black text-slate-900 leading-none mb-1">{block.day_of_week}</p>
-                          <p className="text-[10px] text-slate-600 font-bold tracking-tight">
-                            {formatTime(block.start_time)} — {formatTime(block.end_time)}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveUnavailability(block.id)}
-                        className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </Modal>
+        <UnavailabilityGrid
+          cells={availabilityCells}
+          onChange={setAvailabilityCells}
+          disabled={!canManageFaculty || isSavingAvailability}
+        />
+      </AtlasDialog>
       {/* Subject Offerings Modal */}
-      <Modal
+      <AtlasDialog
         isOpen={isSubjectModalOpen}
-        onClose={() => setIsSubjectModalOpen(false)}
-        title={`Assign Subjects: ${selectedTeacherForSubjects?.name}`}
-        maxWidth="max-w-4xl"
+        onClose={() => { setIsSubjectModalOpen(false); fetchTeachers(); }}
+        title={`Subjects — ${selectedTeacherForSubjects?.name || ''}`}
+        description={
+          subjectScope
+            ? `Your role assigns ${subjectScope.assigns} only. Changes save as you tick.`
+            : 'Changes save as you tick.'
+        }
+        footer={
+          <AtlasButton onClick={() => { setIsSubjectModalOpen(false); fetchTeachers(); }}>
+            Done
+          </AtlasButton>
+        }
       >
-        <div className="space-y-6 max-h-[80vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
+        <div className="flex flex-col gap-5">
+          {isLoadingSubjects && (
+            <p className="py-10 text-center font-ui text-body text-atlas-slate" aria-busy="true">
+              Loading subjects…
+            </p>
+          )}
 
-          {/* Filters */}
-          <div className="flex gap-3 mb-4">
-            <div className="flex-[2]">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Search Subjects</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-slate-400" />
+          {/* A draft curriculum is one the administrator is still revising, so
+              nothing in it can be committed to a teaching load yet. The whole
+              assignment surface is withheld rather than shown and refused. */}
+          {!isLoadingSubjects && !hasPublishedCurriculum && (
+            <EmptyState
+              tone="warning"
+              title="No published curriculum for your college."
+              body={`Subjects cannot be assigned until an administrator publishes your curriculum. Until then there is nothing to commit ${selectedTeacherForSubjects?.name || 'this faculty member'} to.`}
+            />
+          )}
+
+          {!isLoadingSubjects && hasPublishedCurriculum && (
+            <>
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="relative flex-1 min-w-0">
+                  <Search
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <label htmlFor="subject-search" className="sr-only">Search subjects</label>
+                  <input
+                    id="subject-search"
+                    type="search"
+                    value={subjectSearchQuery}
+                    onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                    placeholder="Search by code or name"
+                    className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
+                                bg-white/70 backdrop-blur-sm border border-atlas-control
+                                placeholder:text-atlas-disabled hover:border-atlas-slate
+                                transition-colors duration-state ease-standard ${focusRing}`}
+                  />
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search by code or name..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                  value={subjectSearchQuery}
-                  onChange={(e) => setSubjectSearchQuery(e.target.value)}
-                />
+                <div className="flex gap-3">
+                  <SelectInput
+                    label="Term"
+                    className="w-36"
+                    value={semesterFilter}
+                    onChange={(e) => setSemesterFilter(e.target.value)}
+                    options={[
+                      { value: '1st', label: '1st Term' },
+                      { value: '2nd', label: '2nd Term' },
+                      { value: '3rd', label: '3rd Term' },
+                    ]}
+                  />
+                  <SelectInput
+                    label="Type"
+                    className="w-40"
+                    value={courseCodeFilter}
+                    onChange={(e) => setCourseCodeFilter(e.target.value)}
+                    options={[
+                      { value: 'All', label: 'All types' },
+                      { value: 'A', label: 'Lecture only' },
+                      { value: 'B', label: 'Lab only' },
+                      { value: 'C', label: 'Lecture + lab' },
+                    ]}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Subject Scope / Role</label>
-              <select
-                className="w-full px-3 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                value={subjectCategoryFilter}
-                onChange={(e) => setSubjectCategoryFilter(e.target.value)}
-              >
-                <option value="all">All Subjects</option>
-                <option value="major">Major Subjects (Program Chair)</option>
-                <option value="gened">General Education (Coordinator)</option>
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Semester</label>
-              <select
-                className="w-full px-3 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                value={semesterFilter}
-                onChange={(e) => setSemesterFilter(e.target.value)}
-              >
-                <option value="1st">1st Semester</option>
-                <option value="2nd">2nd Semester</option>
-                <option value="3rd">3rd Semester</option>
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Course Type</label>
-              <select
-                className="w-full px-3 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-green-500"
-                value={courseCodeFilter}
-                onChange={(e) => setCourseCodeFilter(e.target.value)}
-              >
-                <option value="All">All Types</option>
-                <option value="A">Lecture Only</option>
-                <option value="B">Lab Only</option>
-                <option value="C">Combination</option>
-              </select>
-            </div>
-          </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="bg-slate-50">
-                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest w-12 text-center">Assign</th>
-                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Code</th>
-                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Subject Name</th>
-                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Category</th>
-                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest">Type</th>
-                  <th className="px-5 py-4 font-black text-slate-400 text-[10px] uppercase tracking-widest text-center">Units</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {curriculumSubjects.filter(sub => {
-                  const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
-                  let matchType = true;
-                  if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
-                  else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
-                  else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
-
-                  let matchCategory = true;
-                  if (subjectCategoryFilter === 'major') matchCategory = sub.is_major;
-                  else if (subjectCategoryFilter === 'gened') matchCategory = !sub.is_major;
-
-                  const searchLower = subjectSearchQuery.toLowerCase();
-                  const matchSearch = !subjectSearchQuery ||
-                    sub.code.toLowerCase().includes(searchLower) ||
-                    sub.name.toLowerCase().includes(searchLower);
-
-                  return matchSem && matchType && matchCategory && matchSearch;
-                }).sort((a, b) => {
-                  const aAssigned = teacherSubjects.some(ts => ts.curriculum_id === a.id);
-                  const bAssigned = teacherSubjects.some(ts => ts.curriculum_id === b.id);
-                  if (aAssigned && !bAssigned) return -1;
-                  if (!aAssigned && bAssigned) return 1;
-                  return a.code.localeCompare(b.code);
-                }).map(sub => {
-                  const isAssigned = teacherSubjects.some(ts => ts.curriculum_id === sub.id);
-                  return (
-                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-4 text-center">
-                        <input
-                          type="checkbox"
-                          checked={isAssigned}
-                          onChange={() => handleToggleSubject(sub)}
-                          className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-5 py-4 font-bold text-slate-900">{sub.code}</td>
-                      <td className="px-5 py-4 font-medium text-slate-600">{sub.name}</td>
-                      <td className="px-5 py-4">
-                        <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${sub.is_major ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
-                          {sub.is_major ? 'Major' : 'GenEd'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${sub.type === 'lecture' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
-                          {sub.type}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-center font-black text-slate-700">{sub.units}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-
-            {curriculumSubjects.filter(sub => {
-              const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
-              let matchType = true;
-              if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
-              else if (courseCodeFilter === 'B') matchType = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0);
-              else if (courseCodeFilter === 'C') matchType = sub.lec_units > 0 && sub.lab_units > 0;
-
-              let matchCategory = true;
-              if (subjectCategoryFilter === 'major') matchCategory = sub.is_major;
-              else if (subjectCategoryFilter === 'gened') matchCategory = !sub.is_major;
-
-              return matchSem && matchType && matchCategory;
-            }).length === 0 && (
-                <div className="p-8 text-center text-slate-500 font-bold text-sm">
-                  No subjects found for the selected filters.
+              <div className="rounded-panel border border-atlas-line overflow-hidden">
+                <div className="max-h-[45vh] overflow-y-auto">
+                  <table className="w-full border-collapse">
+                    <caption className="sr-only">
+                      Subjects that can be assigned, {pluralize(visibleSubjects.length, 'result')}
+                    </caption>
+                    <thead className="sticky top-0 z-sticky bg-white/90 backdrop-blur-md shadow-sticky">
+                      <tr>
+                        <th scope="col" className="w-12 px-4 py-3 font-ui text-micro uppercase text-atlas-slate">
+                          <span className="sr-only">Assigned</span>
+                        </th>
+                        {['Code', 'Subject', 'Type', 'Units'].map((h, i) => (
+                          <th
+                            key={h}
+                            scope="col"
+                            className={`px-4 py-3 font-ui text-micro uppercase text-atlas-slate whitespace-nowrap
+                                        ${i === 3 ? 'text-right' : 'text-left'}`}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleSubjects.map((sub) => {
+                        const isAssigned = teacherSubjects.some((ts) => ts.curriculum_id === sub.id);
+                        return (
+                          <tr
+                            key={sub.id}
+                            className={`border-t border-atlas-line transition-colors duration-state ease-standard
+                                        ${isAssigned ? 'bg-atlas-100/70' : 'hover:bg-atlas-50'}`}
+                          >
+                            <td className="px-4 py-2.5 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isAssigned}
+                                onChange={() => handleToggleSubject(sub)}
+                                aria-label={`Assign ${sub.code} ${sub.name}`}
+                                className={`w-4 h-4 cursor-pointer accent-[var(--atlas-green-700)] ${focusRing}`}
+                              />
+                            </td>
+                            <td className="px-4 py-2.5 font-data text-table text-atlas-ink whitespace-nowrap">
+                              {sub.code}
+                            </td>
+                            <td className="px-4 py-2.5 font-ui text-table text-atlas-ink">{sub.name}</td>
+                            <td className="px-4 py-2.5 font-ui text-table text-atlas-slate whitespace-nowrap">
+                              {sub.type === 'lab' ? 'Laboratory' : 'Lecture'}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-data text-table tabular-nums text-atlas-ink">
+                              {sub.units}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-          </div>
 
-          <div className="pt-4 flex justify-end">
-            <button
-              onClick={() => {
-                setIsSubjectModalOpen(false);
-                fetchTeachers();
-              }}
-              className="px-8 py-3 text-sm font-black text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-lg uppercase tracking-widest transition-all"
-            >
-              Done
-            </button>
-          </div>
+                {visibleSubjects.length === 0 && (
+                  <p className="p-8 text-center font-ui text-body text-atlas-slate">
+                    No {subjectScope ? subjectScope.assigns : 'subjects'} match the selected filters.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </div>
-      </Modal>
-
-    </div>
+      </AtlasDialog>
+    </Page>
   );
 }

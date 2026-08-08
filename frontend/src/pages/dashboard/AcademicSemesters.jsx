@@ -1,237 +1,319 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, CheckCircle2, Plus, Clock, RefreshCw, Trash2, Edit3 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, RefreshCw } from 'lucide-react';
 import { api } from '../../utils/api';
-import Modal from '../../components/Modal';
+import { useToast } from '../../components/ToastProvider';
+import Button from '../../components/ui/Button';
+import DataTable from '../../components/ui/DataTable';
+import RowMenu from '../../components/ui/RowMenu';
+import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
+import { TextInput, SelectInput } from '../../components/ui/Field';
+import Badge from '../../components/ui/Badge';
+import { pluralize } from '../../components/ui/tokens';
 
-export default function AcademicSemesters({ addToast }) {
+/**
+ * Terms. Phase 2 Screen 7.
+ *
+ * Carried the same Blocker as Users (HEU-01): the component declared
+ * ({ addToast }) but App.jsx renders it without props, so every action was
+ * silent. It also imported Edit3, held `editingSemester` state, and had a full
+ * edit branch in handleSubmit -- with no edit control rendered anywhere
+ * (HEU-07). Terms could only be created and deleted.
+ */
+
+/**
+ * Semester.term is stored as '1st' | '2nd' | '3rd semester'. The third value is
+ * inconsistent with the other two, and the create endpoint additionally accepts
+ * the long forms and maps them. Both directions are normalised here so the
+ * inconsistency stays in one place instead of leaking into the interface.
+ *
+ * The academic year runs on three numbered terms, so the third reads "3rd Term"
+ * like the other two. It was labelled "Midyear", which named a different thing
+ * — a short session between years — and did not match the curriculum sheets,
+ * where every programme lists a First, Second and Third Term. The stored enum
+ * value is untouched; only what the interface calls it has changed.
+ */
+const TERM_TO_LABEL = { '1st': '1st Term', '2nd': '2nd Term', '3rd semester': '3rd Term' };
+const TERM_OPTIONS = [
+  { value: '1st Semester', label: '1st Term' },
+  { value: '2nd Semester', label: '2nd Term' },
+  { value: '3rd Semester', label: '3rd Term' },
+];
+const termLabel = (t) => TERM_TO_LABEL[t] || t || '—';
+
+export default function AcademicSemesters() {
+  const { addToast } = useToast();
+
   const [semesters, setSemesters] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSemester, setEditingSemester] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  const [formData, setFormData] = useState({
-    academic_year: '2026-2027',
-    term: '1st Semester',
-    is_active: false
-  });
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ academic_year: '', term: '1st Semester' });
+  const [formErrors, setFormErrors] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [activateTarget, setActivateTarget] = useState(null);
+  const [isActivating, setIsActivating] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBlockedReason, setDeleteBlockedReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchSemesters = async () => {
-    setLoading(true);
+    setIsLoading(true);
+    setLoadError('');
     try {
       const data = await api.get('/semesters');
       setSemesters(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch semesters:', err);
-      if (addToast) addToast('Failed to load academic terms', 'error');
+      setSemesters([]);
+      setLoadError('Could not load academic terms.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchSemesters();
-  }, []);
+  /**
+   * Tell the shell to re-read the active term. Without this the context bar
+   * kept displaying the previous term after an admin switched it — the exact
+   * "working in the wrong term" failure that bar exists to prevent (IA-01).
+   */
+  const notifyTermChanged = () => window.dispatchEvent(new Event('atlas_term_changed'));
 
-  const handleSetActive = async (sem) => {
-    try {
-      await api.put(`/semesters/${sem.id}`, {
-        is_active: true
-      });
-      if (addToast) addToast(`Set active semester: ${sem.academic_year} (${sem.term})`, 'success');
-      fetchSemesters();
-    } catch (err) {
-      if (addToast) addToast(err.message || 'Failed to update active semester', 'error');
-    }
+  useEffect(() => { fetchSemesters(); }, []);
+
+  const activeTerm = useMemo(() => semesters.find((s) => s.is_active), [semesters]);
+
+  const openCreate = () => {
+    setEditing(null);
+    const year = new Date().getFullYear();
+    setForm({ academic_year: `${year}-${year + 1}`, term: '1st Semester' });
+    setFormErrors({});
+    setIsFormOpen(true);
   };
 
-  const handleOpenCreateModal = () => {
-    setEditingSemester(null);
-    setFormData({
-      academic_year: '2026-2027',
-      term: '1st Semester',
-      is_active: false
+  // HEU-07: this control never existed, though the code behind it did.
+  const openEdit = (sem) => {
+    setEditing(sem);
+    setForm({
+      academic_year: sem.academic_year || '',
+      term: TERM_OPTIONS.find((o) => TERM_TO_LABEL[sem.term] === o.label)?.value || '1st Semester',
     });
-    setIsModalOpen(true);
+    setFormErrors({});
+    setIsFormOpen(true);
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (!/^\d{4}-\d{4}$/.test(form.academic_year.trim())) {
+      errors.academic_year = 'Use the format 2026-2027.';
+    } else {
+      const [from, to] = form.academic_year.split('-').map(Number);
+      if (to !== from + 1) errors.academic_year = 'The second year must follow the first, as in 2026-2027.';
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validate()) return;
+    setIsSaving(true);
+    const payload = { academic_year: form.academic_year.trim(), term: form.term };
     try {
-      if (editingSemester) {
-        await api.put(`/semesters/${editingSemester.id}`, formData);
-        if (addToast) addToast('Semester updated successfully', 'success');
+      if (editing) {
+        await api.put(`/semesters/${editing.id}`, payload);
+        addToast(`${payload.academic_year} updated.`, 'success');
       } else {
-        await api.post('/semesters', formData);
-        if (addToast) addToast('New academic semester created successfully', 'success');
+        await api.post('/semesters', payload);
+        addToast(`${payload.academic_year} added.`, 'success');
       }
-      setIsModalOpen(false);
+      setIsFormOpen(false);
+      fetchSemesters();
+      // Renaming the active term changes what the context bar should read.
+      if (editing?.is_active) notifyTermChanged();
+    } catch (err) {
+      addToast(err.message || 'Could not save the term.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const confirmActivate = async () => {
+    if (!activateTarget) return;
+    setIsActivating(true);
+    try {
+      await api.put(`/semesters/${activateTarget.id}`, { is_active: true });
+      addToast(
+        `${activateTarget.academic_year} ${termLabel(activateTarget.term)} is now the active term.`,
+        'success'
+      );
+      setActivateTarget(null);
+      fetchSemesters();
+      notifyTermChanged();
+    } catch (err) {
+      addToast(err.message || 'Could not change the active term.', 'error');
+    } finally {
+      setIsActivating(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await api.delete(`/semesters/${deleteTarget.id}`);
+      addToast(`${deleteTarget.academic_year} ${termLabel(deleteTarget.term)} deleted.`, 'success');
+      setDeleteTarget(null);
       fetchSemesters();
     } catch (err) {
-      if (addToast) addToast(err.message || 'Error saving semester', 'error');
+      // 409 means the term still holds classes, or is the active one. Both are
+      // refusals with a reason, not failures.
+      if (err.status === 409) setDeleteBlockedReason(err.message);
+      else addToast(err.message || 'Could not delete the term.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this academic semester?')) {
-      try {
-        await api.delete(`/semesters/${id}`);
-        if (addToast) addToast('Semester deleted successfully', 'success');
-        fetchSemesters();
-      } catch (err) {
-        if (addToast) addToast(err.message || 'Failed to delete semester', 'error');
-      }
-    }
-  };
+  const columns = [
+    { key: 'academic_year', label: 'Academic year', render: (s) => <span className="font-data">{s.academic_year}</span> },
+    { key: 'term', label: 'Term', render: (s) => termLabel(s.term) },
+    {
+      key: 'is_active',
+      label: 'Status',
+      render: (s) =>
+        s.is_active
+          ? <Badge status="approved" label="Active" />
+          : <Badge status="draft" label="Inactive" />,
+    },
+  ];
+
+  const rowActions = (s) => (
+    <RowMenu
+      label={`Actions for ${s.academic_year} ${termLabel(s.term)}`}
+      items={[
+        { label: 'Edit term', onSelect: () => openEdit(s) },
+        {
+          label: 'Set as active term',
+          onSelect: () => setActivateTarget(s),
+          disabled: s.is_active,
+          disabledReason: 'This is already the active term.',
+        },
+        {
+          label: 'Delete term',
+          destructive: true,
+          onSelect: () => { setDeleteTarget(s); setDeleteBlockedReason(''); },
+          disabled: s.is_active,
+          disabledReason: 'Activate a different term before deleting this one.',
+        },
+      ]}
+    />
+  );
 
   return (
-    <div className="p-8 animate-in fade-in duration-700">
-      {/* Banner */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-emerald-100 p-2.5 rounded-xl shadow-sm">
-              <Calendar className="w-6 h-6 text-emerald-800" />
-            </div>
-            <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Academic Terms & Semesters</h2>
-          </div>
-          <p className="text-slate-500 font-bold text-sm">Control the active academic period across all department timetables</p>
+    <div className="p-6 lg:p-8">
+      <header className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
+        <div className="min-w-0">
+          <h1 className="font-display text-page text-atlas-ink">Terms</h1>
+          <p className="font-ui text-body text-atlas-slate mt-1">
+            {activeTerm
+              ? `Active: ${activeTerm.academic_year} ${termLabel(activeTerm.term)} · every department generates and publishes against this term`
+              : 'No active term. Schedules cannot be generated until one is set.'}
+          </p>
         </div>
-
-        <button 
-          onClick={handleOpenCreateModal}
-          className="flex items-center gap-2 px-6 py-3.5 bg-emerald-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-900/20"
-        >
-          <Plus className="w-4 h-4" />
-          Add Academic Term
-        </button>
-      </div>
-
-      {/* Grid of Semesters */}
-      {loading ? (
-        <div className="p-16 text-center text-slate-400 font-bold text-sm">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-600" />
-          Loading academic terms...
+        <div className="flex gap-2 shrink-0">
+          <Button variant="secondary" icon={RefreshCw} onClick={fetchSemesters}>Refresh</Button>
+          <Button icon={Plus} onClick={openCreate}>Add Term</Button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {semesters.map((sem) => (
-            <div 
-              key={sem.id} 
-              className={`p-6 rounded-[2.5rem] border transition-all ${
-                sem.is_active 
-                  ? 'bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-900 text-white border-emerald-700 shadow-xl shadow-emerald-950/30' 
-                  : 'bg-white border-slate-100 shadow-sm text-slate-800 hover:border-slate-200'
-              }`}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  sem.is_active ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/30' : 'bg-slate-100 text-slate-500'
-                }`}>
-                  {sem.academic_year}
-                </span>
+      </header>
 
-                {sem.is_active ? (
-                  <span className="flex items-center gap-1 text-[11px] font-black text-emerald-400 uppercase tracking-widest">
-                    <CheckCircle2 className="w-4 h-4" /> Active Term
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleSetActive(sem)}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 underline"
-                  >
-                    Set Active
-                  </button>
-                )}
-              </div>
+      <DataTable
+        caption={`Academic terms, ${pluralize(semesters.length, "result")}`}
+        columns={columns}
+        rows={semesters}
+        isLoading={isLoading}
+        error={loadError}
+        onRetry={fetchSemesters}
+        selectedId={activeTerm?.id}
+        emptyTitle="No academic terms."
+        emptyBody="Add a term before building any schedule."
+        emptyAction={<Button icon={Plus} onClick={openCreate}>Add Term</Button>}
+        rowActions={rowActions}
+      />
 
-              <h3 className={`text-2xl font-black mb-1 ${sem.is_active ? 'text-white' : 'text-slate-900'}`}>
-                {sem.term}
-              </h3>
-              <p className={`text-xs font-bold mb-6 ${sem.is_active ? 'text-emerald-200/80' : 'text-slate-400'}`}>
-                Academic Year {sem.academic_year}
-              </p>
-
-              <div className="flex items-center justify-between pt-4 border-t border-white/10">
-                <span className={`text-[10px] font-bold ${sem.is_active ? 'text-emerald-300' : 'text-slate-400'}`}>
-                  Term ID: #{sem.id}
-                </span>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleDelete(sem.id)}
-                    className={`p-2 rounded-xl transition-colors ${
-                      sem.is_active ? 'text-emerald-300/60 hover:text-rose-400' : 'text-slate-300 hover:text-rose-500'
-                    }`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title={editingSemester ? 'Edit Academic Term' : 'Create Academic Term'}
-        maxWidth="max-w-md"
+      <Dialog
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        title={editing ? `Edit ${editing.academic_year} ${termLabel(editing.term)}` : 'Add Term'}
+        size="confirm"
+        dismissible={!isSaving}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setIsFormOpen(false)} disabled={isSaving}>Cancel</Button>
+            <Button type="submit" form="term-form" loading={isSaving}>
+              {editing ? 'Save Term' : 'Add Term'}
+            </Button>
+          </>
+        }
       >
-        <form onSubmit={handleSubmit} className="space-y-6 pt-2">
-          <div>
-            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Academic Year</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. 2026-2027"
-              className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-600"
-              value={formData.academic_year}
-              onChange={(e) => setFormData({ ...formData, academic_year: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Semester Term</label>
-            <select
-              className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-600"
-              value={formData.term}
-              onChange={(e) => setFormData({ ...formData, term: e.target.value })}
-            >
-              <option value="1st Semester">1st Semester</option>
-              <option value="2nd Semester">2nd Semester</option>
-              <option value="3rd Semester">3rd Semester</option>
-            </select>
-          </div>
-
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="w-5 h-5 text-emerald-600 rounded-lg focus:ring-emerald-500"
-              checked={formData.is_active}
-              onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-            />
-            <span className="text-xs font-black text-slate-700">Set as Active Academic Term</span>
-          </label>
-
-          <div className="pt-4 flex gap-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="flex-1 py-3.5 bg-emerald-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-900 transition-all shadow-lg shadow-emerald-900/20"
-            >
-              Save Term
-            </button>
-          </div>
+        <form id="term-form" onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <TextInput
+            label="Academic year"
+            required
+            placeholder="2026-2027"
+            hint="Two consecutive years, as in 2026-2027"
+            value={form.academic_year}
+            error={formErrors.academic_year}
+            onChange={(e) => setForm({ ...form, academic_year: e.target.value })}
+          />
+          <SelectInput
+            label="Term"
+            required
+            value={form.term}
+            onChange={(e) => setForm({ ...form, term: e.target.value })}
+            options={TERM_OPTIONS}
+          />
         </form>
-      </Modal>
+      </Dialog>
+
+      {/* Activating a term is global. It is a confirmed action that names what
+          it changes, rather than a one-click link (A11Y-07). */}
+      <ConfirmDialog
+        isOpen={Boolean(activateTarget)}
+        onClose={() => setActivateTarget(null)}
+        onConfirm={confirmActivate}
+        title={
+          activateTarget
+            ? `Make ${activateTarget.academic_year} ${termLabel(activateTarget.term)} the active term?`
+            : ''
+        }
+        description={
+          activeTerm
+            ? `All departments will generate and publish against it. ${activeTerm.academic_year} ${termLabel(activeTerm.term)} becomes inactive; its schedules are retained.`
+            : 'All departments will generate and publish against it.'
+        }
+        confirmLabel="Set Active"
+        loading={isActivating}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => { setDeleteTarget(null); setDeleteBlockedReason(''); }}
+        onConfirm={confirmDelete}
+        title={
+          deleteBlockedReason
+            ? `${deleteTarget?.academic_year} ${termLabel(deleteTarget?.term)} cannot be deleted`
+            : `Delete ${deleteTarget?.academic_year} ${termLabel(deleteTarget?.term)}?`
+        }
+        description="A term that still holds classes or subject assignments cannot be deleted."
+        confirmLabel="Delete Term"
+        destructive
+        loading={isDeleting}
+        blocked={Boolean(deleteBlockedReason)}
+        blockedReason={deleteBlockedReason}
+      />
     </div>
   );
 }

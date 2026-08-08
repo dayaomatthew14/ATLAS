@@ -25,6 +25,19 @@ class User(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class Department(Base):
+    """
+    A college of the university.
+
+    This table used to hold one private workspace per user account: registration
+    minted `DEPT_{user_id}` and pointed the user at it, so three separate rows
+    could all mean CAST and `users.department` referenced a code that existed
+    nowhere. It now holds exactly the four institutional colleges, seeded at
+    startup. The table name is unchanged because Curriculum, CurriculumBlock,
+    Faculty and SystemLog all carry `department_id` foreign keys to it.
+
+    `owner_id` is retained only so existing rows keep loading; a college is not
+    owned by anyone and nothing sets it any more.
+    """
     __tablename__ = "departments"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
@@ -35,6 +48,27 @@ class Department(Base):
     curriculum_items = relationship("Curriculum", back_populates="department")
     faculty_members = relationship("Faculty", back_populates="department")
     blocks = relationship("CurriculumBlock", back_populates="department")
+    programs = relationship("Program", back_populates="college", order_by="Program.name")
+
+class Program(Base):
+    """
+    A degree programme offered by a college.
+
+    Programmes were previously free text captured from an Excel filename during
+    curriculum import, which is how a block came to be named
+    "BACHELOR OF SCIENCE IN COMPUTER ENGINEERING AY" -- the stray "AY" is a
+    parser artefact that became part of the programme's identity. They are now
+    institutional records seeded at startup, and a curriculum block points at
+    one.
+    """
+    __tablename__ = "programs"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(20), nullable=False, unique=True)
+    name = Column(String(255), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+
+    college = relationship("Department", back_populates="programs")
+    blocks = relationship("CurriculumBlock", back_populates="program")
 
 class CurriculumBlock(Base):
     __tablename__ = "curriculum_blocks"
@@ -43,9 +77,13 @@ class CurriculumBlock(Base):
     academic_year = Column(String(50), nullable=False)
     filename = Column(String(255), nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    # Nullable on purpose: a block that matches no seeded programme stays
+    # visible in the Unassigned group rather than being hidden or deleted.
+    program_id = Column(Integer, ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
     status = Column(String(20), default='PUBLISHED') # DRAFT, PUBLISHED, ARCHIVED
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     department = relationship("Department", back_populates="blocks")
+    program = relationship("Program", back_populates="blocks")
     curriculum_items = relationship("Curriculum", back_populates="block")
 
 class Curriculum(Base):
@@ -70,14 +108,45 @@ class Curriculum(Base):
     schedules = relationship("Schedule", back_populates="curriculum")
 
 class Room(Base):
+    """
+    A teachable space.
+
+    `department_id` is the owning college, and it is nullable on purpose --
+    the two values mean genuinely different things:
+
+      NULL  -- a shared campus room. Lecture halls, and any laboratory the
+               Registrar assigns centrally. Nobody's department owns it, so only
+               an administrator may alter it.
+      set   -- a laboratory the named college runs itself, and may create,
+               rename and retire without asking anyone.
+
+    Departments are not required to own any. A college whose laboratories are
+    all Registrar-assigned simply has no rows here, which is why this is
+    nullable rather than a required owner with a "shared" sentinel college.
+    Registrar assignment itself is not modelled: those rooms arrive as ordinary
+    shared rooms.
+    """
     __tablename__ = "rooms"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     building = Column(String(100), nullable=False)
     capacity = Column(Integer, nullable=False)
     type = Column(Enum('lecture', 'lab', 'computer_lab', name='room_types'), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
 
+    department = relationship("Department")
     schedules = relationship("Schedule", back_populates="room")
+
+    @property
+    def department_code(self):
+        """
+        The owning college's code, or None for a shared room.
+
+        Serialised alongside `department_id` because the frontend only knows the
+        signed-in user's college as a code (`atlas_department`), and comparing a
+        code to an id is how a screen ends up showing the wrong owner.
+        """
+        return self.department.code if self.department else None
 
 class Faculty(Base):
     __tablename__ = "faculty"

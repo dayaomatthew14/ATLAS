@@ -1,8 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, Outlet, useLocation, Link } from 'react-router-dom';
-import { LogOut, LayoutDashboard, BookOpen, Layers, MapPin, Calendar, Users, GraduationCap, School, ChevronDown, Folder, AlertCircle, Activity, HelpCircle, Sparkles, X, ShieldCheck } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Outlet } from 'react-router-dom';
+import { X } from 'lucide-react';
 import { api } from '../utils/api';
+import { clearSession, getRole, getDepartment, getUserName, ROLES } from '../utils/session';
+import { ROLE_LABELS } from '../components/ui/tokens';
 import SystemGuideModal from '../components/SystemGuideModal';
+import AppShell from '../components/shell/AppShell';
+
+/**
+ * Semester.term is stored as '1st' | '2nd' | '3rd semester' — the third value
+ * is inconsistent with the other two (audit finding, Phase 2 Screen 7). The UI
+ * normalises here so the inconsistency stays in one place.
+ */
+const TERM_LABELS = {
+  '1st': '1st Term',
+  '2nd': '2nd Term',
+  '3rd semester': '3rd Term',
+};
 
 const getProfilePictureUrl = (path) => {
   if (!path) return '';
@@ -10,333 +24,306 @@ const getProfilePictureUrl = (path) => {
   const apiUrl = import.meta.env.VITE_API_URL;
   if (apiUrl && apiUrl.startsWith('http')) {
     try {
-      const url = new URL(apiUrl);
-      return `${url.origin}${cleanPath}`;
-    } catch (e) {
-      console.error(e);
+      return `${new URL(apiUrl).origin}${cleanPath}`;
+    } catch {
+      /* a malformed VITE_API_URL falls back to the relative path */
     }
   }
   return cleanPath;
 };
 
+/**
+ * Guided tour. Each step names a route that exists — the tour is the only
+ * remaining consumer of the old onboarding flow, so its copy is kept plain and
+ * describes what the screen is for rather than advertising features.
+ *
+ * There are two tours, for the same reason there are two rails: the one tour
+ * walked every role through Faculty and Schedule, neither of which an
+ * administrator may open, so the last two steps of their own onboarding ended
+ * on "You do not have access to this page".
+ */
+const CHAIR_TOUR_STEPS = [
+  {
+    title: 'Overview',
+    desc: 'Check the active academic term and what still needs attention before you generate.',
+    path: '/dashboard',
+    nextLabel: 'Next: Rooms',
+  },
+  {
+    title: 'Rooms',
+    desc: 'Register lecture halls and laboratories with their student capacity.',
+    path: '/dashboard/rooms',
+    nextLabel: 'Next: Curriculum',
+  },
+  {
+    title: 'Curriculum',
+    desc: 'Review the subjects, credit units, and offerings for your department.',
+    path: '/dashboard/curriculum',
+    nextLabel: 'Next: Faculty',
+  },
+  {
+    title: 'Faculty',
+    desc: 'Set teaching unit caps and mark the times each faculty member cannot teach.',
+    path: '/dashboard/teachers',
+    nextLabel: 'Next: Schedule',
+  },
+  {
+    title: 'Schedule',
+    desc: 'Generate the timetable, resolve conflicts one at a time, then export or print.',
+    path: '/dashboard/schedules',
+    nextLabel: 'Finish',
+  },
+];
+
+const ADMIN_TOUR_STEPS = [
+  {
+    title: 'Overview',
+    desc: 'Check what needs you: accounts awaiting verification, curriculum gaps, orphaned data.',
+    path: '/dashboard',
+    nextLabel: 'Next: Users',
+  },
+  {
+    title: 'Users',
+    desc: 'Verify new registrations and give every account a role and a college.',
+    path: '/dashboard/users',
+    nextLabel: 'Next: Colleges',
+  },
+  {
+    title: 'Colleges & Programmes',
+    desc: 'Maintain the colleges and the programmes each one offers.',
+    path: '/dashboard/colleges',
+    nextLabel: 'Next: Curriculum',
+  },
+  {
+    title: 'Curriculum',
+    desc: 'Import and revise the catalog each programme is taught from.',
+    path: '/dashboard/curriculum',
+    nextLabel: 'Next: Academic Terms',
+  },
+  {
+    title: 'Academic Terms',
+    desc: 'Set the active academic year and term. No department can generate until one is active.',
+    path: '/dashboard/semesters',
+    nextLabel: 'Next: Rooms',
+  },
+  {
+    title: 'Rooms',
+    desc: 'Register lecture halls and laboratories with their student capacity.',
+    path: '/dashboard/rooms',
+    nextLabel: 'Finish',
+  },
+];
+
 export default function Dashboard() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const role = getRole();
+  const isAdmin = role === ROLES.ADMIN;
+  const department = getDepartment();
+  const roleDisplay = ROLE_LABELS[role] || 'Signed in';
+  const tourSteps = isAdmin ? ADMIN_TOUR_STEPS : CHAIR_TOUR_STEPS;
+
   const [isGuideOpen, setIsGuideOpen] = useState(false);
-
-  // Normalized role check
-  const rawRole = localStorage.getItem('atlas_role') || 'guest';
-  const role = rawRole.toLowerCase();
-  const roleDisplay = role === 'coordinator' ? 'Coordinator' : (role === 'admin' ? 'System Administrator' : 'Program Chair');
-
-  const [profileName, setProfileName] = useState(localStorage.getItem('atlas_user_name') || roleDisplay);
-  const [profilePicture, setProfilePicture] = useState(localStorage.getItem('atlas_profile_picture') || '');
-
+  const [profileName, setProfileName] = useState(() => getUserName() || roleDisplay);
+  const [profilePicture, setProfilePicture] = useState(
+    () => localStorage.getItem('atlas_profile_picture') || ''
+  );
   const [conflictCount, setConflictCount] = useState(0);
-  const department = localStorage.getItem('atlas_department');
-  const dashboardTitle = department ? `${department} ${roleDisplay} Portal` : 'DLSAU Tertiary Education';
+
+  // --- Shell state --------------------------------------------------------
+  // The context bar must always show the academic term, which previously
+  // appeared only as a card on Overview (audit finding IA-01).
+  const [activeTerm, setActiveTerm] = useState(null);
+  // Distinct from `activeTerm === null`. Without this the bar asserted
+  // "No active term" during the fetch, which is a false negative shown on
+  // every page load — the opposite of what the context bar exists to do.
+  const [termLoading, setTermLoading] = useState(true);
+  // Navigation rail width. Persisted, because it is a working preference: an
+  // admin on a laptop wants the labels, the same admin on the timetable wants
+  // the 176px back. Defaults to collapsed on narrower desktops, where the rail
+  // and a 904px-minimum grid do not both fit.
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    const stored = localStorage.getItem('atlas_rail_collapsed');
+    if (stored !== null) return stored === 'true';
+    return typeof window !== 'undefined' && window.innerWidth < 1440;
+  });
 
   useEffect(() => {
-    const handleProfileUpdate = () => {
-      setProfileName(localStorage.getItem('atlas_user_name') || roleDisplay);
-      setProfilePicture(localStorage.getItem('atlas_profile_picture') || '');
+    localStorage.setItem('atlas_rail_collapsed', String(railCollapsed));
+  }, [railCollapsed]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadActiveTerm = () => {
+      api.get('/semesters')
+        .then((sems) => {
+          if (cancelled) return;
+          const list = Array.isArray(sems) ? sems : [];
+          setActiveTerm(list.find((s) => s.is_active) || null);
+        })
+        .catch(() => { /* leave activeTerm null; the bar reports no active term */ })
+        .finally(() => { if (!cancelled) setTermLoading(false); });
     };
-    window.addEventListener('atlas_profile_updated', handleProfileUpdate);
+
+    loadActiveTerm();
+
+    // The context bar exists so nobody works in the wrong term, which means it
+    // must not go stale the moment someone changes the active term. Terms
+    // dispatches this after activating one, matching the existing
+    // `atlas_profile_updated` pattern.
+    window.addEventListener('atlas_term_changed', loadActiveTerm);
     return () => {
-      window.removeEventListener('atlas_profile_updated', handleProfileUpdate);
+      cancelled = true;
+      window.removeEventListener('atlas_term_changed', loadActiveTerm);
     };
   }, []);
 
   useEffect(() => {
+    const stored = localStorage.getItem('atlas_density') || 'comfortable';
+    if (stored === 'compact') document.documentElement.setAttribute('data-density', 'compact');
+    else document.documentElement.removeAttribute('data-density');
+  }, []);
+
+  const termLabel = termLoading
+    ? null
+    : activeTerm
+      ? `A.Y. ${activeTerm.academic_year} · ${TERM_LABELS[activeTerm.term] || activeTerm.term}`
+      : 'No active term';
+
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      setProfileName(getUserName() || roleDisplay);
+      setProfilePicture(localStorage.getItem('atlas_profile_picture') || '');
+    };
+    window.addEventListener('atlas_profile_updated', handleProfileUpdate);
+    return () => window.removeEventListener('atlas_profile_updated', handleProfileUpdate);
+  }, [roleDisplay]);
+
+  // Conflicts are a scheduling concern and the badge that carries them hangs on
+  // the Schedule rail item, which the administrator no longer has. Polling it
+  // every 30s for a number nothing renders is a request per half-minute for
+  // nothing, so the poll is scoped to the roles that can act on the answer.
+  useEffect(() => {
+    if (isAdmin) return;
     const fetchConflictCount = async () => {
       try {
         const data = await api.get('/conflicts/count');
         setConflictCount(data.count || 0);
-      } catch (e) {
+      } catch {
         setConflictCount(0);
       }
     };
     fetchConflictCount();
-    const interval = setInterval(fetchConflictCount, 30000); // Update every 30s
+    const interval = setInterval(fetchConflictCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAdmin]);
 
-  const handleLogout = async () => {
-    try { await api.post('/auth/logout', {}); } catch {}
-    localStorage.removeItem('atlas_token');
-    localStorage.removeItem('atlas_role');
-    localStorage.removeItem('atlas_user_name');
-    localStorage.removeItem('atlas_department');
-    localStorage.removeItem('atlas_profile_picture');
-    navigate('/login');
-  };
-
-  const adminNavItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'User Governance', icon: ShieldCheck, path: '/dashboard/users' },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum' },
-    { name: 'Campus Rooms', icon: MapPin, path: '/dashboard/rooms' },
-    { name: 'Academic Terms', icon: Calendar, path: '/dashboard/semesters' },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
-  ];
-
-  const standardNavItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'Schedules', icon: Calendar, path: '/dashboard/schedules' },
-    { name: 'Curriculum Flowchart', icon: BookOpen, path: '/dashboard/curriculum' },
-    { name: 'Rooms', icon: MapPin, path: '/dashboard/rooms' },
-    { name: 'Professors', icon: Users, path: '/dashboard/teachers' },
-    { name: 'System Logs', icon: Activity, path: '/dashboard/logs' },
-  ];
-
-  const filteredNavItems = role === 'admin' ? adminNavItems : standardNavItems;
-
-  const [isTourActive, setIsTourActive] = useState(false);
-  const [tourStep, setTourStep] = useState(1);
-
-  const tourSteps = [
-    {
-      step: 1,
-      title: '1/5: Dashboard Overview',
-      desc: 'Verify active academic semester status and overall department schedule metrics.',
-      path: '/dashboard',
-      nextLabel: 'Next: Rooms ➔'
-    },
-    {
-      step: 2,
-      title: '2/5: Campus Rooms & Labs',
-      desc: 'Set up lecture halls and computer labs with accurate student capacity limits.',
-      path: '/dashboard/rooms',
-      nextLabel: 'Next: Curriculum ➔'
-    },
-    {
-      step: 3,
-      title: '3/5: Curriculum Flowchart',
-      desc: 'Review department subjects, credit units, and curriculum offerings.',
-      path: '/dashboard/curriculum',
-      nextLabel: 'Next: Faculty ➔'
-    },
-    {
-      step: 4,
-      title: '4/5: Faculty & Workload Limits',
-      desc: 'Assign professors, max unit caps, and day/time unavailability slots.',
-      path: '/dashboard/teachers',
-      nextLabel: 'Next: Schedules ➔'
-    },
-    {
-      step: 5,
-      title: '5/5: Schedules & AI Engine',
-      desc: 'Run AI Generation, Solve Conflicts ✨, Restore 🔄, or Export CSV/PDF 📊!',
-      path: '/dashboard/schedules',
-      nextLabel: 'Finish Tour 🎉'
+  const handleLogout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout', {});
+    } catch {
+      /* the server session may already be gone; clear locally regardless */
     }
-  ];
+    clearSession();
+    navigate('/login');
+  }, [navigate]);
+
+  // --- Guided tour --------------------------------------------------------
+  const [tourStep, setTourStep] = useState(0); // 0 = inactive, 1..n = step
+  const isTourActive = tourStep > 0;
+  const currentStep = isTourActive ? tourSteps[tourStep - 1] : null;
+
+  const goToStep = (step) => {
+    setTourStep(step);
+    navigate(tourSteps[step - 1].path);
+  };
 
   const handleTourNext = () => {
-    if (tourStep < tourSteps.length) {
-      const nextStepNum = tourStep + 1;
-      setTourStep(nextStepNum);
-      navigate(tourSteps[nextStepNum - 1].path);
-    } else {
-      setIsTourActive(false);
-      setTourStep(1);
-    }
-  };
-
-  const handleTourPrev = () => {
-    if (tourStep > 1) {
-      const prevStepNum = tourStep - 1;
-      setTourStep(prevStepNum);
-      navigate(tourSteps[prevStepNum - 1].path);
-    }
+    if (tourStep < tourSteps.length) goToStep(tourStep + 1);
+    else setTourStep(0);
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans flex flex-col relative text-slate-800 selection:bg-emerald-600 selection:text-white">
-      {/* DLSAU Campus Background Layer matching Login */}
-      <div className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none opacity-[0.06] filter blur-[2px]" style={{ backgroundImage: `url('/dlsau_bg.jpg')` }}></div>
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-emerald-950/10 via-slate-900/5 to-emerald-950/15 pointer-events-none"></div>
-
-      {/* Top Navbar */}
-      <nav className="bg-gradient-to-r from-emerald-950/95 via-green-900/95 to-emerald-950/95 backdrop-blur-2xl border-b border-white/10 text-white shadow-2xl sticky top-0 z-50 transition-all">
-        <div className="w-full px-6 sm:px-10 lg:px-12">
-          <div className="flex items-center justify-between h-24 gap-6">
-            <Link to="/dashboard" className="flex items-center space-x-3.5 group shrink-0">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-12 h-12 object-contain transform group-hover:rotate-6 transition-transform filter brightness-110 drop-shadow-md" />
-              <div className="hidden sm:block">
-                <span className="font-black text-3xl sm:text-4xl tracking-tighter block leading-none">ATLAS</span>
-              </div>
-            </Link>
-
-            <div className="hidden md:flex flex-1 justify-center items-center gap-2 lg:gap-3 xl:gap-4">
-              {filteredNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = item.path === '/dashboard'
-                  ? location.pathname === '/dashboard'
-                  : location.pathname.startsWith(item.path);
-
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.path}
-                    className={`flex items-center px-4 py-2.5 rounded-2xl text-sm lg:text-base font-bold whitespace-nowrap transition-all duration-200 ${isActive
-                      ? 'bg-white text-green-900 shadow-lg transform -translate-y-0.5 font-extrabold'
-                      : 'text-green-100/90 hover:bg-white/10 hover:text-white'
-                      }`}
-                  >
-                    <Icon className={`w-5 h-5 mr-2.5 shrink-0 ${isActive ? 'text-green-800' : 'text-green-200/90'}`} />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center gap-3.5 shrink-0">
-              {/* Header User Guide Button (Icon only) */}
-              <button
-                type="button"
-                onClick={() => setIsGuideOpen(true)}
-                className="hidden sm:flex items-center justify-center bg-white/10 hover:bg-white/20 hover:scale-105 w-10 h-10 rounded-2xl border border-white/15 transition-all shadow-xs shrink-0 group"
-                title="Open ATLAS User Guide"
-              >
-                <HelpCircle className="w-5 h-5 text-amber-300 group-hover:text-amber-200 transition-colors shrink-0" />
-              </button>
-
-              <div className="relative shrink-0">
-                <button
-                  onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex items-center space-x-3.5 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-2xl border border-white/15 transition-all shadow-xs"
-                >
-                  <div className="w-10 h-10 bg-pink-100 rounded-full overflow-hidden border border-white/20 shadow-inner flex items-center justify-center shrink-0">
-                    {profilePicture ? (
-                      <img src={getProfilePictureUrl(profilePicture)} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-pink-600 font-black text-sm uppercase">
-                        {(() => {
-                          const name = profileName;
-                          const parts = name.trim().split(/\s+/);
-                          if (parts.length >= 2) {
-                            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-                          }
-                          return name.substring(0, 2).toUpperCase();
-                        })()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="hidden lg:block text-left max-w-[160px] xl:max-w-[220px]">
-                    <p className="text-xs sm:text-sm font-black uppercase tracking-tight text-white leading-none mb-1 truncate">
-                      {profileName}
-                    </p>
-                    <p className="text-[11px] font-bold text-yellow-400 uppercase tracking-wider leading-none truncate" title={department || 'Tertiary Education'}>
-                      {department || 'Tertiary Education'}
-                    </p>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-green-300 transition-transform shrink-0 ${isProfileOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {isProfileOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setIsProfileOpen(false)}
-                    ></div>
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl py-2 z-50 border border-gray-100 animate-in fade-in slide-in-from-top-2">
-                      <div className="px-4 py-2 border-b border-gray-50 mb-1">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Account</p>
-                        <p className="text-sm font-bold text-gray-700 truncate">{profileName}</p>
-                      </div>
-                      <button onClick={() => { setIsProfileOpen(false); setIsGuideOpen(true); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                        <HelpCircle className="w-4 h-4 mr-3 text-amber-500" />
-                        System Guide
-                      </button>
-                      <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/profile'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                        <Users className="w-4 h-4 mr-3 text-gray-400" />
-                        View Profile
-                      </button>
-                      <button onClick={() => { setIsProfileOpen(false); navigate('/dashboard/settings'); }} className="w-full flex items-center px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 font-medium transition-colors">
-                        <Folder className="w-4 h-4 mr-3 text-gray-400" />
-                        Settings
-                      </button>
-                      <div className="border-t border-gray-50 mt-1 pt-1">
-                        <button
-                          onClick={handleLogout}
-                          className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 font-bold transition-colors"
-                        >
-                          <LogOut className="w-4 h-4 mr-3" />
-                          Log Out
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="flex-1 flex flex-col overflow-y-auto relative z-10">
+    <>
+      <AppShell
+        role={role}
+        department={department}
+        termLabel={termLabel}
+        canChangeTerm={isAdmin}
+        isPublished={false}
+        conflictCount={conflictCount}
+        profileName={profileName}
+        profilePicture={profilePicture}
+        getProfilePictureUrl={getProfilePictureUrl}
+        railCollapsed={railCollapsed}
+        onOpenTerm={() => navigate('/dashboard/semesters')}
+        onToggleRail={() => setRailCollapsed((v) => !v)}
+        onOpenGuide={() => setIsGuideOpen(true)}
+        onLogout={handleLogout}
+      >
         <Outlet />
-      </main>
+      </AppShell>
 
-      {/* Interactive Guided System Tour Controller */}
       {isTourActive && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center gap-4 animate-in slide-in-from-bottom-5 duration-300 border border-slate-800 max-w-xl w-[90%]">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="bg-amber-400 text-slate-900 p-2 rounded-xl shrink-0 font-black text-xs">
-              🎯
-            </div>
-            <div>
-              <p className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                {tourSteps[tourStep - 1].title}
-              </p>
-              <p className="text-xs text-slate-200 mt-0.5 leading-snug font-medium">
-                {tourSteps[tourStep - 1].desc}
-              </p>
-            </div>
+        <div
+          role="region"
+          aria-label="Guided tour"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-toast w-[90%] max-w-xl
+                     bg-atlas-900 text-white rounded-panel shadow-overlay border border-white/10
+                     px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-4"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="font-ui text-micro uppercase text-atlas-300">
+              Step {tourStep} of {tourSteps.length} · {currentStep.title}
+            </p>
+            <p className="font-ui text-caption text-atlas-100 mt-1 leading-snug">
+              {currentStep.desc}
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {tourStep > 1 && (
               <button
                 type="button"
-                onClick={handleTourPrev}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all"
+                onClick={() => goToStep(tourStep - 1)}
+                className="h-9 px-3 rounded-control font-ui text-caption text-atlas-100
+                           hover:bg-white/10 hover:text-white transition-colors duration-state ease-standard
+                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-300"
               >
-                ⬅️ Back
+                Back
               </button>
             )}
             <button
               type="button"
               onClick={handleTourNext}
-              className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-all shadow-md"
+              className="h-9 px-4 rounded-control bg-white text-atlas-900 font-ui font-medium text-caption
+                         hover:bg-atlas-100 transition-colors duration-state ease-standard
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-300"
             >
-              {tourSteps[tourStep - 1].nextLabel}
+              {currentStep.nextLabel}
             </button>
             <button
               type="button"
-              onClick={() => setIsTourActive(false)}
-              className="text-slate-400 hover:text-white p-1 ml-1"
-              title="Exit Guided Tour"
+              onClick={() => setTourStep(0)}
+              aria-label="Exit guided tour"
+              className="w-9 h-9 inline-flex items-center justify-center rounded-field text-atlas-300
+                         hover:bg-white/10 hover:text-white transition-colors duration-state ease-standard
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-300"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>
       )}
 
-      {/* System Guide Modal */}
       <SystemGuideModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
         onStartTour={() => {
           setIsGuideOpen(false);
-          setIsTourActive(true);
-          setTourStep(1);
-          navigate('/dashboard');
+          goToStep(1);
         }}
       />
-    </div>
+    </>
   );
 }

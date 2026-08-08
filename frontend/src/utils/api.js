@@ -1,3 +1,5 @@
+import { clearSession } from './session';
+
 let rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
 const isLocalHost = (typeof window !== 'undefined') && (
   window.location.hostname === 'localhost' || 
@@ -10,6 +12,14 @@ if (!isLocalHost && (rawBaseUrl.includes('railway.app') || (typeof window !== 'u
   rawBaseUrl = rawBaseUrl.replace(/^http:\/\//i, 'https://');
 }
 const BASE_URL = rawBaseUrl;
+
+/**
+ * Exported for the few places that need a URL rather than a fetch — PDF and
+ * Excel exports opened in a new tab. Two call sites had invented
+ * `api.defaults.baseURL`, which does not exist on this object and threw a
+ * TypeError on click (HEU-03).
+ */
+export const API_BASE = BASE_URL;
 
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
@@ -47,32 +57,49 @@ async function request(endpoint, options = {}) {
     const response = await fetch(url, config);
 
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
-      localStorage.removeItem('atlas_token');
-      localStorage.removeItem('atlas_role');
-      localStorage.removeItem('atlas_user_name');
-      localStorage.removeItem('atlas_department');
-      localStorage.removeItem('atlas_profile_picture');
+      clearSession();
       try {
         await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-      } catch (e) { }
+      } catch {
+        /* the session is already gone locally; a failed logout call changes nothing */
+      }
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
-      return;
+      // Throw rather than returning undefined: callers that immediately do
+      // data.map(...) would otherwise crash with a confusing TypeError before
+      // the redirect completes.
+      const authError = new Error('Your session has expired. Please sign in again.');
+      authError.status = 401;
+      throw authError;
     }
 
     if (response.status === 204) {
       return null;
     }
 
-    const data = await response.json();
+    // Not every response carries a JSON body — an empty body, an HTML error
+    // page from a proxy, or a server restarting mid-request all produce one
+    // that response.json() cannot parse. Parsing defensively means the caller
+    // sees the real HTTP failure instead of a confusing SyntaxError.
+    const raw = await response.text();
+    let data = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = null;
+      }
+    }
 
     if (!response.ok) {
       let errorMessage = 'Something went wrong';
-      if (Array.isArray(data.detail)) {
+      if (Array.isArray(data?.detail)) {
         errorMessage = data.detail.map(e => `${e.loc?.join('.')} ${e.msg}`).join(', ');
-      } else if (data.detail) {
+      } else if (data?.detail) {
         errorMessage = data.detail;
+      } else {
+        errorMessage = `The server returned an unexpected response (${response.status}).`;
       }
       const errorObj = new Error(errorMessage);
       errorObj.status = response.status;
@@ -87,8 +114,60 @@ async function request(endpoint, options = {}) {
   }
 }
 
+/**
+ * Fetch a binary response as a Blob.
+ *
+ * `request` above always drains the body with `response.text()`, which is right
+ * for JSON and destroys a PDF. This is the same call — same base URL, same
+ * bearer token, same cookie credentials, same 401 handling — stopping short of
+ * that one step so the caller gets bytes.
+ */
+async function requestBlob(endpoint, options = {}) {
+  let url = `${BASE_URL}${endpoint}`;
+  if (options.params) {
+    const query = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(options.params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+      )
+    ).toString();
+    if (query) url += (url.includes('?') ? '&' : '?') + query;
+  }
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('atlas_token') : null;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    clearSession();
+    if (window.location.pathname !== '/login') window.location.href = '/login';
+    const authError = new Error('Your session has expired. Please sign in again.');
+    authError.status = 401;
+    throw authError;
+  }
+
+  if (!response.ok) {
+    // An error body is JSON even when the success body would not be.
+    let detail = `The server returned an unexpected response (${response.status}).`;
+    try {
+      const data = JSON.parse(await response.text());
+      if (data?.detail) detail = Array.isArray(data.detail) ? data.detail.join(', ') : data.detail;
+    } catch {
+      /* keep the generic message */
+    }
+    const errorObj = new Error(detail);
+    errorObj.status = response.status;
+    throw errorObj;
+  }
+
+  return response.blob();
+}
+
 export const api = {
   get: (endpoint, options) => request(endpoint, { method: 'GET', ...options }),
+  getBlob: (endpoint, options) => requestBlob(endpoint, options),
   postForm: (endpoint, formData, options) => request(endpoint, { method: 'POST', body: formData, ...options }),
   post: (endpoint, body, options) => {
     const isFormData = body instanceof FormData;
@@ -102,6 +181,14 @@ export const api = {
     const isFormData = body instanceof FormData;
     return request(endpoint, {
       method: 'PUT',
+      body: isFormData ? body : JSON.stringify(body),
+      ...options
+    });
+  },
+  patch: (endpoint, body, options) => {
+    const isFormData = body instanceof FormData;
+    return request(endpoint, {
+      method: 'PATCH',
       body: isFormData ? body : JSON.stringify(body),
       ...options
     });

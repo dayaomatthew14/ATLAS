@@ -1,7 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { User, Mail, Shield, Building, Edit2, Save, X, Phone, Calendar, Camera, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Mail, Shield, Building, Pencil, Save, X, Camera } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
+import Button from '../../components/ui/Button';
+import { TextInput, SelectInput } from '../../components/ui/Field';
+import { Page, PageHeader, Panel } from '../../components/ui/Page';
+import { ROLE_LABELS, resolveDepartment, focusRing } from '../../components/ui/tokens';
+
+/**
+ * Profile.
+ *
+ * Converted onto the design system. It had its own type scale (`text-3xl
+ * font-black tracking-tighter`), its own greys (`text-gray-400` where the rest
+ * of the app uses `text-atlas-slate`), its own inputs — hand-rolled with
+ * `rounded-2xl` and an unlabelled `<select>` — and its own two accent colours
+ * for the department and role cards, blue among them, which appears nowhere
+ * else in ATLAS.
+ *
+ * Read and edit are now the same layout rather than two different ones, so
+ * pressing Edit changes what the fields do, not where they are.
+ */
 
 const getProfilePictureUrl = (path) => {
   if (!path) return '';
@@ -9,8 +27,7 @@ const getProfilePictureUrl = (path) => {
   const apiUrl = import.meta.env.VITE_API_URL;
   if (apiUrl && apiUrl.startsWith('http')) {
     try {
-      const url = new URL(apiUrl);
-      return `${url.origin}${cleanPath}`;
+      return `${new URL(apiUrl).origin}${cleanPath}`;
     } catch (e) {
       console.error(e);
     }
@@ -18,17 +35,39 @@ const getProfilePictureUrl = (path) => {
   return cleanPath;
 };
 
+/** A read-only value, shaped like the Field it replaces so nothing jumps. */
+function ReadField({ label, value, icon: Icon, muted = false }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="font-ui text-micro uppercase text-atlas-slate">{label}</span>
+      <p
+        className={`h-10 px-3 rounded-field border border-atlas-line flex items-center gap-2 min-w-0
+                    font-ui text-body ${muted ? 'bg-atlas-canvas text-atlas-slate' : 'bg-white/70 text-atlas-ink'}`}
+        title={typeof value === 'string' ? value : undefined}
+      >
+        {Icon && <Icon className="w-4 h-4 text-atlas-slate shrink-0" aria-hidden="true" />}
+        <span className="truncate">
+          {value || <span className="text-atlas-disabled">Not specified</span>}
+        </span>
+      </p>
+    </div>
+  );
+}
+
 export default function Profile() {
   const { addToast } = useToast();
   const [user, setUser] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({});
   const fileInputRef = useRef(null);
-  
+
   useEffect(() => {
     fetchProfile();
+    // Load once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  
+
   const fetchProfile = async () => {
     try {
       const response = await api.get('/auth/me');
@@ -38,7 +77,7 @@ export default function Profile() {
         last_name: response.last_name || '',
         contact_number: response.contact_number || '',
         sex: response.sex || '',
-        date_of_birth: response.date_of_birth || ''
+        date_of_birth: response.date_of_birth || '',
       });
       // Synchronize localStorage with fresh data
       localStorage.setItem('atlas_user_name', `${response.first_name || ''} ${response.last_name || ''}`.trim());
@@ -51,7 +90,7 @@ export default function Profile() {
       addToast('Failed to load profile', 'error');
     }
   };
-  
+
   const handleSave = async () => {
     if (!formData.first_name || !formData.first_name.trim()) {
       addToast('First name is required', 'error');
@@ -80,6 +119,7 @@ export default function Profile() {
       }
     }
 
+    setIsSaving(true);
     try {
       const cleanData = { ...formData };
       if (cleanData.contact_number === '') cleanData.contact_number = null;
@@ -88,32 +128,32 @@ export default function Profile() {
 
       await api.put(`/users/${user.id}`, cleanData);
       addToast('Profile updated successfully', 'success');
-      
+
       // Update local storage name if it changed
       localStorage.setItem('atlas_user_name', `${cleanData.first_name} ${cleanData.last_name}`.trim());
       window.dispatchEvent(new Event('atlas_profile_updated'));
-      
+
       setIsEditing(false);
       fetchProfile();
     } catch (e) {
       addToast('Failed to update profile', 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
-  
-  const handlePictureClick = () => {
-    fileInputRef.current?.click();
-  };
-  
+
+  const handlePictureClick = () => fileInputRef.current?.click();
+
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     const formDataObj = new FormData();
     formDataObj.append('file', file);
-    
+
     try {
       const res = await api.post(`/users/${user.id}/upload-picture`, formDataObj);
-      setUser(prev => ({...prev, profile_picture: res.url}));
+      setUser((prev) => ({ ...prev, profile_picture: res.url }));
       localStorage.setItem('atlas_profile_picture', res.url);
       window.dispatchEvent(new Event('atlas_profile_updated'));
       addToast('Profile picture updated', 'success');
@@ -121,190 +161,175 @@ export default function Profile() {
       addToast('Failed to upload picture', 'error');
     }
   };
-  
-  if (!user) return <div className="p-8 font-bold text-gray-500">Loading profile data...</div>;
+
+  if (!user) {
+    return (
+      <Page>
+        <div className="flex flex-col gap-4" aria-busy="true">
+          <div className="h-10 w-56 rounded-field bg-atlas-line animate-pulse motion-reduce:animate-none" />
+          <div className="h-96 glass rounded-panel animate-pulse motion-reduce:animate-none" />
+          <span className="sr-only">Loading your profile…</span>
+        </div>
+      </Page>
+    );
+  }
+
+  const initials =
+    ((user.first_name ? user.first_name[0] : '') + (user.last_name ? user.last_name[0] : '')).toUpperCase() || 'U';
+  const college = resolveDepartment(user.department);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-green-900 tracking-tighter">My Profile</h1>
-          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Manage and view your account credentials</p>
-        </div>
-        {!isEditing ? (
-          <button onClick={() => setIsEditing(true)} className="flex items-center px-5 py-2.5 bg-green-100 text-green-700 rounded-xl font-bold hover:bg-green-200 active:scale-95 transition-all shadow-sm">
-            <Edit2 className="w-4 h-4 mr-2" /> Edit Profile
-          </button>
-        ) : (
-          <div className="flex gap-3">
-            <button onClick={() => setIsEditing(false)} className="flex items-center px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 active:scale-95 transition-all shadow-sm">
-              <X className="w-4 h-4 mr-2" /> Cancel
-            </button>
-            <button onClick={handleSave} className="flex items-center px-5 py-2.5 bg-green-700 text-white rounded-xl font-bold hover:bg-green-800 active:scale-95 transition-all shadow-sm shadow-green-700/20">
-              <Save className="w-4 h-4 mr-2" /> Save Changes
-            </button>
-          </div>
-        )}
-      </div>
-      
-      <div className="bg-white rounded-[2.5rem] p-8 lg:p-12 shadow-xl border border-gray-100 flex flex-col lg:flex-row items-center lg:items-start gap-12 transition-all duration-300">
-        <div className="relative group shrink-0 flex flex-col items-center">
-          <div 
+    <Page className="max-w-5xl">
+      <PageHeader
+        title="My Profile"
+        meta="Your account details, as the rest of the university sees them."
+        actions={
+          isEditing ? (
+            <>
+              <Button variant="ghost" icon={X} onClick={() => setIsEditing(false)} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button icon={Save} onClick={handleSave} loading={isSaving}>
+                Save Changes
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" icon={Pencil} onClick={() => setIsEditing(true)}>
+              Edit Profile
+            </Button>
+          )
+        }
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <Panel className="rise" bodyClassName="p-6 flex flex-col items-center text-center">
+          <button
+            type="button"
             onClick={isEditing ? handlePictureClick : undefined}
-            className={`w-44 h-44 bg-green-50 rounded-full flex flex-col items-center justify-center border-4 border-white shadow-2xl overflow-hidden transition-all duration-300 ${isEditing ? 'cursor-pointer hover:ring-4 hover:ring-green-100 hover:scale-105' : ''}`}
+            aria-label={isEditing ? 'Upload a profile picture' : undefined}
+            disabled={!isEditing}
+            className={`relative w-32 h-32 rounded-full overflow-hidden bg-atlas-100 border border-white/70
+                        flex items-center justify-center group
+                        ${isEditing ? `cursor-pointer lift ${focusRing}` : 'cursor-default'}`}
           >
             {user.profile_picture ? (
-              <img src={getProfilePictureUrl(user.profile_picture)} alt="Profile" className="w-full h-full object-cover" />
+              <img
+                src={getProfilePictureUrl(user.profile_picture)}
+                alt=""
+                className="w-full h-full object-cover"
+              />
             ) : (
-              <span className="text-6xl font-black text-green-700">{((user.first_name ? user.first_name[0] : '') + (user.last_name ? user.last_name[0] : '')).toUpperCase() || 'U'}</span>
+              <span className="font-display text-page text-atlas-700">{initials}</span>
             )}
-            
+
             {isEditing && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-sm">
-                <Camera className="w-8 h-8 text-white mb-2" />
-                <span className="text-white text-[10px] font-black tracking-widest uppercase">Upload Photo</span>
-              </div>
+              <span
+                className="absolute inset-0 bg-atlas-900/65 backdrop-blur-[2px] flex flex-col items-center justify-center
+                           gap-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100
+                           transition-opacity duration-state ease-standard"
+              >
+                <Camera className="w-6 h-6 text-white" aria-hidden="true" />
+                <span className="font-ui text-caption text-white">Change</span>
+              </span>
             )}
-          </div>
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
-          
-          <div className="mt-6 text-center">
-            <h3 className="text-xl font-black text-gray-800">{user.first_name} {user.last_name}</h3>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">{user.role.replace('_', ' ')}</p>
-          </div>
-        </div>
-        
-        <div className="flex-1 w-full space-y-8 min-w-0">
-          <div>
-            <h2 className="text-2xl font-black text-gray-800 mb-1">Personal Information</h2>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
-              {isEditing ? 'Update your personal details below.' : 'View your account details.'}
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">First Name</label>
-              {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.first_name} 
-                  onChange={e => setFormData({...formData, first_name: e.target.value})}
-                  className="w-full p-4 bg-gray-50/50 border border-gray-200 rounded-2xl font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-green-500/25 focus:border-green-600 transition-all outline-none shadow-sm"
-                />
-              ) : (
-                <p className="p-4 font-bold text-gray-800 bg-gray-50/50 rounded-2xl border border-gray-100 truncate" title={user.first_name}>{user.first_name}</p>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Last Name</label>
-              {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.last_name} 
-                  onChange={e => setFormData({...formData, last_name: e.target.value})}
-                  className="w-full p-4 bg-gray-50/50 border border-gray-200 rounded-2xl font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-green-500/25 focus:border-green-600 transition-all outline-none shadow-sm"
-                />
-              ) : (
-                <p className="p-4 font-bold text-gray-800 bg-gray-50/50 rounded-2xl border border-gray-100 truncate" title={user.last_name}>{user.last_name}</p>
-              )}
-            </div>
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept="image/*"
+          />
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sex / Gender</label>
-              {isEditing ? (
-                <div className="relative">
-                  <select 
-                    value={formData.sex} 
-                    onChange={e => setFormData({...formData, sex: e.target.value})}
-                    className="w-full p-4 bg-gray-50/50 border border-gray-200 rounded-2xl font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-green-500/25 focus:border-green-600 transition-all outline-none shadow-sm appearance-none cursor-pointer"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                  <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
-                    <ChevronDown className="w-4 h-4" />
-                  </div>
-                </div>
-              ) : (
-                <p className="p-4 font-bold text-gray-800 bg-gray-50/50 rounded-2xl border border-gray-100 flex items-center min-w-0">
-                  <User className="w-5 h-5 mr-3 text-green-600/70 shrink-0" />
-                  <span className="truncate">{user.sex || <span className="text-gray-400 font-medium">Not specified</span>}</span>
-                </p>
-              )}
-            </div>
+          <h2 className="font-display text-section text-atlas-ink mt-4">
+            {user.first_name} {user.last_name}
+          </h2>
+          <p className="font-ui text-caption text-atlas-slate mt-1">
+            {ROLE_LABELS[user.role] || user.role}
+          </p>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Date of Birth</label>
-              {isEditing ? (
-                <input 
-                  type="date" 
-                  value={formData.date_of_birth} 
-                  onChange={e => setFormData({...formData, date_of_birth: e.target.value})}
-                  className="w-full p-4 bg-gray-50/50 border border-gray-200 rounded-2xl font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-green-500/25 focus:border-green-600 transition-all outline-none shadow-sm"
-                />
-              ) : (
-                <p className="p-4 font-bold text-gray-800 bg-gray-50/50 rounded-2xl border border-gray-100 flex items-center min-w-0">
-                  <Calendar className="w-5 h-5 mr-3 text-green-600/70 shrink-0" />
-                  <span className="truncate">{user.date_of_birth || <span className="text-gray-400 font-medium">Not specified</span>}</span>
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Contact Number</label>
-              {isEditing ? (
-                <input 
-                  type="text" 
-                  value={formData.contact_number} 
-                  onChange={e => setFormData({...formData, contact_number: e.target.value})}
-                  className="w-full p-4 bg-gray-50/50 border border-gray-200 rounded-2xl font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-green-500/25 focus:border-green-600 transition-all outline-none shadow-sm"
-                />
-              ) : (
-                <p className="p-4 font-bold text-gray-800 bg-gray-50/50 rounded-2xl border border-gray-100 flex items-center min-w-0">
-                  <Phone className="w-5 h-5 mr-3 text-green-600/70 shrink-0" />
-                  <span className="truncate">{user.contact_number || <span className="text-gray-400 font-medium">Not specified</span>}</span>
-                </p>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">School Email Address</label>
-              <p className="p-4 font-bold text-gray-500 bg-gray-100 rounded-2xl border border-transparent flex items-center cursor-not-allowed min-w-0" title={user.email}>
-                <Mail className="w-5 h-5 mr-3 text-gray-400 shrink-0" />
-                <span className="truncate">{user.email}</span>
-              </p>
-            </div>
-          </div>
-          
-          <div className="pt-8 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-6 w-full">
-            <div className="flex items-center p-5 bg-green-50/70 rounded-[2rem] border border-green-100 shadow-sm min-w-0">
-              <div className="p-3.5 bg-white rounded-2xl mr-4 shadow-sm border border-green-50/50 shrink-0">
-                <Building className="w-6 h-6 text-green-600" />
-              </div>
+          <dl className="w-full mt-6 pt-5 border-t border-white/45 flex flex-col gap-4 text-left">
+            <div className="flex items-center gap-3 min-w-0">
+              <Building className="w-4 h-4 text-atlas-slate shrink-0" aria-hidden="true" />
               <div className="min-w-0">
-                <p className="text-[10px] font-black text-green-600/70 uppercase tracking-widest mb-1 truncate">Department</p>
-                <p className="text-lg font-black text-green-900 leading-tight truncate" title={user.department}>{user.department || 'N/A'}</p>
+                <dt className="font-ui text-micro uppercase text-atlas-slate">College</dt>
+                <dd className="font-ui text-body text-atlas-ink truncate" title={user.department_name || user.department}>
+                  {user.department_name || college.code || 'Not assigned'}
+                </dd>
               </div>
             </div>
-            
-            <div className="flex items-center p-5 bg-blue-50/70 rounded-[2rem] border border-blue-100 shadow-sm min-w-0">
-              <div className="p-3.5 bg-white rounded-2xl mr-4 shadow-sm border border-blue-50/50 shrink-0">
-                <Shield className="w-6 h-6 text-blue-600" />
-              </div>
+            <div className="flex items-center gap-3 min-w-0">
+              <Shield className="w-4 h-4 text-atlas-slate shrink-0" aria-hidden="true" />
               <div className="min-w-0">
-                <p className="text-[10px] font-black text-blue-600/70 uppercase tracking-widest mb-1 truncate">Access Level</p>
-                <p className="text-lg font-black text-blue-900 capitalize leading-tight truncate" title={user.role}>{user.role.replace('_', ' ')}</p>
+                <dt className="font-ui text-micro uppercase text-atlas-slate">Access level</dt>
+                <dd className="font-ui text-body text-atlas-ink truncate">
+                  {ROLE_LABELS[user.role] || user.role}
+                </dd>
               </div>
             </div>
+          </dl>
+        </Panel>
+
+        <Panel
+          className="lg:col-span-2 rise"
+          title="Personal information"
+          description={isEditing ? 'Update your details, then save.' : 'Your school email is set by an administrator and cannot be changed here.'}
+          bodyClassName="p-6"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {isEditing ? (
+              <>
+                <TextInput
+                  label="First name"
+                  required
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                />
+                <TextInput
+                  label="Last name"
+                  required
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                />
+                <SelectInput
+                  label="Sex"
+                  value={formData.sex}
+                  onChange={(e) => setFormData({ ...formData, sex: e.target.value })}
+                  options={[
+                    { value: '', label: 'Prefer not to say' },
+                    { value: 'Male', label: 'Male' },
+                    { value: 'Female', label: 'Female' },
+                    { value: 'Other', label: 'Other' },
+                  ]}
+                />
+                <TextInput
+                  label="Date of birth"
+                  type="date"
+                  value={formData.date_of_birth}
+                  onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
+                />
+                <TextInput
+                  label="Contact number"
+                  hint="Philippine mobile, e.g. 09123456789"
+                  value={formData.contact_number}
+                  onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
+                />
+              </>
+            ) : (
+              <>
+                <ReadField label="First name" value={user.first_name} />
+                <ReadField label="Last name" value={user.last_name} />
+                <ReadField label="Sex" value={user.sex} />
+                <ReadField label="Date of birth" value={user.date_of_birth} />
+                <ReadField label="Contact number" value={user.contact_number} />
+              </>
+            )}
+
+            {/* Never editable, in either mode. */}
+            <ReadField label="School email address" value={user.email} icon={Mail} muted />
           </div>
-          
-        </div>
+        </Panel>
       </div>
-    </div>
+    </Page>
   );
 }
-

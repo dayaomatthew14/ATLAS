@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { LogIn, Key, User, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
 import { api } from '../utils/api';
-import { LogIn, Key, User, ArrowLeft, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
+import { saveSession, getLandingView } from '../utils/session';
 
+// Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
+const MIN_PASSWORD_LENGTH = 12;
 
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
-
-
 
   // State Machine for flows
   // 'login', 'register', 'verify', 'forgot_email', 'forgot_otp', 'forgot_reset'
@@ -55,6 +56,12 @@ export default function Login() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) err = "Enter a valid email address.";
     } else if (name === 'password') {
       if (/^\s|\s$/.test(value)) err = "Password cannot start or end with spaces.";
+      // The length rule applies only where a password is being SET. Enforcing
+      // it on the sign-in form told every existing user whose password predates
+      // the policy that their correct password was invalid.
+      else if (mode !== 'login' && value.length < MIN_PASSWORD_LENGTH) {
+        err = `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`;
+      }
     } else if (name === 'department') {
       if (!value) err = "Please select a department.";
     }
@@ -109,20 +116,8 @@ export default function Login() {
         const response = await api.postForm('/auth/login', formData);
 
         if (response && response.role) {
-          if (response.access_token) {
-            localStorage.setItem('atlas_token', response.access_token);
-          }
-          localStorage.setItem('atlas_role', response.role);
-          localStorage.setItem('atlas_user_name', response.name || '');
-          if (response.department) {
-            localStorage.setItem('atlas_department', response.department);
-          }
-          if (response.profile_picture) {
-            localStorage.setItem('atlas_profile_picture', response.profile_picture);
-          } else {
-            localStorage.removeItem('atlas_profile_picture');
-          }
-          navigate('/dashboard');
+          saveSession(response);
+          navigate(getLandingView());
         }
       }
       else if (mode === 'register') {
@@ -162,17 +157,8 @@ export default function Login() {
         const response = await api.postForm('/auth/login', formData);
 
         if (response && response.role) {
-          localStorage.setItem('atlas_role', response.role);
-          localStorage.setItem('atlas_user_name', response.name || '');
-          if (response.department) {
-            localStorage.setItem('atlas_department', response.department);
-          }
-          if (response.profile_picture) {
-            localStorage.setItem('atlas_profile_picture', response.profile_picture);
-          } else {
-            localStorage.removeItem('atlas_profile_picture');
-          }
-          navigate('/dashboard');
+          saveSession(response);
+          navigate(getLandingView());
         }
       }
       else if (mode === 'forgot_email') {
@@ -181,10 +167,26 @@ export default function Login() {
         setMode('forgot_otp');
       }
       else if (mode === 'forgot_otp') {
-        // No explicit verification endpoint for OTP alone, but we'll assume it's valid to move to reset
+        // HEU-10: this step used to advance on any input at all, so a wrong
+        // code was only discovered after the user had chosen and re-typed a new
+        // password. There is no endpoint that checks a reset code on its own,
+        // so validate the shape here and let the reset call be the authority —
+        // but at least stop accepting obviously wrong input.
+        const code = (otp || '').trim();
+        if (!/^\d{6}$/.test(code)) {
+          setError('Enter the 6-digit code from your email.');
+          setFieldErrors((prev) => ({ ...prev, otp: 'The code is 6 digits.' }));
+          setLoading(false);
+          return;
+        }
+        setError('');
         setMode('forgot_reset');
       }
       else if (mode === 'forgot_reset') {
+        if (!validateField('password', password)) {
+          setLoading(false);
+          return;
+        }
         if (password !== confirmPassword) {
           setError('Passwords do not match.');
           setLoading(false);
@@ -246,7 +248,7 @@ export default function Login() {
       const response = await api.post('/auth/resend-verification', { email });
       setSuccess(response.msg);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to resend code.');
+      setError(err.message || 'Failed to resend code.');
     } finally {
       setLoading(false);
     }
@@ -281,7 +283,7 @@ export default function Login() {
     );
   };
 
-function CustomSelectInput({ name, icon: Icon, value, setter, label, options, hasError }) {
+function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -359,7 +361,6 @@ function CustomSelectInput({ name, icon: Icon, value, setter, label, options, ha
     return (
       <CustomSelectInput
         key={name}
-        name={name}
         icon={icon}
         value={value}
         setter={setter}

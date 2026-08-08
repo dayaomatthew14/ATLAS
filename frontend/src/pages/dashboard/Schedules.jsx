@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, ChevronDown, Plus, AlertTriangle, Bell, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, Printer, FileSpreadsheet } from 'lucide-react';
+import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList } from 'lucide-react';
 import Modal from '../../components/Modal';
-import ConflictPanel from '../../components/ConflictPanel';
-import AIGenerationModal from '../../components/AIGenerationModal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
+import AtlasButton from '../../components/ui/Button';
+import ConflictLens from '../../components/ui/ConflictLens';
+// Badge, ConfirmDialog, restrictionReason and the admin check left with the
+// publish control — they had no other consumer on this screen.
+import Badge from '../../components/ui/Badge';
+import { SelectInput } from '../../components/ui/Field';
+import { PageHeader } from '../../components/ui/Page';
+import { focusRing, pluralize } from '../../components/ui/tokens';
+import { canEditSchedules, getDepartment } from '../../utils/session';
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -40,6 +47,34 @@ const getFacultyColor = (profName) => {
   return FACULTY_COLOR_PALETTES[index];
 };
 
+const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LABEL = {
+  Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday',
+  Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday',
+};
+
+/** "13:30" -> "1:30 PM". The grid had this inline three times over. */
+const to12h = (t) => {
+  if (!t) return '';
+  const [h, m] = String(t).split(':');
+  const hr = parseInt(h, 10);
+  if (Number.isNaN(hr)) return '';
+  return `${hr % 12 || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`;
+};
+
+const minutesOf = (t) => {
+  const [h, m] = String(t || '0:0').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+const durationHours = (s) => Math.max(0, (minutesOf(s.end_time) - minutesOf(s.start_time)) / 60);
+
+/** The API writes either "Mon" or "Monday" depending on the path that saved it. */
+const dayKey = (value) => {
+  const head = String(value || '').slice(0, 3).toLowerCase();
+  return DAY_ORDER.find((d) => d.toLowerCase() === head) || '';
+};
+
 const formatSubjectCode = (sched) => {
   if (!sched || !sched.subject_code) return '';
   const rawCode = sched.subject_code;
@@ -52,20 +87,225 @@ const formatSubjectCode = (sched) => {
   return rawCode;
 };
 
+/**
+ * The exported file's columns, in order.
+ *
+ * One list drives both the preview table and the file itself, so the preview
+ * cannot drift from what is actually written — which is the only thing that
+ * makes a preview worth showing.
+ */
+const EXPORT_COLUMNS = [
+  { key: 'faculty', label: 'Professor', value: (s) => s.faculty_name || 'TBA' },
+  { key: 'code', label: 'Subject Code', value: (s) => formatSubjectCode(s) },
+  { key: 'name', label: 'Subject Name', value: (s) => s.subject_name || '' },
+  { key: 'day', label: 'Day', value: (s) => DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '' },
+  { key: 'start', label: 'Start Time', value: (s) => to12h(s.start_time) },
+  { key: 'end', label: 'End Time', value: (s) => to12h(s.end_time) },
+  { key: 'room', label: 'Room', value: (s) => (s.room_name && s.room_name !== '—' ? s.room_name : 'No room assigned') },
+  { key: 'building', label: 'Building', value: (s) => s.room_building || '' },
+  { key: 'section', label: 'Section', value: (s) => s.section || '' },
+];
+
+/**
+ * RFC 4180 quoting.
+ *
+ * The previous export built a `data:` URI and ran it through `encodeURI`, which
+ * does not escape `#`. A subject name containing one — and curriculum sheets do
+ * carry them — ended the URI there, so the file downloaded silently truncated
+ * at that row, with nothing to say it had. Quoting here and writing a Blob
+ * below removes both hazards.
+ */
+const csvCell = (value) => {
+  const s = String(value ?? '');
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/**
+ * Byte-order mark, written as an escape rather than the invisible character
+ * itself so a formatter cannot strip it without anyone noticing. Excel reads
+ * a BOM-less CSV as the system codepage, which turns any non-ASCII subject
+ * name into mojibake.
+ */
+const CSV_BOM = '\uFEFF';
+
+const buildCsv = (rows) =>
+  [
+    EXPORT_COLUMNS.map((c) => csvCell(c.label)).join(','),
+    ...rows.map((s) => EXPORT_COLUMNS.map((c) => csvCell(c.value(s))).join(',')),
+  ].join('\r\n');
+
+/**
+ * The three things Export can produce. Printing is not one of them: the browser
+ * print dialog produced no file, only a page someone still had to save by hand,
+ * and half the time it landed as a screenshot of the app rather than a document.
+ */
+const EXPORT_FORMATS = [
+  {
+    id: 'csv',
+    ext: 'csv',
+    label: 'Spreadsheet',
+    sub: 'CSV — Excel, Numbers, Google Sheets',
+  },
+  {
+    id: 'word',
+    ext: 'doc',
+    label: 'Word document',
+    sub: 'Opens and edits in Word, Docs or LibreOffice',
+  },
+  {
+    id: 'pdf',
+    ext: 'pdf',
+    label: 'PDF',
+    sub: 'Fixed layout, for sending and posting',
+  },
+];
+
+const htmlEscape = (v) =>
+  String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/**
+ * A Word document, built as HTML.
+ *
+ * Word, LibreOffice and Google Docs all open an HTML file served as
+ * `application/msword`, and the result is a real editable document with a
+ * formatted table. A true binary .docx would mean adding a document library to
+ * a project that has four frontend dependencies; this needs none and produces a
+ * file people can actually edit, which is the point of asking for Word.
+ */
+const buildWordHtml = (rows, { title, subtitle }) => `
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: 29.7cm 21cm; margin: 1.5cm; }
+  body { font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #16211c; }
+  h1 { font-size: 16pt; margin: 0 0 4pt; }
+  p.sub { font-size: 9pt; color: #5b6b63; margin: 0 0 14pt; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 0.5pt solid #c9d2cd; padding: 5pt 6pt; text-align: left; vertical-align: top; font-size: 9pt; }
+  th { background: #0d3b26; color: #ffffff; font-weight: bold; }
+  tr.alt td { background: #f4f6f5; }
+</style></head>
+<body>
+  <h1>${htmlEscape(title)}</h1>
+  <p class="sub">${htmlEscape(subtitle)}</p>
+  <table>
+    <thead><tr>${EXPORT_COLUMNS.map((c) => `<th>${htmlEscape(c.label)}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${rows.map((s, i) =>
+        `<tr${i % 2 ? ' class="alt"' : ''}>${EXPORT_COLUMNS.map((c) => `<td>${htmlEscape(c.value(s))}</td>`).join('')}</tr>`
+      ).join('')}
+    </tbody>
+  </table>
+</body></html>`.trim();
+
+/** Professor, then the week in order, then time of day. How you would read it. */
+const sortForExport = (rows) =>
+  [...rows].sort(
+    (a, b) =>
+      String(a.faculty_name || '').localeCompare(String(b.faculty_name || ''))
+      || DAY_ORDER.indexOf(dayKey(a.day_of_week)) - DAY_ORDER.indexOf(dayKey(b.day_of_week))
+      || minutesOf(a.start_time) - minutesOf(b.start_time)
+      || String(a.subject_code || '').localeCompare(String(b.subject_code || ''))
+  );
+
+/**
+ * One class, in the by-professor board.
+ *
+ * Laid out to be read rather than to fit: the subject name wraps in full
+ * instead of truncating, the time range gets its own line at full weight, and
+ * room and section sit under a rule rather than sharing a row. It is the same
+ * class the grid renders, given the space to say what it is.
+ */
+function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDelete }) {
+  const code = formatSubjectCode(sched);
+  const label =
+    `${code}, ${sched.subject_name}, ${dayLabel} ` +
+    `${to12h(sched.start_time)} to ${to12h(sched.end_time)}, ` +
+    `${sched.room_name && sched.room_name !== '—' ? sched.room_name : 'no room assigned'}` +
+    (canManage ? '. Press Delete to remove this class.' : '');
+
+  return (
+    <div
+      role="button"
+      tabIndex={lensDim ? -1 : 0}
+      aria-hidden={lensDim || undefined}
+      aria-label={label}
+      onKeyDown={(e) => {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && canManage) {
+          e.preventDefault();
+          onDelete(sched);
+        }
+      }}
+      className={`print-block group relative rounded-panel border border-l-[6px] p-4 lift
+                  focus-visible:outline-none
+                  focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-offset-2
+                  ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''}
+                  ${color.bg} ${color.border} ${color.accent}`}
+    >
+      {lensLit && (
+        <span className="absolute top-2 right-2 text-sem-conflict font-bold" aria-hidden="true">▲</span>
+      )}
+
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-data text-table text-atlas-ink">{code}</span>
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => onDelete(sched)}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 -m-1 text-rose-600
+                       hover:bg-rose-100 rounded-lg transition-all no-print"
+            aria-label={`Delete ${code} on ${dayLabel}`}
+            title="Delete this class"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Full name, wrapped. Truncating this is what made the grid unreadable. */}
+      <p className="mt-1.5 font-ui text-body leading-snug text-atlas-ink">{sched.subject_name}</p>
+
+      <p className="mt-2.5 font-data text-table tabular-nums text-atlas-ink">
+        {to12h(sched.start_time)} – {to12h(sched.end_time)}
+      </p>
+
+      <div className="mt-2.5 pt-2.5 border-t border-black/10 flex flex-col gap-1.5 text-xs font-bold text-slate-700">
+        <span className="flex items-center gap-1.5">
+          <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" aria-hidden="true" />
+          <span>
+            {sched.room_name && sched.room_name !== '—' ? sched.room_name : 'No room assigned'}
+            {sched.room_building ? ` · ${sched.room_building}` : ''}
+          </span>
+        </span>
+        {sched.section && (
+          <span className="flex items-center gap-1.5 text-slate-600">
+            <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" aria-hidden="true" />
+            <span>Section {sched.section}</span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Schedules() {
   const { addToast } = useToast();
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [schedules, setSchedules] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
-  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [formConflicts, setFormConflicts] = useState([]);
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
-  
+
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  // Whether the generator should put laboratory subjects in a room. Lecture
+  // subjects never get one either way. Defaults on, which is what the generator
+  // did before this was a choice.
+  const [assignLabRooms, setAssignLabRooms] = useState(true);
   const [semesters, setSemesters] = useState([]);
-  const [departmentSections, setDepartmentSections] = useState([]);
   const [selectedGenSemester, setSelectedGenSemester] = useState('');
   const [selectedGenProfessors, setSelectedGenProfessors] = useState([]);
   const [generationResults, setGenerationResults] = useState(null);
@@ -74,6 +314,66 @@ export default function Schedules() {
   const [globalSchedules, setGlobalSchedules] = useState([]);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [activeConflicts, setActiveConflicts] = useState([]);
+
+  /* --------------------------------------------------------------------------
+   * Publication state — read only, and only for print.
+   *
+   * Publishing itself is not on this screen: it is an administrator action and
+   * administrators do not open the Schedule screen, so the control here could
+   * never be used by anyone who could see it. What survives is the read: the
+   * printed schedule needs to know whether it is official, because a draft
+   * posted on a department door is the failure the DRAFT watermark prevents
+   * (FLOW-04). An administrator publishing through the API still clears it.
+   * ----------------------------------------------------------------------- */
+  const [publishState, setPublishState] = useState({
+    status: 'draft', total: 0, published: 0, unresolved_conflicts: 0,
+  });
+  // --- Conflict lens (Phase 1 §1.5) --------------------------------------
+  const [isLensOpen, setIsLensOpen] = useState(false);
+  const [lensCauseFilter, setLensCauseFilter] = useState(null);
+  const [resolvingId, setResolvingId] = useState(null);
+
+  // Curriculum ids that are in conflict, so the grid knows which blocks stay lit.
+  const conflictedCurriculumIds = React.useMemo(
+    () => new Set(activeConflicts.map((c) => c.curriculum_id).filter(Boolean)),
+    [activeConflicts]
+  );
+
+  // The lens dismisses itself when the last conflict clears.
+  useEffect(() => {
+    if (isLensOpen && activeConflicts.length === 0) {
+      setIsLensOpen(false);
+      setLensCauseFilter(null);
+    }
+  }, [activeConflicts.length, isLensOpen]);
+
+  /* --------------------------------------------------------------------------
+   * How the generated schedule is displayed.
+   *
+   * The combined week grid stacks every professor into one six-column board and
+   * positions each class absolutely at full column width. Two professors
+   * teaching at 9:00 on a Monday — in different rooms, which is the normal case,
+   * not an error — render on top of one another, and the later one hides the
+   * earlier completely. So the one view that claimed to show the whole
+   * department's schedule was the one view that could not.
+   *
+   * "By professor" gives each professor their own board, where classes flow in
+   * time order instead of being positioned over each other. Nothing can hide
+   * anything, subject names wrap instead of truncating, and the page is as long
+   * as it needs to be. The combined grid is kept because the conflict lens dims
+   * and lights blocks in it, and that is a different job from reading a load.
+   * ----------------------------------------------------------------------- */
+  const [scheduleView, setScheduleView] = useState('faculty');
+
+  const fetchPublishState = async (semesterId) => {
+    if (!semesterId) return;
+    try {
+      const data = await api.get(`/schedules/status?semester_id=${semesterId}`);
+      setPublishState(data || { status: 'draft', total: 0, published: 0, unresolved_conflicts: 0 });
+    } catch (e) {
+      /* leave it on draft rather than claiming a state we could not read */
+    }
+  };
 
   const [undoBackup, setUndoBackup] = useState(null);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -88,6 +388,7 @@ export default function Schedules() {
   };
 
   const handleSolveConflict = async (item) => {
+    setResolvingId(item.conflict_id ?? item.id);
     try {
       const res = await api.post('/ai-scheduler/solve-conflict', {
         conflict_id: item.conflict_id || item.id,
@@ -121,17 +422,28 @@ export default function Schedules() {
       }
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to solve conflict', 'error');
+      // A 409 means no conflict-free slot exists (DEP-6). That is a real answer
+      // about the schedule, not a failure to report as an error toast.
+      if (e.status === 409) {
+        addToast(e.message, 'warning');
+      } else {
+        addToast(e.message || 'Could not resolve the conflict.', 'error');
+      }
+    } finally {
+      setResolvingId(null);
     }
   };
 
-  const handleSolveAllConflicts = async () => {
-    const itemsToSolve = generationResults?.unplaced_items?.length ? [...generationResults.unplaced_items] : [...activeConflicts];
-    if (!itemsToSolve.length) return;
-    for (const item of itemsToSolve) {
-      await handleSolveConflict(item);
-    }
-  };
+  /**
+   * "Auto-Solve All Conflicts" was removed here.
+   *
+   * It looped the single-conflict resolver over every conflict, and that
+   * resolver force-placed into the first room on Mon/Wed whenever no free slot
+   * existed — creating fresh double-bookings and marking them resolved. One
+   * click could quietly corrupt an entire term. The backend no longer
+   * force-places (DEP-6), and conflicts are now stepped through one at a time
+   * in the lens so each resolution is a decision someone actually made.
+   */
 
   const handleDeleteSchedule = async (sched) => {
     try {
@@ -146,7 +458,7 @@ export default function Schedules() {
       if (semToFetch) fetchGlobalSchedules(semToFetch);
       fetchSchedules();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to delete schedule', 'error');
+      addToast(e.message || 'Failed to delete schedule', 'error');
     }
   };
 
@@ -166,7 +478,7 @@ export default function Schedules() {
       fetchActiveConflicts();
       setIsClearConfirmOpen(false);
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to clear schedules', 'error');
+      addToast(e.message || 'Failed to clear schedules', 'error');
     }
   };
 
@@ -181,46 +493,17 @@ export default function Schedules() {
       fetchSchedules();
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Failed to restore schedules', 'error');
+      addToast(e.message || 'Failed to restore schedules', 'error');
     }
   };
 
-  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
-
-  const handleExportCSV = () => {
-    if (!globalSchedules || globalSchedules.length === 0) {
-      addToast('No schedule entries to export', 'warning');
-      return;
-    }
-    const headers = ['Subject Code', 'Subject Name', 'Day', 'Start Time', 'End Time', 'Room', 'Faculty', 'Department'];
-    const rows = globalSchedules.map(s => [
-      `"${formatSubjectCode(s)}"`,
-      `"${(s.subject_name || '').replace(/"/g, '""')}"`,
-      `"${s.day_of_week || ''}"`,
-      `"${s.start_time || ''}"`,
-      `"${s.end_time || ''}"`,
-      `"${s.room_name || ''}"`,
-      `"${s.faculty_name || ''}"`,
-      `"${s.department_name || ''}"`
-    ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `ATLAS_Schedule_Export_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    addToast('Exported schedule to CSV file! 📊', 'success');
-  };
-
-  const handlePrintSchedule = () => {
-    if (!globalSchedules || globalSchedules.length === 0) {
-      addToast('No schedule entries to print', 'warning');
-      return;
-    }
-    window.print();
-  };
+  /*
+   * `handlePrintSchedule` and the Export dropdown were removed together.
+   * `window.print()` produced no file — it opened the browser's print dialog and
+   * left the user to save a page by hand. Export now writes a real document in
+   * one of three formats. The @media print rules stay: Ctrl+P still works and
+   * still carries the DRAFT watermark.
+   */
 
   const fetchGenerateData = async () => {
     try {
@@ -252,13 +535,118 @@ export default function Schedules() {
   const [selectedProfessorFilter, setSelectedProfessorFilter] = useState('');
   const [allTeachers, setAllTeachers] = useState([]);
 
+  /* --------------------------------------------------------------------------
+   * Export.
+   *
+   * The file used to land on disk the moment Export was clicked — no way to see
+   * what was in it, how many rows, or whose classes, until you opened it in
+   * Excel. Now the same rows the file will contain are shown first, built from
+   * one column list (EXPORT_COLUMNS) so the preview and the file cannot diverge.
+   *
+   * Declared below `selectedProfessorFilter` on purpose: it reads that state, and
+   * `const` bindings are in the temporal dead zone until their own line runs.
+   * ----------------------------------------------------------------------- */
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  // 'all' or 'filtered'. Only meaningful while a professor filter is active.
+  const [exportScope, setExportScope] = useState('all');
+  const [exportFormat, setExportFormat] = useState('csv');
+  const [isExporting, setIsExporting] = useState(false);
+
+  const openExport = () => {
+    if (!globalSchedules || globalSchedules.length === 0) {
+      addToast('No schedule entries to export', 'warning');
+      return;
+    }
+    // Default to what is on screen: someone who filtered to one professor and
+    // then hit Export almost certainly means that professor.
+    setExportScope(selectedProfessorFilter ? 'filtered' : 'all');
+    setIsExportOpen(true);
+  };
+
+  const exportRows = React.useMemo(() => {
+    const scoped =
+      exportScope === 'filtered' && selectedProfessorFilter
+        ? globalSchedules.filter((s) => s.faculty_name === selectedProfessorFilter)
+        : globalSchedules;
+    return sortForExport(scoped);
+  }, [globalSchedules, exportScope, selectedProfessorFilter]);
+
+  const exportTerm = semesters.find((s) => s.id === activeSemesterId);
+
+  const exportFileName = (() => {
+    const parts = ['ATLAS_Schedule'];
+    if (exportTerm) parts.push(`${exportTerm.academic_year}_${exportTerm.term}`);
+    if (exportScope === 'filtered' && selectedProfessorFilter) parts.push(selectedProfessorFilter);
+    parts.push(new Date().toISOString().slice(0, 10));
+    const stem = parts.join('_').replace(/[^A-Za-z0-9_\-.]/g, '_');
+    return `${stem}.${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext || 'csv'}`;
+  })();
+
+  const exportScopeName = exportScope === 'filtered' ? selectedProfessorFilter : null;
+
+  /** Hand a Blob to the browser as a download. */
+  const saveBlob = (blob, fileName) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownload = async () => {
+    if (exportRows.length === 0) {
+      addToast('There is nothing to export in this selection.', 'warning');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      if (exportFormat === 'csv') {
+        // A Blob object URL, not a data: URI — see csvCell for what that fixed.
+        // The BOM makes Excel read UTF-8 subject names instead of mojibake.
+        saveBlob(new Blob([CSV_BOM, buildCsv(exportRows)], { type: 'text/csv;charset=utf-8;' }), exportFileName);
+      } else if (exportFormat === 'word') {
+        const html = buildWordHtml(exportRows, {
+          title: `ATLAS Schedule — ${getDepartment() || 'Department'}`,
+          subtitle: [
+            exportTerm ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}` : 'No active term',
+            exportScopeName || 'All professors',
+            `${exportRows.length} ${exportRows.length === 1 ? 'class' : 'classes'}`,
+            `generated ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`,
+          ].join(' · '),
+        });
+        saveBlob(new Blob([CSV_BOM, html], { type: 'application/msword;charset=utf-8;' }), exportFileName);
+      } else {
+        // The PDF is rendered by the server, which already has reportlab. It
+        // takes the same scope so the file matches the preview.
+        const blob = await api.getBlob('/schedules/export/pdf', {
+          params: { semester_id: activeSemesterId, faculty_name: exportScopeName || undefined },
+        });
+        saveBlob(blob, exportFileName);
+      }
+      setIsExportOpen(false);
+      addToast(`Exported ${exportRows.length} ${exportRows.length === 1 ? 'class' : 'classes'} to ${exportFileName}`, 'success');
+    } catch (err) {
+      addToast(err.message || 'Could not build the export file.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   useEffect(() => {
     api.get('/semesters').then(sems => {
       const safeSems = Array.isArray(sems) ? sems : [];
+      // Also kept in state on mount, not only when the Generate modal opens.
+      // The print header and the export file name both name the term, and both
+      // reported "no active term" on a freshly loaded page without this.
+      setSemesters(safeSems);
       const active = safeSems.find(s => s.is_active);
       if (active) {
         setActiveSemesterId(active.id);
         fetchGlobalSchedules(active.id);
+        fetchPublishState(active.id);
       }
     }).catch(console.error);
 
@@ -271,7 +659,47 @@ export default function Schedules() {
       }));
       setAllTeachers(formatted);
     }).catch(console.error);
+    // Load once on mount; the fetchers are re-created each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * One board per professor: their week, day by day, in time order.
+   *
+   * Every professor in the department appears, including those the generator
+   * placed nothing for. An empty week is a fact worth seeing — it is how an
+   * unloaded professor becomes visible — and hiding them would make the page
+   * shorter at the cost of the thing it exists to show.
+   */
+  const facultyBoards = React.useMemo(() => {
+    const boards = new Map();
+
+    allTeachers.forEach((t) => {
+      if (t.name && t.name.trim()) boards.set(t.name, { name: t.name, classes: [] });
+    });
+    globalSchedules.forEach((s) => {
+      const name = s.faculty_name || 'Unassigned';
+      if (!boards.has(name)) boards.set(name, { name, classes: [] });
+      boards.get(name).classes.push(s);
+    });
+
+    return [...boards.values()]
+      .map((board) => ({
+        ...board,
+        hours: board.classes.reduce((n, s) => n + durationHours(s), 0),
+        days: DAY_ORDER.map((day) => ({
+          day,
+          classes: board.classes
+            .filter((s) => dayKey(s.day_of_week) === day)
+            .sort((a, b) => minutesOf(a.start_time) - minutesOf(b.start_time)),
+        })),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [globalSchedules, allTeachers]);
+
+  const visibleBoards = selectedProfessorFilter
+    ? facultyBoards.filter((b) => b.name === selectedProfessorFilter)
+    : facultyBoards;
 
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
@@ -281,7 +709,8 @@ export default function Schedules() {
     setIsGenerating(true);
     try {
       const res = await api.post(`/ai-scheduler/generate/${selectedGenSemester}`, {
-        faculty_ids: selectedGenProfessors
+        faculty_ids: selectedGenProfessors,
+        assign_lab_rooms: assignLabRooms
       });
       setGenerationResults(res);
       addToast('Generation complete', 'success');
@@ -289,54 +718,18 @@ export default function Schedules() {
       fetchGlobalSchedules(selectedGenSemester);
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.response?.data?.detail || 'Generation failed', 'error');
+      addToast(e.message || 'Generation failed', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const role = (localStorage.getItem('atlas_role') || 'guest').toLowerCase();
-  const canManage = ['admin', 'program_chair', 'coordinator'].includes(role);
+  const canManageSchedules = canEditSchedules();
 
-  // Date Helpers
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-
-  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
-
-  const prevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-  };
-
-  const nextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-  };
-
-  const renderCalendarDays = () => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const daysInMonth = getDaysInMonth(year, month);
-    const firstDay = getFirstDayOfMonth(year, month);
-    const days = [];
-
-    for (let i = 0; i < firstDay; i++) {
-      days.push({ day: null, currentMonth: false });
-    }
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      days.push({ day: d, currentMonth: true, date: new Date(year, month, d) });
-    }
-
-    const remaining = 42 - days.length;
-    for (let i = 1; i <= remaining; i++) {
-      days.push({ day: i, currentMonth: false });
-    }
-
-    return days;
-  };
+  // A month-grid calendar (monthNames, getDaysInMonth, getFirstDayOfMonth,
+  // prevMonth, nextMonth, renderCalendarDays and the `currentDate` state that
+  // fed them) used to sit here. Nothing rendered any of it — this screen shows
+  // a week grid — so it was ~40 lines of unreachable date arithmetic.
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState([]);
@@ -387,9 +780,13 @@ export default function Schedules() {
     }
     setIsFetchingSuggestions(true);
     try {
-      const data = await api.get('/schedules/suggestions', { params: { subject_id: formData.subject_id } });
-      setAiSuggestions(data);
-      if (data.length === 0) {
+      // The API parameter is `curriculum_id`; `subject_id` was ignored and the
+      // required parameter came back missing.
+      const data = await api.get('/schedules/suggestions', {
+        params: { curriculum_id: formData.subject_id, semester_id: activeSemesterId }
+      });
+      setAiSuggestions(Array.isArray(data) ? data : []);
+      if (!data || data.length === 0) {
         addToast('No suggestions found. Faculty might be overloaded.', 'warning');
       } else {
         addToast('AI Suggestions generated!', 'success');
@@ -435,12 +832,11 @@ export default function Schedules() {
       setIsModalOpen(false);
       addToast('Schedule created successfully', 'success');
     } catch (error) {
-      addToast(error.response?.data?.detail || error.message || 'Failed to create schedule', 'error');
+      addToast(error.message || 'Failed to create schedule', 'error');
     }
   };
 
   const fetchSchedules = async () => {
-    setIsLoading(true);
     try {
       const rawData = await api.get('/schedules');
       const formattedData = Array.isArray(rawData) ? rawData.map(s => ({
@@ -451,153 +847,178 @@ export default function Schedules() {
     } catch (error) {
       console.error('Failed to fetch schedules', error);
       setSchedules([]);
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const handleAIGeneration = (response) => {
-    // Refresh schedules from server after generation
-    fetchSchedules();
-  };
-
-  const handleAutoResolveAll = async () => {
-    // Note: In our current implementation, conflicts are detected on-the-fly or logged in the DB.
-    // The backend /resolve-conflicts expects models.Conflict IDs.
-    // If we want to resolve schedule IDs directly, we'd need a different endpoint or wrap them.
-    // For now, we'll fetch the unresolved conflict logs from the backend first.
-    try {
-      const dbConflicts = await api.get('/ai-scheduler/conflicts');
-      const unresolvedIds = dbConflicts.filter(c => !c.resolved_at).map(c => c.id);
-      
-      if (unresolvedIds.length === 0) {
-        addToast('No unresolved system conflicts found.', 'info');
-        return;
-      }
-
-      addToast('ATLAS AI is finding alternative slots...', 'info');
-      const res = await api.post('/ai-scheduler/resolve-conflicts', unresolvedIds);
-      
-      if (res.resolved_count > 0) {
-        addToast(`Successfully resolved ${res.resolved_count} conflicts!`, 'success');
-        fetchSchedules();
-      } else {
-        addToast('AI could not find conflict-free slots for the remaining items.', 'warning');
-      }
-    } catch (e) {
-      addToast('Failed to execute AI Auto-Resolution', 'error');
-    }
-  };
+  // `handleAutoResolveAll` was removed with the button that called it. It
+  // looped the single-conflict resolver, which force-placed into the first free
+  // room on failure, so one click could double-book a whole term and report
+  // success. `handleAIGeneration` was a one-line wrapper nothing referenced.
 
   useEffect(() => {
     fetchSchedules();
-  }, [currentDate]);
+  }, []);
 
-  const activeConflictsCount = schedules.filter(s => s.isConflicting).length;
+  /**
+   * The conflict count had two competing sources: this button counted overlaps
+   * found by client-side detection, while the panel (now the lens) was fed by
+   * the API's conflict table. A generator conflict — an unplaced subject, a
+   * workload cap — produces no client-side overlap, so the button stayed hidden
+   * while real conflicts existed. The server's record is authoritative; local
+   * detection only catches grid overlaps the server has not recorded yet.
+   */
+  const localOverlapCount = schedules.filter(s => s.isConflicting).length;
+  const activeConflictsCount = Math.max(activeConflicts.length, localOverlapCount);
 
   return (
     <>
       {/* Main Content Area */}
       <main className="flex-1 max-w-full mx-auto px-6 sm:px-10 lg:px-12 py-8 w-full relative">
         
-        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden p-8">
-          <div className="flex justify-between items-center mb-8">
-            <div className="flex-1">
-              <h3 className="text-3xl font-black text-slate-900 tracking-tighter leading-none mb-2">Department Faculty Schedules</h3>
-              <p className="text-slate-400 font-medium text-sm">Weekly view of schedules for the professors in your department.</p>
-            </div>
-            <div className="flex gap-4 items-center">
-              {activeConflictsCount > 0 && (
-                <button
-                  onClick={() => setIsConflictPanelOpen(true)}
-                  className="flex items-center bg-red-600 hover:bg-red-700 text-white px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider animate-pulse shadow-md transition-all whitespace-nowrap"
-                >
-                  <AlertTriangle className="w-4 h-4 mr-2" />
-                  {activeConflictsCount} Conflict{activeConflictsCount > 1 ? 's' : ''}
-                </button>
-              )}
-              {/* Professor Filter */}
-              <div className="min-w-[280px] relative group">
-                <select
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200/50 rounded-2xl text-[11px] font-black text-slate-700 focus:ring-2 focus:ring-green-500 uppercase tracking-[0.2em] shadow-sm appearance-none cursor-pointer transition-all hover:bg-slate-100/50 pr-12"
+        {/* Print-only chrome. Hidden on screen; see the @media print block in
+            index.css. A draft posted on a department door is the failure the
+            watermark prevents (FLOW-04). */}
+        <div className="print-header mb-4 pb-2">
+          <div className="flex items-baseline justify-between">
+            <span className="font-display text-lead">De La Salle Araneta University — ATLAS</span>
+            <span className="font-ui text-caption">
+              {localStorage.getItem('atlas_department') || ''} · {semesters.find(s => s.id === activeSemesterId)
+                ? `A.Y. ${semesters.find(s => s.id === activeSemesterId).academic_year} ${formatSemesterTerm(semesters.find(s => s.id === activeSemesterId).term)}`
+                : ''}
+            </span>
+          </div>
+        </div>
+        {publishState.status !== 'published' && (
+          <div className="print-draft-watermark" aria-hidden="true">DRAFT</div>
+        )}
+
+        <div>
+          {/* Publication status and the Publish control are both gone from this
+              screen. Publishing is an administrator action, and administrators
+              no longer reach the Schedule screen at all — so the button here was
+              permanently restricted for the only people who could see it, and
+              the Draft badge reported a state nobody on this screen could
+              change. The printed schedule still carries its DRAFT watermark and
+              footer, which is where the "this is not official yet" warning
+              actually does its job. */}
+          <PageHeader
+            title="Schedule"
+            // Counts what is on screen, not `publishState.total`. That figure
+            // comes from /schedules/status, which generation never refetches —
+            // so after generating, the header went on reporting the count from
+            // before the run while the boards below showed the new one.
+            meta={
+              globalSchedules.length > 0
+                ? `${pluralize(globalSchedules.length, 'class', 'classes')} across your department`
+                : 'Weekly view of schedules for the professors in your department.'
+            }
+            actions={
+              <>
+                {activeConflictsCount > 0 && (
+                  // Destructive-adjacent controls are outlines, not solid red
+                  // fills — a red fill reads as alarm in a dense grid, and the
+                  // lens is where the system is allowed to be loud.
+                  <AtlasButton
+                    variant="destructive"
+                    icon={AlertTriangle}
+                    onClick={() => setIsLensOpen(true)}
+                    className="no-print"
+                  >
+                    {pluralize(activeConflictsCount, 'Conflict')}
+                  </AtlasButton>
+                )}
+
+                <SelectInput
+                  label="Faculty"
+                  className="w-56 no-print"
                   value={selectedProfessorFilter}
                   onChange={(e) => setSelectedProfessorFilter(e.target.value)}
-                >
-                  <option value="">All Faculty</option>
-                  {allTeachers.map(t => (
-                    <option key={t.id} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-slate-600 transition-colors">
-                  <ChevronDown className="w-4 h-4" />
-                </div>
-              </div>
+                  options={[
+                    { value: '', label: 'All faculty' },
+                    ...allTeachers.map((t) => ({ value: t.name, label: t.name })),
+                  ]}
+                />
 
-              {canManage && (
-                <div className="flex gap-3 items-center ml-2">
-                  <button
-                    onClick={() => {
-                      fetchGenerateData();
-                      setIsGenerateModalOpen(true);
-                      setGenerationResults(null);
-                    }}
-                    className="bg-green-700 hover:bg-green-800 text-white px-8 py-3.5 rounded-2xl flex items-center shadow-lg shadow-green-900/20 transition-all font-black text-[11px] uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
-                  >
-                    <Sparkles className="w-4 h-4 mr-2" /> Generate
-                  </button>
-                  <button
-                    onClick={handleOpenModal}
-                    className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[11px] font-black flex items-center shadow-sm transition-colors uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
-                  >
-                    <Plus className="w-4 h-4 mr-1" /> Create
-                  </button>
-                  <div className="relative">
-                    <button
-                      onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
-                      className="px-5 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl text-[11px] font-black flex items-center shadow-xs transition-all uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
+                {canManageSchedules && (
+                  <>
+                    <AtlasButton
+                      icon={Sparkles}
+                      className="no-print"
+                      onClick={() => {
+                        fetchGenerateData();
+                        setIsGenerateModalOpen(true);
+                        setGenerationResults(null);
+                      }}
                     >
-                      <Download className="w-4 h-4 mr-1.5" /> Export
-                    </button>
-                    {isExportDropdownOpen && (
-                      <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-100 z-50 overflow-hidden py-1.5 animate-in fade-in slide-in-from-top-2">
-                        <button
-                          type="button"
-                          onClick={() => { handleExportCSV(); setIsExportDropdownOpen(false); }}
-                          className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
-                        >
-                          <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV / Excel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { handlePrintSchedule(); setIsExportDropdownOpen(false); }}
-                          className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 border-t border-slate-100"
-                        >
-                          <Printer className="w-4 h-4 text-indigo-600" /> Print / Save PDF
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setIsClearConfirmOpen(true)}
-                    className="px-5 py-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200/60 rounded-2xl text-[11px] font-black flex items-center shadow-xs transition-all uppercase tracking-[0.2em] transform hover:scale-105 active:scale-95 whitespace-nowrap"
-                    title="Clear all schedules for this semester"
-                  >
-                    <Trash2 className="w-4 h-4 mr-1.5" /> Clear All
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+                      Generate
+                    </AtlasButton>
+                    <AtlasButton variant="secondary" icon={Plus} onClick={handleOpenModal} className="no-print">
+                      Create
+                    </AtlasButton>
+                    {/* One button, not a menu. The format is chosen inside the
+                        dialog, next to the preview of what it will contain. */}
+                    <AtlasButton variant="secondary" icon={Download} onClick={openExport} className="no-print">
+                      Export
+                    </AtlasButton>
+                    <AtlasButton
+                      variant="destructive"
+                      icon={Trash2}
+                      onClick={() => setIsClearConfirmOpen(true)}
+                      title="Clear all schedules for this semester"
+                      className="no-print"
+                    >
+                      Clear All
+                    </AtlasButton>
+                  </>
+                )}
+              </>
+            }
+          />
 
-
-          <div className="mt-12 mb-8"></div>
-
-          {/* Faculty Color Legend Bar */}
+          {/* View switch. "By professor" is the default because it is the only
+              one of the two that can show every professor's classes at once. */}
           {globalSchedules.length > 0 && (
-            <div className="mt-8 mb-4 p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-2.5 flex items-center gap-2">
-                <User className="w-3.5 h-3.5 text-green-700" /> Faculty Color Legend (Click to filter)
+            <div className="flex flex-wrap items-center justify-between gap-3 no-print mb-4">
+              <div className="inline-flex rounded-control glass p-1">
+                {[
+                  { id: 'faculty', label: 'By professor', icon: LayoutList },
+                  { id: 'grid', label: 'Week grid', icon: LayoutGrid },
+                ].map((v) => {
+                  const Icon = v.icon;
+                  const isActive = scheduleView === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setScheduleView(v.id)}
+                      aria-pressed={isActive}
+                      className={`h-9 px-4 rounded-field font-ui text-body flex items-center gap-2
+                                  transition-colors duration-state ease-standard ${focusRing} ${
+                        isActive
+                          ? 'bg-white text-atlas-ink font-medium shadow-[0_1px_2px_rgb(5_48_31/0.10)]'
+                          : 'text-atlas-slate hover:text-atlas-ink'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" aria-hidden="true" />
+                      {v.label}
+                    </button>
+                  );
+                })}
               </div>
+              <p className="font-ui text-caption text-atlas-slate tabular-nums">
+                {pluralize(globalSchedules.length, 'class', 'classes')} ·{' '}
+                {facultyBoards.filter((b) => b.classes.length > 0).length} of {facultyBoards.length} professors scheduled
+              </p>
+            </div>
+          )}
+
+          {/* Faculty colour legend, which doubles as the filter. */}
+          {globalSchedules.length > 0 && (
+            <div className="glass sheen rounded-panel surface p-4 mb-5 no-print">
+              <p className="font-ui text-micro uppercase text-atlas-slate mb-2.5 flex items-center gap-2">
+                <User className="w-3.5 h-3.5 text-atlas-700" aria-hidden="true" />
+                Faculty — select one to filter
+              </p>
               <div className="flex flex-wrap gap-2">
                 {Array.from(new Set(globalSchedules.map(s => s.faculty_name).filter(Boolean))).map(prof => {
                   const color = getFacultyColor(prof);
@@ -606,26 +1027,24 @@ export default function Schedules() {
                     <button
                       key={prof}
                       type="button"
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedProfessorFilter(isSelected ? '' : prof)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+                      className={`h-8 px-3 rounded-control font-ui text-table flex items-center gap-2 border
+                                  transition-all duration-state ease-standard ${focusRing} ${
                         isSelected
-                          ? 'ring-2 ring-green-600 shadow-md bg-slate-900 text-white border-slate-900 scale-105'
-                          : `${color.bg} ${color.border} ${color.text} hover:scale-105 shadow-2xs`
+                          ? 'bg-atlas-900 text-white border-atlas-900 font-medium'
+                          : `${color.bg} ${color.border} ${color.text} hover:-translate-y-px`
                       }`}
                     >
-                      <span className={`w-2.5 h-2.5 rounded-full ${color.dot}`} />
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isSelected ? 'bg-white' : color.dot}`} />
                       <span>{prof}</span>
                     </button>
                   );
                 })}
                 {selectedProfessorFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedProfessorFilter('')}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-all"
-                  >
-                    Clear Filter
-                  </button>
+                  <AtlasButton size="row" variant="ghost" onClick={() => setSelectedProfessorFilter('')}>
+                    Clear filter
+                  </AtlasButton>
                 )}
               </div>
             </div>
@@ -633,12 +1052,93 @@ export default function Schedules() {
 
           {isGlobalLoading ? (
             <div className="flex justify-center py-20"><Sparkles className="w-8 h-8 text-indigo-400 animate-spin" /></div>
+          ) : scheduleView === 'faculty' ? (
+            <div className="print-grid mt-8 flex flex-col gap-8">
+              {visibleBoards.length === 0 && (
+                <div className="glass sheen rounded-panel surface p-16 text-center">
+                  <h3 className="font-display text-section text-atlas-ink">Nothing scheduled yet.</h3>
+                  <p className="mt-2 font-ui text-body text-atlas-slate">
+                    Generate the timetable, or add a class manually, and every professor&apos;s week appears here.
+                  </p>
+                </div>
+              )}
+
+              {visibleBoards.map((board) => {
+                const color = getFacultyColor(board.name);
+                const hasClasses = board.classes.length > 0;
+
+                return (
+                  <section
+                    key={board.name}
+                    aria-label={`Schedule for ${board.name}`}
+                    className="glass sheen rounded-panel surface overflow-hidden break-inside-avoid rise"
+                  >
+                    <header className="flex flex-wrap items-center justify-between gap-3 px-7 py-5 border-b border-slate-100 bg-slate-50/60">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${color.dot}`} aria-hidden="true" />
+                        <h3 className="font-ui text-lead text-atlas-ink truncate">
+                          {board.name}
+                        </h3>
+                      </div>
+                      <p className="font-ui text-caption text-atlas-slate tabular-nums">
+                        {hasClasses
+                          ? `${board.classes.length} ${board.classes.length === 1 ? 'class' : 'classes'} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
+                          : 'No classes scheduled'}
+                      </p>
+                    </header>
+
+                    {hasClasses ? (
+                      /* Six day columns that reflow rather than scroll sideways.
+                         Classes stack in time order, so two at the same hour sit
+                         one below the other instead of one behind the other. */
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-px bg-slate-100">
+                        {board.days.map(({ day, classes }) => (
+                          <div key={day} className="bg-white/60 p-4 flex flex-col gap-3 min-h-[7rem]">
+                            <h4 className="font-ui text-micro uppercase text-atlas-slate text-center py-2 bg-atlas-canvas rounded-field">
+                              <abbr title={DAY_LABEL[day]} className="no-underline">{day}</abbr>
+                            </h4>
+
+                            {classes.length === 0 ? (
+                              <p className="font-ui text-caption text-atlas-disabled text-center py-4">No classes</p>
+                            ) : (
+                              classes.map((sched) => {
+                                const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
+                                return (
+                                  <ClassCard
+                                    key={sched.id}
+                                    sched={sched}
+                                    color={color}
+                                    dayLabel={DAY_LABEL[day]}
+                                    lensDim={isLensOpen && !inConflict}
+                                    lensLit={isLensOpen && inConflict}
+                                    canManage={canManageSchedules}
+                                    onDelete={handleDeleteSchedule}
+                                  />
+                                );
+                              })
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="px-7 py-10 text-center text-sm font-semibold text-slate-400">
+                        The generator placed no classes for {board.name} this term.
+                      </p>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
           ) : (
-            <div className="flex relative mt-12 overflow-x-auto min-w-[900px] pb-8">
+            /* The scroll container and the wide content must be separate elements:
+               `overflow-x-auto` and `min-w-[900px]` on the same div meant the div
+               grew to 900px and overflowed its parent instead of scrolling. */
+            <div className="print-grid relative mt-12 overflow-x-auto pb-8">
+            <div className="flex relative min-w-[900px]">
               {/* Time column (7:30 AM to 7:30 PM - 12 hours) */}
               <div className="w-20 flex flex-col relative border-r border-slate-200 pr-4 shrink-0" style={{ height: '1400px' }}>
                 {Array.from({length: 13}).map((_, i) => (
-                  <div key={i} className="absolute w-full text-right text-xs font-black text-slate-400" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
+                  <div key={i} className="absolute w-full text-right font-data text-caption text-atlas-slate" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
                     {(() => {
                       const hr = Math.floor(7.5 + i);
                       const min = (7.5 + i) % 1 === 0 ? '30' : '00';
@@ -663,7 +1163,7 @@ export default function Schedules() {
 
                   return (
                     <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0 min-w-[140px]">
-                      <div className="absolute -top-10 w-full text-center text-xs font-black text-slate-600 uppercase tracking-[0.25em] bg-slate-100 py-1.5 rounded-xl border border-slate-200">{day}</div>
+                      <div className="absolute -top-10 w-full text-center font-ui text-micro uppercase text-atlas-slate bg-atlas-canvas py-1.5 rounded-field border border-atlas-line">{day}</div>
                       {dayScheds.map(sched => {
                         const [h, m] = sched.start_time.split(':').map(Number);
                         const [eh, em] = sched.end_time.split(':').map(Number);
@@ -675,14 +1175,52 @@ export default function Schedules() {
                         
                         const color = getFacultyColor(sched.faculty_name);
 
+                        // While the lens is active only conflicting blocks stay
+                        // lit and reachable. Dimmed blocks leave the tab order
+                        // and the accessibility tree so AT users are not walked
+                        // through 60 irrelevant classes to find 7.
+                        const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
+                        const lensDim = isLensOpen && !inConflict;
+                        const lensLit = isLensOpen && inConflict;
+
+                        const blockLabel =
+                          `${formatSubjectCode(sched)}, ${sched.subject_name}, ` +
+                          `${sched.faculty_name}, ${sched.room_name || 'no room'}, ` +
+                          `${day} ${sched.start_time} to ${sched.end_time}` +
+                          (canManageSchedules ? '. Press Delete to remove this class.' : '');
+
                         return (
-                          <div 
+                          // A11Y-02: these were plain divs with cursor-default.
+                          // tabIndex in this file was 0 and onKeyDown was 0
+                          // app-wide, so the product's primary work surface
+                          // could not be reached, read or edited without a
+                          // mouse. Now each class is a real control with a
+                          // spoken name and a keyboard action.
+                          <div
                             key={sched.id}
-                            className={`absolute w-[calc(100%-10px)] mx-[5px] rounded-2xl border shadow-xs flex flex-col overflow-hidden transition-all hover:scale-[1.02] hover:z-30 hover:shadow-2xl cursor-default group border-l-[6px] ${color.bg} ${color.border} ${color.accent}`}
+                            role="button"
+                            tabIndex={lensDim ? -1 : 0}
+                            aria-hidden={lensDim || undefined}
+                            aria-label={blockLabel}
+                            onKeyDown={(e) => {
+                              if ((e.key === 'Delete' || e.key === 'Backspace') && canManageSchedules) {
+                                e.preventDefault();
+                                handleDeleteSchedule(sched);
+                              }
+                            }}
+                            className={`print-block absolute w-[calc(100%-10px)] mx-[5px] rounded-2xl border shadow-xs flex flex-col overflow-hidden transition-all hover:scale-[1.02] hover:z-30 hover:shadow-2xl group border-l-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-offset-2 focus-visible:z-30 ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''} ${color.bg} ${color.border} ${color.accent}`}
                             style={{ top: `${top}%`, height: `${height}%` }}
                           >
+                            {lensLit && (
+                              <span
+                                className="absolute top-1 right-1 z-10 text-sem-conflict font-bold text-sm leading-none"
+                                aria-hidden="true"
+                              >
+                                ▲
+                              </span>
+                            )}
                             <div className="px-3 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex justify-between items-center shrink-0">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-900">{formatSubjectCode(sched)}</span>
+                              <span className="font-data text-caption text-atlas-ink">{formatSubjectCode(sched)}</span>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[11px] font-extrabold text-slate-600">{(() => {
                                   const formatT = (t) => {
@@ -693,7 +1231,7 @@ export default function Schedules() {
                                   };
                                   return `${formatT(sched.start_time)}-${formatT(sched.end_time)}`;
                                 })()}</span>
-                                {canManage && (
+                                {canManageSchedules && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -709,7 +1247,7 @@ export default function Schedules() {
                               </div>
                             </div>
                             <div className="p-3 flex flex-col flex-1 justify-between gap-1 overflow-y-auto">
-                              <div className="font-black text-xs sm:text-sm leading-snug text-slate-900" title={sched.subject_name}>
+                              <div className="font-ui text-table leading-snug text-atlas-ink" title={sched.subject_name}>
                                 {sched.subject_name}
                               </div>
                               <div className="pt-1 border-t border-black/5 space-y-1">
@@ -731,20 +1269,34 @@ export default function Schedules() {
                 })}
               </div>
             </div>
+            </div>
           )}
+        </div>
+        <div className="print-footer mt-4 pt-2 font-ui text-caption">
+          Generated {new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+          {' · '}
+          {publishState.status === 'published'
+            ? `Published by ${localStorage.getItem('atlas_user_name') || 'System Administrator'}`
+            : 'Draft — not an official schedule'}
         </div>
       </main>
 
-      <ConflictPanel
-        isOpen={isConflictPanelOpen}
-        onClose={() => setIsConflictPanelOpen(false)}
-        conflicts={activeConflicts.length > 0 ? activeConflicts : schedules.filter(s => s.isConflicting).map(s => ({
-          ...s,
-          type: 'General',
-          conflictWith: s.conflictDetails?.[0]
-        }))}
-        onResolveConflict={handleSolveConflict}
-        onResolveAll={handleSolveAllConflicts}
+      {/* The publish confirmation dialog was removed with the button that was
+          its only opener. The backend rule is unchanged: PATCH
+          /schedules/status is still administrator-only. */}
+
+      {/* Replaces the ConflictPanel slide-over, which sat physically apart from
+          the grid so resolving a conflict meant reading a description and then
+          hunting for the block it referred to (HEU-08). */}
+      <ConflictLens
+        isOpen={isLensOpen}
+        conflicts={activeConflicts}
+        onClose={() => { setIsLensOpen(false); setLensCauseFilter(null); }}
+        onResolve={handleSolveConflict}
+        onRegenerate={() => { setIsLensOpen(false); setIsGenerateModalOpen(true); }}
+        resolvingId={resolvingId}
+        causeFilter={lensCauseFilter}
+        onFilterCause={setLensCauseFilter}
       />
 
       <Modal
@@ -911,175 +1463,214 @@ export default function Schedules() {
           {!generationResults ? (
             <>
               <div>
-                <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Active Semester</label>
+                <p className="font-ui text-micro uppercase text-atlas-slate mb-2">Academic term</p>
                 {(() => {
                   const activeSem = semesters.find(s => s.is_active) || (selectedGenSemester ? semesters.find(s => s.id === Number(selectedGenSemester)) : null);
                   return (
-                    <div className="p-4 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex items-center justify-between pointer-events-none select-none">
-                      <div>
-                        <p className="text-sm font-black text-emerald-950">
-                          {activeSem ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}` : 'No Active Semester Configured'}
+                    <div className="p-4 rounded-panel bg-atlas-100/70 border border-atlas-700/20 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-ui text-body text-atlas-ink">
+                          {activeSem
+                            ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}`
+                            : 'No active term configured'}
                         </p>
-                        <p className="text-[11px] font-bold text-emerald-700/80 mt-0.5">
-                          Target Academic Period for AI Scheduling Engine
+                        <p className="font-ui text-caption text-atlas-slate mt-0.5">
+                          The term this generation writes into.
                         </p>
                       </div>
-                      {activeSem && (
-                        <span className="bg-emerald-700 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shrink-0 shadow-xs">
-                          Status: ACTIVE
-                        </span>
-                      )}
+                      {activeSem && <Badge status="approved" label="Active" />}
                     </div>
                   );
                 })()}
               </div>
 
-              <div>
-                <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-[0.2em]">Select Professors to Schedule</label>
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl max-h-60 overflow-y-auto p-2">
-                  {allTeachers.map(prof => (
-                    <label key={prof.id} className="flex items-center p-3 hover:bg-white rounded-xl cursor-pointer transition-all gap-3 group">
-                      <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                        selectedGenProfessors.includes(prof.id) ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300 group-hover:border-slate-400'
-                      }`}>
-                        {selectedGenProfessors.includes(prof.id) && <span className="text-white text-xs font-black">✓</span>}
-                      </div>
-                      <input 
-                        type="checkbox" 
-                        className="hidden"
-                        checked={selectedGenProfessors.includes(prof.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) setSelectedGenProfessors([...selectedGenProfessors, prof.id]);
-                          else setSelectedGenProfessors(selectedGenProfessors.filter(id => id !== prof.id));
-                        }}
-                      />
-                      <span className={`text-sm font-bold ${selectedGenProfessors.includes(prof.id) ? 'text-slate-800' : 'text-slate-600'}`}>
-                        {prof.name}
-                      </span>
-                    </label>
-                  ))}
+              {/* Rooms. Asked before generating because it changes what the
+                  generator will refuse: with this on, a laboratory with no free
+                  room comes back unplaced; with it off, laboratories are placed
+                  on faculty availability alone and the room is settled
+                  elsewhere. Lecture subjects are never given a room either way,
+                  which the copy says outright rather than leaving to be
+                  discovered in the results. */}
+              <fieldset>
+                <legend className="font-ui text-micro uppercase text-atlas-slate mb-2">
+                  Laboratory rooms
+                </legend>
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-panel border cursor-pointer
+                              transition-colors duration-state ease-standard ${
+                    assignLabRooms
+                      ? 'bg-atlas-100/70 border-atlas-700/25'
+                      : 'glass hover:bg-white/90'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={assignLabRooms}
+                    onChange={(e) => setAssignLabRooms(e.target.checked)}
+                    className={`mt-0.5 w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-ui text-body text-atlas-ink">
+                      Assign rooms to laboratory subjects
+                    </span>
+                    <span className="block font-ui text-caption text-atlas-slate mt-1">
+                      {assignLabRooms
+                        ? 'Each laboratory is placed in a free laboratory or computer laboratory room. A laboratory with no free room is reported as unplaced.'
+                        : 'Laboratories are scheduled without a room, so none is reserved and none can clash. Use this when rooms are assigned outside ATLAS.'}
+                    </span>
+                    <span className="block font-ui text-caption text-atlas-disabled mt-1.5">
+                      Lecture subjects are never assigned a room.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <legend className="font-ui text-micro uppercase text-atlas-slate">
+                    Professors to schedule
+                  </legend>
+                  <AtlasButton
+                    size="row"
+                    variant="ghost"
+                    onClick={() => setSelectedGenProfessors(
+                      selectedGenProfessors.length === allTeachers.length ? [] : allTeachers.map(t => t.id)
+                    )}
+                  >
+                    {selectedGenProfessors.length === allTeachers.length ? 'Clear all' : 'Select all'}
+                  </AtlasButton>
+                </div>
+                <div className="rounded-panel border border-atlas-line max-h-60 overflow-y-auto divide-y divide-atlas-line">
+                  {allTeachers.map(prof => {
+                    const checked = selectedGenProfessors.includes(prof.id);
+                    return (
+                      <label
+                        key={prof.id}
+                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer
+                                    transition-colors duration-state ease-standard ${
+                          checked ? 'bg-atlas-100/60' : 'hover:bg-atlas-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedGenProfessors([...selectedGenProfessors, prof.id]);
+                            else setSelectedGenProfessors(selectedGenProfessors.filter(id => id !== prof.id));
+                          }}
+                          className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
+                        />
+                        <span className="font-ui text-body text-atlas-ink">{prof.name}</span>
+                      </label>
+                    );
+                  })}
                   {allTeachers.length === 0 && (
-                    <div className="p-4 text-center text-xs font-bold text-slate-400">No professors found.</div>
+                    <p className="p-6 text-center font-ui text-body text-atlas-slate">No professors found.</p>
                   )}
                 </div>
-                <div className="flex justify-end mt-2">
-                  <button 
-                    type="button" 
-                    onClick={() => setSelectedGenProfessors(allTeachers.map(t => t.id))}
-                    className="text-[10px] font-black text-green-600 uppercase tracking-widest hover:underline"
-                  >
-                    Select All
-                  </button>
-                </div>
-              </div>
+                <p className="font-ui text-caption text-atlas-slate mt-2 tabular-nums">
+                  {pluralize(selectedGenProfessors.length, 'professor')} selected
+                </p>
+              </fieldset>
 
-              <div className="pt-4 flex justify-end items-center gap-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsGenerateModalOpen(false)}
-                  className="text-[11px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-[0.25em] transition-all"
-                >
+              <div className="pt-5 flex justify-end items-center gap-3 border-t border-white/45">
+                <AtlasButton variant="ghost" onClick={() => setIsGenerateModalOpen(false)} disabled={isGenerating}>
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isGenerating}
-                  className="px-10 py-3 text-[13px] font-black text-white bg-green-700 hover:bg-green-800 rounded-full shadow-lg shadow-green-100 uppercase tracking-[0.15em] transition-all disabled:opacity-50 flex items-center"
-                >
-                  {isGenerating ? <Sparkles className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                  {isGenerating ? 'Generating...' : 'Start Engine'}
-                </button>
+                </AtlasButton>
+                <AtlasButton type="submit" icon={Sparkles} loading={isGenerating}>
+                  {isGenerating ? 'Generating…' : 'Generate Schedule'}
+                </AtlasButton>
               </div>
             </>
           ) : (
-            <div className="space-y-6 animate-in zoom-in-95 duration-300">
-              <div className="text-center bg-green-50 rounded-[2rem] p-8 border border-green-100">
-                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm text-green-600 mb-4">
-                  <Sparkles className="w-8 h-8" />
-                </div>
-                <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-2">Generation Complete</h3>
-                <p className="text-sm font-bold text-slate-600">
-                  <span className="text-green-700 text-lg font-black">{generationResults.generated}</span> schedules generated successfully.
-                </p>
-                <p className="text-sm font-bold text-slate-600">
-                  <span className="text-rose-600 text-lg font-black">{generationResults.unplaced_count}</span> subjects unplaced.
-                </p>
-                <p className="text-xs font-bold text-slate-500 mt-2">
-                  Skipped GenEd: {generationResults.skipped_gened}
-                </p>
+            <div className="flex flex-col gap-5 rise">
+              {/* The three outcomes, side by side, so "12 generated" is not read
+                  without "3 unplaced" beside it. */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: 'Generated', value: generationResults.generated, tone: 'good' },
+                  { label: 'Unplaced', value: generationResults.unplaced_count,
+                    tone: generationResults.unplaced_count > 0 ? 'conflict' : 'default' },
+                  { label: 'Skipped GenEd', value: generationResults.skipped_gened, tone: 'default' },
+                ].map((s) => (
+                  <div key={s.label} className="glass sheen rounded-panel surface px-4 py-3.5 text-center">
+                    <p className="font-ui text-micro uppercase text-atlas-slate">{s.label}</p>
+                    <p className={`font-display text-page tabular-nums mt-1 leading-none ${
+                      s.tone === 'good' ? 'text-atlas-700'
+                      : s.tone === 'conflict' ? 'text-sem-conflict'
+                      : 'text-atlas-ink'
+                    }`}>
+                      {s.value}
+                    </p>
+                  </div>
+                ))}
               </div>
 
               {generationResults.unplaced_items?.length > 0 && (
                 <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-xs font-black text-rose-600 uppercase tracking-[0.2em]">Unplaced Subjects ({generationResults.unplaced_items.length})</h4>
-                    <button
-                      type="button"
-                      onClick={handleSolveAllConflicts}
-                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black rounded-xl shadow-xs transition-all flex items-center gap-1.5 uppercase tracking-wider"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Auto-Solve All
-                    </button>
-                  </div>
-                  <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                  {/* The second "Auto-Solve All" was here. Same removal
+                      reasoning as the panel's: it looped a resolver that
+                      force-placed on failure, so one click could double-book
+                      an entire term and report success. Unplaced subjects are
+                      resolved one at a time below. */}
+                  <p className="font-ui text-micro uppercase text-sem-conflict mb-2">
+                    Unplaced ({generationResults.unplaced_items.length})
+                  </p>
+                  <ul className="rounded-panel border border-sem-conflict/25 divide-y divide-sem-conflict/15 max-h-60 overflow-y-auto">
                     {generationResults.unplaced_items.map((item, idx) => (
-                      <div key={idx} className="bg-rose-50/50 border border-rose-100 rounded-2xl p-4 flex gap-4 items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-12 h-10 bg-white rounded-xl flex items-center justify-center text-rose-500 shadow-sm shrink-0 font-black text-xs px-2">
-                            {item.subject}
-                          </div>
-                          <div className="min-w-0">
-                            {item.section && item.section.trim() !== "" && (
-                              <p className="text-sm font-black text-slate-900 leading-tight">{item.section}</p>
+                      <li key={idx} className="flex items-center justify-between gap-3 px-4 py-3 bg-sem-conflict-bg/40">
+                        <span className="flex items-center gap-3 min-w-0">
+                          <span className="font-data text-table text-sem-conflict shrink-0">{item.subject}</span>
+                          <span className="min-w-0">
+                            {item.section && item.section.trim() !== '' && (
+                              <span className="block font-ui text-body text-atlas-ink">{item.section}</span>
                             )}
-                            <p className="text-xs font-bold text-rose-600 mt-0.5">{item.reason}</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
+                            <span className="block font-ui text-caption text-atlas-slate">{item.reason}</span>
+                          </span>
+                        </span>
+                        <AtlasButton
+                          size="row"
+                          variant="destructive"
+                          icon={Sparkles}
                           onClick={() => handleSolveConflict(item)}
-                          className="shrink-0 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black rounded-xl shadow-xs transition-all flex items-center gap-1 uppercase tracking-wider"
+                          className="shrink-0"
                         >
-                          <Sparkles className="w-3 h-3" />
-                          Solve Issue
-                        </button>
-                      </div>
+                          Resolve
+                        </AtlasButton>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               )}
 
               {generationResults.workload_warnings?.length > 0 && (
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-xs font-black text-amber-700 uppercase tracking-[0.2em]">
-                      Faculty Workload Exceeded ({generationResults.workload_warnings.length})
-                    </h4>
-                  </div>
-                  <div className="space-y-2.5 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                  <p className="font-ui text-micro uppercase text-sem-warning mb-2">
+                    Teaching load warnings ({generationResults.workload_warnings.length})
+                  </p>
+                  <ul className="rounded-panel border border-sem-warning/30 divide-y divide-sem-warning/20 max-h-48 overflow-y-auto">
                     {generationResults.workload_warnings.map((warn, idx) => (
-                      <div key={idx} className="bg-amber-50/80 border border-amber-200/90 rounded-2xl p-4 flex items-center justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-900 text-xs">{warn.faculty_name}</span>
-                            <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-black text-[9px] uppercase tracking-wider">
+                      <li key={idx} className="flex items-start justify-between gap-3 px-4 py-3 bg-sem-warning-bg/50">
+                        <span className="min-w-0">
+                          <span className="block font-ui text-body text-atlas-ink">
+                            {warn.faculty_name}
+                            <span className="font-ui text-caption text-atlas-slate ml-2">
                               {warn.employment_type || 'Full-Time'}
                             </span>
-                          </div>
-                          <p className="text-xs font-bold text-amber-800 mt-1">
-                            Current: <strong className="text-slate-900">{warn.current_units} units</strong> / Max: <strong className="text-slate-900">{warn.max_units} units</strong>
-                          </p>
-                          <p className="text-[11px] font-medium text-amber-700 mt-0.5">
-                            Subject Conflict: <span className="font-bold">{warn.subject_code}</span> (+{warn.additional_units} units)
-                          </p>
-                        </div>
-                        <span className="px-3 py-1 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 shadow-xs">
-                          APPROVAL REQUIRED
+                          </span>
+                          <span className="block font-ui text-caption text-atlas-slate mt-0.5 tabular-nums">
+                            {warn.required_hours != null
+                              ? `${warn.current_hours} of ${warn.required_hours} required hrs/week`
+                              : `${warn.current_hours} hrs/week, part-time ceiling ${warn.part_time_ceiling_hours}`}
+                            {' · '}
+                            {warn.subject_code} adds {warn.additional_hours} hrs
+                            {warn.overload_hours != null ? ` · ${warn.overload_hours} hrs overload` : ''}
+                          </span>
                         </span>
-                      </div>
+                        <Badge status="review" label="Needs approval" className="shrink-0" />
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               )}
 
@@ -1090,7 +1681,7 @@ export default function Schedules() {
                     setIsGenerateModalOpen(false);
                     setGenerationResults(null);
                   }}
-                  className="px-10 py-3 text-[13px] font-black text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-full uppercase tracking-[0.15em] transition-all"
+                  className="h-10 px-4 rounded-control glass font-ui font-medium text-body text-atlas-700 hover:bg-white/90 transition-colors duration-state ease-standard"
                 >
                   Close & View Schedule
                 </button>
@@ -1099,6 +1690,187 @@ export default function Schedules() {
           )}
         </form>
       </Modal>
+      {/* Export preview. Everything the file will contain, before it is written:
+          the same rows, the same columns, in the same order. */}
+      <Modal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        title="Export Schedule"
+        maxWidth="max-w-5xl"
+      >
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200/70">
+            <div className="min-w-0">
+              <p className="font-ui text-micro uppercase text-atlas-slate">File</p>
+              <p className="font-data text-table text-atlas-ink mt-1 break-all">{exportFileName}</p>
+              <p className="text-xs font-bold text-slate-500 mt-1">
+                {EXPORT_FORMATS.find((f) => f.id === exportFormat)?.sub}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="font-ui text-micro uppercase text-atlas-slate">Rows</p>
+              <p className="font-display text-section text-atlas-ink tabular-nums">{exportRows.length}</p>
+              <p className="text-xs font-bold text-slate-500">
+                {exportTerm
+                  ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}`
+                  : 'No active term'}
+              </p>
+            </div>
+          </div>
+
+          <fieldset>
+            <legend className="font-ui text-micro uppercase text-atlas-slate mb-2">
+              Save as
+            </legend>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {EXPORT_FORMATS.map((f) => (
+                <label
+                  key={f.id}
+                  className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                    exportFormat === f.id
+                      ? 'bg-emerald-50/70 border-emerald-200'
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="export-format"
+                    className="sr-only"
+                    checked={exportFormat === f.id}
+                    onChange={() => setExportFormat(f.id)}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 w-4 h-4 rounded-full border-4 shrink-0 transition-all ${
+                      exportFormat === f.id ? 'border-green-600 bg-white' : 'border-slate-200 bg-white'
+                    }`}
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-ui text-body text-atlas-ink">{f.label}</span>
+                    <span className="block text-[11px] font-bold text-slate-500 leading-snug mt-0.5">{f.sub}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {/* Scope is only a question when a filter is already narrowing the
+              screen. Otherwise there is one honest answer and no control. */}
+          {selectedProfessorFilter ? (
+            <fieldset>
+              <legend className="font-ui text-micro uppercase text-atlas-slate mb-2">
+                What to include
+              </legend>
+              <div className="flex flex-col sm:flex-row gap-2">
+                {[
+                  { id: 'filtered', label: selectedProfessorFilter, count: globalSchedules.filter((s) => s.faculty_name === selectedProfessorFilter).length },
+                  { id: 'all', label: 'All professors', count: globalSchedules.length },
+                ].map((opt) => (
+                  <label
+                    key={opt.id}
+                    className={`flex-1 flex items-center gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                      exportScope === opt.id
+                        ? 'bg-emerald-50/70 border-emerald-200'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="export-scope"
+                      className="sr-only"
+                      checked={exportScope === opt.id}
+                      onChange={() => setExportScope(opt.id)}
+                    />
+                    <span
+                      aria-hidden="true"
+                      className={`w-4 h-4 rounded-full border-4 shrink-0 transition-all ${
+                        exportScope === opt.id ? 'border-green-600 bg-white' : 'border-slate-200 bg-white'
+                      }`}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-ui text-body text-atlas-ink truncate">{opt.label}</span>
+                      <span className="block text-[11px] font-bold text-slate-500 tabular-nums">
+                        {opt.count} {opt.count === 1 ? 'class' : 'classes'}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            <p className="text-xs font-bold text-slate-500">
+              Every professor in your department is included.
+            </p>
+          )}
+
+          <div>
+            <p className="font-ui text-micro uppercase text-atlas-slate mb-2">
+              Preview — {exportRows.length} {exportRows.length === 1 ? 'row' : 'rows'} in the file
+            </p>
+            <div className="border border-slate-200 rounded-2xl overflow-hidden">
+              <div className="max-h-[45vh] overflow-auto">
+                <table className="w-full text-left border-collapse">
+                  <caption className="sr-only">
+                    Preview of the exported schedule, {exportRows.length} rows
+                  </caption>
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr>
+                      {EXPORT_COLUMNS.map((col) => (
+                        <th
+                          key={col.key}
+                          scope="col"
+                          className="px-4 py-3 font-ui text-micro uppercase text-atlas-slate whitespace-nowrap border-b border-atlas-line"
+                        >
+                          {col.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {exportRows.map((s) => (
+                      <tr key={s.id} className="hover:bg-slate-50/80">
+                        {EXPORT_COLUMNS.map((col) => (
+                          <td
+                            key={col.key}
+                            className="px-4 py-2.5 text-xs font-semibold text-slate-700 whitespace-nowrap"
+                          >
+                            {col.value(s) || <span className="text-slate-300">—</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {exportRows.length === 0 && (
+                <p className="p-8 text-center text-sm font-bold text-slate-400">
+                  Nothing to export in this selection.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-4 flex justify-end items-center gap-4 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsExportOpen(false)}
+              className="h-10 px-4 rounded-control font-ui font-medium text-body text-atlas-slate hover:text-atlas-ink transition-colors duration-state ease-standard"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={exportRows.length === 0 || isExporting}
+              className="h-10 px-5 rounded-control font-ui font-medium text-body text-white bg-atlas-700 hover:bg-atlas-800 transition-colors duration-state ease-standard disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Download className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
+              {isExporting ? 'Preparing…' : `Download ${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext.toUpperCase()}`}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal
         isOpen={isClearConfirmOpen}
         onClose={() => setIsClearConfirmOpen(false)}
@@ -1115,14 +1887,14 @@ export default function Schedules() {
             <button
               type="button"
               onClick={() => setIsClearConfirmOpen(false)}
-              className="px-5 py-2.5 text-xs font-black text-slate-500 hover:text-slate-700 uppercase tracking-wider"
+              className="h-10 px-4 rounded-control font-ui font-medium text-body text-atlas-slate hover:text-atlas-ink transition-colors duration-state ease-standard"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleClearAllSchedules}
-              className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-sm"
+              className="h-10 px-4 rounded-control glass font-ui font-medium text-body text-sem-conflict !border-sem-conflict/40 hover:bg-sem-conflict-bg/80 transition-colors duration-state ease-standard"
             >
               Yes, Clear All
             </button>
@@ -1140,7 +1912,7 @@ export default function Schedules() {
             <button
               type="button"
               onClick={handleRestoreSchedules}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-black rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md"
+              className="h-9 px-4 rounded-control font-ui font-medium text-table text-atlas-900 bg-white hover:bg-atlas-100 transition-colors duration-state ease-standard flex items-center gap-1.5"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Undo / Restore
