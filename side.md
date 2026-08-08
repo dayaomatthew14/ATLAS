@@ -13,7 +13,7 @@ This document details the operational protocols, mathematical constraints, labor
 3. **Execution**: The constraint-satisfaction heuristic algorithm (`backend/app/services/schedule_generator.py`) processes all assigned `SubjectOffering` records for the department.
 4. **Output & Persistence**:
    - Valid schedule assignments are created as `Schedule` database entities with status `draft` and `is_locked = False`.
-   - Workload limit breaches emit `bumped_warnings` and log `max_units_exceeded` conflict records.
+   - Teaching load is checked in hours per week against the term's required load; passing it emits `bumped_warnings` and logs an `overload` conflict record (or `part_time_ceiling` for a Part-Time member at 20 hrs/week). The class is still placed — the chair decides.
    - Unscheduled courses are logged as pending conflicts in the `conflicts` database table for human administrative review.
 
 ---

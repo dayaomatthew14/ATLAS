@@ -63,10 +63,14 @@ function App() {
             }
           >
             <Route index element={<Overview />} />
+            {/* The timetable is departmental work. An administrator sets the
+                frame — accounts, colleges, curriculum, terms, rooms — and does
+                not build or read the schedule itself, so this is closed to
+                them at the router as well as absent from their rail. */}
             <Route
               path="schedules"
               element={
-                <ProtectedRoute allowedRoles={ALL_ROLES}>
+                <ProtectedRoute allowedRoles={SCHEDULING_ROLES}>
                   <Schedules />
                 </ProtectedRoute>
               }

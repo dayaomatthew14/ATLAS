@@ -494,8 +494,19 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertIsNotNone(db.query(models.User).filter(models.User.id == 1).first())
 
         # TEST 11: Cross-department subject offering -> 403 Rejected
+        #
+        # Both subjects are filed under a PUBLISHED curriculum block. Assignment
+        # now refuses a subject belonging to no curriculum, or to one still in
+        # draft, with 409 -- so a subject left unfiled would be turned away on
+        # those grounds and never reach the department check this scenario is
+        # about.
+        block1 = models.CurriculumBlock(program_name="BSCS", academic_year="AY 2026-2027", department_id=d1_id, status="PUBLISHED")
+        block2 = models.CurriculumBlock(program_name="BSA", academic_year="AY 2026-2027", department_id=d2_id, status="PUBLISHED")
+        db.add_all([block1, block2])
+        db.flush()
+
         fac1 = models.Faculty(first_name="Prof", last_name="One", department_id=d1_id, max_units=18, type="full_time")
-        curr2 = models.Curriculum(code="ACCT101", name="Accounting", units=3, type="lecture", department_id=d2_id)
+        curr2 = models.Curriculum(block_id=block2.id, code="ACCT101", name="Accounting", units=3, type="lecture", department_id=d2_id)
         sem = models.Semester(academic_year="AY 2026-2027", term="1st", is_active=True)
         db.add_all([fac1, curr2, sem])
         db.commit()
@@ -503,6 +514,7 @@ class TestLabLecHandling(unittest.TestCase):
         f1_id = int(fac1.id) # type: ignore
         c2_id = int(curr2.id) # type: ignore
         sem_id = int(sem.id) # type: ignore
+        b1_id = int(block1.id) # type: ignore
 
         cross_offering = schemas.SubjectOfferingCreate(faculty_id=f1_id, curriculum_id=c2_id, semester_id=sem_id)
         with self.assertRaises(HTTPException) as ctx_cross:
@@ -510,7 +522,7 @@ class TestLabLecHandling(unittest.TestCase):
         self.assertEqual(ctx_cross.exception.status_code, 403)
 
         # Same-department offering -> Allowed
-        curr1 = models.Curriculum(code="CS101", name="Intro to CS", units=3, type="lecture", department_id=d1_id)
+        curr1 = models.Curriculum(block_id=b1_id, code="CS101", name="Intro to CS", units=3, type="lecture", department_id=d1_id)
         db.add(curr1)
         db.commit()
         c1_id = int(curr1.id) # type: ignore
@@ -527,7 +539,7 @@ class TestLabLecHandling(unittest.TestCase):
         db.add(locked_sched)
 
         # Add second subject offering CS102 for department 1
-        curr1_2 = models.Curriculum(code="CS102", name="Data Structures", units=3, type="lecture", department_id=d1_id)
+        curr1_2 = models.Curriculum(block_id=b1_id, code="CS102", name="Data Structures", units=3, type="lecture", department_id=d1_id)
         db.add(curr1_2)
         db.commit()
         locked_id = int(locked_sched.id) # type: ignore

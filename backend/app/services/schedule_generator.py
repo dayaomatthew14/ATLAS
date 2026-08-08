@@ -2,18 +2,46 @@ from datetime import time
 from typing import List
 from sqlalchemy.orm import Session
 from .. import models
+from . import faculty_load
 
-# Expanded time slots for maximum scheduling flexibility
-LECTURE_SLOTS = [
-    (time(7, 30), time(9, 0)),
-    (time(9, 0), time(10, 30)),
-    (time(10, 30), time(12, 0)),
-    (time(13, 0), time(14, 30)),
-    (time(14, 30), time(16, 0)),
-    (time(16, 0), time(17, 30)),
-    (time(17, 30), time(19, 0))
+# Lecture slot grids, one per institutional pattern.
+#
+# The grid decides the load a generated lecture carries, because REG. HOURS are
+# the plotted duration times the meetings per week. There used to be a single
+# 90-minute grid here, which meant every generated lecture came to 3.00 hrs/week
+# -- a figure that matches neither confirmed pattern, so the hours ATLAS
+# reported could never agree with the ones a chair computes by hand.
+#
+# Each grid pairs with a two-meetings-a-week day pair (MW, TTh, FS), so the
+# weekly total is the slot length doubled.
+
+# 80 minutes x 2 = 2.67 hrs/week. The pattern for CS and the other colleges;
+# 7:30-8:50 MW is the institution's own worked example.
+STANDARD_LECTURE_SLOTS = [
+    (time(7, 30), time(8, 50)),
+    (time(8, 50), time(10, 10)),
+    (time(10, 10), time(11, 30)),
+    (time(13, 0), time(14, 20)),
+    (time(14, 20), time(15, 40)),
+    (time(15, 40), time(17, 0)),
+    (time(17, 0), time(18, 20)),
 ]
 
+# 2 hours x 2 = 4.00 hrs/week, the engineering (BSCPE) lecture pattern.
+ENGINEERING_LECTURE_SLOTS = [
+    (time(7, 30), time(9, 30)),
+    (time(9, 30), time(11, 30)),
+    (time(13, 0), time(15, 0)),
+    (time(15, 0), time(17, 0)),
+    (time(17, 0), time(19, 0)),
+]
+
+# Kept as the standard grid so existing importers of this name keep the
+# behaviour they had for non-engineering programmes.
+LECTURE_SLOTS = STANDARD_LECTURE_SLOTS
+
+# Laboratories are 2 hours x 2 = 4.00 hrs/week in every college, so one grid
+# serves both patterns.
 LAB_SLOTS = [
     (time(7, 30), time(9, 30)),
     (time(9, 30), time(11, 30)),
@@ -22,6 +50,26 @@ LAB_SLOTS = [
     (time(15, 30), time(17, 30)),
     (time(17, 30), time(19, 30))
 ]
+
+# Which grid produces which weekly pattern. Keyed by the figures in
+# faculty_load so the policy is stated once and the grids follow it, rather
+# than the two drifting apart.
+LECTURE_GRIDS_BY_PATTERN = {
+    2.67: STANDARD_LECTURE_SLOTS,
+    4.00: ENGINEERING_LECTURE_SLOTS,
+}
+
+
+def lecture_slots_for(curriculum):
+    """
+    The lecture grid a subject should be plotted on.
+
+    Engineering lectures run 4.00 hrs/week against 2.67 elsewhere. ATLAS has no
+    College of Engineering -- its colleges are CVMAS, CBMA, COED and CAST -- so
+    the distinction is drawn at programme level, on BSCPE.
+    """
+    pattern = faculty_load.expected_pattern(faculty_load.curriculum_program_code(curriculum))
+    return LECTURE_GRIDS_BY_PATTERN.get(pattern["lecture"], STANDARD_LECTURE_SLOTS)
 
 MW_PAIR = ['Mon', 'Wed']
 TTH_PAIR = ['Tue', 'Thu']
@@ -65,7 +113,29 @@ def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
                 return True
     return False
 
-def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], department_id: int, auto_bump_units: bool = True):
+def generate_schedules(
+    db: Session,
+    semester_id: int,
+    faculty_ids: List[int],
+    department_id: int,
+    auto_bump_units: bool = True,
+    assign_lab_rooms: bool = True,
+):
+    """
+    Build a term's timetable.
+
+    `assign_lab_rooms` is the caller's answer to "should laboratories be given a
+    room?". It never affects lectures: a lecture is always saved with room_id
+    NULL, whichever way this is set.
+
+      True  -- a laboratory must land in a free 'lab' or 'computer_lab' room, and
+               is left unplaced if none is free. Rooms are checked for clashes.
+      False -- laboratories are placed on faculty availability alone and saved
+               with room_id NULL, exactly as lectures are. Many laboratories are
+               assigned centrally by the Registrar, outside ATLAS; when that is
+               how a department works, refusing to schedule the class until
+               ATLAS knows the room invents a blocker that does not exist.
+    """
     # Purge existing unlocked draft schedules for this semester and faculty scope
     if faculty_ids:
         draft_scheds = db.query(models.Schedule).join(models.Curriculum).filter(
@@ -154,56 +224,109 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
         has_lec = c.type == 'lecture' or c.lec_units > 0
         has_lab = c.type == 'lab' or c.lab_units > 0
 
+        # Engineering lectures are longer than everyone else's, so the grid is
+        # chosen per subject rather than fixed for the whole run.
+        lecture_slots = lecture_slots_for(c)
+
         parts = []
         if has_lec and has_lab:
-            parts.append(('lecture', [MW_PAIR, TTH_PAIR, FS_PAIR], LECTURE_SLOTS))
+            parts.append(('lecture', [MW_PAIR, TTH_PAIR, FS_PAIR], lecture_slots))
             parts.append(('lab', [TTH_PAIR, MW_PAIR, FS_PAIR], LAB_SLOTS))
         elif has_lab:
             parts.append(('lab', [TTH_PAIR, MW_PAIR, FS_PAIR], LAB_SLOTS))
         else:
-            parts.append(('lecture', [MW_PAIR, TTH_PAIR, FS_PAIR], LECTURE_SLOTS))
+            parts.append(('lecture', [MW_PAIR, TTH_PAIR, FS_PAIR], lecture_slots))
 
         for part_type, day_pairs_to_try, slots in parts:
             proposed_hours_total = get_duration_hours(slots[0][0], slots[0][1]) * 2
-            max_allowed = f_obj.max_units if f_obj.max_units and f_obj.max_units > 0 else 24.0
 
-            # Check professor max workload hours/units (Full-Time: 18 max units, Part-Time: Configured max units)
-            if faculty_hours_used[pid] + proposed_hours_total > max_allowed:
+            # Required weekly teaching hours for this term and employment type.
+            # This used to read `max_units` -- an integer count of subject units
+            # -- and compare it against `faculty_hours_used`, which is a sum of
+            # plotted durations. The two were never the same quantity, so an
+            # 18-unit cap silently acted as an 18-hour one.
+            required_hours = faculty_load.required_teaching_hours(
+                getattr(semester, 'term', None), getattr(f_obj, 'type', None)
+            )
+
+            projected_hours = faculty_hours_used[pid] + proposed_hours_total
+
+            # Overload is a legitimate state the institution recognises and pays
+            # for, so passing the required figure warns rather than refuses. The
+            # class is still placed; the chair decides whether to keep it.
+            if required_hours is not None and projected_hours > required_hours + 0.005:
                 fac_fname = getattr(f_obj, 'first_name', '')
                 fac_lname = getattr(f_obj, 'last_name', '')
                 fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
-                emp_type = "Full-Time" if (getattr(f_obj, 'type', 'full_time') or 'full_time').lower().startswith('full') else "Part-Time"
-                current_hrs = faculty_hours_used[pid]
-                reason_msg = f"Workload limit exceeded for {fac_name} ({emp_type}): {current_hrs} + {proposed_hours_total} > {max_allowed} max units"
-                
+                emp_type = "Full-Time"
+                current_hrs = faculty_load.round_hours(faculty_hours_used[pid])
+                over_by = faculty_load.round_hours(projected_hours - required_hours)
+                reason_msg = (
+                    f"Overload for {fac_name} ({emp_type}): {current_hrs} + "
+                    f"{faculty_load.round_hours(proposed_hours_total)} hrs/week exceeds the "
+                    f"{required_hours} hrs/week required load by {over_by} hrs"
+                )
+
                 bumped_warnings.append({
                     "faculty_id": pid,
                     "faculty_name": fac_name,
                     "employment_type": emp_type,
-                    "current_units": current_hrs,
-                    "max_units": max_allowed,
-                    "additional_units": proposed_hours_total,
+                    "current_hours": current_hrs,
+                    "required_hours": required_hours,
+                    "additional_hours": faculty_load.round_hours(proposed_hours_total),
+                    "overload_hours": over_by,
                     "subject_code": c.code,
                     "part_type": part_type,
-                    "message": f"Faculty '{fac_name}' ({emp_type}) maximum teaching load ({max_allowed} units) exceeded by {c.code}."
+                    "message": (
+                        f"Faculty '{fac_name}' ({emp_type}) goes into overload: {c.code} "
+                        f"brings them to {faculty_load.round_hours(projected_hours)} hrs/week "
+                        f"against a required {required_hours}."
+                    )
                 })
-                
-                conf_rec = models.Conflict(
+
+                pending_conflicts.append(models.Conflict(
                     faculty_id=pid,
                     curriculum_id=c.id,
-                    conflict_type="max_units_exceeded",
+                    conflict_type="overload",
                     reason=reason_msg
-                )
-                pending_conflicts.append(conf_rec)
+                ))
 
-                unplaced.append({
-                    "faculty": pid,
-                    "curriculum_id": c.id,
-                    "subject": c.code,
-                    "part_type": part_type,
-                    "reason": reason_msg
-                })
-                continue
+            # A Part-Time member has no required figure, only a ceiling they
+            # must stay under -- crossing it makes them Full-Time in all but name.
+            elif required_hours is None and not faculty_load.is_full_time(getattr(f_obj, 'type', None)):
+                if projected_hours >= faculty_load.PART_TIME_CEILING_HOURS:
+                    fac_fname = getattr(f_obj, 'first_name', '')
+                    fac_lname = getattr(f_obj, 'last_name', '')
+                    fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
+                    reason_msg = (
+                        f"Part-Time ceiling reached for {fac_name}: "
+                        f"{faculty_load.round_hours(projected_hours)} hrs/week is at or above the "
+                        f"{faculty_load.PART_TIME_CEILING_HOURS} hrs/week a Part-Time member must stay under"
+                    )
+
+                    bumped_warnings.append({
+                        "faculty_id": pid,
+                        "faculty_name": fac_name,
+                        "employment_type": "Part-Time",
+                        "current_hours": faculty_load.round_hours(faculty_hours_used[pid]),
+                        "required_hours": None,
+                        "part_time_ceiling_hours": faculty_load.PART_TIME_CEILING_HOURS,
+                        "additional_hours": faculty_load.round_hours(proposed_hours_total),
+                        "subject_code": c.code,
+                        "part_type": part_type,
+                        "message": (
+                            f"Faculty '{fac_name}' (Part-Time) reaches "
+                            f"{faculty_load.round_hours(projected_hours)} hrs/week with {c.code}, at or above "
+                            f"the {faculty_load.PART_TIME_CEILING_HOURS} hrs/week Part-Time ceiling."
+                        )
+                    })
+
+                    pending_conflicts.append(models.Conflict(
+                        faculty_id=pid,
+                        curriculum_id=c.id,
+                        conflict_type="part_time_ceiling",
+                        reason=reason_msg
+                    ))
 
             placed = False
 
@@ -250,25 +373,32 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                         placed = True
                         break
             else:
-                # Laboratory subjects REQUIRE a laboratory room
-                valid_lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
-                if not valid_lab_rooms:
-                    reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
-                    conf_rec = models.Conflict(
-                        faculty_id=pid,
-                        curriculum_id=c.id,
-                        conflict_type="no_lab_room_available",
-                        reason=reason_msg
-                    )
-                    pending_conflicts.append(conf_rec)
-                    unplaced.append({
-                        "faculty": pid,
-                        "curriculum_id": c.id,
-                        "subject": c.code,
-                        "part_type": part_type,
-                        "reason": reason_msg
-                    })
-                    continue
+                # Laboratory subjects. Whether they get a room is the caller's
+                # choice; see the docstring.
+                valid_lab_rooms = []
+                if assign_lab_rooms:
+                    valid_lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
+                    if not valid_lab_rooms:
+                        reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
+                        conf_rec = models.Conflict(
+                            faculty_id=pid,
+                            curriculum_id=c.id,
+                            conflict_type="no_lab_room_available",
+                            reason=reason_msg
+                        )
+                        pending_conflicts.append(conf_rec)
+                        unplaced.append({
+                            "faculty": pid,
+                            "curriculum_id": c.id,
+                            "subject": c.code,
+                            "part_type": part_type,
+                            "reason": reason_msg
+                        })
+                        continue
+
+                # With rooms off, this runs once with no room and no room-clash
+                # check, so a laboratory is placed on faculty availability alone.
+                room_candidates = valid_lab_rooms if assign_lab_rooms else [None]
 
                 for days_pair in day_pairs_to_try:
                     if placed: break
@@ -280,14 +410,15 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                         if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
                         if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
 
-                        for room in valid_lab_rooms:
-                            if is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
+                        for room in room_candidates:
+                            if room is not None and is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
+                            room_id = room.id if room is not None else None
 
                             sched1 = models.Schedule(
                                 semester_id=semester_id,
                                 curriculum_id=c.id,
                                 faculty_id=pid,
-                                room_id=room.id,
+                                room_id=room_id,
                                 day_of_week=day1,
                                 start_time=start_t,
                                 end_time=end_t,
@@ -298,7 +429,7 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                                 semester_id=semester_id,
                                 curriculum_id=c.id,
                                 faculty_id=pid,
-                                room_id=room.id,
+                                room_id=room_id,
                                 day_of_week=day2,
                                 start_time=start_t,
                                 end_time=end_t,
@@ -315,7 +446,9 @@ def generate_schedules(db: Session, semester_id: int, faculty_ids: List[int], de
                             break
 
             if not placed:
-                if part_type == 'lab':
+                # With rooms off there is no room to blame, so a laboratory
+                # failed for the same reason a lecture would have.
+                if part_type == 'lab' and assign_lab_rooms:
                     reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
                 else:
                     reason_msg = f"{c.code} could not be scheduled due to faculty availability or schedule conflict."

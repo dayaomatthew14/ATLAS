@@ -28,7 +28,7 @@
 
 ### Phase 4 — AI Scheduling Engine & Constraint Satisfaction [COMPLETED]
 - [x] **Heuristic Generator**: Algorithmic schedule generator (`schedule_generator.py`) supporting lecture (room set to `NULL`) vs laboratory (requires `lab`/`computer_lab` rooms) scheduling.
-- [x] **Faculty Workload Limit Checking**: Enforces max allowable teaching units per faculty member (`full_time` default 18 units, `part_time` customized). Emits `bumped_warnings` and `max_units_exceeded` conflicts when caps are violated.
+- [x] **Faculty Teaching Load Checking**: Load is REG. HOURS per week from the plotted schedule (`class duration × meetings per week`), measured against the term's required teaching hours — Full-Time 24 hrs in the 1st term, 20 in the 2nd and 3rd; Part-Time has no confirmed target and only a 20 hrs/week ceiling. Emits `bumped_warnings` and logs `overload` or `part_time_ceiling` conflicts, and warns rather than refuses, because overload is a state the institution recognises.
 - [x] **Unavailability Slots**: Integrates `FacultyUnavailability` day/time restrictions managed by Program Chairs to block schedule assignments.
 - [x] **Conflict Panel & Resolution**: Interactive frontend drawer for reviewing unresolved conflicts with one-click automated solver handoff (`/api/ai-scheduler/solve-conflict`).
 

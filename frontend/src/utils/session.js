@@ -72,21 +72,68 @@ export function canManageFaculty() {
   return SCHEDULING_ROLES.includes(getRole());
 }
 
-/** Curriculum is the institutional catalog: the admin owns it, chairs maintain their own. */
+/**
+ * Add, edit, import or remove curriculum. Administrator only.
+ *
+ * This returned true for every role, which was not a policy — it was a bug the
+ * backend was absorbing. Every write in routers/curriculum.py is admin-gated,
+ * so a chair got the full editing surface and a 403 on each button they pressed.
+ * The curriculum is the institutional catalog: the administrator authors it,
+ * departments read the one for their own college.
+ */
 export function canManageCurriculum() {
-  return ALL_ROLES.includes(getRole());
-}
-
-/** Rooms are shared campus infrastructure — anyone may add, only the admin may alter. */
-export function canAddRooms() {
-  return ALL_ROLES.includes(getRole());
-}
-
-export function canEditRooms() {
   return isAdmin();
 }
 
-/** Publishing is what makes a timetable official, and is a governance act. */
+/* --------------------------------------------------------------------------
+ * Rooms.
+ *
+ * A room is either shared campus space or a laboratory a college runs itself,
+ * and the two are governed differently. Lecture halls — and any laboratory the
+ * Registrar assigns centrally — belong to nobody's department, so only an
+ * administrator may alter them. A laboratory a college created is that
+ * college's to manage.
+ *
+ * Owning laboratories is optional: a college whose laboratories all come from
+ * the Registrar simply has none, and no screen should imply that is a gap.
+ * ----------------------------------------------------------------------- */
+
+/** Room types a college may own. A lecture hall is shared by definition. */
+export const DEPARTMENT_ROOM_TYPES = ['lab', 'computer_lab'];
+
+export const isDepartmentRoomType = (type) => DEPARTMENT_ROOM_TYPES.includes(type);
+
+/** May run laboratories of their own. Departmental, and optional. */
+export function canManageDepartmentLabs() {
+  return SCHEDULING_ROLES.includes(getRole()) && Boolean(getDepartment());
+}
+
+/** Shared campus rooms — lecture halls, and whatever the Registrar assigns. */
+export function canManageSharedRooms() {
+  return isAdmin();
+}
+
+/** Whether this specific room may be renamed, retyped or deleted by this user. */
+export function canEditRoom(room) {
+  if (isAdmin()) return true;
+  if (!room || !canManageDepartmentLabs()) return false;
+  if (!isDepartmentRoomType(room.type)) return false;
+  return Boolean(room.department_code) && room.department_code === getDepartment();
+}
+
+/** Whether the user can add any kind of room at all. */
+export function canAddRooms() {
+  return isAdmin() || canManageDepartmentLabs();
+}
+
+/**
+ * Publishing is what makes a timetable official, and is a governance act.
+ *
+ * Nothing in the UI asks this any more: the Schedule screen is departmental and
+ * no longer offers a publish control, so the only enforcement that matters is
+ * the backend's (PATCH /schedules/status, administrator-only). Kept because it
+ * is the honest answer to the question and the rule it states is still live.
+ */
 export function canPublishSchedule() {
   return isAdmin();
 }
@@ -136,17 +183,28 @@ export function saveSession(response) {
  * catch-all sent anyone who picked one back to the public landing page. The
  * choice is validated against real routes here so an unknown or stale value
  * degrades to Overview instead of signing the user out of their own dashboard.
+ *
+ * The list is role-aware for the same reason the rail is: Schedule is closed to
+ * the administrator, so offering it as a start page would land them on a 403 on
+ * every sign-in — and would keep doing so for any admin who picked it before.
  * ----------------------------------------------------------------------- */
-export const LANDING_VIEWS = [
+const ALL_LANDING_VIEWS = [
   { value: '/dashboard', label: 'Overview' },
-  { value: '/dashboard/schedules', label: 'Schedule' },
+  { value: '/dashboard/schedules', label: 'Schedule', roles: SCHEDULING_ROLES },
   { value: '/dashboard/curriculum', label: 'Curriculum' },
 ];
 
 export const DEFAULT_LANDING_VIEW = '/dashboard';
 
+/** Start pages the given role can actually open. Defaults to the signed-in role. */
+export function landingViewsFor(role = getRole()) {
+  return ALL_LANDING_VIEWS
+    .filter((v) => !v.roles || v.roles.includes(role))
+    .map(({ value, label }) => ({ value, label }));
+}
+
 export function getLandingView() {
   if (typeof window === 'undefined') return DEFAULT_LANDING_VIEW;
   const stored = localStorage.getItem('atlas_pref_landing_view');
-  return LANDING_VIEWS.some((v) => v.value === stored) ? stored : DEFAULT_LANDING_VIEW;
+  return landingViewsFor().some((v) => v.value === stored) ? stored : DEFAULT_LANDING_VIEW;
 }

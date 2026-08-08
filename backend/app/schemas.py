@@ -207,16 +207,25 @@ class RoomBase(BaseModel):
     type: str
 
 class RoomCreate(RoomBase):
-    pass
+    # Administrators only. A chair's room is always filed under their own
+    # college, derived from the token -- if this were honoured for them, a chair
+    # could create a laboratory owned by a college they do not belong to.
+    department_id: Optional[int] = None
 
 class RoomUpdate(BaseModel):
     name: Optional[str] = None
     building: Optional[str] = None
     capacity: Optional[int] = None
     type: Optional[str] = None
+    # Reassigning ownership is an administrator action; ignored for other roles.
+    department_id: Optional[int] = None
 
 class RoomResponse(RoomBase):
     id: int
+    department_id: Optional[int] = None
+    # Read from the Room.department_code property, so every consumer gets the
+    # owning college without a second request.
+    department_code: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class FacultyBase(BaseModel):
@@ -240,8 +249,32 @@ class FacultyUpdate(BaseModel):
     type: Optional[str] = None
     department_id: Optional[int] = None
 
+class FacultyWorkWeek(BaseModel):
+    """The Full-Time 40-hour duty week for a term. Absent for Part-Time."""
+    term: str
+    teaching_hours: float
+    off_campus_hours: float
+    consultation_hours: float
+    office_hours: float
+    total_hours: float
+
+
 class FacultyResponse(FacultyBase):
     id: int
+    # Teaching load, in hours per week, from the plotted schedule. This is the
+    # institution's actual basis for load; the *_units fields below are academic
+    # information only and are not what a chair is judged against.
+    reg_hours: float = 0.0
+    # None when no target applies: every Part-Time member (their figures are
+    # unconfirmed) and any unrecognised term. Must not be rendered as 0.
+    required_hours: Optional[float] = None
+    load_status: Optional[str] = None  # UNDERLOAD | REGULAR | OVERLOAD
+    # Exactly one of these is set, and only when a target exists.
+    overload_hours: Optional[float] = None
+    remaining_hours: Optional[float] = None
+    part_time_ceiling_hours: Optional[float] = None
+    exceeds_part_time_ceiling: bool = False
+    work_week: Optional[FacultyWorkWeek] = None
     current_units: Optional[int] = 0
     remaining_units: Optional[int] = 18
     unavailability: Optional[List["FacultyUnavailabilityResponse"]] = []

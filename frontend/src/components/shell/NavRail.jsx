@@ -68,10 +68,7 @@ const ADMIN_SECTIONS = [
   },
   {
     label: 'Oversight',
-    items: [
-      { to: '/dashboard/schedules', label: 'Schedule', icon: Calendar, badge: 'conflicts' },
-      { to: '/dashboard/logs', label: 'Activity', icon: Activity },
-    ],
+    items: [{ to: '/dashboard/logs', label: 'Activity', icon: Activity }],
   },
 ];
 

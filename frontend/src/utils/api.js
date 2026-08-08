@@ -114,8 +114,60 @@ async function request(endpoint, options = {}) {
   }
 }
 
+/**
+ * Fetch a binary response as a Blob.
+ *
+ * `request` above always drains the body with `response.text()`, which is right
+ * for JSON and destroys a PDF. This is the same call — same base URL, same
+ * bearer token, same cookie credentials, same 401 handling — stopping short of
+ * that one step so the caller gets bytes.
+ */
+async function requestBlob(endpoint, options = {}) {
+  let url = `${BASE_URL}${endpoint}`;
+  if (options.params) {
+    const query = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(options.params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+      )
+    ).toString();
+    if (query) url += (url.includes('?') ? '&' : '?') + query;
+  }
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('atlas_token') : null;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    clearSession();
+    if (window.location.pathname !== '/login') window.location.href = '/login';
+    const authError = new Error('Your session has expired. Please sign in again.');
+    authError.status = 401;
+    throw authError;
+  }
+
+  if (!response.ok) {
+    // An error body is JSON even when the success body would not be.
+    let detail = `The server returned an unexpected response (${response.status}).`;
+    try {
+      const data = JSON.parse(await response.text());
+      if (data?.detail) detail = Array.isArray(data.detail) ? data.detail.join(', ') : data.detail;
+    } catch {
+      /* keep the generic message */
+    }
+    const errorObj = new Error(detail);
+    errorObj.status = response.status;
+    throw errorObj;
+  }
+
+  return response.blob();
+}
+
 export const api = {
   get: (endpoint, options) => request(endpoint, { method: 'GET', ...options }),
+  getBlob: (endpoint, options) => requestBlob(endpoint, options),
   postForm: (endpoint, formData, options) => request(endpoint, { method: 'POST', body: formData, ...options }),
   post: (endpoint, body, options) => {
     const isFormData = body instanceof FormData;

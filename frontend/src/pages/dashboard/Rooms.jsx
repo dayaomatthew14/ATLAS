@@ -1,13 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Monitor, FlaskConical, Presentation } from 'lucide-react';
+import { Plus, Search, Monitor, FlaskConical, Presentation, Building2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import Button from '../../components/ui/Button';
+import { DepartmentMark } from '../../components/ui/Badge';
 import DataTable from '../../components/ui/DataTable';
 import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, NumberInput, SelectInput, RadioGroup } from '../../components/ui/Field';
-import { restrictionReason, focusRing, pluralize } from '../../components/ui/tokens';
-import { canAddRooms, canEditRooms } from '../../utils/session';
+import { focusRing, pluralize } from '../../components/ui/tokens';
+import {
+  canEditRoom, canAddRooms, canManageDepartmentLabs,
+  isDepartmentRoomType, DEPARTMENT_ROOM_TYPES, getDepartment, isAdmin as isAdminRole,
+} from '../../utils/session';
 
 /**
  * Rooms. Phase 2 Screen 3.
@@ -18,6 +22,16 @@ import { canAddRooms, canEditRooms } from '../../utils/session';
  * /schedules/suggestions silently returned an empty list. A missing <option>
  * is invisible; the type control is now a radio group, where a missing option
  * would be obvious.
+ *
+ * Ownership. A room is either shared campus space or a laboratory a college
+ * runs itself, and the screen has to show which — a chair looking at LAB-201
+ * needs to know whether renaming it is their call or a request to make. Shared
+ * rooms cover lecture halls and any laboratory the Registrar assigns; that
+ * assignment happens outside ATLAS, so those simply arrive as shared rooms an
+ * administrator registers.
+ *
+ * A college owning no laboratories is a normal state, not a gap. Nothing here
+ * prompts a department to create one.
  */
 
 const ROOM_TYPES = [
@@ -28,27 +42,41 @@ const ROOM_TYPES = [
 
 const typeMeta = (value) => ROOM_TYPES.find((t) => t.value === value) || ROOM_TYPES[0];
 
-const EMPTY_FORM = { name: '', building: '', capacity: '', type: 'lecture' };
+const SHARED = 'shared';
 
 export default function Rooms() {
   const { addToast } = useToast();
 
-  // Rooms are shared, so creating is open to every scheduling role, but editing
-  // and deleting mutate a resource other departments reference (DEP-2).
+  const isAdmin = isAdminRole();
+  const myCollege = getDepartment();
+  const canManageLabs = canManageDepartmentLabs();
   const canCreate = canAddRooms();
-  const canModify = canEditRooms();
+
+  // A chair adds laboratories for their own college and nothing else, so their
+  // form never offers a type they would be refused for.
+  const creatableTypes = isAdmin
+    ? ROOM_TYPES
+    : ROOM_TYPES.filter((t) => DEPARTMENT_ROOM_TYPES.includes(t.value));
+
+  const emptyForm = {
+    name: '', building: '', capacity: '',
+    type: creatableTypes[0]?.value || 'lab',
+    owner: isAdmin ? SHARED : myCollege,
+  };
 
   const [rooms, setRooms] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
   const [search, setSearch] = useState('');
   const [buildingFilter, setBuildingFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('all');
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -60,8 +88,14 @@ export default function Rooms() {
     setIsLoading(true);
     setLoadError('');
     try {
-      const data = await api.get('/rooms');
-      setRooms(Array.isArray(data) ? data : []);
+      // Colleges are only needed to let an administrator hand a laboratory to
+      // one; a failure there must not take the room list down with it.
+      const [roomData, collegeData] = await Promise.all([
+        api.get('/rooms'),
+        isAdmin ? api.get('/colleges').catch(() => []) : Promise.resolve([]),
+      ]);
+      setRooms(Array.isArray(roomData) ? roomData : []);
+      setColleges(Array.isArray(collegeData) ? collegeData : []);
     } catch (error) {
       setRooms([]);
       setLoadError('Could not load rooms.');
@@ -77,6 +111,12 @@ export default function Rooms() {
     [rooms]
   );
 
+  /** Every college that actually owns a laboratory, for the ownership filter. */
+  const owningColleges = useMemo(
+    () => [...new Set(rooms.map((r) => r.department_code).filter(Boolean))].sort(),
+    [rooms]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rooms.filter((r) => {
@@ -86,22 +126,25 @@ export default function Rooms() {
         (r.building || '').toLowerCase().includes(q);
       const matchesBuilding = buildingFilter === 'all' || r.building === buildingFilter;
       const matchesType = typeFilter === 'all' || r.type === typeFilter;
-      return matchesSearch && matchesBuilding && matchesType;
+      const matchesOwner =
+        ownerFilter === 'all'
+        || (ownerFilter === SHARED ? !r.department_code : r.department_code === ownerFilter);
+      return matchesSearch && matchesBuilding && matchesType && matchesOwner;
     });
-  }, [rooms, search, buildingFilter, typeFilter]);
+  }, [rooms, search, buildingFilter, typeFilter, ownerFilter]);
 
-  const isFiltered = search.trim() !== '' || buildingFilter !== 'all' || typeFilter !== 'all';
-  const clearFilters = () => { setSearch(''); setBuildingFilter('all'); setTypeFilter('all'); };
+  const isFiltered =
+    search.trim() !== '' || buildingFilter !== 'all' || typeFilter !== 'all' || ownerFilter !== 'all';
+  const clearFilters = () => {
+    setSearch(''); setBuildingFilter('all'); setTypeFilter('all'); setOwnerFilter('all');
+  };
 
-  const counts = useMemo(() => {
-    const c = { lecture: 0, lab: 0, computer_lab: 0 };
-    rooms.forEach((r) => { if (c[r.type] !== undefined) c[r.type] += 1; });
-    return c;
-  }, [rooms]);
+  const sharedCount = rooms.filter((r) => !r.department_code).length;
+  const myLabCount = rooms.filter((r) => myCollege && r.department_code === myCollege).length;
 
   const openCreate = () => {
     setEditingRoom(null);
-    setForm(EMPTY_FORM);
+    setForm(emptyForm);
     setFormErrors({});
     setIsFormOpen(true);
   };
@@ -113,6 +156,7 @@ export default function Rooms() {
       building: room.building || '',
       capacity: String(room.capacity ?? ''),
       type: room.type || 'lecture',
+      owner: room.department_code || SHARED,
     });
     setFormErrors({});
     setIsFormOpen(true);
@@ -125,6 +169,9 @@ export default function Rooms() {
     const cap = Number(form.capacity);
     if (!form.capacity || Number.isNaN(cap) || cap < 1 || cap > 200) {
       errors.capacity = 'Enter a capacity between 1 and 200.';
+    }
+    if (isAdmin && form.owner !== SHARED && !isDepartmentRoomType(form.type)) {
+      errors.owner = 'Only laboratories can be assigned to a college.';
     }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -141,13 +188,25 @@ export default function Rooms() {
       capacity: Number(form.capacity),
       type: form.type,
     };
+    // Ownership is the administrator's to set. A chair's room is filed under
+    // their own college by the server, from their token — never from here.
+    if (isAdmin) {
+      const owner = colleges.find((c) => c.code === form.owner);
+      payload.department_id = form.owner === SHARED ? null : owner?.id ?? null;
+    }
+
     try {
       if (editingRoom) {
         await api.put(`/rooms/${editingRoom.id}`, payload);
         addToast(`Room ${payload.name} updated.`, 'success');
       } else {
         await api.post('/rooms', payload);
-        addToast(`Room ${payload.name} added.`, 'success');
+        addToast(
+          isAdmin && form.owner === SHARED
+            ? `Room ${payload.name} added.`
+            : `Laboratory ${payload.name} added for ${isAdmin ? form.owner : myCollege}.`,
+          'success'
+        );
       }
       setIsFormOpen(false);
       fetchRooms();
@@ -176,6 +235,17 @@ export default function Rooms() {
     }
   };
 
+  /** Shared vs. the owning college. The hue never appears without its code. */
+  const OwnerCell = ({ room }) =>
+    room.department_code ? (
+      <DepartmentMark code={room.department_code} className="text-table" />
+    ) : (
+      <span className="inline-flex items-center gap-2 font-ui text-table text-atlas-slate">
+        <Building2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+        Shared
+      </span>
+    );
+
   const columns = [
     {
       key: 'name',
@@ -198,10 +268,19 @@ export default function Rooms() {
         );
       },
     },
+    {
+      key: 'department_code',
+      label: 'Managed by',
+      width: '160px',
+      render: (r) => <OwnerCell room={r} />,
+    },
   ];
 
+  // Per row, not per screen: a chair may manage their own college's laboratory
+  // and nothing else in the same list. A restricted button on every other row
+  // would be dozens of locks saying the same thing.
   const rowActions = (r) =>
-    canModify ? (
+    canEditRoom(r) ? (
       <div className="flex gap-1 justify-end">
         <Button size="row" variant="ghost" onClick={() => openEdit(r)} aria-label={`Edit room ${r.name}`}>
           Edit
@@ -218,26 +297,44 @@ export default function Rooms() {
       </div>
     ) : null;
 
+  const addButton = () => {
+    if (isAdmin) return <Button icon={Plus} onClick={openCreate}>Add Room</Button>;
+    if (canManageLabs) return <Button icon={Plus} onClick={openCreate}>Add Laboratory</Button>;
+    // The only way to reach here is a chair or coordinator with no college:
+    // every other role is either an administrator or already covered above. The
+    // blocker is the missing college, not the role, so say that rather than
+    // naming a role they cannot become.
+    return (
+      <Button
+        restricted
+        restrictionReason="Your account is not assigned to a college, so a laboratory would have no owner. Ask an administrator to set one."
+      >
+        Add Laboratory
+      </Button>
+    );
+  };
+
+  const subtitle = isAdmin
+    ? `${pluralize(rooms.length, 'room')} · ${sharedCount} shared · ${rooms.length - sharedCount} run by a college`
+    : canManageLabs
+      ? `${sharedCount} shared campus ${sharedCount === 1 ? 'room' : 'rooms'} · ${myLabCount} ${myCollege} ${myLabCount === 1 ? 'laboratory' : 'laboratories'} you manage`
+      : `${pluralize(rooms.length, 'room')} · shared across all colleges`;
+
   return (
     <div className="p-6 lg:p-8">
       <header className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
         <div className="min-w-0">
           <h1 className="font-display text-page text-atlas-ink">Rooms</h1>
-          {/* Rooms have no owning department in the data model. Saying so is
-              more honest than implying a scope the system cannot enforce. */}
-          <p className="font-ui text-body text-atlas-slate mt-1">
-            Shared across all departments · {rooms.length} rooms · {counts.lecture} lecture,{' '}
-            {counts.lab} laboratory, {counts.computer_lab} computer laboratory
-          </p>
+          <p className="font-ui text-body text-atlas-slate mt-1">{subtitle}</p>
+          {canManageLabs && (
+            <p className="font-ui text-caption text-atlas-slate mt-1">
+              Your college can run its own laboratories. Lecture halls, and laboratories assigned
+              centrally, are shared and only an administrator can change them.
+            </p>
+          )}
         </div>
 
-        {canCreate ? (
-          <Button icon={Plus} onClick={openCreate}>Add Room</Button>
-        ) : (
-          <Button restricted restrictionReason={restrictionReason('admin', 'add rooms')}>
-            Add Room
-          </Button>
-        )}
+        {addButton()}
       </header>
 
       <div className="flex flex-col md:flex-row gap-3 mb-5">
@@ -259,7 +356,7 @@ export default function Rooms() {
           />
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <SelectInput
             label="Building"
             className="w-44"
@@ -273,6 +370,17 @@ export default function Rooms() {
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
             options={[{ value: 'all', label: 'All types' }, ...ROOM_TYPES.map((t) => ({ value: t.value, label: t.label }))]}
+          />
+          <SelectInput
+            label="Managed by"
+            className="w-44"
+            value={ownerFilter}
+            onChange={(e) => setOwnerFilter(e.target.value)}
+            options={[
+              { value: 'all', label: 'Anyone' },
+              { value: SHARED, label: 'Shared' },
+              ...owningColleges.map((c) => ({ value: c, label: c === myCollege ? `${c} (yours)` : c })),
+            ]}
           />
         </div>
       </div>
@@ -289,13 +397,16 @@ export default function Rooms() {
           isFiltered={isFiltered && filtered.length === 0}
           onClearFilters={clearFilters}
           emptyTitle="No rooms registered."
-          emptyBody="Rooms are shared across all departments."
-          emptyAction={canCreate ? <Button icon={Plus} onClick={openCreate}>Add Room</Button> : null}
-          rowActions={canModify ? rowActions : undefined}
+          emptyBody="Lecture halls and centrally assigned laboratories are registered by an administrator."
+          emptyAction={canCreate ? addButton() : null}
+          // Only reserve the actions column when at least one visible row is
+          // actionable — a chair whose college runs no laboratories would
+          // otherwise get an empty column across the whole campus list.
+          rowActions={filtered.some(canEditRoom) ? rowActions : undefined}
         />
       </div>
 
-      {/* Card list below 1024 — a 5-column table cannot be read on a phone. */}
+      {/* Card list below 1024 — a 6-column table cannot be read on a phone. */}
       <div className="lg:hidden flex flex-col gap-3">
         {isLoading && (
           <p className="font-ui text-body text-atlas-slate" aria-busy="true">Loading…</p>
@@ -306,7 +417,9 @@ export default function Rooms() {
               {isFiltered ? 'No results match your filters.' : 'No rooms registered.'}
             </h2>
             <p className="font-ui text-body text-atlas-slate mt-2">
-              {isFiltered ? 'Clear the filters or widen your search.' : 'Rooms are shared across all departments.'}
+              {isFiltered
+                ? 'Clear the filters or widen your search.'
+                : 'Lecture halls and centrally assigned laboratories are registered by an administrator.'}
             </p>
           </div>
         )}
@@ -322,26 +435,27 @@ export default function Rooms() {
                 </div>
                 <span className="font-data text-body tabular-nums text-atlas-ink shrink-0">{r.capacity}</span>
               </div>
-              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-white/45">
+              <div className="flex items-center justify-between gap-3 mt-3">
                 <span className="inline-flex items-center gap-2 font-ui text-caption text-atlas-slate">
                   <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                   {t.label}
                 </span>
-                {canModify && (
-                  <span className="flex gap-1">
-                    <Button size="row" variant="ghost" onClick={() => openEdit(r)} aria-label={`Edit room ${r.name}`}>Edit</Button>
-                    <Button
-                      size="row"
-                      variant="ghost"
-                      onClick={() => { setDeleteTarget(r); setDeleteBlockedReason(''); }}
-                      aria-label={`Delete room ${r.name}`}
-                      className="text-sem-conflict hover:bg-sem-conflict-bg"
-                    >
-                      Delete
-                    </Button>
-                  </span>
-                )}
+                <OwnerCell room={r} />
               </div>
+              {canEditRoom(r) && (
+                <div className="flex justify-end gap-1 mt-3 pt-3 border-t border-white/45">
+                  <Button size="row" variant="ghost" onClick={() => openEdit(r)} aria-label={`Edit room ${r.name}`}>Edit</Button>
+                  <Button
+                    size="row"
+                    variant="ghost"
+                    onClick={() => { setDeleteTarget(r); setDeleteBlockedReason(''); }}
+                    aria-label={`Delete room ${r.name}`}
+                    className="text-sem-conflict hover:bg-sem-conflict-bg"
+                  >
+                    Delete
+                  </Button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -350,13 +464,22 @@ export default function Rooms() {
       <Dialog
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
-        title={editingRoom ? `Edit ${editingRoom.name}` : 'Add Room'}
+        title={
+          editingRoom
+            ? `Edit ${editingRoom.name}`
+            : isAdmin ? 'Add Room' : 'Add Laboratory'
+        }
+        description={
+          !editingRoom && !isAdmin
+            ? `This laboratory will be managed by ${myCollege}. Your college can rename or retire it at any time.`
+            : undefined
+        }
         dismissible={!isSaving}
         footer={
           <>
             <Button variant="ghost" onClick={() => setIsFormOpen(false)} disabled={isSaving}>Cancel</Button>
             <Button type="submit" form="room-form" loading={isSaving}>
-              {editingRoom ? 'Save Room' : 'Add Room'}
+              {editingRoom ? 'Save Room' : isAdmin ? 'Add Room' : 'Add Laboratory'}
             </Button>
           </>
         }
@@ -404,10 +527,37 @@ export default function Rooms() {
               name="room-type"
               value={form.type}
               onChange={(v) => setForm({ ...form, type: v })}
-              hint="Determines which subjects can be scheduled here"
-              options={ROOM_TYPES.map((t) => ({ value: t.value, label: t.label, hint: t.hint }))}
+              hint={
+                isAdmin
+                  ? 'Determines which subjects can be scheduled here'
+                  : 'Determines which subjects can be scheduled here. Lecture halls are shared campus space and only an administrator can register one.'
+              }
+              options={creatableTypes.map((t) => ({ value: t.value, label: t.label, hint: t.hint }))}
             />
           </div>
+
+          {/* Ownership is an administrator's to set. A chair never sees this:
+              their laboratory is filed under their own college server-side. */}
+          {isAdmin && (
+            <div className="md:col-span-2">
+              <SelectInput
+                label="Managed by"
+                value={form.owner}
+                error={formErrors.owner}
+                hint={
+                  isDepartmentRoomType(form.type)
+                    ? 'A shared laboratory is one the Registrar assigns; a college-run one is that college’s to manage.'
+                    : 'Lecture halls are always shared campus space.'
+                }
+                onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                disabled={!isDepartmentRoomType(form.type)}
+                options={[
+                  { value: SHARED, label: 'Shared campus room' },
+                  ...colleges.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` })),
+                ]}
+              />
+            </div>
+          )}
         </form>
       </Dialog>
 
@@ -420,7 +570,11 @@ export default function Rooms() {
         // so claiming "not used by any scheduled class" was a guess that was
         // wrong whenever the room was in fact timetabled. The API's 409 carries
         // the authoritative count and switches this dialog to its blocked state.
-        description="Rooms are shared across all departments. A room that still has classes scheduled in it cannot be deleted."
+        description={
+          deleteTarget?.department_code
+            ? `${deleteTarget.name} is a ${deleteTarget.department_code} laboratory. A room that still has classes scheduled in it cannot be deleted.`
+            : 'Rooms are shared across all colleges. A room that still has classes scheduled in it cannot be deleted.'
+        }
         confirmLabel="Delete Room"
         destructive
         loading={isDeleting}

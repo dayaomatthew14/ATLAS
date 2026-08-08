@@ -1,10 +1,30 @@
 import { useState, useEffect } from 'react';
-import { Users, BookOpen, MapPin, AlertTriangle, TrendingUp, Clock, ChevronRight, Zap, ShieldCheck, Activity, Sparkles, Check, AlertCircle } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import {
+  Users, MapPin, AlertTriangle, Clock, Activity, Sparkles, Check,
+  FileDown, Send, Calendar, BookOpen,
+} from 'lucide-react';
 import { api, API_BASE } from '../../utils/api';
-import { getRole, getUserName, getDepartment, ROLES } from '../../utils/session';
+import { getUserName, getDepartment } from '../../utils/session';
 import { useToast } from '../../components/ToastProvider';
-import { ROLE_LABELS } from '../../components/ui/tokens';
+import { pluralize, resolveDepartment } from '../../components/ui/tokens';
+import Button from '../../components/ui/Button';
+import { Page, PageHeader, Panel, StatTile, LinkRow } from '../../components/ui/Page';
+
+/**
+ * Overview — program chair and coordinator.
+ *
+ * Rewritten onto the design system. What was here was a marketing page: a
+ * gradient hero with two blurred colour orbs, a pinging halo behind a shield
+ * icon, "Master the Schedule." in gradient text, and a "Workspace Health"
+ * card that displayed a heading and a badge reading "Diagnostics" and no
+ * measurement of anything. None of it told a chair what to do next, which is
+ * the only question this screen exists to answer.
+ *
+ * What replaced it is the same data in the system's own language: four
+ * numbers, a readiness checklist that says whether you can generate yet, the
+ * things blocking you, and the recent activity.
+ */
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -14,25 +34,28 @@ const formatSemesterTerm = (term) => {
   return term;
 };
 
+const timeAgo = (value) => {
+  const then = new Date(value);
+  if (Number.isNaN(then.getTime())) return '';
+  const mins = Math.round((Date.now() - then.getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} ${hrs === 1 ? 'hour' : 'hours'} ago`;
+  return then.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+};
+
 export default function DashboardHome() {
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const userRole = getRole();
-  const roleDisplay = ROLE_LABELS[userRole] || 'Signed in';
+  const college = resolveDepartment(getDepartment());
 
-  // Common Data States
   const [activeSemester, setActiveSemester] = useState(null);
   const [recentLogs, setRecentLogs] = useState([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Academic Dashboard States (Program Chair & Coordinator)
-  const [stats, setStats] = useState([
-    { name: 'Rooms', value: '0', icon: MapPin, color: 'text-cyan-600', trend: '---' },
-    { name: 'Active Semester', value: 'None', icon: Clock, color: 'text-purple-600', trend: '---' },
-    { name: 'Faculty', value: '0', icon: Users, color: 'text-emerald-600', trend: '---' },
-    { name: 'Conflicts', value: '0', icon: AlertTriangle, color: 'text-rose-600', trend: '---' },
-  ]);
   const [schedulesCount, setSchedulesCount] = useState(0);
   const [conflictsCount, setConflictsCount] = useState(0);
   const [roomsCount, setRoomsCount] = useState(0);
@@ -40,63 +63,44 @@ export default function DashboardHome() {
   const [facultyMissingAvail, setFacultyMissingAvail] = useState(0);
   const [offeringsCount, setOfferingsCount] = useState(0);
 
-  // Admin Dashboard States (System Administrator)
-
   const fetchStats = async () => {
+    setIsLoading(true);
     try {
-      {
-        // Fetch Academic Scheduling data for Program Chair & Coordinator
-        const [schedules, semesters, faculty, conflicts, logsData, rooms] = await Promise.all([
-          api.get('/schedules').catch(() => []),
-          api.get('/semesters').catch(() => []),
-          api.get('/professors').catch(() => []),
-          api.get('/conflicts/count').catch(() => ({ count: 0 })),
-          api.get('/logs?limit=5').catch(() => []),
-          api.get('/rooms').catch(() => [])
-        ]);
+      const [schedules, semesters, faculty, conflicts, logsData, rooms] = await Promise.all([
+        api.get('/schedules').catch(() => []),
+        api.get('/semesters').catch(() => []),
+        api.get('/professors').catch(() => []),
+        api.get('/conflicts/count').catch(() => ({ count: 0 })),
+        api.get('/logs?limit=5').catch(() => []),
+        api.get('/rooms').catch(() => []),
+      ]);
 
-        const safeSemesters = Array.isArray(semesters) ? semesters : [];
-        const safeSchedules = Array.isArray(schedules) ? schedules : [];
-        const safeFaculty = Array.isArray(faculty) ? faculty : [];
-        const safeRooms = Array.isArray(rooms) ? rooms : [];
-        const safeLogs = Array.isArray(logsData) ? logsData : [];
+      const safeSemesters = Array.isArray(semesters) ? semesters : [];
+      const safeSchedules = Array.isArray(schedules) ? schedules : [];
+      const safeFaculty = Array.isArray(faculty) ? faculty : [];
+      const safeRooms = Array.isArray(rooms) ? rooms : [];
+      const safeLogs = Array.isArray(logsData) ? logsData : [];
 
-        const activeSem = safeSemesters.find(s => s.is_active);
-        setActiveSemester(activeSem || null);
-        setRecentLogs(safeLogs);
+      const activeSem = safeSemesters.find((s) => s.is_active);
+      setActiveSemester(activeSem || null);
+      setRecentLogs(safeLogs);
 
-        const scheduledRooms = new Set(safeSchedules.filter(s => s.room_id).map(s => s.room_id)).size;
-        const computedRoomUtilization = safeRooms.length > 0 ? Math.round((scheduledRooms / safeRooms.length) * 100) : 0;
+      setSchedulesCount(safeSchedules.length);
+      setConflictsCount(conflicts?.count || 0);
+      setRoomsCount(safeRooms.length);
+      setFacultyCount(safeFaculty.length);
+      setFacultyMissingAvail(safeFaculty.filter((f) => !f.max_units || f.max_units === 0).length);
 
-        setSchedulesCount(safeSchedules.length);
-        setConflictsCount(conflicts?.count || 0);
-
-        setRoomsCount(safeRooms.length);
-        setFacultyCount(safeFaculty.length);
-
-        const unconfiguredFaculty = safeFaculty.filter(f => !f.max_units || f.max_units === 0).length;
-        setFacultyMissingAvail(unconfiguredFaculty);
-
-        if (activeSem) {
-          try {
-            const offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
-            if (Array.isArray(offerings)) setOfferingsCount(offerings.length);
-          } catch {
-            setOfferingsCount(0);
-          }
-        } else {
-          setOfferingsCount(0);
-        }
-
-        setStats([
-          { name: 'Rooms', value: safeRooms.length.toString(), icon: MapPin, color: 'text-cyan-600', trend: `${computedRoomUtilization}% in use` },
-          { name: 'Active Semester', value: activeSem ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}` : 'None', icon: Clock, color: 'text-purple-600', trend: 'Active' },
-          { name: 'Faculty', value: safeFaculty.length.toString(), icon: Users, color: 'text-emerald-600', trend: 'Verified' },
-          { name: 'Conflicts', value: (conflicts?.count || 0).toString(), icon: AlertTriangle, color: (conflicts?.count || 0) > 0 ? 'text-rose-600' : 'text-emerald-600', trend: (conflicts?.count || 0) > 0 ? 'CRITICAL' : 'CLEAN' },
-        ]);
+      if (activeSem) {
+        const offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
+        setOfferingsCount(Array.isArray(offerings) ? offerings.length : 0);
+      } else {
+        setOfferingsCount(0);
       }
     } catch (e) {
       console.error('Failed to fetch dashboard stats', e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -111,28 +115,12 @@ export default function DashboardHome() {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
       if (e.altKey) {
         switch (e.key.toLowerCase()) {
-          case 's':
-            e.preventDefault();
-            navigate('/dashboard/schedules');
-            break;
-          case 't':
-            e.preventDefault();
-            navigate('/dashboard/teachers');
-            break;
-          case 'r':
-            e.preventDefault();
-            navigate('/dashboard/rooms');
-            break;
-          case 'c':
-            e.preventDefault();
-            navigate('/dashboard/curriculum');
-            break;
-          case 'p':
-            e.preventDefault();
-            navigate('/dashboard/profile');
-            break;
-          default:
-            break;
+          case 's': e.preventDefault(); navigate('/dashboard/schedules'); break;
+          case 't': e.preventDefault(); navigate('/dashboard/teachers'); break;
+          case 'r': e.preventDefault(); navigate('/dashboard/rooms'); break;
+          case 'c': e.preventDefault(); navigate('/dashboard/curriculum'); break;
+          case 'p': e.preventDefault(); navigate('/dashboard/profile'); break;
+          default: break;
         }
       }
     };
@@ -141,7 +129,7 @@ export default function DashboardHome() {
   }, [navigate]);
 
   const handleQuickAction = async (action) => {
-    setIsProcessing(true);
+    setIsProcessing(action);
     try {
       if (action === 'pdf') {
         // HEU-03: `api` is a plain object with no `defaults`, so this threw a
@@ -155,294 +143,262 @@ export default function DashboardHome() {
         addToast('Preparing the schedule PDF.', 'success');
       } else if (action === 'resolve') {
         await api.post('/ai-scheduler/resolve-conflicts', []);
-        addToast('AI resolution sequence completed!', 'success');
+        addToast('Conflict resolution completed.', 'success');
         fetchStats();
       } else if (action === 'notify') {
         if (activeSemester) {
           await api.post(`/notifications/notify-faculty?semester_id=${activeSemester.id}`);
-          addToast('All faculty members notified!', 'success');
+          addToast('All faculty members notified.', 'success');
         } else {
-          addToast('No active semester found', 'error');
+          addToast('No active semester found.', 'error');
         }
       }
     } catch (e) {
-      addToast('Action failed: Backend service unavailable', 'error');
+      addToast('Action failed: the service is unavailable.', 'error');
     } finally {
-      setIsProcessing(false);
+      setIsProcessing('');
     }
   };
 
+  /* ---------------------------------------------------------------- derived */
+
+  const readiness = [
+    { label: 'Academic term', ready: Boolean(activeSemester), to: '/dashboard/semesters',
+      detail: activeSemester ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}` : 'None active' },
+    { label: 'Rooms', ready: roomsCount > 0, to: '/dashboard/rooms',
+      detail: roomsCount > 0 ? pluralize(roomsCount, 'room') : 'None registered' },
+    { label: 'Faculty', ready: facultyCount > 0 && facultyMissingAvail === 0, to: '/dashboard/teachers',
+      detail: facultyCount === 0 ? 'None added'
+        : facultyMissingAvail > 0 ? `${facultyMissingAvail} without a unit cap`
+        : pluralize(facultyCount, 'member') },
+    { label: 'Subject offerings', ready: offeringsCount > 0, to: '/dashboard/teachers',
+      detail: offeringsCount > 0 ? pluralize(offeringsCount, 'offering') : 'None assigned' },
+    { label: 'Schedule', ready: schedulesCount > 0, to: '/dashboard/schedules',
+      detail: schedulesCount > 0 ? pluralize(schedulesCount, 'class', 'classes') : 'Not generated' },
+  ];
+
+  const blockers = [
+    conflictsCount > 0 && {
+      id: 'conflicts', to: '/dashboard/schedules', icon: AlertTriangle, iconClass: 'text-sem-conflict',
+      label: `${pluralize(conflictsCount, 'unresolved conflict')}`,
+      detail: 'Resolve these before the timetable can be relied on.',
+    },
+    facultyMissingAvail > 0 && {
+      id: 'avail', to: '/dashboard/teachers', icon: Users, iconClass: 'text-sem-warning',
+      label: `${pluralize(facultyMissingAvail, 'faculty member')} without a teaching cap`,
+      detail: 'Generation cannot respect a limit that is not set.',
+    },
+    offeringsCount === 0 && {
+      id: 'offerings', to: '/dashboard/teachers', icon: BookOpen, iconClass: 'text-sem-warning',
+      label: 'No subjects assigned to anyone',
+      detail: 'Assign subjects to professors before generating.',
+    },
+    roomsCount === 0 && {
+      id: 'rooms', to: '/dashboard/rooms', icon: MapPin, iconClass: 'text-sem-warning',
+      label: 'No rooms registered',
+      detail: 'Laboratories need a room to be scheduled into.',
+    },
+    !activeSemester && {
+      id: 'term', to: '/dashboard/semesters', icon: Calendar, iconClass: 'text-sem-warning',
+      label: 'No active academic term',
+      detail: 'Nothing can be generated until one is active.',
+    },
+  ].filter(Boolean);
+
+  const quickActions = [
+    { id: 'resolve', label: 'Resolve conflicts', icon: Sparkles },
+    { id: 'pdf', label: 'Export schedule PDF', icon: FileDown },
+    { id: 'notify', label: 'Notify faculty', icon: Send },
+  ];
+
+  if (isLoading) {
+    return (
+      <Page>
+        <div className="flex flex-col gap-6" aria-busy="true">
+          <div className="h-10 w-64 rounded-field bg-atlas-line animate-pulse motion-reduce:animate-none" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-28 glass rounded-panel animate-pulse motion-reduce:animate-none" />
+            ))}
+          </div>
+          <div className="h-64 glass rounded-panel animate-pulse motion-reduce:animate-none" />
+          <span className="sr-only">Loading…</span>
+        </div>
+      </Page>
+    );
+  }
 
   return (
-    <div className="min-h-full bg-[#f1f5f9] p-6 lg:p-10 space-y-8 font-sans text-slate-800 relative overflow-hidden">
-      {/* Dynamic Background Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-green-200/40 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-yellow-100/30 rounded-full blur-[120px] pointer-events-none"></div>
+    <Page>
+      <PageHeader
+        title={`Good to see you, ${getUserName() || 'there'}`}
+        meta={
+          activeSemester
+            ? `${college.code} · ${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}`
+            : `${college.code} · no active academic term`
+        }
+        note={
+          blockers.length === 0
+            ? 'Everything is in place. You can generate the timetable.'
+            : `${pluralize(blockers.length, 'thing')} to sort out before generating.`
+        }
+        actions={
+          <Button icon={Calendar} onClick={() => navigate('/dashboard/schedules')}>
+            Open Schedule
+          </Button>
+        }
+      />
 
-      <div className="relative z-10 space-y-8">
-        {/* The administrator branch that used to sit here is gone: /dashboard
-            now resolves through Overview.jsx, which renders AdminOverview for
-            administrators and this screen for chairs and coordinators. */}
-            {/* Header Section */}
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-600 via-green-500 to-emerald-700 rounded-[2.8rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
-              <div className="relative bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-950 backdrop-blur-2xl border border-white/20 rounded-[2.5rem] p-8 sm:p-10 flex flex-col lg:flex-row items-center justify-between overflow-hidden shadow-2xl text-white">
-                <div className="relative z-10 max-w-xl text-center lg:text-left">
-                  <div className="inline-flex items-center space-x-2 bg-amber-400/20 text-amber-300 border border-amber-400/30 px-4 py-1.5 rounded-full text-[10px] font-black tracking-[0.2em] uppercase mb-4 backdrop-blur-md">
-                    <Zap className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-                    <span>{userRole === ROLES.COORDINATOR ? 'Coordinator Workspace' : 'Program Chair Workspace'}</span>
-                  </div>
-                  <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-white leading-tight">
-                    Master the <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-200">Schedule.</span>
-                  </h1>
-                  <p className="text-green-100/90 text-sm sm:text-base lg:text-lg font-medium mb-6 leading-relaxed max-w-2xl">
-                    Welcome, <span className="text-amber-300 font-bold">{getUserName() || roleDisplay}</span>. Your command center for the <span className="text-white font-bold">{getDepartment() ? `${getDepartment()} department` : 'academic institution'}</span>.
-                  </p>
-                  <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
-                    <Link to="/dashboard/schedules" className="px-7 py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-2xl text-xs sm:text-sm font-black transition-all transform hover:scale-105 shadow-xl shadow-amber-500/20 flex items-center uppercase tracking-wider">
-                      Launch Calendar <ChevronRight className="w-4 h-4 ml-1.5" />
-                    </Link>
-                  </div>
-                </div>
-                
-                <div className="hidden lg:block relative w-72 h-72 shrink-0">
-                  <div className="absolute inset-0 bg-emerald-400/10 rounded-full animate-ping opacity-30"></div>
-                  <div className="absolute inset-4 bg-amber-400/10 rounded-full animate-pulse"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <ShieldCheck className="w-32 h-32 text-amber-300/90 drop-shadow-[0_4px_20px_rgba(251,191,36,0.3)]" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {stats.map((stat) => (
-                <div 
-                  key={stat.name} 
-                  className="relative group h-full"
-                >
-                  <div className="h-full flex flex-col justify-between relative bg-white/85 backdrop-blur-xl border border-white/80 p-7 rounded-[2.2rem] transition-all duration-300 group-hover:bg-white group-hover:shadow-2xl group-hover:border-emerald-200 group-hover:-translate-y-1.5 shadow-xl">
-                    <div>
-                      <div className="flex justify-between items-center mb-6">
-                        <div className={`p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 ${stat.color}`}>
-                          <stat.icon className="w-6 h-6" />
-                        </div>
-                        <div className="text-[10px] font-black text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-full border border-emerald-200 uppercase tracking-wider">
-                          {stat.trend}
-                        </div>
-                      </div>
-                      <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.name}</p>
-                    </div>
-                    {stat.name === 'Active Semester' && stat.value !== 'None' ? (
-                      <div className="mt-4 flex flex-wrap items-center gap-3">
-                        <span className="text-xl lg:text-2xl font-black text-emerald-950 bg-emerald-50 px-4 py-2 rounded-2xl inline-block w-fit border border-emerald-200 shadow-xs">
-                          {stat.value.split(' ').slice(1).join(' ')}
-                        </span>
-                        <span className="text-xs lg:text-sm font-black text-slate-500 uppercase tracking-widest leading-none">
-                          {stat.value.split(' ')[0]}
-                        </span>
-                      </div>
-                    ) : (
-                      <h3 className={`font-black tracking-tighter leading-none text-emerald-950 ${stat.value.length > 10 ? 'text-lg lg:text-2xl mt-4' : 'text-5xl'}`}>{stat.value}</h3>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Scheduling Status & Needs Attention Panels */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-6 sm:p-8 shadow-xl space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-xl font-black text-emerald-950 tracking-tight flex items-center">
-                    <TrendingUp className="w-5 h-5 mr-2 text-emerald-700" />
-                    Scheduling Status
-                  </h3>
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Pre-Generation Check</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  {[
-                    { label: 'Semester', ready: !!activeSemester, text: activeSemester ? 'Ready' : 'Pending', path: '/dashboard/semesters' },
-                    { label: 'Rooms', ready: roomsCount > 0, text: roomsCount > 0 ? 'Ready' : 'Pending', path: '/dashboard/rooms' },
-                    { label: 'Faculty', ready: facultyCount > 0 && facultyMissingAvail === 0, text: (facultyCount > 0 && facultyMissingAvail === 0) ? 'Ready' : 'Pending', path: '/dashboard/teachers' },
-                    { label: 'Offerings', ready: offeringsCount > 0, text: offeringsCount > 0 ? 'Ready' : 'Pending', path: '/dashboard/curriculum' },
-                    { label: 'Schedule', ready: schedulesCount > 0, text: schedulesCount > 0 ? 'Completed' : 'Pending', path: '/dashboard/schedules' }
-                  ].map(item => (
-                    <Link
-                      key={item.label}
-                      to={item.path}
-                      className={`p-3.5 rounded-2xl border transition-all hover:scale-105 flex flex-col justify-between ${
-                        item.ready ? 'bg-emerald-50/70 border-emerald-200/90' : 'bg-amber-50/70 border-amber-200/90'
-                      }`}
-                    >
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{item.label}</span>
-                      <div className="mt-2 flex items-center justify-between">
-                        {item.ready ? (
-                          <span className="inline-flex items-center text-xs font-black text-emerald-700">
-                            <Check className="w-4 h-4 mr-1 text-emerald-600" /> {item.text}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center text-xs font-black text-amber-700">
-                            <Clock className="w-4 h-4 mr-1 text-amber-600" /> {item.text}
-                          </span>
-                        )}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.2rem] p-6 sm:p-8 shadow-xl space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center">
-                    <AlertCircle className="w-5 h-5 mr-2 text-amber-600" />
-                    Needs Attention
-                  </h3>
-                </div>
-
-                <div className="space-y-2.5">
-                  {[
-                    {
-                      id: 'conflicts',
-                      text: conflictsCount === 0 ? '✓ 0 Scheduling conflicts' : `⚠ ${conflictsCount} Scheduling conflicts`,
-                      isClean: conflictsCount === 0,
-                      path: '/dashboard/schedules'
-                    },
-                    ...(facultyMissingAvail > 0 ? [{
-                      id: 'fac-avail',
-                      text: '⚠ Missing faculty availability',
-                      isClean: false,
-                      path: '/dashboard/teachers'
-                    }] : []),
-                    ...(offeringsCount === 0 ? [{
-                      id: 'no-offerings',
-                      text: '⚠ No subject offerings created',
-                      isClean: false,
-                      path: '/dashboard/curriculum'
-                    }] : []),
-                    ...(roomsCount === 0 ? [{
-                      id: 'no-rooms',
-                      text: '⚠ Unassigned rooms detected',
-                      isClean: false,
-                      path: '/dashboard/rooms'
-                    }] : [])
-                  ].map(alert => (
-                    <Link
-                      key={alert.id}
-                      to={alert.path}
-                      className={`flex items-center justify-between p-3 rounded-xl border text-xs font-bold transition-all hover:translate-x-1 ${
-                        alert.isClean ? 'bg-emerald-50/60 border-emerald-100 text-emerald-800' : 'bg-amber-50/70 border-amber-200 text-amber-900'
-                      }`}
-                    >
-                      <span className="flex items-center truncate">
-                        {alert.text}
-                      </span>
-                      <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 flex flex-col bg-white/85 backdrop-blur-xl border border-white/80 rounded-[2.5rem] p-8 sm:p-10 shadow-xl h-full">
-                <div className="flex items-center justify-between mb-8 shrink-0">
-                  <h3 className="text-2xl font-black flex items-center tracking-tight text-emerald-950">
-                    <Clock className="w-6 h-6 mr-3 text-emerald-700" />
-                    Live Feed
-                  </h3>
-                  <div className="flex items-center space-x-2 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-800">Live Updates</span>
-                  </div>
-                </div>
-                {recentLogs.length > 0 ? (
-                  <div className="flex-1 space-y-3.5 py-2 overflow-y-auto pr-2">
-                    {recentLogs.map(log => (
-                      <div key={log.id} className="flex items-start space-x-4 p-4 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/80 hover:border-emerald-300 hover:shadow-md transition-all text-left">
-                        <div className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${
-                          log.status === 'error' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
-                          log.status === 'warning' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                          'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                        }`}>
-                          <Activity className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-emerald-950 truncate">{log.action}</p>
-                          <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{log.details}</p>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                            {new Date(log.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center space-y-6 py-10 text-center">
-                    <Activity className="w-12 h-12 text-slate-300 mx-auto mb-2" />
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">No Recent Activity</p>
-                    <p className="text-xs text-slate-400 font-medium">Everything is up to date.</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-8">
-                <div className="bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-950 rounded-[2.5rem] p-8 sm:p-10 shadow-2xl border border-white/20 relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:rotate-45 transition-transform duration-700 text-white">
-                    <Zap className="w-32 h-32" />
-                  </div>
-                  <div className="relative z-10">
-                    <h3 className="text-3xl font-black mb-3 tracking-tight text-white">Quick Actions</h3>
-                    <p className="text-amber-300 text-xs font-black mb-8 uppercase tracking-widest leading-relaxed">
-                      High-impact AI commands.
-                    </p>
-                    <div className="space-y-3">
-                      {[
-                        { name: 'Auto-Resolve Conflicts', action: 'resolve', icon: Sparkles, color: 'hover:text-yellow-600' },
-                        { name: 'Generate Official PDF', action: 'pdf', icon: BookOpen, color: 'hover:text-blue-600' },
-                        { name: 'Notify All Faculty', action: 'notify', icon: Zap, color: 'hover:text-purple-600' },
-                      ].map(action => (
-                        <button 
-                          key={action.name} 
-                          onClick={() => handleQuickAction(action.action)}
-                          disabled={isProcessing}
-                          className={`flex items-center justify-between w-full p-5 bg-white/10 hover:bg-white text-white ${action.color} rounded-2xl transition-all duration-300 font-black text-xs uppercase tracking-widest group/btn border border-white/10 shadow-lg disabled:opacity-50`}
-                        >
-                          <div className="flex items-center">
-                            <action.icon className={`w-4 h-4 mr-3 ${isProcessing && action.action === 'resolve' ? 'animate-spin' : ''}`} />
-                            {action.name}
-                          </div>
-                          <ChevronRight className="w-4 h-4 transform group-hover/btn:translate-x-1 transition-transform" />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white/80 backdrop-blur-2xl border border-white rounded-[2.5rem] p-8 text-left group shadow-sm flex flex-col justify-between hover:shadow-2xl hover:shadow-green-900/5 transition-all duration-300">
-                  <div>
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="w-12 h-12 bg-green-500/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                        <Activity className="w-6 h-6 text-green-700 animate-pulse" />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">
-                        Diagnostics
-                      </span>
-                    </div>
-                    <h4 className="font-black text-xl text-slate-900 leading-none mb-2">Workspace Health</h4>
-                    <p className="text-[10px] text-slate-400 font-bold mb-6 uppercase tracking-widest leading-relaxed">
-                      Real-time system performance
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {[
+          { label: 'Classes scheduled', value: schedulesCount, icon: Calendar, to: '/dashboard/schedules' },
+          { label: 'Faculty', value: facultyCount, icon: Users, to: '/dashboard/teachers',
+            hint: facultyMissingAvail > 0 ? `${facultyMissingAvail} without a cap` : undefined,
+            tone: facultyMissingAvail > 0 ? 'warning' : 'default' },
+          { label: 'Rooms', value: roomsCount, icon: MapPin, to: '/dashboard/rooms' },
+          { label: 'Conflicts', value: conflictsCount, icon: AlertTriangle, to: '/dashboard/schedules',
+            tone: conflictsCount > 0 ? 'conflict' : 'good' },
+        ].map((s, i) => (
+          // 60ms apart, per the Standard stagger tier — the grid settles in
+          // reading order instead of all four landing at once.
+          <div key={s.label} className="rise" style={{ animationDelay: `${i * 60}ms` }}>
+            <StatTile {...s} />
+          </div>
+        ))}
       </div>
 
-    </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <Panel
+          className="lg:col-span-2 rise"
+          style={{ animationDelay: '240ms' }}
+          icon={Check}
+          accent
+          title="Before you generate"
+          description="Each of these has to be in place for the timetable to come out right."
+        >
+          <ul className="divide-y divide-white/45">
+            {readiness.map((item) => (
+              <li key={item.label}>
+                <button
+                  type="button"
+                  onClick={() => navigate(item.to)}
+                  className="group w-full flex items-center gap-4 px-5 py-3.5 text-left transition-colors
+                             duration-state ease-standard hover:bg-atlas-50
+                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-inset"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0
+                                transition-transform duration-overlay ease-emphasis group-hover:scale-110 ${
+                      item.ready ? 'bg-atlas-100 text-atlas-700' : 'bg-sem-warning-bg text-sem-warning'
+                    }`}
+                  >
+                    {item.ready ? <Check className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-ui text-body text-atlas-ink">{item.label}</span>
+                    <span className="block font-ui text-caption text-atlas-slate truncate">{item.detail}</span>
+                  </span>
+                  <span
+                    className={`font-ui text-caption shrink-0 ${
+                      item.ready ? 'text-atlas-700' : 'text-sem-warning'
+                    }`}
+                  >
+                    {item.ready ? 'Ready' : 'Pending'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+
+        <Panel
+          className="rise"
+          style={{ animationDelay: '300ms' }}
+          icon={blockers.length ? AlertTriangle : Check}
+          accent={blockers.length ? 'warning' : undefined}
+          title={blockers.length ? `Needs attention (${blockers.length})` : 'Needs attention'}
+        >
+          {blockers.length === 0 ? (
+            <p className="px-5 py-10 font-ui text-body text-atlas-slate text-center">
+              Nothing is blocking you.
+            </p>
+          ) : (
+            <ul className="divide-y divide-white/45">
+              {blockers.map((b) => (
+                <LinkRow
+                  key={b.id}
+                  to={b.to}
+                  icon={b.icon}
+                  iconClass={b.iconClass}
+                  label={b.label}
+                  detail={b.detail}
+                />
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
+        <Panel
+          className="lg:col-span-2 rise"
+          style={{ animationDelay: '360ms' }}
+          icon={Activity}
+          title="Recent activity"
+          description="The last few changes in your college."
+        >
+          {recentLogs.length === 0 ? (
+            <p className="px-5 py-10 font-ui text-body text-atlas-slate text-center">
+              Nothing has happened yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-white/45">
+              {recentLogs.map((log) => (
+                <li key={log.id} className="flex items-start gap-3 px-5 py-3.5">
+                  <span
+                    aria-hidden="true"
+                    className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                      log.status === 'error' ? 'bg-sem-conflict-bg text-sem-conflict'
+                      : log.status === 'warning' ? 'bg-sem-warning-bg text-sem-warning'
+                      : 'bg-atlas-100 text-atlas-700'
+                    }`}
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-ui text-body text-atlas-ink">{log.action}</span>
+                    {log.details && (
+                      <span className="block font-ui text-caption text-atlas-slate mt-0.5">{log.details}</span>
+                    )}
+                  </span>
+                  <span className="font-ui text-caption text-atlas-slate shrink-0 tabular-nums">
+                    {timeAgo(log.timestamp)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel className="rise" style={{ animationDelay: '420ms' }} icon={Sparkles} title="Quick actions">
+          <div className="p-4 flex flex-col gap-2">
+            {quickActions.map((a) => (
+              <Button
+                key={a.id}
+                variant="secondary"
+                icon={a.icon}
+                loading={isProcessing === a.id}
+                disabled={Boolean(isProcessing) && isProcessing !== a.id}
+                onClick={() => handleQuickAction(a.id)}
+                className="justify-start w-full"
+              >
+                {a.label}
+              </Button>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </Page>
   );
 }

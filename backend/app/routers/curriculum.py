@@ -390,20 +390,21 @@ async def _process_curriculum_import(
     custom_mapping: Optional[str] = None,
     selected_sheet: Optional[str] = None
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators, Program Chairs, and Coordinators can import curriculum Excel files")
+    # Import is the last curriculum write a non-admin could reach. Every other
+    # handler in this router is already admin-only, but this one accepted chairs
+    # and coordinators -- and with dry_run=false it creates a CurriculumBlock and
+    # its subjects outright, so a chair could author curriculum the catalog was
+    # meant to hand them. The curriculum is institutional reference data: the
+    # administrator owns it, departments read it.
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only System Administrators can import curriculum Excel files"
+        )
 
     # Determine target department
     target_dept_id = department_id
-    if current_user.role in ['program_chair', 'coordinator']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
-        if not dept:
-            raise HTTPException(status_code=400, detail="User department not found")
-        target_dept_id = dept.id
-    elif not target_dept_id:
+    if not target_dept_id:
         first_dept = db.query(models.Department).first()
         if not first_dept:
              raise HTTPException(status_code=400, detail="No departments found in system")

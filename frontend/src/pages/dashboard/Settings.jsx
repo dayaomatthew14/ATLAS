@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -6,7 +6,7 @@ import { ConfirmDialog } from '../../components/ui/Dialog';
 import Button from '../../components/ui/Button';
 import { Field } from '../../components/ui/Field';
 import { focusRing } from '../../components/ui/tokens';
-import { LANDING_VIEWS, getLandingView } from '../../utils/session';
+import { landingViewsFor, getLandingView } from '../../utils/session';
 
 /**
  * Settings.
@@ -93,6 +93,9 @@ export default function Settings() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Only the start pages this role can open — Schedule is not one of them for
+  // an administrator, and a radio that lands on a 403 is worse than no radio.
+  const landingViews = useMemo(() => landingViewsFor(), []);
   const [landingPage, setLandingPage] = useState(getLandingView);
   const [density, setDensity] = useState(
     () => localStorage.getItem('atlas_density') || 'comfortable'
@@ -184,7 +187,7 @@ export default function Settings() {
                 Page to open after signing in
               </legend>
               <div className="flex flex-col gap-2">
-                {LANDING_VIEWS.map((view) => (
+                {landingViews.map((view) => (
                   <label
                     key={view.value}
                     className="flex items-center gap-2.5 cursor-pointer font-ui text-body text-atlas-ink"

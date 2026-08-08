@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
+from ..services import faculty_load
 
 router = APIRouter(
     prefix="/api/professors",
@@ -9,6 +10,51 @@ router = APIRouter(
 )
 
 SCOPED_ROLES = ['program_chair', 'coordinator']
+
+
+def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=None) -> dict:
+    """
+    One faculty record with its teaching load attached.
+
+    Load is hours per week off the plotted schedule (see services.faculty_load);
+    `current_units`/`remaining_units` are the older unit figures, kept because
+    the subject-assignment dialog still totals units when a chair picks
+    subjects. They are academic information, not the load basis.
+    """
+    if load is None:
+        load = faculty_load.summarise_many(db, [faculty], semester).get(faculty.id, {})
+
+    max_u = faculty.max_units if (faculty.max_units and faculty.max_units > 0) else (
+        18 if faculty.type == 'full_time' else 12
+    )
+    current_u = _unit_load(db, faculty.id, semester)
+
+    return {
+        "id": faculty.id,
+        "first_name": faculty.first_name,
+        "last_name": faculty.last_name,
+        "email": faculty.email,
+        "contact_number": faculty.contact_number,
+        "max_units": max_u,
+        "type": faculty.type,
+        "department_id": faculty.department_id,
+        "current_units": current_u,
+        "remaining_units": max(0, max_u - current_u),
+        "unavailability": faculty.unavailabilities,
+        **load,
+    }
+
+
+def _unit_load(db: Session, faculty_id: int, semester) -> int:
+    if not semester:
+        return 0
+    total = db.query(models.Curriculum.units).join(
+        models.SubjectOffering, models.SubjectOffering.curriculum_id == models.Curriculum.id
+    ).filter(
+        models.SubjectOffering.faculty_id == faculty_id,
+        models.SubjectOffering.semester_id == semester.id,
+    ).all()
+    return sum(row[0] or 0 for row in total)
 
 
 def resolve_user_department(db: Session, current_user: models.User):
@@ -65,28 +111,31 @@ def get_professors(
         query = query.filter(models.Faculty.department_id == department_id)
         
     faculty_members = query.offset(skip).limit(limit).all()
-    
-    # Pre-calculate faculty loads for active semester
-    active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
-    faculty_loads = {}
-    if active_semester:
-        all_offerings = db.query(
+
+    semester = faculty_load.active_semester(db)
+
+    # REG. HOURS for the whole page in one query, rather than one per member.
+    loads = faculty_load.summarise_many(db, faculty_members, semester)
+
+    # Unit totals for the same page, likewise batched.
+    unit_loads = {}
+    if semester:
+        offerings = db.query(
             models.SubjectOffering.faculty_id, models.Curriculum.units
         ).join(
             models.Curriculum, models.SubjectOffering.curriculum_id == models.Curriculum.id
         ).filter(
-            models.SubjectOffering.semester_id == active_semester.id
+            models.SubjectOffering.semester_id == semester.id
         ).all()
-        for off in all_offerings:
-            if off.faculty_id is not None:
-                faculty_loads[off.faculty_id] = faculty_loads.get(off.faculty_id, 0) + off.units
-    
+        for faculty_id, units in offerings:
+            if faculty_id is not None:
+                unit_loads[faculty_id] = unit_loads.get(faculty_id, 0) + (units or 0)
+
     result = []
     for f in faculty_members:
-        curr_u = faculty_loads.get(f.id, 0)
         max_u = f.max_units if (f.max_units and f.max_units > 0) else (18 if f.type == 'full_time' else 12)
-        rem_u = max(0, max_u - curr_u)
-        f_dict = {
+        curr_u = unit_loads.get(f.id, 0)
+        result.append({
             "id": f.id,
             "first_name": f.first_name,
             "last_name": f.last_name,
@@ -96,11 +145,11 @@ def get_professors(
             "type": f.type,
             "department_id": f.department_id,
             "current_units": curr_u,
-            "remaining_units": rem_u,
-            "unavailability": f.unavailabilities
-        }
-        result.append(f_dict)
-    
+            "remaining_units": max(0, max_u - curr_u),
+            "unavailability": f.unavailabilities,
+            **loads.get(f.id, {}),
+        })
+
     return result
 
 @router.get("/{faculty_id}", response_model=schemas.FacultyResponse)
@@ -114,7 +163,7 @@ def get_professor(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
 
     assert_faculty_in_scope(db, current_user, faculty)
-    return faculty
+    return serialise_faculty(db, faculty)
 
 @router.post("", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=schemas.FacultyResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
@@ -144,7 +193,7 @@ def create_professor(
     db.commit()
     db.refresh(new_faculty)
 
-    return new_faculty
+    return serialise_faculty(db, new_faculty)
 
 @router.put("/{faculty_id}", response_model=schemas.FacultyResponse)
 def update_professor(
@@ -179,7 +228,7 @@ def update_professor(
 
     db.commit()
     db.refresh(db_faculty)
-    return db_faculty
+    return serialise_faculty(db, db_faculty)
 
 @router.delete("/{faculty_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_professor(

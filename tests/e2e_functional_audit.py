@@ -11,6 +11,30 @@ from backend.app.routers import (
     notifications_router, conflicts, subject_offerings, professors
 )
 
+def _standard_lecture_hours_per_week():
+    """Weekly hours one generated standard lecture carries (80 min x 2 = 2.67)."""
+    from backend.app.services import schedule_generator as sg
+    return sg.get_duration_hours(*sg.STANDARD_LECTURE_SLOTS[0]) * 2
+
+
+def _lectures_to_exceed(target_hours):
+    """How many standard lectures it takes to go strictly past `target_hours`."""
+    per = _standard_lecture_hours_per_week()
+    count = 1
+    while count * per <= target_hours + 0.01:
+        count += 1
+    return count
+
+
+def _lectures_to_reach(target_hours):
+    """How many standard lectures it takes to reach `target_hours` or more."""
+    per = _standard_lecture_hours_per_week()
+    count = 1
+    while count * per < target_hours:
+        count += 1
+    return count
+
+
 def _make_sample_excel_bytes():
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -149,19 +173,45 @@ class EndToEndFunctionalAudit(unittest.TestCase):
     # 3. PROGRAM CHAIR & COORDINATOR WORKFLOWS
     # ----------------------------------------------------------------------
     def test_05_curriculum_block_and_subject_ingestion(self):
+        """
+        Ingestion is an administrator's job. Every write in the curriculum router
+        -- create, edit, delete, bulk, header preview, block deletion -- is
+        admin-only, and import is no exception: with dry_run=false it authors a
+        CurriculumBlock and its subjects outright. The curriculum is institutional
+        reference data that chairs and coordinators read, not write.
+        """
         import asyncio
+        from fastapi import HTTPException
         excel_data = _make_sample_excel_bytes()
+
+        # A chair is refused, which is the rule this scenario runs under.
         chair_user = self.db.query(models.User).filter(models.User.email == "chair.cast@dlsau.edu.ph").first()
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(curriculum._process_curriculum_import(
+                contents=excel_data,
+                department_id=1,
+                program_code="CS",
+                dry_run=False,
+                db=self.db,
+                current_user=chair_user
+            ))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        admin_user = self.db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
         res = asyncio.run(curriculum._process_curriculum_import(
             contents=excel_data,
             department_id=1,
             program_code="CS",
             dry_run=False,
             db=self.db,
-            current_user=chair_user
+            current_user=admin_user
         ))
         self.assertIn("summary", res)
-        self.assertEqual(res["summary"]["created_subjects"], 5)
+        # Four, not five: CS101, MATH101 and the two halves of CS102A/B. The
+        # sheet's fifth row, CS-ELEC1, sits under ELECTIVES -- a pool a student
+        # chooses from rather than a subject taught in a given term -- and the
+        # importer deliberately leaves that pool out.
+        self.assertEqual(res["summary"]["created_subjects"], 4)
 
         # Check block entity created
         block = self.db.query(models.CurriculumBlock).first()
@@ -170,7 +220,8 @@ class EndToEndFunctionalAudit(unittest.TestCase):
 
         # Check curriculum subjects created
         subjects = self.db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
-        self.assertGreaterEqual(len(subjects), 3)
+        codes = sorted(s.code for s in subjects)
+        self.assertEqual(codes, ["CS101", "CS102A", "CS102B", "MATH101"])
 
     def test_06_room_resource_management(self):
         room_lec = models.Room(name="Rm 301", building="Jose Rizal Hall", capacity=40, type="lecture")
@@ -256,26 +307,174 @@ class EndToEndFunctionalAudit(unittest.TestCase):
             elif c.type == 'lab':
                 self.assertIsNotNone(s.room_id) # Lab has room_id assigned
 
-    def test_10_workload_cap_exceeded_conflict_logging(self):
+    def test_09b_generated_lectures_match_institutional_patterns(self):
+        """
+        A generated lecture must carry the college's actual weekly hours.
+
+        The generator used to plot every lecture on a single 90-minute grid,
+        giving 3.00 hrs/week -- a figure matching neither confirmed pattern, so
+        the REG. HOURS ATLAS reported could never agree with the ones a chair
+        computes by hand. Standard programmes are 80 min x 2 = 2.67 hrs/week and
+        engineering (BSCPE) is 2 h x 2 = 4.00.
+        """
+        from backend.app.services import schedule_generator as sg
+        from backend.app.services import faculty_load as fl
+
+        def weekly_hours(grid):
+            return {round(sg.get_duration_hours(a, b) * 2, 2) for a, b in grid}
+
+        self.assertEqual(weekly_hours(sg.STANDARD_LECTURE_SLOTS), {2.67})
+        self.assertEqual(weekly_hours(sg.ENGINEERING_LECTURE_SLOTS), {4.00})
+        self.assertEqual(weekly_hours(sg.LAB_SLOTS), {4.00})
+
+        bscpe = models.Curriculum(
+            code="CPE301", name="Logic Circuits", units=3,
+            department_id=1, type="lecture", lec_units=3, lab_units=0,
+            program_code="BSCPE",
+        )
+        bscs = models.Curriculum(
+            code="CS310", name="Algorithms", units=3,
+            department_id=1, type="lecture", lec_units=3, lab_units=0,
+            program_code="BSCS",
+        )
+        self.db.add_all([bscpe, bscs])
+        self.db.commit()
+
+        self.assertEqual(weekly_hours(sg.lecture_slots_for(bscpe)), {4.00})
+        self.assertEqual(weekly_hours(sg.lecture_slots_for(bscs)), {2.67})
+
+        # A subject with no programme recorded must not silently take the
+        # engineering pattern; standard is the safe default.
+        no_code = models.Curriculum(
+            code="GEN100", name="Unmapped", units=3,
+            department_id=1, type="lecture", lec_units=3, lab_units=0,
+        )
+        self.db.add(no_code)
+        self.db.commit()
+        self.assertEqual(weekly_hours(sg.lecture_slots_for(no_code)), {2.67})
+
+        # The exact required loads must be reachable, or REGULAR is unreachable
+        # and every faculty member reads as under or over for ever.
+        plotted = [sg.STANDARD_LECTURE_SLOTS[0]] * 6 + [sg.LAB_SLOTS[0]] * 6
+        total = fl.round_hours(sum(fl.duration_hours(a, b) for a, b in plotted))
+        self.assertEqual(total, 20.0)
+        self.assertEqual(fl.load_status(total, 20.0), fl.REGULAR)
+
+    def test_09c_not_plotted_is_not_an_underload(self):
+        """
+        Subjects assigned but no timetable generated is a statement about the
+        term's progress, not a verdict on the faculty member. Reporting it as
+        UNDERLOAD buries the real underloads among faculty nobody has plotted.
+        """
+        from backend.app.services import faculty_load as fl
+
+        assigned_unplotted = fl.summarise(0.0, '1st', 'full_time', has_offerings=True)
+        self.assertEqual(assigned_unplotted["load_status"], fl.NOT_PLOTTED)
+        self.assertIsNone(assigned_unplotted["remaining_hours"])
+        # The required figure still shows, so a chair can see what is coming.
+        self.assertEqual(assigned_unplotted["required_hours"], 24.0)
+
+        # No subjects at all is a real underload -- that member has no work.
+        unassigned = fl.summarise(0.0, '1st', 'full_time', has_offerings=False)
+        self.assertEqual(unassigned["load_status"], fl.UNDERLOAD)
+        self.assertEqual(unassigned["remaining_hours"], 24.0)
+
+        # No active term: no schedule to measure and no figure to measure it
+        # against, so no verdict may be given about anyone.
+        no_term = fl.summarise(0.0, None, 'full_time', has_offerings=True)
+        self.assertEqual(no_term["load_status"], fl.NO_ACTIVE_TERM)
+        self.assertIsNone(no_term["required_hours"])
+        self.assertIsNone(no_term["work_week"])
+
+    def test_10_overload_warning_and_conflict_logging(self):
+        """
+        Teaching load is hours per week off the plotted schedule, and the
+        required figure comes from the term (1st = 24 hrs) and employment type
+        -- not from `max_units`, which counts subject units and is a different
+        quantity entirely. Passing the required figure is an overload, which the
+        institution recognises: the class is still placed, and the chair is
+        warned rather than blocked.
+        """
         sem = models.Semester(academic_year="2025-2026", term="1st", is_active=True)
         self.db.add(sem)
         self.db.commit()
 
-        # Faculty with 2 units max cap
-        fac_limited = models.Faculty(first_name="Elena", last_name="Gomez", max_units=2, type="part_time", department_id=1)
-        curr_heavy = models.Curriculum(code="CS401", name="Capstone Project", units=4, department_id=1, type="lecture", lec_units=4, lab_units=0)
-        self.db.add_all([fac_limited, curr_heavy])
+        fac = models.Faculty(first_name="Elena", last_name="Gomez", type="full_time", department_id=1)
+        self.db.add(fac)
         self.db.commit()
 
-        off = models.SubjectOffering(faculty_id=fac_limited.id, curriculum_id=curr_heavy.id, semester_id=sem.id)
-        self.db.add(off)
+        # Enough standard lectures to pass the 24 hrs/week required in the 1st
+        # term. The count is derived from the grid rather than written in, so
+        # changing the institutional lecture pattern cannot quietly turn this
+        # into a test that no longer overloads anybody.
+        count = _lectures_to_exceed(24.0)
+        subjects = []
+        for i in range(count):
+            subjects.append(models.Curriculum(
+                code=f"CS{400 + i}", name=f"Overload Subject {i}", units=3,
+                department_id=1, type="lecture", lec_units=3, lab_units=0
+            ))
+        self.db.add_all(subjects)
         self.db.commit()
 
-        res = generate_schedules(self.db, sem.id, [fac_limited.id], department_id=1, auto_bump_units=False)
+        self.db.add_all([
+            models.SubjectOffering(faculty_id=fac.id, curriculum_id=s.id, semester_id=sem.id)
+            for s in subjects
+        ])
+        self.db.commit()
+
+        res = generate_schedules(self.db, sem.id, [fac.id], department_id=1, auto_bump_units=False)
         self.assertGreater(len(res["bumped_warnings"]), 0)
 
-        # Conflict logged in DB
-        conf = self.db.query(models.Conflict).filter(models.Conflict.conflict_type == "max_units_exceeded").first()
+        warning = res["bumped_warnings"][0]
+        self.assertEqual(warning["required_hours"], 24.0)
+        self.assertGreater(warning["overload_hours"], 0)
+
+        conf = self.db.query(models.Conflict).filter(models.Conflict.conflict_type == "overload").first()
+        self.assertIsNotNone(conf)
+
+        # Overload warns; it does not refuse. The subject is still plotted.
+        self.assertGreater(res["generated"], 0)
+
+    def test_10b_part_time_ceiling_warning(self):
+        """
+        A Part-Time member has no required teaching figure -- the institution
+        has not confirmed one -- only a 20 hrs/week ceiling they must stay under.
+        """
+        sem = models.Semester(academic_year="2026-2027", term="1st", is_active=False)
+        self.db.add(sem)
+        self.db.commit()
+
+        fac = models.Faculty(first_name="Noel", last_name="Reyes", type="part_time", department_id=1)
+        self.db.add(fac)
+        self.db.commit()
+
+        subjects = [
+            models.Curriculum(
+                code=f"PT{500 + i}", name=f"Part Time Subject {i}", units=3,
+                department_id=1, type="lecture", lec_units=3, lab_units=0
+            )
+            for i in range(_lectures_to_reach(20.0))
+        ]
+        self.db.add_all(subjects)
+        self.db.commit()
+
+        self.db.add_all([
+            models.SubjectOffering(faculty_id=fac.id, curriculum_id=s.id, semester_id=sem.id)
+            for s in subjects
+        ])
+        self.db.commit()
+
+        res = generate_schedules(self.db, sem.id, [fac.id], department_id=1, auto_bump_units=False)
+
+        self.assertGreater(len(res["bumped_warnings"]), 0)
+        warning = res["bumped_warnings"][0]
+        self.assertIsNone(warning["required_hours"])
+        self.assertEqual(warning["part_time_ceiling_hours"], 20.0)
+
+        conf = self.db.query(models.Conflict).filter(
+            models.Conflict.conflict_type == "part_time_ceiling"
+        ).first()
         self.assertIsNotNone(conf)
 
     # ----------------------------------------------------------------------

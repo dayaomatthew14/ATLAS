@@ -111,9 +111,13 @@ body {
   --glass-border: rgb(255 255 255 / 0.55);
   --glass-edge: rgb(255 255 255 / 0.85);         /* the lit top edge */
   --glass-blur: 18px;
+  /* Deepened from `0 8px 24px -8px / 0.14`. On a near-white canvas the old
+     value was almost invisible, so panels read as flat regions of the page
+     rather than as panes sitting above it. Every `.glass` surface in the app
+     inherits this, which is why it is tuned here rather than per screen. */
   --glass-shadow:
-    0 1px 1px rgb(5 48 31 / 0.04),
-    0 8px 24px -8px rgb(5 48 31 / 0.14),
+    0 1px 2px rgb(5 48 31 / 0.05),
+    0 10px 28px -10px rgb(5 48 31 / 0.20),
     inset 0 1px 0 0 var(--glass-edge);
 
   /* On the chrome the same material is dark rather than light. This is the
@@ -155,11 +159,29 @@ body {
   --shadow-overlay: 0 4px 12px rgb(5 48 31 / 0.10), 0 1px 3px rgb(5 48 31 / 0.06);
   --shadow-sticky: 0 1px 0 var(--atlas-line);
 
+  /* Two further tiers, added deliberately against the "nothing at rest carries
+     a shadow" rule above. Flat white panels on a near-white canvas read as
+     unfinished rather than restrained: with no elevation at all, a card and the
+     page behind it are the same object. `raised` is what a card sits at; `float`
+     is where it goes under the pointer. Both stay green-tinted so elevation
+     belongs to the palette rather than introducing neutral grey. */
+  --shadow-raised:
+    0 1px 2px rgb(5 48 31 / 0.04),
+    0 4px 10px -4px rgb(5 48 31 / 0.08);
+  --shadow-float:
+    0 2px 4px rgb(5 48 31 / 0.06),
+    0 14px 30px -10px rgb(5 48 31 / 0.18),
+    0 0 0 1px rgb(4 106 56 / 0.10);
+
   /* --- Motion -------------------------------------------------------------- */
   --dur-state: 150ms;
   --dur-overlay: 200ms;
   --dur-lens: 250ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  /* A gentle overshoot for things entering or coming forward. Deliberately
+     mild — the motion data warns that a pronounced back-out on informational
+     UI reads as sloppy, so this settles rather than bounces. */
+  --ease-emphasis: cubic-bezier(0.22, 1.2, 0.36, 1);
 
   /* --- Timetable metrics (Comfortable) -------------------------------------
      Derived from schedule_generator.py: 07:30–19:30, 6 day columns,
@@ -313,6 +335,110 @@ body {
   .glass-canvas::before { display: none !important; }
 }
 
+/* ==========================================================================
+   MOTION & DEPTH
+   Two utilities, used everywhere, so that "subtle animation" means one
+   specific thing rather than each screen inventing its own.
+
+   The elevation rule above still holds: nothing at rest carries a shadow.
+   Depth appears on interaction, which is also what makes it informative —
+   the card that lifts is the card you are about to open. The glass panels
+   already carry an inset lit top edge, and that is the resting dimension.
+   ========================================================================== */
+
+/* A card, at rest. Carries the raised tier so it reads as an object on the
+   page rather than a differently-coloured region of it. */
+.surface {
+  box-shadow: var(--shadow-raised);
+}
+
+/* Interactive surface: rises under the pointer, settles when pressed.
+   4px and a real shadow — enough to feel like the card came forward. The
+   accent ring inside --shadow-float is what makes it feel lit rather than
+   merely moved. */
+.lift {
+  transition:
+    transform var(--dur-overlay) var(--ease-emphasis),
+    box-shadow var(--dur-overlay) var(--ease-emphasis),
+    background-color var(--dur-state) var(--ease-standard),
+    border-color var(--dur-state) var(--ease-standard);
+  will-change: transform;
+  box-shadow: var(--shadow-raised);
+}
+.lift:hover:not(:disabled):not([aria-disabled='true']) {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-float);
+}
+.lift:active:not(:disabled):not([aria-disabled='true']) {
+  transform: translateY(-1px) scale(0.995);
+  box-shadow: var(--shadow-raised);
+  transition-duration: 80ms;
+}
+/* A focused card must show the same affordance a hovered one does, or the
+   keyboard user is told less than the mouse user. */
+.lift:focus-visible {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-float);
+}
+
+/* Icons and chevrons that travel a little with their parent's hover. The
+   movement points the way the click goes, which is why the chevron goes right
+   and the upload arrow goes up. */
+.lift .travel-x,
+.group:hover .travel-x {
+  transition: transform var(--dur-overlay) var(--ease-emphasis);
+}
+.lift:hover .travel-x { transform: translateX(3px); }
+.lift:hover .travel-y { transform: translateY(-2px); }
+.travel-x, .travel-y { transition: transform var(--dur-overlay) var(--ease-emphasis); }
+
+/* Entrance, two intensities.
+   `.rise` is for cards and tiles: scale and overshoot, per the Standard motion
+   tier. `.rise-flat` is the same timing with no scale and no overshoot, for
+   table rows and dense informational lists — the motion data is explicit that
+   an overshoot on those "reads as sloppy". */
+@keyframes atlas-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes atlas-rise-flat {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise {
+  animation: atlas-rise 360ms var(--ease-emphasis) both;
+}
+.rise-flat {
+  animation: atlas-rise-flat var(--dur-overlay) var(--ease-standard) both;
+}
+
+/* A one-pass sheen across the top of a panel. Static, not animated — it is
+   there to describe the shape of the surface, not to attract attention. */
+.sheen {
+  position: relative;
+  isolation: isolate;
+}
+.sheen::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 40%;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.55),
+    rgb(255 255 255 / 0)
+  );
+  pointer-events: none;
+}
+
+/* The accent edge. Three tones, all from the existing token set, so a panel
+   can carry a hint of what it is about without a coloured background. */
+.accent-edge { border-top: 2px solid var(--atlas-green-700); }
+.accent-edge-warning { border-top: 2px solid var(--sem-warning); }
+.accent-edge-conflict { border-top: 2px solid var(--sem-conflict); }
+
 /* 1ms rather than 0ms: a 1ms transition still fires transitionend, so
    listeners that advance the conflict stepper do not silently stall. */
 @media (prefers-reduced-motion: reduce) {
@@ -321,6 +447,16 @@ body {
     --dur-overlay: 1ms;
     --dur-lens: 1ms;
   }
+  /* Movement is what these exist for, so with movement off they do nothing at
+     all rather than a compressed version of the same thing. The shadow change
+     stays: it is the part that says "this is interactive" without moving. */
+  .lift:hover,
+  .lift:focus-visible,
+  .lift:active { transform: none; }
+  .lift:hover .travel-x,
+  .lift:hover .travel-y { transform: none; }
+  .rise,
+  .rise-flat { animation: none; }
 }
 
 /* ==========================================================================

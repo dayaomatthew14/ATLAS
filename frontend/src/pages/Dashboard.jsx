@@ -36,8 +36,13 @@ const getProfilePictureUrl = (path) => {
  * Guided tour. Each step names a route that exists — the tour is the only
  * remaining consumer of the old onboarding flow, so its copy is kept plain and
  * describes what the screen is for rather than advertising features.
+ *
+ * There are two tours, for the same reason there are two rails: the one tour
+ * walked every role through Faculty and Schedule, neither of which an
+ * administrator may open, so the last two steps of their own onboarding ended
+ * on "You do not have access to this page".
  */
-const TOUR_STEPS = [
+const CHAIR_TOUR_STEPS = [
   {
     title: 'Overview',
     desc: 'Check the active academic term and what still needs attention before you generate.',
@@ -70,12 +75,53 @@ const TOUR_STEPS = [
   },
 ];
 
+const ADMIN_TOUR_STEPS = [
+  {
+    title: 'Overview',
+    desc: 'Check what needs you: accounts awaiting verification, curriculum gaps, orphaned data.',
+    path: '/dashboard',
+    nextLabel: 'Next: Users',
+  },
+  {
+    title: 'Users',
+    desc: 'Verify new registrations and give every account a role and a college.',
+    path: '/dashboard/users',
+    nextLabel: 'Next: Colleges',
+  },
+  {
+    title: 'Colleges & Programmes',
+    desc: 'Maintain the colleges and the programmes each one offers.',
+    path: '/dashboard/colleges',
+    nextLabel: 'Next: Curriculum',
+  },
+  {
+    title: 'Curriculum',
+    desc: 'Import and revise the catalog each programme is taught from.',
+    path: '/dashboard/curriculum',
+    nextLabel: 'Next: Academic Terms',
+  },
+  {
+    title: 'Academic Terms',
+    desc: 'Set the active academic year and term. No department can generate until one is active.',
+    path: '/dashboard/semesters',
+    nextLabel: 'Next: Rooms',
+  },
+  {
+    title: 'Rooms',
+    desc: 'Register lecture halls and laboratories with their student capacity.',
+    path: '/dashboard/rooms',
+    nextLabel: 'Finish',
+  },
+];
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
   const role = getRole();
+  const isAdmin = role === ROLES.ADMIN;
   const department = getDepartment();
   const roleDisplay = ROLE_LABELS[role] || 'Signed in';
+  const tourSteps = isAdmin ? ADMIN_TOUR_STEPS : CHAIR_TOUR_STEPS;
 
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [profileName, setProfileName] = useState(() => getUserName() || roleDisplay);
@@ -154,7 +200,12 @@ export default function Dashboard() {
     return () => window.removeEventListener('atlas_profile_updated', handleProfileUpdate);
   }, [roleDisplay]);
 
+  // Conflicts are a scheduling concern and the badge that carries them hangs on
+  // the Schedule rail item, which the administrator no longer has. Polling it
+  // every 30s for a number nothing renders is a request per half-minute for
+  // nothing, so the poll is scoped to the roles that can act on the answer.
   useEffect(() => {
+    if (isAdmin) return;
     const fetchConflictCount = async () => {
       try {
         const data = await api.get('/conflicts/count');
@@ -166,7 +217,7 @@ export default function Dashboard() {
     fetchConflictCount();
     const interval = setInterval(fetchConflictCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAdmin]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -181,15 +232,15 @@ export default function Dashboard() {
   // --- Guided tour --------------------------------------------------------
   const [tourStep, setTourStep] = useState(0); // 0 = inactive, 1..n = step
   const isTourActive = tourStep > 0;
-  const currentStep = isTourActive ? TOUR_STEPS[tourStep - 1] : null;
+  const currentStep = isTourActive ? tourSteps[tourStep - 1] : null;
 
   const goToStep = (step) => {
     setTourStep(step);
-    navigate(TOUR_STEPS[step - 1].path);
+    navigate(tourSteps[step - 1].path);
   };
 
   const handleTourNext = () => {
-    if (tourStep < TOUR_STEPS.length) goToStep(tourStep + 1);
+    if (tourStep < tourSteps.length) goToStep(tourStep + 1);
     else setTourStep(0);
   };
 
@@ -199,7 +250,7 @@ export default function Dashboard() {
         role={role}
         department={department}
         termLabel={termLabel}
-        canChangeTerm={role === ROLES.ADMIN}
+        canChangeTerm={isAdmin}
         isPublished={false}
         conflictCount={conflictCount}
         profileName={profileName}
@@ -224,7 +275,7 @@ export default function Dashboard() {
         >
           <div className="flex-1 min-w-0">
             <p className="font-ui text-micro uppercase text-atlas-300">
-              Step {tourStep} of {TOUR_STEPS.length} · {currentStep.title}
+              Step {tourStep} of {tourSteps.length} · {currentStep.title}
             </p>
             <p className="font-ui text-caption text-atlas-100 mt-1 leading-snug">
               {currentStep.desc}

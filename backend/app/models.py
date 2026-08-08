@@ -108,14 +108,45 @@ class Curriculum(Base):
     schedules = relationship("Schedule", back_populates="curriculum")
 
 class Room(Base):
+    """
+    A teachable space.
+
+    `department_id` is the owning college, and it is nullable on purpose --
+    the two values mean genuinely different things:
+
+      NULL  -- a shared campus room. Lecture halls, and any laboratory the
+               Registrar assigns centrally. Nobody's department owns it, so only
+               an administrator may alter it.
+      set   -- a laboratory the named college runs itself, and may create,
+               rename and retire without asking anyone.
+
+    Departments are not required to own any. A college whose laboratories are
+    all Registrar-assigned simply has no rows here, which is why this is
+    nullable rather than a required owner with a "shared" sentinel college.
+    Registrar assignment itself is not modelled: those rooms arrive as ordinary
+    shared rooms.
+    """
     __tablename__ = "rooms"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     building = Column(String(100), nullable=False)
     capacity = Column(Integer, nullable=False)
     type = Column(Enum('lecture', 'lab', 'computer_lab', name='room_types'), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
 
+    department = relationship("Department")
     schedules = relationship("Schedule", back_populates="room")
+
+    @property
+    def department_code(self):
+        """
+        The owning college's code, or None for a shared room.
+
+        Serialised alongside `department_id` because the frontend only knows the
+        signed-in user's college as a code (`atlas_department`), and comparing a
+        code to an id is how a screen ends up showing the wrong owner.
+        """
+        return self.department.code if self.department else None
 
 class Faculty(Base):
     __tablename__ = "faculty"

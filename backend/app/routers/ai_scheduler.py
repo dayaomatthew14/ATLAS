@@ -15,6 +15,10 @@ router = APIRouter(
 class GenerateRequest(BaseModel):
     faculty_ids: List[int]
     auto_bump_units: Optional[bool] = True
+    # Whether laboratory subjects should be given a room. Lectures never are,
+    # either way. Defaults to True so an older client keeps the behaviour it
+    # was written against.
+    assign_lab_rooms: Optional[bool] = True
 
 class SolveConflictRequest(BaseModel):
     conflict_id: Optional[int] = None
@@ -70,7 +74,12 @@ def generate_schedule(
     resolved_faculty_ids = [f.id for f in faculty_records]
 
     # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
-    results = generate_schedules(db, semester_id, resolved_faculty_ids, dept.id, auto_bump_units=False) # type: ignore
+    assign_lab_rooms = True if request.assign_lab_rooms is None else bool(request.assign_lab_rooms)
+    results = generate_schedules(
+        db, semester_id, resolved_faculty_ids, dept.id,
+        auto_bump_units=False,
+        assign_lab_rooms=assign_lab_rooms,
+    ) # type: ignore
 
     # The generator commits schedules and conflict records in one transaction, so a
     # failure there discards everything it produced. Never report that as success.
@@ -93,9 +102,10 @@ def generate_schedule(
     workload_warnings = results.get('bumped_warnings', [])
     warnings_count = len(workload_warnings) if isinstance(workload_warnings, list) else 0
     
-    log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}."
+    room_mode = "laboratories given rooms" if assign_lab_rooms else "no rooms assigned"
+    log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}. Rooms: {room_mode}."
     if warnings_count > 0:
-        log_detail += f" Warning: {warnings_count} faculty workload cap(s) exceeded."
+        log_detail += f" Warning: {warnings_count} faculty teaching-load warning(s) (overload or Part-Time ceiling)."
 
     # Log the activity
     log_activity(
@@ -362,11 +372,14 @@ def solve_conflict(
         if not all_rooms:
             raise HTTPException(status_code=400, detail="No rooms available in database")
 
-        from ..services.schedule_generator import LECTURE_SLOTS, LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_room_conflict, is_prof_conflict
+        from ..services.schedule_generator import LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_room_conflict, is_prof_conflict, lecture_slots_for
         all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
 
         part_type = req.part_type or 'lecture'
-        slots = LAB_SLOTS if part_type == 'lab' else LECTURE_SLOTS
+        # Same grid the generator would have used for this subject. Re-plotting a
+        # conflict on a different grid would give the class a different weekly
+        # load than the one the timetable was built with.
+        slots = LAB_SLOTS if part_type == 'lab' else lecture_slots_for(c_obj)
         day_pairs = [MW_PAIR, TTH_PAIR, FS_PAIR]
 
         placed = False

@@ -132,6 +132,9 @@ export default {
       },
       transitionTimingFunction: {
         standard: 'var(--ease-standard)',
+        // The gentle overshoot used by entrances and hover lifts, exposed as a
+        // utility so components can reach it without a raw cubic-bezier.
+        emphasis: 'var(--ease-emphasis)',
       },
     },
   },
