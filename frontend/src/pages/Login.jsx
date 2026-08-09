@@ -7,6 +7,18 @@ import { saveSession, getLandingView } from '../utils/session';
 // Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
 const MIN_PASSWORD_LENGTH = 12;
 
+/**
+ * The college code out of a department option value.
+ *
+ * Options name a college and an area within it -- "CVMAS - Veterinary Clinical"
+ * -- so a chair can say which post they hold. Registration stores and validates
+ * the college code alone, so the code is what travels; the area is display.
+ * Both separators the list uses are handled, and a value that is already a bare
+ * code passes through unchanged.
+ */
+const collegeCodeOf = (value) =>
+  String(value || '').split(/\s[-—]\s/)[0].trim().toUpperCase();
+
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -138,7 +150,17 @@ export default function Login() {
         }
 
         const payload = {
-          email, password, first_name: firstName, last_name: lastName, contact_number: formattedContact, role, department
+          email, password, first_name: firstName, last_name: lastName,
+          contact_number: formattedContact, role,
+          // The dropdown identifies a college *and* an area within it -- "CAST -
+          // Psychology" -- because that is how a chair describes their post.
+          // `users.department` holds the college code alone, and registration
+          // rejects anything that is not one, so the whole option value used to
+          // be sent and every registration failed with "Select a college."
+          //
+          // The area is dropped rather than stored: nothing in the schema holds
+          // it, and the codes are what every scoped query compares against.
+          department: collegeCodeOf(department),
         };
 
         await api.post('/auth/register', payload);
