@@ -38,6 +38,14 @@ class User(Base):
     failed_login_attempts = Column(Integer, default=0, nullable=True)
     login_locked_until = Column(DateTime, nullable=True)
 
+    # How often codes have been sent to this account. Sending is not free: every
+    # code costs one message from a shared daily email allowance, so an
+    # unbounded resend lets one address exhaust the pool for everybody, and lets
+    # anyone who knows an email address bury its owner in codes.
+    otp_sent_at = Column(DateTime, nullable=True)
+    otp_sends_today = Column(Integer, default=0, nullable=True)
+    otp_send_window_start = Column(DateTime, nullable=True)
+
     session_version = Column(Integer, default=1)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

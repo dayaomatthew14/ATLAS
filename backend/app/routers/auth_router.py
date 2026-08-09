@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Form, Request
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime, timezone
 import secrets
 import string
 import os
-from .. import database, models, schemas, auth, notifications
+from .. import database, models, schemas, auth, notifications, rate_limit
 from .logs import log_activity
 
 router = APIRouter(
@@ -86,6 +86,79 @@ def register_otp_failure(db: Session, user: models.User) -> int:
 def clear_otp_state(user: models.User):
     """Called when a code is issued or accepted, so tries start from zero."""
     user.otp_attempts = 0  # type: ignore
+
+
+# Sending a code is not free. Each one spends a message from a shared daily
+# email allowance -- a Google Apps Script backed by a Gmail account tops out
+# around a hundred a day -- so an unbounded resend lets a single address drain
+# the pool for everybody, and lets anyone who knows an email address bury its
+# owner in codes. Neither needs an attacker; an impatient user clicking resend
+# is enough.
+OTP_RESEND_COOLDOWN = timedelta(seconds=60)
+MAX_OTP_SENDS_PER_DAY = 5
+OTP_SEND_WINDOW = timedelta(hours=24)
+
+
+def otp_send_blocked(user: models.User):
+    """
+    Whether a code may be sent to this account now.
+
+    Returns None when sending is allowed, otherwise a message explaining the
+    wait. Callers decide what to do with that: an endpoint that already reveals
+    whether an account exists can say it, and one that deliberately does not
+    must stay silent and simply not send.
+    """
+    now = _naive_utc_now()
+
+    window_start = _as_naive(user.otp_send_window_start)
+    if window_start and now - window_start < OTP_SEND_WINDOW:
+        if (user.otp_sends_today or 0) >= MAX_OTP_SENDS_PER_DAY:
+            hours = int((OTP_SEND_WINDOW - (now - window_start)).total_seconds() // 3600) + 1
+            return (
+                f"Too many codes requested for this account. Try again in about "
+                f"{hours} hour{'s' if hours != 1 else ''}, or ask an administrator."
+            )
+
+    last_sent = _as_naive(user.otp_sent_at)
+    if last_sent and now - last_sent < OTP_RESEND_COOLDOWN:
+        seconds = int((OTP_RESEND_COOLDOWN - (now - last_sent)).total_seconds()) + 1
+        return f"A code was just sent. Wait {seconds} seconds before requesting another."
+
+    return None
+
+
+def record_otp_send(user: models.User):
+    """
+    Count a code against this account's cooldown and daily allowance.
+
+    Recorded before the send is attempted rather than after, so a burst of
+    concurrent requests cannot all pass the check while none has been counted.
+    """
+    now = _naive_utc_now()
+    window_start = _as_naive(user.otp_send_window_start)
+
+    if not window_start or now - window_start >= OTP_SEND_WINDOW:
+        user.otp_send_window_start = now  # type: ignore
+        user.otp_sends_today = 1  # type: ignore
+    else:
+        user.otp_sends_today = (user.otp_sends_today or 0) + 1  # type: ignore
+
+    user.otp_sent_at = now  # type: ignore
+
+
+def refund_otp_send(user: models.User):
+    """
+    Give back a daily send that never actually went anywhere.
+
+    The daily ceiling exists to protect a shared email allowance, and a delivery
+    that failed consumed none of it. Charging for it would let a broken
+    transport lock a user out of the very codes they need -- five failures and
+    they are done for the day, having received nothing.
+
+    The cooldown is deliberately not refunded: it is there to stop hammering,
+    and a caller retrying a failing send is exactly what it should slow down.
+    """
+    user.otp_sends_today = max((user.otp_sends_today or 1) - 1, 0)  # type: ignore
 
 @router.post("/login")
 def login_for_access_token(
@@ -246,7 +319,27 @@ def read_users_me(
     }
 
 @router.post("/register", response_model=schemas.RegistrationResponse)
-def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
+def register_user(
+    request: Request,
+    user: schemas.UserCreate,
+    db: Session = Depends(database.get_db),
+):
+    # Registration is the one send path with no account to count against -- the
+    # request is what creates the account -- so the caller is what gets counted.
+    # Checked before any work, so a script cannot spend database writes or email
+    # allowance on rejected attempts.
+    retry_after = rate_limit.registration_limiter.check(rate_limit.client_key(request))
+    if retry_after is not None:
+        minutes = max(retry_after // 60, 1)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Too many accounts created from this connection. "
+                f"Try again in about {minutes} minute{'s' if minutes != 1 else ''}."
+            ),
+            headers={"Retry-After": str(retry_after)},
+        )
+
     # This endpoint is public, so the requested role must never be trusted.
     # Administrator accounts are provisioned server-side only.
     if user.role not in schemas.SELF_REGISTRATION_ROLES:
@@ -388,12 +481,19 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     if user.is_verified:
         return {"msg": "User already verified"}
     
+    # This endpoint already answers 404 for an unknown address, so it reveals
+    # nothing further by explaining the wait.
+    blocked = otp_send_blocked(user)
+    if blocked:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=blocked)
+
     otp = generate_otp()
     user.verification_otp = str(otp) # type: ignore
     user.verification_otp_expiry = _naive_utc_now() + VERIFICATION_OTP_TTL # type: ignore
     # A fresh code starts with a fresh allowance, so someone who mistyped the
     # last one is not still paying for it against this one.
     clear_otp_state(user)
+    record_otp_send(user)
     db.commit()
 
     email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
@@ -405,6 +505,8 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     # The address is one the caller just supplied, so saying whether it reached
     # them reveals nothing they do not know and saves them resending forever.
     if not (email_sent or sms_sent):
+        refund_otp_send(user)
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=(
@@ -422,11 +524,21 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
 def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     # Always return success to prevent user enumeration
+    # The throttle applies here too, but silently. Answering "wait 60 seconds"
+    # only for real accounts would turn this endpoint into an existence oracle,
+    # which is the one thing its uniform reply exists to prevent. A caller who
+    # is rate limited gets the same sentence as everyone else; they simply do
+    # not get a second message.
+    if user and otp_send_blocked(user):
+        print(f"[RATE LIMIT] Suppressed password reset send for {user.email}")
+        user = None
+
     if user:
         otp = generate_otp()
         user.reset_otp = otp # type: ignore
         user.reset_otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=15) # type: ignore
         clear_otp_state(user)
+        record_otp_send(user)
         db.commit()
         
         email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
@@ -440,6 +552,8 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
         # "could not send" that appeared only for real users would undo that.
         # The failure is recorded where an administrator will see it instead.
         if not (email_sent or sms_sent):
+            refund_otp_send(user)
+            db.commit()
             print(f"[ERROR] Password reset code could not be delivered to {user.email}")
 
 
