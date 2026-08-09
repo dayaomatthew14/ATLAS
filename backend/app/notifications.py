@@ -53,6 +53,50 @@ def log_otp_for_development(destination: str, otp: str, purpose: str):
     else:
         print(f"\n[DEVELOPMENT] {purpose} OTP for {destination}: {otp}\n")
 
+def textbee_device_status() -> dict:
+    """
+    Ask TextBee about the gateway handset, defensively.
+
+    TextBee is not an SMS carrier -- it is a relay to an Android phone running
+    its app, and that phone is what actually transmits. When the phone is off,
+    asleep without the app running, or has no signal, the API still accepts
+    messages and answers "SMS added to queue for processing". Nothing further
+    happens until the handset connects, and nothing in the send response
+    distinguishes that from a message about to go out.
+
+    The response shape is not contractually documented here, so every field is
+    read optionally and the raw body is logged. An unreadable answer returns
+    `{"known": False}` and must never block a send: a working gateway that this
+    function cannot parse is far more likely than a real outage.
+    """
+    if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
+        return {"known": False}
+
+    url = f"https://api.textbee.dev/api/v1/gateway/devices/{TEXTBEE_DEVICE_ID}"
+    try:
+        res = requests.get(url, headers={"x-api-key": TEXTBEE_API_KEY}, timeout=HTTP_TIMEOUT_SECONDS)
+        snippet = " ".join((res.text or "").split())[:300]
+        if res.status_code != 200:
+            print(f"[TEXTBEE] Could not read device status (HTTP {res.status_code}): {snippet}")
+            return {"known": False}
+
+        print(f"[TEXTBEE] Device status: {snippet}")
+        payload = res.json()
+        device = payload.get("data", payload) if isinstance(payload, dict) else {}
+        if not isinstance(device, dict):
+            return {"known": False}
+
+        # Different builds of the gateway report this differently; take the
+        # first field that is actually present rather than assuming one.
+        for field in ("enabled", "online", "connected", "isOnline"):
+            if field in device:
+                return {"known": True, "online": bool(device[field]), "field": field}
+        return {"known": False}
+    except Exception as e:
+        print(f"[TEXTBEE] Device status check failed: {e}")
+        return {"known": False}
+
+
 def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
     """
     Send a code by SMS through the TextBee gateway.
@@ -79,14 +123,41 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
         "message": f"Your ATLAS {purpose.lower()} code is: {otp}"
     }
 
+    # Checked before sending, because queuing a code for a handset that is not
+    # collecting is indistinguishable from sending one, and the user is told to
+    # go and look at their phone either way.
+    status = textbee_device_status()
+    if status.get("known") and not status.get("online"):
+        print(
+            f"[ERROR] TextBee gateway device is not online "
+            f"(reported by '{status.get('field')}'), so the {purpose.lower()} SMS "
+            f"for {to_phone} would only sit in a queue. Not sending."
+        )
+        return False
+
     try:
         response = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
         snippet = " ".join((response.text or "").split())[:250]
-        if response.status_code in [200, 201]:
+
+        if response.status_code not in [200, 201]:
+            print(f"[ERROR] TextBee failed with status {response.status_code}: {snippet}")
+            return False
+
+        # "SMS added to queue for processing" is the answer TextBee gives when
+        # the message is waiting for the handset. It is reported as accepted
+        # rather than sent, because the difference is the whole problem: a
+        # queued code arrives whenever the phone next connects, which may be
+        # never, and telling a user it was sent leaves them watching a phone
+        # for something that is not coming.
+        queued = "queue" in snippet.lower()
+        if queued:
+            print(
+                f"[QUEUED] TextBee queued the {purpose.lower()} SMS for {to_phone}; "
+                f"it will only arrive once the gateway handset connects. Response: {snippet}"
+            )
+        else:
             print(f"[SUCCESS] TextBee accepted {purpose} SMS for {to_phone}. Response: {snippet}")
-            return True
-        print(f"[ERROR] TextBee failed with status {response.status_code}: {snippet}")
-        return False
+        return True
     except Exception as e:
         print(f"[ERROR] Failed to send TextBee SMS to {to_phone}: {e}")
         return False
