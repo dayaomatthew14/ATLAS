@@ -429,6 +429,22 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
 
           <div className="px-8 pb-10 pt-6">
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Sign-out could not reach the server. The session cookie is
+                  HttpOnly, so nothing in the browser can clear it -- saying so
+                  is the only honest option on a shared machine, where the user
+                  would otherwise walk away believing they had signed out. */}
+              {location.state?.signOutIncomplete && (
+                <div
+                  role="alert"
+                  className="bg-amber-50 text-amber-700 p-4 rounded-2xl text-sm border border-amber-100 flex items-start"
+                >
+                  <AlertCircle className="w-4 h-4 mr-2 mt-0.5 shrink-0" aria-hidden="true" />
+                  <span className="font-medium">
+                    You were signed out on this device, but the server could not be
+                    reached to end the session. Close the browser to be sure it has ended.
+                  </span>
+                </div>
+              )}
               {error && (
                 <div className="bg-rose-50 text-rose-600 p-4 rounded-2xl text-sm border border-rose-100 flex items-start animate-in fade-in slide-in-from-top-2">
                   <span className="font-medium">{error}</span>

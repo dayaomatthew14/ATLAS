@@ -42,12 +42,28 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 def get_current_user(request: Request, db: Session = Depends(database.get_db)):
-    token = request.cookies.get("atlas_token")
+    """
+    Resolve the caller from an explicit Authorization header, then the cookie.
+
+    The order matters and used to be the other way round. A cookie is ambient:
+    the browser attaches it to every request whether or not the caller meant to
+    use it. An Authorization header is deliberate -- something put it there for
+    this request. Letting the ambient credential win means a request that states
+    who it is can be answered as somebody else, which is both wrong and very
+    hard to see: the reply is a valid 200 for the wrong user, not an error.
+
+    The cookie remains the fallback, because it is what the browser app relies
+    on and clearing it is the only thing that ends a session.
+    """
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1].strip() or None
+
     if not token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-            
+        token = request.cookies.get("atlas_token")
+
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
