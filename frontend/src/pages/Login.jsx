@@ -184,18 +184,16 @@ export default function Login() {
       else if (mode === 'verify') {
         await api.post('/auth/verify-email', { email, otp });
 
-        // Auto-login after successful verification
-        const formData = new FormData();
-        formData.append('username', email.trim().toLowerCase());
-        formData.append('password', password);
-        formData.append('remember_me', rememberMe);
-
-        const response = await api.postForm('/auth/login', formData);
-
-        if (response && response.role) {
-          saveSession(response);
-          navigate(getLandingView());
-        }
+        // Verification confirms the address; it is not a sign-in. Signing the
+        // user straight in used to mean the password they had just chosen was
+        // never once typed to get in, so a typo in it stayed hidden until the
+        // session ended -- and anyone finishing a verification link on a shared
+        // machine landed in an authenticated session without meaning to.
+        setPassword('');
+        setConfirmPassword('');
+        setOtp('');
+        setMode('login');
+        setSuccess('Your account is verified. Sign in to continue.');
       }
       else if (mode === 'forgot_email') {
         const response = await api.post('/auth/forgot-password', { email: email.trim().toLowerCase() });
@@ -272,7 +270,15 @@ export default function Login() {
     }
   };
 
-  const handleResend = async () => {
+  /**
+   * Ask for another code, optionally down a chosen channel.
+   *
+   * `channel: 'sms'` exists because the person at this screen knows something
+   * the server does not: the server only learns that a relay accepted the
+   * email, while they know it never arrived. Resending down the same failing
+   * route is the one thing that cannot help, so they get to pick the other one.
+   */
+  const handleResend = async (channel = 'auto') => {
     if (!email) {
       setError('Please enter your email first.');
       return;
@@ -281,8 +287,14 @@ export default function Login() {
     setError('');
     setSuccess('');
     try {
-      const response = await api.post('/auth/resend-verification', { email });
-      setSuccess(response.msg);
+      const response = await api.post('/auth/resend-verification', { email, channel });
+      const ch = response.channels || {};
+      setSuccess(
+        ch.sms && !ch.email ? 'A code has been sent by text message.'
+          : ch.email && ch.sms ? 'A code has been sent to your email and phone.'
+            : ch.email ? 'A code has been sent to your email.'
+              : response.msg
+      );
     } catch (err) {
       setError(err.message || 'Failed to resend code.');
     } finally {
@@ -564,14 +576,26 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                 <>
                   {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
                   {renderField('otp', Key, 'text', '123456', otp, setOtp, 'Verification OTP (6 digits)')}
-                  <div className="text-center mt-2">
+                  {/* Two routes, named. Offering only "resend" when email is
+                      the thing that is failing sends the user round the same
+                      loop; the second button is the way out of it. */}
+                  <div className="flex flex-col items-center gap-2 mt-2">
                     <button
                       type="button"
-                      onClick={handleResend}
+                      onClick={() => handleResend('auto')}
                       disabled={loading}
                       className="text-xs font-black text-green-700 hover:text-green-600 uppercase tracking-widest disabled:opacity-50"
                     >
                       Resend Verification Code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleResend('sms')}
+                      disabled={loading}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-green-700 disabled:opacity-50"
+                    >
+                      <Phone className="w-3.5 h-3.5" aria-hidden="true" />
+                      Didn’t get the email? Send the code by SMS
                     </button>
                   </div>
                 </>

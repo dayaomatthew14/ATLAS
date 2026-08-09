@@ -92,30 +92,42 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
         return False
 
 
-def deliver_otp(to_email, to_phone, otp: str, purpose: str = "Verification") -> dict:
+def deliver_otp(to_email, to_phone, otp: str, purpose: str = "Verification",
+                channel: str = "auto") -> dict:
     """
-    Get a code to a person: email first, SMS if that fails.
+    Get a code to a person.
 
-    Email is tried first because it costs nothing per message and carries the
-    code somewhere it can be re-read. SMS is the fallback rather than a
-    duplicate: the gateway is a phone on a metered plan with a free-tier daily
-    cap, and spending one on every send exhausts the allowance on codes the user
-    already had by email.
+    `channel` is "auto" by default: email first, SMS only if email failed. Email
+    leads because it costs nothing per message and lands somewhere the code can
+    be re-read; SMS is a fallback rather than a duplicate, since the gateway is
+    a handset on a metered plan with a free-tier daily cap, and spending one on
+    every send exhausts the allowance on codes the user already had by email.
 
-    Returns which channels succeeded so the caller can tell a user that nothing
-    reached them, instead of claiming a code is on its way.
+    "sms" and "email" force a single channel. Forcing SMS is what the person
+    stuck at the verify screen actually needs: the server only knows a relay
+    accepted the email, while they know it never arrived, so the useful move is
+    to let them choose the other route rather than resend down the one that is
+    already failing.
+
+    Returns which channels succeeded, so a caller can tell a user nothing
+    reached them instead of claiming a code is on its way.
     """
-    email_sent = bool(to_email) and send_email_otp(to_email, otp, purpose)
-
+    email_sent = False
     sms_sent = False
-    if not email_sent and to_phone:
+
+    if channel in ("auto", "email") and to_email:
+        email_sent = bool(send_email_otp(to_email, otp, purpose))
+
+    if channel == "sms" and to_phone:
+        sms_sent = bool(send_textbee_otp(to_phone, otp, purpose))
+    elif channel == "auto" and not email_sent and to_phone:
         print(f"[FALLBACK] Email did not send; trying SMS for {purpose.lower()} code.")
-        sms_sent = send_textbee_otp(to_phone, otp, purpose)
+        sms_sent = bool(send_textbee_otp(to_phone, otp, purpose))
 
     return {
-        "email": bool(email_sent),
-        "sms": bool(sms_sent),
-        "delivered": bool(email_sent or sms_sent),
+        "email": email_sent,
+        "sms": sms_sent,
+        "delivered": email_sent or sms_sent,
     }
 
 def send_textbee_notification(to_phone: str, message: str):

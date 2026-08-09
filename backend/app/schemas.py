@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, computed_field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime, date
 
 # Password policy. No upper bound on length beyond bcrypt's hard limit: capping
@@ -105,6 +105,19 @@ class VerifyOTP(BaseModel):
 
 class ForgotPassword(BaseModel):
     email: str
+
+
+class ResendVerification(BaseModel):
+    """
+    A request for another verification code, optionally down a chosen channel.
+
+    `channel` exists because "I never got the email" is the one problem the
+    person hitting it can diagnose faster than the system can: they know
+    whether it arrived, and the server only knows that a relay accepted it.
+    Letting them pick SMS turns a dead end into a second attempt.
+    """
+    email: str
+    channel: Literal["auto", "email", "sms"] = "auto"
 
 class ResetPassword(BaseModel):
     email: str

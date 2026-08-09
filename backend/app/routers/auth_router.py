@@ -470,14 +470,23 @@ def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_
     return {"msg": "Email verified successfully"}
 
 @router.post("/resend-verification")
-def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(database.get_db)):
+def resend_verification(payload: schemas.ResendVerification, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     if user.is_verified:
         return {"msg": "User already verified"}
-    
+
+    # Asking for SMS when no number is on file is a dead end worth naming, since
+    # the alternative is a generic "could not send" that reads as a fault.
+    if payload.channel == "sms" and not user.contact_number:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No mobile number is on file for this account, so a text cannot be sent.",
+        )
+
+
     # This endpoint already answers 404 for an unknown address, so it reveals
     # nothing further by explaining the wait.
     blocked = otp_send_blocked(user)
@@ -493,7 +502,9 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     record_otp_send(user)
     db.commit()
 
-    sent = notifications.deliver_otp(str(user.email), user.contact_number, otp, "Verification")
+    sent = notifications.deliver_otp(
+        str(user.email), user.contact_number, otp, "Verification", channel=payload.channel
+    )
     email_sent, sms_sent = sent["email"], sent["sms"]
 
     # The address is one the caller just supplied, so saying whether it reached
@@ -501,13 +512,14 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     if not sent["delivered"]:
         refund_otp_send(user)
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "The verification code could not be sent. Ask an administrator "
-                "to verify the account, or try again once delivery is restored."
-            ),
+        detail = (
+            "The code could not be sent by text. Check the number on file, or ask "
+            "an administrator to verify the account."
+            if payload.channel == "sms" else
+            "The verification code could not be sent. Ask an administrator "
+            "to verify the account, or try again once delivery is restored."
         )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
 
     return {
         "msg": "Verification code resent successfully",
