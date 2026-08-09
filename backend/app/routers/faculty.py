@@ -4,7 +4,7 @@ from typing import List, Optional
 from .. import models, schemas, database, auth
 from ..services import faculty_load
 from .logs import log_activity
-from .professors import serialise_faculty
+from .professors import serialise_faculty, purge_faculty_dependents, describe_removed
 
 router = APIRouter(
     prefix="/api/faculty",
@@ -142,9 +142,20 @@ def delete_faculty(
                 
     dept_id_val = getattr(db_faculty, 'department_id', None)
     fac_name = f"{db_faculty.first_name} {db_faculty.last_name}"
+
+    # This used to call db.delete() straight away. `faculty_unavailability`
+    # declares faculty_id NOT NULL, so the ORM's attempt to null it raised
+    # IntegrityError and the endpoint returned 500 for any faculty member who
+    # had availability set. The shared purge is the same one /api/professors
+    # uses, so both routes leave the database in the same state.
+    removed = purge_faculty_dependents(db, faculty_id)
     db.delete(db_faculty)
     db.commit()
-    
-    log_activity(db, current_user.id, "Delete Faculty", f"Deleted faculty record for {fac_name}", "success", department_id=dept_id_val) # type: ignore
-    
+
+    log_activity(
+        db, current_user.id, "Delete Faculty",
+        f"Deleted faculty record for {fac_name} ({describe_removed(removed)})",
+        "success", department_id=dept_id_val,
+    )  # type: ignore
+
     return None

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import models, schemas, database, auth
 from ..services import faculty_load
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/professors",
@@ -43,6 +44,86 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
         "unavailability": faculty.unavailabilities,
         **load,
     }
+
+
+def _plural(n: int, singular: str, plural: str = None) -> str:
+    """`plural` is explicit because "class" does not take a bare -s."""
+    return f"{n} {singular}" if n == 1 else f"{n} {plural or singular + 's'}"
+
+
+def describe_removed(counts: dict) -> str:
+    """The audit-log phrasing for what a faculty deletion took with it."""
+    return (
+        f"{_plural(counts['schedule_count'], 'plotted class', 'plotted classes')}, "
+        f"{_plural(counts['offering_count'], 'subject assignment')} removed with them"
+    )
+
+
+def faculty_dependents(db: Session, faculty_id: int) -> dict:
+    """
+    What removing this faculty member would take with them.
+
+    Counted rather than assumed, because the answer decides whether a chair is
+    discarding an empty record or dismantling part of a plotted term.
+    """
+    return {
+        "schedule_count": db.query(models.Schedule).filter(
+            models.Schedule.faculty_id == faculty_id
+        ).count(),
+        "offering_count": db.query(models.SubjectOffering).filter(
+            models.SubjectOffering.faculty_id == faculty_id
+        ).count(),
+        "unavailability_count": db.query(models.FacultyUnavailability).filter(
+            models.FacultyUnavailability.faculty_id == faculty_id
+        ).count(),
+    }
+
+
+def purge_faculty_dependents(db: Session, faculty_id: int) -> dict:
+    """
+    Remove everything that points at a faculty member, and say what went.
+
+    Two problems this exists to stop, both of which came from letting the ORM
+    resolve the relationships on its own:
+
+    Schedules were left behind. `Schedule.faculty_id` is nullable, so deleting a
+    faculty member set it to NULL instead of removing the row -- the class stayed
+    on the timetable holding its slot, taught by nobody, invisible to every
+    faculty-scoped screen and counted toward nobody's REG. HOURS.
+
+    Unavailability blocked the delete outright. `faculty_unavailability.faculty_id`
+    is NOT NULL, so the same nulling raised IntegrityError and the request failed
+    with a 500.
+
+    Rows are removed child-first rather than relying on cascade order, which is
+    not the same across SQLite and Postgres.
+    """
+    counts = faculty_dependents(db, faculty_id)
+
+    schedule_ids = [
+        row[0] for row in
+        db.query(models.Schedule.id).filter(models.Schedule.faculty_id == faculty_id).all()
+    ]
+    if schedule_ids:
+        db.query(models.Conflict).filter(
+            (models.Conflict.schedule_id_1.in_(schedule_ids))
+            | (models.Conflict.schedule_id_2.in_(schedule_ids))
+        ).delete(synchronize_session=False)
+
+    db.query(models.Conflict).filter(
+        models.Conflict.faculty_id == faculty_id
+    ).delete(synchronize_session=False)
+    db.query(models.Schedule).filter(
+        models.Schedule.faculty_id == faculty_id
+    ).delete(synchronize_session=False)
+    db.query(models.SubjectOffering).filter(
+        models.SubjectOffering.faculty_id == faculty_id
+    ).delete(synchronize_session=False)
+    db.query(models.FacultyUnavailability).filter(
+        models.FacultyUnavailability.faculty_id == faculty_id
+    ).delete(synchronize_session=False)
+
+    return counts
 
 
 def _unit_load(db: Session, faculty_id: int, semester) -> int:
@@ -245,11 +326,47 @@ def delete_professor(
 
     assert_faculty_in_scope(db, current_user, db_faculty)
 
-    db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id == faculty_id).delete(synchronize_session=False)
-    db.query(models.SubjectOffering).filter(models.SubjectOffering.faculty_id == faculty_id).delete(synchronize_session=False)
+    fac_name = f"{db_faculty.first_name} {db_faculty.last_name}".strip()
+    dept_id_val = getattr(db_faculty, 'department_id', None)
+
+    removed = purge_faculty_dependents(db, faculty_id)
     db.delete(db_faculty)
     db.commit()
+
+    log_activity(
+        db, current_user.id, "Delete Faculty",
+        f"Deleted faculty record for {fac_name} ({describe_removed(removed)})",
+        "success", department_id=dept_id_val,
+    )  # type: ignore
     return None
+
+
+@router.get("/{faculty_id}/impact")
+def get_professor_delete_impact(
+    faculty_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    What removing this faculty member would destroy.
+
+    Read at the moment the confirmation opens, not carried with the faculty
+    list: a timetable can be generated between a page load and a removal, and
+    the figure that matters is the one true when the chair decides.
+    """
+    faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
+
+    assert_faculty_in_scope(db, current_user, faculty)
+
+    semester = faculty_load.active_semester(db)
+    counts = faculty_dependents(db, faculty_id)
+    hours = faculty_load.compute_reg_hours(
+        db, [faculty_id], getattr(semester, "id", None)
+    ).get(faculty_id, 0.0)
+
+    return {"faculty_id": faculty_id, "reg_hours": hours, **counts}
 
 # --- Faculty Unavailability Endpoints ---
 
