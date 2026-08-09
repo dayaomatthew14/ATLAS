@@ -231,12 +231,21 @@ def main(argv=None):
             print(f"  {name:<42} {n:>6}")
 
         print()
-        print("Restart the service. Startup reseeds the four colleges and twelve")
-        print("programmes, and recreates the administrator account if it is missing.")
+        # Only `all` removes anything startup puts back, so only `all` needs a
+        # restart. Telling every caller to restart would have them bounce a live
+        # service for no reason, and would suggest the reset is incomplete
+        # until they do.
         if args.scope == "all":
+            print("Restart the service. Startup reseeds the four colleges and twelve")
+            print("programmes, and recreates the administrator account if it is missing.")
             print()
             print("Every non-administrator account is gone, so the chairs and")
             print("coordinators you test with need registering again.")
+        else:
+            print("No restart needed: nothing that startup recreates was removed.")
+            print("Set an active semester before testing -- teaching load is measured")
+            print("against the active term, and without one every faculty member")
+            print("reports NO_ACTIVE_TERM and no hours are computed.")
         return 0
     finally:
         db.close()
