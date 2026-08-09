@@ -1,6 +1,7 @@
 import os
 import smtplib
 import requests
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from twilio.rest import Client
@@ -27,6 +28,11 @@ TEXTBEE_DEVICE_ID = os.getenv("TEXTBEE_DEVICE_ID")
 # for as long as the peer keeps the socket alive, and OTP delivery sits inside
 # the registration and password-reset requests a user is waiting on.
 HTTP_TIMEOUT_SECONDS = 15
+
+# The TextBee app refreshes its Firebase push token when it runs. A token older
+# than this means the app has not been alive on the handset for a long time, and
+# a push that cannot land is a message that is accepted and never transmitted.
+FCM_STALE_AFTER_DAYS = 30
 
 
 def _is_production() -> bool:
@@ -86,12 +92,40 @@ def textbee_device_status() -> dict:
         if not isinstance(device, dict):
             return {"known": False}
 
+        # `enabled` only says the device record is switched on. It is true for a
+        # handset that has not spoken to TextBee in months, which is precisely
+        # the state that loses messages: TextBee wakes the app with a Firebase
+        # push, and a stale FCM token means the push goes nowhere and the SMS
+        # waits in a queue for a phone that is never told to send it.
+        stale_days = None
+        raw = device.get("fcmTokenUpdatedAt")
+        if raw:
+            try:
+                seen = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                stale_days = (datetime.now(timezone.utc) - seen).days
+            except Exception:
+                stale_days = None
+
+        if stale_days is not None and stale_days > FCM_STALE_AFTER_DAYS:
+            print(
+                f"[TEXTBEE] WARNING: the gateway's push token was last refreshed "
+                f"{stale_days} days ago. TextBee wakes the handset with a Firebase "
+                f"push, so a token this old usually means messages are accepted and "
+                f"then never transmitted. Open the TextBee app on the device to "
+                f"re-register it."
+            )
+
         # Different builds of the gateway report this differently; take the
         # first field that is actually present rather than assuming one.
         for field in ("enabled", "online", "connected", "isOnline"):
             if field in device:
-                return {"known": True, "online": bool(device[field]), "field": field}
-        return {"known": False}
+                return {
+                    "known": True,
+                    "online": bool(device[field]),
+                    "field": field,
+                    "stale_days": stale_days,
+                }
+        return {"known": False, "stale_days": stale_days}
     except Exception as e:
         print(f"[TEXTBEE] Device status check failed: {e}")
         return {"known": False}
