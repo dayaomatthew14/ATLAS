@@ -70,6 +70,26 @@ class UserResponse(UserBase):
     department_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
+class VerificationChannels(BaseModel):
+    email: bool = False
+    sms: bool = False
+
+
+class RegistrationResponse(UserResponse):
+    """
+    A new account, plus whether its verification code actually went anywhere.
+
+    Declared as its own model rather than added to UserResponse: only
+    registration has a delivery result to report, and the fields would be
+    permanently null everywhere else UserResponse is returned. They must be
+    declared somewhere, though -- an undeclared key is dropped by the response
+    model without complaint, which is how the frontend came to be told a code
+    had been sent regardless.
+    """
+    verification_sent: bool = False
+    verification_channels: VerificationChannels = VerificationChannels()
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str

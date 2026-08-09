@@ -163,8 +163,22 @@ export default function Login() {
           department: collegeCodeOf(department),
         };
 
-        await api.post('/auth/register', payload);
-        setSuccess('A verification code has been sent to your email and phone. Please confirm before logging in.');
+        const created = await api.post('/auth/register', payload);
+        // The account exists either way, so the verify step is still where the
+        // user goes. What changes is whether they should sit waiting for a
+        // message: the API now reports what it actually managed to send.
+        if (created && created.verification_sent === false) {
+          setError(
+            'Your account was created, but the verification code could not be sent. '
+            + 'Ask an administrator to verify it, or use Resend once delivery is working.'
+          );
+        } else {
+          const ch = (created && created.verification_channels) || {};
+          const where = ch.email && ch.sms ? 'email and phone'
+            : ch.sms ? 'phone'
+              : 'email';
+          setSuccess(`A verification code has been sent to your ${where}. Please confirm before logging in.`);
+        }
         setMode('verify');
       }
       else if (mode === 'verify') {

@@ -23,6 +23,31 @@ TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 TEXTBEE_API_KEY = os.getenv("TEXTBEE_API_KEY")
 TEXTBEE_DEVICE_ID = os.getenv("TEXTBEE_DEVICE_ID")
 
+
+def _is_production() -> bool:
+    """Read at call time so tests and a reloading server see changes."""
+    return os.getenv("ENV") == "production"
+
+
+def log_otp_for_development(destination: str, otp: str, purpose: str):
+    """
+    Print an OTP to the console -- outside production only.
+
+    This used to print unconditionally, labelled "[DEVELOPMENT MODE]" while
+    running in production, so every verification and password-reset code for
+    every account was sitting in the deployed service's log stream. Anyone who
+    could read those logs could take over any account without touching the
+    user's email or phone, and the label made the line look harmless.
+
+    A code is a bearer credential. In production the log records only that one
+    was issued; an administrator who needs to recover an account does it
+    through User Management rather than by reading a secret out of a log.
+    """
+    if _is_production():
+        print(f"[OTP] Issued {purpose.lower()} code for {destination} (value not logged)")
+    else:
+        print(f"\n[DEVELOPMENT] {purpose} OTP for {destination}: {otp}\n")
+
 def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
     if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
         print(f"[WARNING] TextBee credentials missing. Could not send {purpose} OTP to {to_phone}")
@@ -152,24 +177,34 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
     return False
 
 def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
-    print(f"\n[DEVELOPMENT MODE] {purpose} OTP for {to_email}: {otp}\n")
+    """
+    Deliver an OTP by email. Returns whether it was actually sent.
+
+    The return value used to be True on every path, including "no SMTP
+    credentials" and "sending raised" -- one branch said so outright: "Return
+    True so the frontend thinks it sent." So a user who never received a code
+    was told one was on its way, and the only sign of the failure was a console
+    line nobody was reading. Reporting the truth is what lets the caller say
+    something useful instead.
+    """
+    log_otp_for_development(to_email, otp, purpose)
     subject = f"ATLAS - Your {purpose} Code"
     body = f"Hello,\n\nYour ATLAS {purpose.lower()} code is: {otp}\n\nPlease enter this code to proceed. This code will expire shortly.\n\nThank you,\nThe ATLAS Team"
-    
+
     # Try HTTP delivery (works around cloud provider SMTP port blocks)
     if send_email_via_http(to_email, subject, body):
         return True
-        
+
     if not SMTP_USERNAME or not SMTP_PASSWORD:
-        print(f"[WARNING] SMTP credentials missing. OTP logged to console above.")
-        return True # Return True so the frontend thinks it sent
-        
+        print(f"[ERROR] No email transport configured; {purpose.lower()} code for {to_email} was not sent.")
+        return False
+
     msg = MIMEMultipart()
     msg['From'] = f"ATLAS System <{SMTP_USERNAME}>"
     msg['To'] = to_email
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
-    
+
     try:
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
@@ -180,22 +215,27 @@ def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
         return True
     except Exception as e:
         print(f"[ERROR] Failed to send email to {to_email}: {e}")
-        return True # Still return True for local testing
+        return False
 
-def send_sms_otp(to_phone: str, otp: str, purpose: str = "Verification"):
-    print(f"\n[DEVELOPMENT MODE] {purpose} OTP for {to_phone}: {otp}\n")
-    return True # Always return True for local testing without Twilio
+# `send_sms_otp` was removed. It printed the code and returned True without
+# sending anything, and nothing called it -- the SMS path is send_textbee_otp.
+# Leaving it in place invited a caller to believe SMS had been delivered.
+
 
 def send_email_notification(to_email: str, subject: str, body: str):
-    print(f"\n[DEVELOPMENT MODE] Email to {to_email}: {subject}\n{body}\n")
-    
+    if not _is_production():
+        print(f"\n[DEVELOPMENT] Email to {to_email}: {subject}\n{body}\n")
+
+
     # Try HTTP delivery (works around cloud provider SMTP port blocks)
     if send_email_via_http(to_email, subject, body):
         return True
-        
+
     if not SMTP_USERNAME or not SMTP_PASSWORD:
-        return True
-        
+        print(f"[ERROR] No email transport configured; notification to {to_email} was not sent.")
+        return False
+
+
     msg = MIMEMultipart()
     msg['From'] = f"ATLAS System <{SMTP_USERNAME}>"
     msg['To'] = to_email

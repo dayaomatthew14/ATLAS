@@ -146,7 +146,7 @@ def read_users_me(
         "created_at": current_user.created_at
     }
 
-@router.post("/register", response_model=schemas.UserResponse)
+@router.post("/register", response_model=schemas.RegistrationResponse)
 def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
     # This endpoint is public, so the requested role must never be trusted.
     # Administrator accounts are provisioned server-side only.
@@ -198,15 +198,26 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
 
     log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success") # type: ignore
     
-    # Send OTP via Email (Primary)
-    notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
-    
-    # Also attempt via TextBee/SMS if contact number is available
+    # Delivery is reported back rather than assumed. An account whose code never
+    # arrived cannot be verified and cannot be signed into, so "we could not
+    # send it" is the single most useful thing to say at that moment -- the
+    # alternative is a user waiting for a message that is not coming.
+    email_sent = notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
+
+    sms_sent = False
     if user.contact_number:
-        notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
-    
+        sms_sent = notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
+
+    if not (email_sent or sms_sent):
+        log_activity(
+            db, db_user.id, "Register",
+            f"Verification code could not be delivered to {db_user.email}", "warning",
+        )  # type: ignore
+
     # Return user details returning the friendly department name to the frontend
     return {
+        "verification_sent": bool(email_sent or sms_sent),
+        "verification_channels": {"email": bool(email_sent), "sms": bool(sms_sent)},
         "id": db_user.id,
         "email": db_user.email,
         "first_name": db_user.first_name,
@@ -253,14 +264,27 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     user.verification_otp = str(otp) # type: ignore
     db.commit()
     
-    # Send OTP via Email (Primary)
-    notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
-    
-    # Also attempt via TextBee/SMS if contact number is available
+    email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
+
+    sms_sent = False
     if user.contact_number:
-        notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Verification")
-        
-    return {"msg": "Verification code resent successfully"}
+        sms_sent = notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Verification")
+
+    # The address is one the caller just supplied, so saying whether it reached
+    # them reveals nothing they do not know and saves them resending forever.
+    if not (email_sent or sms_sent):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "The verification code could not be sent. Ask an administrator "
+                "to verify the account, or try again once delivery is restored."
+            ),
+        )
+
+    return {
+        "msg": "Verification code resent successfully",
+        "channels": {"email": bool(email_sent), "sms": bool(sms_sent)},
+    }
 
 @router.post("/forgot-password")
 def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(database.get_db)):
@@ -272,13 +296,20 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
         user.reset_otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=15) # type: ignore
         db.commit()
         
-        # Send OTP via Email (Primary)
-        notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
-        
-        # Also attempt via TextBee/SMS if contact number is available
+        email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
+
+        sms_sent = False
         if user.contact_number:
-            notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Password Reset")
-        
+            sms_sent = notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Password Reset")
+
+        # Deliberately not surfaced to the caller. This endpoint answers
+        # identically whether or not the address belongs to an account, and a
+        # "could not send" that appeared only for real users would undo that.
+        # The failure is recorded where an administrator will see it instead.
+        if not (email_sent or sms_sent):
+            print(f"[ERROR] Password reset code could not be delivered to {user.email}")
+
+
         # Get department for logging
         dept_id = None
         if user.department:
