@@ -5,11 +5,14 @@ import os
 # Use SQLite for local development
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./atlas_v3.db")
 
-# Fix for postgres:// protocol which is common in cloud database URLs (e.g. Railway, Render) but not supported directly by SQLAlchemy 1.4+
+# Railway hands out `postgres://` URLs, which SQLAlchemy 1.4+ no longer accepts
+# as a dialect name. Normalising here means the value can be pasted straight
+# from the Railway dashboard without editing.
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Ensure SSL mode is configured for cloud PostgreSQL databases if not specified
+# Railway Postgres requires TLS, and rejects the connection without it rather
+# than downgrading, so the parameter is added when the URL does not carry one.
 if "postgresql" in SQLALCHEMY_DATABASE_URL and "sslmode=" not in SQLALCHEMY_DATABASE_URL:
     delimiter = "&" if "?" in SQLALCHEMY_DATABASE_URL else "?"
     SQLALCHEMY_DATABASE_URL = f"{SQLALCHEMY_DATABASE_URL}{delimiter}sslmode=require"

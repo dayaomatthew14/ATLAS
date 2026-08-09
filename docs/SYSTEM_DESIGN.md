@@ -103,8 +103,9 @@ graph TD
 - **Environment Management**: `python-dotenv`
 
 ### Database
-- **Local Development**: SQLite (`backend/atlas_v3.db`) with auto-migration scripts
-- **Production**: PostgreSQL (Managed via Vercel / Render / Supabase / Neon)
+- **Local Development**: SQLite (`backend/atlas_v3.db`) with auto-migration scripts.
+  `DATABASE_URL` is left unset, which is what selects SQLite.
+- **Production**: Railway PostgreSQL, supplied to the service as `DATABASE_URL`.
 
 ---
 

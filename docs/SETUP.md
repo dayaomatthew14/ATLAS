@@ -47,13 +47,17 @@ cd ATLAS
    ```bash
    pip install -r requirements.txt
    ```
-4. Create `.env` file in `backend/`:
+4. Create `.env` file in `backend/` — copy `backend/.env.example` and fill in
+   `SECRET_KEY`:
    ```env
    SECRET_KEY=your_secure_random_secret_key_here
-   DATABASE_URL=sqlite:///./atlas_v3.db
    ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
    ENV=development
    ```
+   Leave `DATABASE_URL` out. Unset is what selects the local SQLite file; a
+   value here is a live connection to whatever it names, and pointing a
+   developer machine at a deployed database is how local work silently becomes
+   production work.
 5. Initialize and seed the master administrator account (`admin@dlsau.edu.ph`):
    ```bash
    python seed.py
@@ -147,9 +151,21 @@ Program Chair and Coordinator accounts can be created and managed by System Admi
    ```
 
 ### 5.2 Production Deployment Architecture
-- **Frontend SPA**: Deployed to Vercel or Netlify (`frontend/vercel.json` included).
-- **Backend Service**: Deployed to Railway, Render, or AWS EC2 via Uvicorn Gunicorn workers.
-- **Database**: Managed PostgreSQL instance (Neon, Supabase, or Render Postgres).
+
+These are the services ATLAS actually runs on, not a list of options. Naming
+one platform per role is deliberate: the previous version listed alternatives
+for each, and a developer machine ended up pointed at a database on a platform
+nobody was deploying to.
+
+- **Frontend SPA**: Vercel (`frontend/vercel.json` included). `VITE_API_URL`
+  must be set to the full backend URL at build time — Vite inlines it, so
+  changing the variable has no effect until the frontend is rebuilt.
+- **Backend Service**: Railway, from `backend/Dockerfile`.
+- **Database**: Railway PostgreSQL. The service supplies `DATABASE_URL`; nothing
+  else should set it.
+
+Local development uses SQLite and leaves `DATABASE_URL` unset. Never point a
+developer machine at the deployed database — see `backend/.env.example`.
 
 ---
 
