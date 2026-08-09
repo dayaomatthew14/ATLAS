@@ -54,10 +54,21 @@ def log_otp_for_development(destination: str, otp: str, purpose: str):
         print(f"\n[DEVELOPMENT] {purpose} OTP for {destination}: {otp}\n")
 
 def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
+    """
+    Send a code by SMS through the TextBee gateway.
+
+    TextBee relays through an Android handset running its app, so a 2xx means
+    the message was *accepted for* that device -- not that the device was
+    online, and not that anything was transmitted. The old check read the status
+    alone and logged "[SUCCESS] Sent SMS", which is the same ambiguity that made
+    the email path impossible to diagnose. The response body is now logged
+    either way, because it is the only thing that distinguishes accepted-and-
+    sent from accepted-and-queued-for-a-phone-that-is-switched-off.
+    """
     if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
         print(f"[WARNING] TextBee credentials missing. Could not send {purpose} OTP to {to_phone}")
         return False
-        
+
     url = f"https://api.textbee.dev/api/v1/gateway/devices/{TEXTBEE_DEVICE_ID}/send-sms"
     headers = {
         "x-api-key": TEXTBEE_API_KEY,
@@ -67,18 +78,45 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
         "recipients": [to_phone],
         "message": f"Your ATLAS {purpose.lower()} code is: {otp}"
     }
-    
+
     try:
         response = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
+        snippet = " ".join((response.text or "").split())[:250]
         if response.status_code in [200, 201]:
-            print(f"[SUCCESS] Sent {purpose} SMS via TextBee to {to_phone}")
+            print(f"[SUCCESS] TextBee accepted {purpose} SMS for {to_phone}. Response: {snippet}")
             return True
-        else:
-            print(f"[ERROR] TextBee failed with status {response.status_code}: {response.text}")
-            return False
+        print(f"[ERROR] TextBee failed with status {response.status_code}: {snippet}")
+        return False
     except Exception as e:
         print(f"[ERROR] Failed to send TextBee SMS to {to_phone}: {e}")
         return False
+
+
+def deliver_otp(to_email, to_phone, otp: str, purpose: str = "Verification") -> dict:
+    """
+    Get a code to a person: email first, SMS if that fails.
+
+    Email is tried first because it costs nothing per message and carries the
+    code somewhere it can be re-read. SMS is the fallback rather than a
+    duplicate: the gateway is a phone on a metered plan with a free-tier daily
+    cap, and spending one on every send exhausts the allowance on codes the user
+    already had by email.
+
+    Returns which channels succeeded so the caller can tell a user that nothing
+    reached them, instead of claiming a code is on its way.
+    """
+    email_sent = bool(to_email) and send_email_otp(to_email, otp, purpose)
+
+    sms_sent = False
+    if not email_sent and to_phone:
+        print(f"[FALLBACK] Email did not send; trying SMS for {purpose.lower()} code.")
+        sms_sent = send_textbee_otp(to_phone, otp, purpose)
+
+    return {
+        "email": bool(email_sent),
+        "sms": bool(sms_sent),
+        "delivered": bool(email_sent or sms_sent),
+    }
 
 def send_textbee_notification(to_phone: str, message: str):
     if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:

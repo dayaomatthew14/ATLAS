@@ -396,13 +396,10 @@ def register_user(
     # arrived cannot be verified and cannot be signed into, so "we could not
     # send it" is the single most useful thing to say at that moment -- the
     # alternative is a user waiting for a message that is not coming.
-    email_sent = notifications.send_email_otp(to_email=user.email, otp=otp, purpose="Verification")
+    sent = notifications.deliver_otp(user.email, user.contact_number, otp, "Verification")
+    email_sent, sms_sent = sent["email"], sent["sms"]
 
-    sms_sent = False
-    if user.contact_number:
-        sms_sent = notifications.send_textbee_otp(to_phone=user.contact_number, otp=otp, purpose="Verification")
-
-    if not (email_sent or sms_sent):
+    if not sent["delivered"]:
         log_activity(
             db, db_user.id, "Register",
             f"Verification code could not be delivered to {db_user.email}", "warning",
@@ -496,15 +493,12 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     record_otp_send(user)
     db.commit()
 
-    email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
-
-    sms_sent = False
-    if user.contact_number:
-        sms_sent = notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Verification")
+    sent = notifications.deliver_otp(str(user.email), user.contact_number, otp, "Verification")
+    email_sent, sms_sent = sent["email"], sent["sms"]
 
     # The address is one the caller just supplied, so saying whether it reached
     # them reveals nothing they do not know and saves them resending forever.
-    if not (email_sent or sms_sent):
+    if not sent["delivered"]:
         refund_otp_send(user)
         db.commit()
         raise HTTPException(
@@ -541,17 +535,13 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
         record_otp_send(user)
         db.commit()
         
-        email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
-
-        sms_sent = False
-        if user.contact_number:
-            sms_sent = notifications.send_textbee_otp(to_phone=str(user.contact_number), otp=otp, purpose="Password Reset")
+        sent = notifications.deliver_otp(str(user.email), user.contact_number, otp, "Password Reset")
 
         # Deliberately not surfaced to the caller. This endpoint answers
         # identically whether or not the address belongs to an account, and a
         # "could not send" that appeared only for real users would undo that.
         # The failure is recorded where an administrator will see it instead.
-        if not (email_sent or sms_sent):
+        if not sent["delivered"]:
             refund_otp_send(user)
             db.commit()
             print(f"[ERROR] Password reset code could not be delivered to {user.email}")
