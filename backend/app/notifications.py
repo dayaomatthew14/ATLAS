@@ -145,8 +145,13 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
         try:
             # Google Apps Script redirects require handling redirects, requests does it by default
             res = requests.post(url, json=data, timeout=HTTP_TIMEOUT_SECONDS)
+            # The body is logged on the success path too, not just on failure.
+            # A script that returns 200 having caught its own error is
+            # indistinguishable from one that sent, and that ambiguity is what
+            # made undelivered mail impossible to diagnose from the outside.
+            snippet = " ".join((res.text or "").split())[:200]
             if _apps_script_delivered(res):
-                print(f"[SUCCESS] Sent email via Google Apps Script to {to_email}")
+                print(f"[SUCCESS] Sent email via Google Apps Script to {to_email}. Response: {snippet}")
                 return True
             # The body is what identifies the cause -- a sign-in page means the
             # deployment is not public, an error page means the script raised.
