@@ -27,6 +27,66 @@ not exist at all, so it does not.
 def generate_otp():
     return ''.join(secrets.choice(string.digits) for _ in range(6))
 
+
+# A six-digit code has a million values, which is only a meaningful secret while
+# the number of guesses is bounded. Nothing bounded them: verify-email and
+# reset-password compared the code and returned, so the entire space was
+# reachable by anyone willing to keep asking. Passing the limit discards the
+# code rather than locking the account -- the legitimate owner asks for another,
+# and an attacker is made to start over on a fresh unknown value each time.
+MAX_OTP_ATTEMPTS = 5
+
+# Verification codes are read out of an inbox, sometimes hours later, so they
+# get a generous life. Reset codes already expire in 15 minutes.
+VERIFICATION_OTP_TTL = timedelta(hours=24)
+
+# Sign-in throttling. High enough that a person mistyping their password a few
+# times is unaffected, low enough that guessing is not a practical strategy.
+MAX_LOGIN_ATTEMPTS = 8
+LOGIN_LOCKOUT = timedelta(minutes=15)
+
+
+def _naive_utc_now():
+    """
+    The comparison side of the stored timestamps.
+
+    Columns are DateTime without timezone, and rows written before this existed
+    hold naive values, so comparing an aware `now` against them raises. The
+    existing reset-code check strips tzinfo for the same reason.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _as_naive(value):
+    return value.replace(tzinfo=None) if value and value.tzinfo else value
+
+
+def register_otp_failure(db: Session, user: models.User) -> int:
+    """
+    Count a wrong code and discard it once the limit is reached.
+
+    Returns the attempts recorded. The counter is nullable because the startup
+    schema sync adds columns without backfilling, so an existing row arrives
+    NULL and has to read as zero.
+    """
+    attempts = (user.otp_attempts or 0) + 1
+    user.otp_attempts = attempts  # type: ignore
+
+    if attempts >= MAX_OTP_ATTEMPTS:
+        user.verification_otp = None  # type: ignore
+        user.verification_otp_expiry = None  # type: ignore
+        user.reset_otp = None  # type: ignore
+        user.reset_otp_expiry = None  # type: ignore
+        user.otp_attempts = 0  # type: ignore
+
+    db.commit()
+    return attempts
+
+
+def clear_otp_state(user: models.User):
+    """Called when a code is issued or accepted, so tries start from zero."""
+    user.otp_attempts = 0  # type: ignore
+
 @router.post("/login")
 def login_for_access_token(
     response: Response, 
@@ -45,7 +105,20 @@ def login_for_access_token(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    
+
+    # Refuse before checking the password, so a locked account costs an attacker
+    # a wait rather than another guess.
+    locked_until = _as_naive(user.login_locked_until)
+    if locked_until and _naive_utc_now() < locked_until:
+        remaining = int((locked_until - _naive_utc_now()).total_seconds() // 60) + 1
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Too many failed sign-in attempts. Try again in {remaining} minute"
+                f"{'s' if remaining != 1 else ''}, or reset your password."
+            ),
+        )
+
     # Auto-heal role string if created under legacy schema or invalid text
     user_role = (str(user.role or "")).strip().lower()
     if user_role not in ['admin', 'program_chair', 'coordinator']:
@@ -58,11 +131,37 @@ def login_for_access_token(
         db.refresh(user)
 
     if not auth.verify_password(password, user.password_hash):
+        # The lock is on the account, not the connection, so it is not defeated
+        # by rotating source addresses. That does mean a third party can lock
+        # someone out by guessing at them; the window is deliberately short, and
+        # a password reset clears it immediately.
+        attempts = (user.failed_login_attempts or 0) + 1
+        user.failed_login_attempts = attempts  # type: ignore
+        if attempts >= MAX_LOGIN_ATTEMPTS:
+            user.login_locked_until = _naive_utc_now() + LOGIN_LOCKOUT  # type: ignore
+            user.failed_login_attempts = 0  # type: ignore
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Too many failed sign-in attempts. Try again in "
+                    f"{int(LOGIN_LOCKOUT.total_seconds() // 60)} minutes, or reset your password."
+                ),
+            )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password",
         )
-        
+
+    # A correct password clears the record, so occasional mistyping across weeks
+    # never accumulates into a lockout.
+    if user.failed_login_attempts or user.login_locked_until:
+        user.failed_login_attempts = 0  # type: ignore
+        user.login_locked_until = None  # type: ignore
+        db.commit()
+
+
     if not user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -189,7 +288,9 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_d
         role=str(user.role),
         department=college.code,
         is_verified=False,
-        verification_otp=str(otp)
+        verification_otp=str(otp),
+        verification_otp_expiry=_naive_utc_now() + VERIFICATION_OTP_TTL,
+        otp_attempts=0,
     )
     db.add(db_user)
     db.commit()
@@ -241,13 +342,40 @@ def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_
         
     if user.is_verified:
         return {"msg": "User already verified"}
-        
-    if not user.verification_otp or not secrets.compare_digest(str(user.verification_otp), str(payload.otp)):
-        raise HTTPException(status_code=400, detail="Invalid OTP")
 
+    if not user.verification_otp:
+        raise HTTPException(
+            status_code=400,
+            detail="No verification code is outstanding. Request a new one.",
+        )
+
+    # A code with no recorded expiry predates the column and is treated as
+    # expired rather than valid, the same way an unexpiring reset code is.
+    expiry = _as_naive(user.verification_otp_expiry)
+    if not expiry or _naive_utc_now() > expiry:
+        user.verification_otp = None  # type: ignore
+        user.verification_otp_expiry = None  # type: ignore
+        clear_otp_state(user)
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="That code has expired. Request a new one.",
+        )
+
+    if not secrets.compare_digest(str(user.verification_otp), str(payload.otp)):
+        attempts = register_otp_failure(db, user)
+        remaining = MAX_OTP_ATTEMPTS - attempts
+        if remaining <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Too many incorrect codes. That code is no longer valid — request a new one.",
+            )
+        raise HTTPException(status_code=400, detail="Invalid OTP")
 
     user.is_verified = True # type: ignore
     user.verification_otp = None # type: ignore
+    user.verification_otp_expiry = None # type: ignore
+    clear_otp_state(user)
     db.commit()
     return {"msg": "Email verified successfully"}
 
@@ -262,8 +390,12 @@ def resend_verification(payload: schemas.ForgotPassword, db: Session = Depends(d
     
     otp = generate_otp()
     user.verification_otp = str(otp) # type: ignore
+    user.verification_otp_expiry = _naive_utc_now() + VERIFICATION_OTP_TTL # type: ignore
+    # A fresh code starts with a fresh allowance, so someone who mistyped the
+    # last one is not still paying for it against this one.
+    clear_otp_state(user)
     db.commit()
-    
+
     email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Verification")
 
     sms_sent = False
@@ -294,6 +426,7 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
         otp = generate_otp()
         user.reset_otp = otp # type: ignore
         user.reset_otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=15) # type: ignore
+        clear_otp_state(user)
         db.commit()
         
         email_sent = notifications.send_email_otp(to_email=str(user.email), otp=otp, purpose="Password Reset")
@@ -325,7 +458,7 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
 @router.post("/reset-password")
 def reset_password(payload: schemas.ResetPassword, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
-    if not user or not user.reset_otp or not secrets.compare_digest(str(user.reset_otp), str(payload.otp)):
+    if not user or not user.reset_otp:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
     # A reset code with no expiry recorded is treated as expired rather than valid.
@@ -335,10 +468,25 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
     if datetime.now(timezone.utc).replace(tzinfo=None) > user.reset_otp_expiry.replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="OTP has expired")
 
+    # Counted after the existence and expiry checks so a wrong code against a
+    # live reset is what burns an attempt, and before the password is changed so
+    # a guessing run exhausts the code rather than eventually landing on it.
+    if not secrets.compare_digest(str(user.reset_otp), str(payload.otp)):
+        attempts = register_otp_failure(db, user)
+        if MAX_OTP_ATTEMPTS - attempts <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Too many incorrect codes. That code is no longer valid — request a new one.",
+            )
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
     user.password_hash = auth.get_password_hash(payload.new_password) # type: ignore
     user.reset_otp = None # type: ignore
     user.reset_otp_expiry = None # type: ignore
+    clear_otp_state(user)
+    # A password reset is also the way back in after a lockout.
+    user.failed_login_attempts = 0 # type: ignore
+    user.login_locked_until = None # type: ignore
     user.session_version += 1 # type: ignore # Log out all other devices
     db.commit()
     

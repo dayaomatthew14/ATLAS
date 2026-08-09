@@ -18,8 +18,26 @@ class User(Base):
     profile_picture = Column(String(255), nullable=True)
     is_verified = Column(Boolean, default=False)
     verification_otp = Column(String(10), nullable=True)
+    # A verification code used to have no expiry, so one issued months ago stayed
+    # valid indefinitely -- an attacker guessing a six-digit code had unlimited
+    # time as well as unlimited tries.
+    verification_otp_expiry = Column(DateTime, nullable=True)
     reset_otp = Column(String(10), nullable=True)
     reset_otp_expiry = Column(DateTime, nullable=True)
+
+    # Wrong guesses against the current code, verification or reset alike. A
+    # six-digit code is only a secret while the number of attempts is bounded;
+    # without this, the whole space is reachable by anyone willing to keep
+    # asking. Reset to zero whenever a new code is issued or one is accepted.
+    # Nullable rather than NOT NULL because the startup schema sync adds columns
+    # without backfilling, so existing rows arrive NULL and must read as zero.
+    otp_attempts = Column(Integer, default=0, nullable=True)
+
+    # Consecutive failed sign-ins, and the moment the account becomes usable
+    # again once they pass the threshold. Cleared on any successful sign-in.
+    failed_login_attempts = Column(Integer, default=0, nullable=True)
+    login_locked_until = Column(DateTime, nullable=True)
+
     session_version = Column(Integer, default=1)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
