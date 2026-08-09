@@ -132,8 +132,81 @@ def _apps_script_delivered(res) -> bool:
     return True
 
 
+def _send_via_sendgrid(to_email: str, subject: str, body: str) -> bool:
+    key = os.getenv("SENDGRID_API_KEY")
+    sender = os.getenv("SENDGRID_SENDER_EMAIL")
+    if not (key and sender):
+        return False
+
+    try:
+        res = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": sender, "name": "ATLAS Academic Timetabling System"},
+                "subject": subject,
+                "content": [{"type": "text/plain", "value": body}],
+            },
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
+        if res.status_code in (200, 201, 202):
+            print(f"[SUCCESS] Sent email via SendGrid to {to_email}")
+            return True
+        print(f"[ERROR] SendGrid failed: {res.status_code} - {res.text[:200]}")
+    except Exception as e:
+        print(f"[ERROR] SendGrid exception: {e}")
+    return False
+
+
+def _send_via_resend(to_email: str, subject: str, body: str) -> bool:
+    key = os.getenv("RESEND_API_KEY")
+    if not key:
+        return False
+
+    # Resend's onboarding domain works without owning a domain, but only
+    # delivers to the address that registered the account. Real recipients need
+    # a verified domain and RESEND_SENDER_EMAIL set to an address on it.
+    sender = os.getenv("RESEND_SENDER_EMAIL", "onboarding@resend.dev")
+    try:
+        res = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "from": f"ATLAS Academic Timetabling System <{sender}>",
+                "to": [to_email],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
+        if res.status_code in (200, 201, 202):
+            print(f"[SUCCESS] Sent email via Resend to {to_email}")
+            return True
+        print(f"[ERROR] Resend failed: {res.status_code} - {res.text[:200]}")
+    except Exception as e:
+        print(f"[ERROR] Resend exception: {e}")
+    return False
+
+
 def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
-    # 0. Try Google Apps Script Web App (100% Free, uses your own @dlsau.edu.ph or @gmail.com)
+    # Ordered worst-last. Apps Script used to be tried first and, because it
+    # answers {"status":"success"} whenever the script runs, it always won --
+    # so SendGrid and Resend were unreachable no matter how they were
+    # configured. Adding a real provider looked like it did nothing.
+    #
+    # SendGrid and Resend are transactional senders: they authenticate the
+    # sending domain, report per-message delivery, and are what inbox providers
+    # expect transactional mail to come from. Apps Script relays through a
+    # consumer Gmail account, has a daily cap around a hundred, and its reply
+    # says only that the script ran -- not that anything was accepted for
+    # delivery. It stays as a free fallback, not the default.
+    if _send_via_sendgrid(to_email, subject, body):
+        return True
+    if _send_via_resend(to_email, subject, body):
+        return True
+
+    # Last resort: Google Apps Script Web App (free, relays via a Gmail account)
     script_url = os.getenv("GOOGLE_SCRIPT_URL")
     if script_url:
         url = script_url
@@ -159,57 +232,6 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
             print(f"[ERROR] Google Apps Script did not send (HTTP {res.status_code}). Response: {snippet}")
         except Exception as e:
             print(f"[ERROR] Google Apps Script exception: {e}")
-
-    # 1. Try SendGrid HTTP API
-    sendgrid_key = os.getenv("SENDGRID_API_KEY")
-    sendgrid_sender = os.getenv("SENDGRID_SENDER_EMAIL")
-    if sendgrid_key and sendgrid_sender:
-        url = "https://api.sendgrid.com/v3/mail/send"
-        headers = {
-            "Authorization": f"Bearer {sendgrid_key}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "personalizations": [{"to": [{"email": to_email}]}],
-            "from": {"email": sendgrid_sender, "name": "ATLAS Academic Timetabling System"},
-            "subject": subject,
-            "content": [{"type": "text/plain", "value": body}]
-        }
-        try:
-            res = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
-            if res.status_code in [200, 201, 202]:
-                print(f"[SUCCESS] Sent email via SendGrid HTTP API to {to_email}")
-                return True
-            else:
-                print(f"[ERROR] SendGrid HTTP API failed: {res.status_code} - {res.text}")
-        except Exception as e:
-            print(f"[ERROR] SendGrid exception: {e}")
-
-    # 2. Try Resend HTTP API
-    resend_key = os.getenv("RESEND_API_KEY")
-    if resend_key:
-        url = "https://api.resend.com/emails"
-        headers = {
-            "Authorization": f"Bearer {resend_key}",
-            "Content-Type": "application/json"
-        }
-        # Resend onboarding domain sends from onboarding@resend.dev
-        sender = os.getenv("RESEND_SENDER_EMAIL", "onboarding@resend.dev")
-        data = {
-            "from": f"ATLAS Academic Timetabling System <{sender}>",
-            "to": [to_email],
-            "subject": subject,
-            "text": body
-        }
-        try:
-            res = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
-            if res.status_code in [200, 201, 202]:
-                print(f"[SUCCESS] Sent email via Resend HTTP API to {to_email}")
-                return True
-            else:
-                print(f"[ERROR] Resend HTTP API failed: {res.status_code} - {res.text}")
-        except Exception as e:
-            print(f"[ERROR] Resend exception: {e}")
 
     return False
 
