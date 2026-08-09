@@ -23,6 +23,11 @@ TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 TEXTBEE_API_KEY = os.getenv("TEXTBEE_API_KEY")
 TEXTBEE_DEVICE_ID = os.getenv("TEXTBEE_DEVICE_ID")
 
+# A transport that never answers would otherwise hold the request thread open
+# for as long as the peer keeps the socket alive, and OTP delivery sits inside
+# the registration and password-reset requests a user is waiting on.
+HTTP_TIMEOUT_SECONDS = 15
+
 
 def _is_production() -> bool:
     """Read at call time so tests and a reloading server see changes."""
@@ -64,7 +69,7 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
     }
     
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
         if response.status_code in [200, 201]:
             print(f"[SUCCESS] Sent {purpose} SMS via TextBee to {to_phone}")
             return True
@@ -91,7 +96,7 @@ def send_textbee_notification(to_phone: str, message: str):
     }
     
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
         if response.status_code in [200, 201]:
             print(f"[SUCCESS] Sent SMS via TextBee to {to_phone}")
             return True
@@ -101,6 +106,31 @@ def send_textbee_notification(to_phone: str, message: str):
     except Exception as e:
         print(f"[ERROR] Failed to send TextBee SMS to {to_phone}: {e}")
         return False
+
+def _apps_script_delivered(res) -> bool:
+    """
+    Whether a Google Apps Script web app actually sent the mail.
+
+    HTTP 200 does not mean it did. A web app deployed with access set to anything
+    narrower than "Anyone" answers an unauthenticated POST with 200 and a Google
+    sign-in *page*; a script that throws returns 200 and an HTML error page. The
+    old check read the status alone, so both of those logged "[SUCCESS] Sent
+    email" while nothing left Google -- which is exactly the failure that looked
+    like a mystery rather than an error.
+
+    A deployed script that ran returns its own short text or JSON, so an HTML
+    document in the body is the reliable tell.
+    """
+    if res.status_code != 200:
+        return False
+    body = (res.text or "").strip()
+    lowered = body[:400].lower()
+    if lowered.startswith("<!doctype html") or lowered.startswith("<html") or "<title>" in lowered:
+        return False
+    if "accounts.google.com" in lowered or "sign in" in lowered:
+        return False
+    return True
+
 
 def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
     # 0. Try Google Apps Script Web App (100% Free, uses your own @dlsau.edu.ph or @gmail.com)
@@ -114,12 +144,14 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
         }
         try:
             # Google Apps Script redirects require handling redirects, requests does it by default
-            res = requests.post(url, json=data)
-            if res.status_code == 200:
+            res = requests.post(url, json=data, timeout=HTTP_TIMEOUT_SECONDS)
+            if _apps_script_delivered(res):
                 print(f"[SUCCESS] Sent email via Google Apps Script to {to_email}")
                 return True
-            else:
-                print(f"[ERROR] Google Apps Script failed: {res.status_code} - {res.text}")
+            # The body is what identifies the cause -- a sign-in page means the
+            # deployment is not public, an error page means the script raised.
+            snippet = " ".join((res.text or "").split())[:300]
+            print(f"[ERROR] Google Apps Script did not send (HTTP {res.status_code}). Response: {snippet}")
         except Exception as e:
             print(f"[ERROR] Google Apps Script exception: {e}")
 
@@ -139,7 +171,7 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
             "content": [{"type": "text/plain", "value": body}]
         }
         try:
-            res = requests.post(url, headers=headers, json=data)
+            res = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
             if res.status_code in [200, 201, 202]:
                 print(f"[SUCCESS] Sent email via SendGrid HTTP API to {to_email}")
                 return True
@@ -165,7 +197,7 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
             "text": body
         }
         try:
-            res = requests.post(url, headers=headers, json=data)
+            res = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
             if res.status_code in [200, 201, 202]:
                 print(f"[SUCCESS] Sent email via Resend HTTP API to {to_email}")
                 return True
