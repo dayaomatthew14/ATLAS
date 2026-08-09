@@ -206,6 +206,9 @@ export default function Teachers() {
   const [isSavingAvailability, setIsSavingAvailability] = useState(false);
   const [deleteTeacherTarget, setDeleteTeacherTarget] = useState(null);
   const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
+  // What removing this faculty member would take with them. Null while the
+  // count is in flight, so the confirmation cannot be answered blind.
+  const [deleteImpact, setDeleteImpact] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [isSavingTeacher, setIsSavingTeacher] = useState(false);
 
@@ -562,9 +565,20 @@ export default function Teachers() {
   // with them. Deleting a faculty member also drops their availability and
   // subject assignments (professors.delete_professor), which the old prompt
   // never mentioned.
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const t = teachers.find((x) => x.id === id);
     setDeleteTeacherTarget(t || { id, name: 'this faculty member' });
+    // Read at the moment the confirmation opens rather than from the row: a
+    // timetable can be generated between a page load and a removal, and the
+    // figure that matters is the one true when the chair decides.
+    setDeleteImpact(null);
+    try {
+      setDeleteImpact(await api.get(`/professors/${id}/impact`));
+    } catch {
+      // Left null. The dialog then declines to promise what will survive
+      // rather than stating a figure it does not have.
+      setDeleteImpact({ unknown: true });
+    }
   };
 
   const confirmDeleteTeacher = async () => {
@@ -572,14 +586,55 @@ export default function Teachers() {
     setIsDeletingTeacher(true);
     try {
       await api.delete(`/professors/${deleteTeacherTarget.id}`);
-      addToast(`${deleteTeacherTarget.name} removed.`, 'success');
+      const n = deleteImpact?.schedule_count || 0;
+      addToast(
+        n
+          ? `${deleteTeacherTarget.name} removed, along with ${pluralize(n, 'plotted class', 'plotted classes')}.`
+          : `${deleteTeacherTarget.name} removed.`,
+        'success'
+      );
       setDeleteTeacherTarget(null);
+      setDeleteImpact(null);
       fetchTeachers();
     } catch (error) {
       addToast(error.message || 'Could not remove the faculty member.', 'error');
     } finally {
       setIsDeletingTeacher(false);
     }
+  };
+
+  /**
+   * What the confirmation says. Removing a faculty member takes their plotted
+   * classes with them -- the dialog used to claim "Classes already scheduled
+   * are retained", which was true only in the sense that the rows stayed behind
+   * with no teacher on them, holding their slots and reachable from no screen.
+   */
+  const deleteDescription = () => {
+    if (!deleteImpact) return 'Checking what this would remove…';
+    if (deleteImpact.unknown) {
+      return 'Could not check what this would remove. Their availability, subject '
+        + 'assignments and any plotted classes go with them.';
+    }
+    const parts = [];
+    if (deleteImpact.schedule_count) {
+      parts.push(pluralize(deleteImpact.schedule_count, 'plotted class', 'plotted classes'));
+    }
+    if (deleteImpact.offering_count) {
+      parts.push(pluralize(deleteImpact.offering_count, 'subject assignment'));
+    }
+    if (deleteImpact.unavailability_count) {
+      parts.push(pluralize(deleteImpact.unavailability_count, 'availability block'));
+    }
+    if (!parts.length) {
+      return 'Nothing is assigned or plotted for them, so only the faculty record goes.';
+    }
+    const listed = parts.length > 1
+      ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+      : parts[0];
+    const hours = deleteImpact.reg_hours
+      ? ` That is ${formatHours(deleteImpact.reg_hours)} hrs/week off the timetable.`
+      : '';
+    return `This removes ${listed} with them. It cannot be undone.${hours}`;
   };
 
   // `handleAddUnavailability` and `handleRemoveUnavailability` lived here. They
@@ -1020,13 +1075,20 @@ export default function Teachers() {
           axis as the schedule, saved in one request (DEP-3). */}
       <AtlasConfirmDialog
         isOpen={Boolean(deleteTeacherTarget)}
-        onClose={() => setDeleteTeacherTarget(null)}
+        onClose={() => { setDeleteTeacherTarget(null); setDeleteImpact(null); }}
         onConfirm={confirmDeleteTeacher}
         title={`Remove ${deleteTeacherTarget?.name || ''}?`}
-        description="Their availability and subject assignments are removed with them. Classes already scheduled are retained."
+        description={deleteDescription()}
         confirmLabel="Remove Faculty Member"
+        // Typing the name is required only when plotted classes would go with
+        // them. A record nobody has scheduled against is an ordinary delete,
+        // and asking for a typed confirmation every time teaches people to
+        // type it without reading.
+        confirmPhrase={deleteImpact?.schedule_count ? deleteTeacherTarget?.name : undefined}
         destructive
-        loading={isDeletingTeacher}
+        // Held while the count is in flight, so the chair cannot confirm before
+        // being told what goes.
+        loading={isDeletingTeacher || !deleteImpact}
       />
 
       <AtlasDialog

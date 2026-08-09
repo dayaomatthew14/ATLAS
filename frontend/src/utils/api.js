@@ -59,9 +59,25 @@ async function request(endpoint, options = {}) {
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
       clearSession();
       try {
-        await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-      } catch {
-        /* the session is already gone locally; a failed logout call changes nothing */
+        // The session cookie is HttpOnly, so this request is the only thing
+        // that can clear it -- `clearSession()` above reaches localStorage and
+        // nothing else. A failure here is not cosmetic: the browser keeps
+        // sending a credential the user believes they have surrendered. It
+        // used to be swallowed in silence, which is why that could not be
+        // noticed from the outside.
+        const res = await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+        if (!res.ok) {
+          console.error(
+            `ATLAS: sign-out did not complete (HTTP ${res.status}). The session cookie may still be set. `
+            + 'Close the browser to be sure the session has ended.'
+          );
+        }
+      } catch (err) {
+        console.error(
+          'ATLAS: sign-out request failed, so the session cookie may still be set. '
+          + 'Close the browser to be sure the session has ended.',
+          err
+        );
       }
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';

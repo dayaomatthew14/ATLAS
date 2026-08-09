@@ -1197,6 +1197,67 @@ async def delete_curriculum_course(
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+@router.get("/block/{block_id}/impact")
+def curriculum_block_impact(
+    block_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    What deleting this curriculum would destroy besides its subjects.
+
+    `schedules.curriculum_id` and `subject_offerings.curriculum_id` are both
+    ondelete=CASCADE, so removing a curriculum silently takes every faculty
+    assignment and every plotted class that references its subjects. The
+    confirmation dialog cannot warn about a quantity it has not been told, and
+    "are you sure?" over an unnamed amount of destruction is not a warning.
+
+    Counted at the moment the dialog opens rather than served with the catalog
+    listing: a chair can assign subjects between a page load and a delete, and
+    the number that matters is the one true when the administrator decides.
+    """
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can delete curriculum blocks")
+
+    block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum not found")
+
+    subject_ids = [
+        row[0] for row in
+        db.query(models.Curriculum.id).filter(models.Curriculum.block_id == block_id).all()
+    ]
+
+    if not subject_ids:
+        return {
+            "block_id": block_id,
+            "subject_count": 0,
+            "offering_count": 0,
+            "schedule_count": 0,
+            "faculty_count": 0,
+        }
+
+    offerings = db.query(models.SubjectOffering).filter(
+        models.SubjectOffering.curriculum_id.in_(subject_ids)
+    ).all()
+    schedules = db.query(models.Schedule).filter(
+        models.Schedule.curriculum_id.in_(subject_ids)
+    ).all()
+
+    # One faculty member losing both an assignment and its plotted classes is
+    # one person affected, not three things.
+    faculty_ids = {o.faculty_id for o in offerings if o.faculty_id}
+    faculty_ids |= {s.faculty_id for s in schedules if s.faculty_id}
+
+    return {
+        "block_id": block_id,
+        "subject_count": len(subject_ids),
+        "offering_count": len(offerings),
+        "schedule_count": len(schedules),
+        "faculty_count": len(faculty_ids),
+    }
+
+
 @router.delete("/block/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_curriculum_block(
     block_id: int,
@@ -1211,14 +1272,36 @@ async def delete_curriculum_block(
     block_name = block.program_name if block else str(block_id)
     dept_id = block.department_id if block else None
 
+    # Counted before the delete, because the cascade takes these with it and
+    # afterwards there is nothing left to count. The audit entry used to record
+    # only the block name, which left no trace that a term's plotted classes
+    # had gone with it.
+    subject_ids = [
+        row[0] for row in
+        db.query(models.Curriculum.id).filter(models.Curriculum.block_id == block_id).all()
+    ]
+    offering_count = schedule_count = 0
+    if subject_ids:
+        offering_count = db.query(models.SubjectOffering).filter(
+            models.SubjectOffering.curriculum_id.in_(subject_ids)
+        ).count()
+        schedule_count = db.query(models.Schedule).filter(
+            models.Schedule.curriculum_id.in_(subject_ids)
+        ).count()
+
     # Delete all subjects in the block first
     db.query(models.Curriculum).filter(models.Curriculum.block_id == block_id).delete(synchronize_session=False)
     # Then delete the block itself
     db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).delete(synchronize_session=False)
-    
+
     db.commit()
-    
-    log_activity(db, current_user.id, "Delete Block", f"Deleted curriculum block: {block_name}", "success", department_id=dept_id) # type: ignore
+
+    detail = (
+        f"Deleted curriculum block: {block_name} "
+        f"({len(subject_ids)} subjects, {offering_count} faculty assignments, "
+        f"{schedule_count} plotted classes)"
+    )
+    log_activity(db, current_user.id, "Delete Block", detail, "success", department_id=dept_id) # type: ignore
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

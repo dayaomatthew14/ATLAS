@@ -220,13 +220,22 @@ export default function Dashboard() {
   }, [isAdmin]);
 
   const handleLogout = useCallback(async () => {
+    // The session cookie is HttpOnly: this request is the only thing that can
+    // clear it, and `clearSession()` below reaches localStorage only. If it
+    // fails, the browser keeps sending a credential the user has just said
+    // they are finished with -- so the local state is still cleared and the
+    // user is still sent to the login screen, but they are told the session
+    // was not ended on the server rather than being left to assume it was.
+    let serverSessionEnded = true;
     try {
       await api.post('/auth/logout', {});
     } catch {
-      /* the server session may already be gone; clear locally regardless */
+      serverSessionEnded = false;
     }
     clearSession();
-    navigate('/login');
+    navigate('/login', {
+      state: serverSessionEnded ? undefined : { signOutIncomplete: true },
+    });
   }, [navigate]);
 
   // --- Guided tour --------------------------------------------------------

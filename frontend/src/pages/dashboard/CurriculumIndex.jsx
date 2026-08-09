@@ -67,8 +67,30 @@ export default function CurriculumIndex() {
   // the count rather than asking "are you sure?" about an unnamed quantity.
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // What else the cascade would destroy. Fetched when the dialog opens rather
+  // than carried on the card, because a chair can assign subjects between a
+  // page load and a delete.
+  const [impact, setImpact] = useState(null);
+  const [impactError, setImpactError] = useState('');
 
   const canDelete = canManageCurriculum();
+
+  const openDelete = async (curriculum) => {
+    setDeleteTarget(curriculum);
+    setImpact(null);
+    setImpactError('');
+    try {
+      setImpact(await api.get(`/curriculum/block/${curriculum.id}/impact`));
+    } catch (err) {
+      setImpactError(err.message || 'Could not check what this would affect.');
+    }
+  };
+
+  const closeDelete = () => {
+    setDeleteTarget(null);
+    setImpact(null);
+    setImpactError('');
+  };
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -231,7 +253,7 @@ export default function CurriculumIndex() {
           : `Deleted ${deleteTarget.programCode} ${deleteTarget.academic_year}.`,
         'success'
       );
-      setDeleteTarget(null);
+      closeDelete();
       load();
     } catch (err) {
       addToast(err.message || 'Could not delete the curriculum.', 'error');
@@ -405,7 +427,7 @@ export default function CurriculumIndex() {
                           size="row"
                           variant="ghost"
                           icon={Trash2}
-                          onClick={() => setDeleteTarget(c)}
+                          onClick={() => openDelete(c)}
                           aria-label={`Delete the ${c.programCode} ${c.academic_year} curriculum`}
                           className="text-sem-conflict hover:bg-sem-conflict-bg"
                         />
@@ -512,17 +534,28 @@ export default function CurriculumIndex() {
 
       <Dialog
         isOpen={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={closeDelete}
         title="Delete this curriculum?"
         size="confirm"
         dismissible={!isDeleting}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
+            <Button variant="ghost" onClick={closeDelete} disabled={isDeleting}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDelete} loading={isDeleting}>
-              Delete Curriculum
+            {/* Held until the impact is known. The cascade destroys plotted
+                classes and faculty assignments, and an administrator must not
+                be able to confirm that before being told how much of it there
+                is. */}
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              loading={isDeleting}
+              disabled={!impact && !impactError}
+            >
+              {impact?.schedule_count || impact?.offering_count
+                ? 'Delete Anyway'
+                : 'Delete Curriculum'}
             </Button>
           </>
         }
@@ -548,13 +581,61 @@ export default function CurriculumIndex() {
                 <>This curriculum has no subjects in it yet. It cannot be undone.</>
               )}
             </p>
+
+            {!impact && !impactError && (
+              <p className="font-ui text-caption text-atlas-slate" aria-busy="true">
+                Checking what else this would affect…
+              </p>
+            )}
+
+            {impactError && (
+              <p className="font-ui text-caption text-sem-warning">
+                {impactError} Deleting without that check could remove faculty
+                assignments and plotted classes you have not been shown.
+              </p>
+            )}
+
+            {/* The cascade. `schedules.curriculum_id` and
+                `subject_offerings.curriculum_id` are both ondelete=CASCADE, so
+                these go whether or not anyone intended it. */}
+            {impact && (impact.offering_count > 0 || impact.schedule_count > 0) && (
+              <div className="rounded-panel border border-sem-warning/40 bg-sem-warning-bg/50 px-4 py-3">
+                <p className="font-ui text-body text-atlas-ink">
+                  This also deletes work that depends on it:
+                </p>
+                <ul className="mt-2 flex flex-col gap-1">
+                  {impact.offering_count > 0 && (
+                    <li className="font-ui text-caption text-atlas-ink tabular-nums">
+                      {pluralize(impact.offering_count, 'faculty assignment')}
+                    </li>
+                  )}
+                  {impact.schedule_count > 0 && (
+                    <li className="font-ui text-caption text-atlas-ink tabular-nums">
+                      {pluralize(impact.schedule_count, 'plotted class', 'plotted classes')} on the timetable
+                    </li>
+                  )}
+                  {impact.faculty_count > 0 && (
+                    <li className="font-ui text-caption text-atlas-slate tabular-nums">
+                      affecting {pluralize(impact.faculty_count, 'faculty member')}
+                    </li>
+                  )}
+                </ul>
+                <p className="mt-2 font-ui text-caption text-atlas-slate">
+                  Their teaching load will drop by the hours those classes carried.
+                </p>
+              </div>
+            )}
+
             {/* A published curriculum is the one chairs are already assigning
                 from, so deleting it is a different act from discarding a draft
                 nobody has seen. */}
-            {deleteTarget.statusKey === 'PUBLISHED' && (
+            {deleteTarget.statusKey === 'PUBLISHED'
+              && impact
+              && impact.offering_count === 0
+              && impact.schedule_count === 0 && (
               <p className="font-ui text-caption text-sem-warning">
-                This curriculum is published. Program chairs may already have assigned
-                its subjects to faculty.
+                This curriculum is published, so chairs can see it — but nothing
+                has been assigned or plotted from it yet.
               </p>
             )}
           </div>
