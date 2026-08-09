@@ -4,7 +4,6 @@ import requests
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from twilio.rest import Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,10 +14,10 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
-# Twilio Config
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+# SMS goes through TextBee. Twilio's SDK and configuration used to sit here --
+# imported, three variables read, and never once used to send anything. Keeping
+# a dead alternative in view invites the next person to wire it up rather than
+# fix the gateway that is actually in service.
 
 # TextBee Config
 TEXTBEE_API_KEY = os.getenv("TEXTBEE_API_KEY")

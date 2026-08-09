@@ -6,7 +6,6 @@ email-validator
 python-multipart
 python-jose[cryptography]
 passlib[bcrypt]
-twilio
 requests
 python-dotenv
 bcrypt
