@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, Search, ChevronRight, AlertTriangle, Upload } from 'lucide-react';
+import { Plus, RefreshCw, Search, ChevronRight, AlertTriangle, Upload, Trash2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import Button from '../../components/ui/Button';
@@ -9,6 +9,7 @@ import Dialog from '../../components/ui/Dialog';
 import { TextInput, SelectInput } from '../../components/ui/Field';
 import CurriculumImportWizard from '../../components/ui/CurriculumImportWizard';
 import { DEPARTMENTS, focusRing, pluralize } from '../../components/ui/tokens';
+import { canManageCurriculum } from '../../utils/session';
 
 /**
  * Curriculum — index.
@@ -61,6 +62,13 @@ export default function CurriculumIndex() {
   const [newForm, setNewForm] = useState({ program_id: '', academic_year: '' });
   const [newErrors, setNewErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+
+  // Deleting a curriculum takes every subject in it, so the confirmation names
+  // the count rather than asking "are you sure?" about an unnamed quantity.
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const canDelete = canManageCurriculum();
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -211,6 +219,27 @@ export default function CurriculumIndex() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await api.delete(`/curriculum/block/${deleteTarget.id}`);
+      const n = deleteTarget.subject_count || 0;
+      addToast(
+        n
+          ? `Deleted ${deleteTarget.programCode} ${deleteTarget.academic_year} and its ${pluralize(n, 'subject')}.`
+          : `Deleted ${deleteTarget.programCode} ${deleteTarget.academic_year}.`,
+        'success'
+      );
+      setDeleteTarget(null);
+      load();
+    } catch (err) {
+      addToast(err.message || 'Could not delete the curriculum.', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const totalSubjects = curricula.reduce((n, c) => n + (c.subject_count || 0), 0);
 
   return (
@@ -335,11 +364,15 @@ export default function CurriculumIndex() {
             <ul className="grid gap-3 lg:grid-cols-2">
               {list.map((c) => {
                 const meta = STATUS_META[c.statusKey] || STATUS_META.PUBLISHED;
+                // The delete control is a sibling of the Link, not a child: a
+                // button inside an anchor is invalid, and every click on it
+                // would also navigate. The Link keeps right padding so the
+                // chevron clears the button sitting over it.
                 return (
-                  <li key={c.id}>
+                  <li key={c.id} className="relative">
                     <Link
                       to={`/dashboard/curriculum/${c.id}`}
-                      className={`glass rounded-panel px-5 py-4 flex items-center gap-4 group
+                      className={`glass rounded-panel px-5 py-4 pr-16 flex items-center gap-4 group
                                   transition-colors duration-state ease-standard hover:bg-white/85 ${focusRing}`}
                     >
                       <span className="min-w-0 flex-1">
@@ -362,6 +395,22 @@ export default function CurriculumIndex() {
                         aria-hidden="true"
                       />
                     </Link>
+                    {/* Hidden rather than shown restricted, matching how the
+                        faculty table drops its row actions: a padlock on every
+                        card in a grid is noise, and the catalog is readable to
+                        roles that will never delete from it. */}
+                    {canDelete && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <Button
+                          size="row"
+                          variant="ghost"
+                          icon={Trash2}
+                          onClick={() => setDeleteTarget(c)}
+                          aria-label={`Delete the ${c.programCode} ${c.academic_year} curriculum`}
+                          className="text-sem-conflict hover:bg-sem-conflict-bg"
+                        />
+                      </span>
+                    )}
                   </li>
                 );
               })}
@@ -460,6 +509,57 @@ export default function CurriculumIndex() {
           else load();
         }}
       />
+
+      <Dialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete this curriculum?"
+        size="confirm"
+        dismissible={!isDeleting}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} loading={isDeleting}>
+              Delete Curriculum
+            </Button>
+          </>
+        }
+      >
+        {deleteTarget && (
+          <div className="flex flex-col gap-3">
+            <p className="font-ui text-body text-atlas-ink">
+              <span className="font-data font-semibold">{deleteTarget.programCode}</span>{' '}
+              {deleteTarget.academic_year} — {deleteTarget.programName}
+            </p>
+            {/* An empty curriculum has nothing to warn about losing, and
+                "all 0 subjects" reads as a bug rather than as reassurance. */}
+            <p className="font-ui text-body text-atlas-slate">
+              {deleteTarget.subject_count ? (
+                <>
+                  This removes the curriculum and{' '}
+                  <span className="text-atlas-ink">
+                    all {pluralize(deleteTarget.subject_count, 'subject')}
+                  </span>{' '}
+                  in it. It cannot be undone.
+                </>
+              ) : (
+                <>This curriculum has no subjects in it yet. It cannot be undone.</>
+              )}
+            </p>
+            {/* A published curriculum is the one chairs are already assigning
+                from, so deleting it is a different act from discarding a draft
+                nobody has seen. */}
+            {deleteTarget.statusKey === 'PUBLISHED' && (
+              <p className="font-ui text-caption text-sem-warning">
+                This curriculum is published. Program chairs may already have assigned
+                its subjects to faculty.
+              </p>
+            )}
+          </div>
+        )}
+      </Dialog>
 
       <Dialog
         isOpen={isNewOpen}
