@@ -314,6 +314,9 @@ export default function Schedules() {
   const [globalSchedules, setGlobalSchedules] = useState([]);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [activeConflicts, setActiveConflicts] = useState([]);
+  // Distinct from `activeConflicts.length === 0`: no conflicts found versus
+  // never found out. Only the first of those means the timetable is clean.
+  const [conflictsUnavailable, setConflictsUnavailable] = useState(false);
 
   /* --------------------------------------------------------------------------
    * Publication state — read only, and only for print.
@@ -339,13 +342,9 @@ export default function Schedules() {
     [activeConflicts]
   );
 
-  // The lens dismisses itself when the last conflict clears.
-  useEffect(() => {
-    if (isLensOpen && activeConflicts.length === 0) {
-      setIsLensOpen(false);
-      setLensCauseFilter(null);
-    }
-  }, [activeConflicts.length, isLensOpen]);
+  // The lens dismisses itself when the last conflict clears. Defined further
+  // down, next to `lensConflicts`, because it is that combined list -- not the
+  // server list alone -- that decides whether anything is left to show.
 
   /* --------------------------------------------------------------------------
    * How the generated schedule is displayed.
@@ -382,8 +381,15 @@ export default function Schedules() {
     try {
       const data = await api.get('/ai-scheduler/conflicts');
       setActiveConflicts(Array.isArray(data) ? data : []);
+      setConflictsUnavailable(false);
     } catch (e) {
-      console.error(e);
+      // Logging alone left `activeConflicts` at its previous value — usually
+      // the initial `[]` — so a failed fetch presented as a clean timetable
+      // and the Conflicts button simply did not appear. Record the failure so
+      // the header can say the check did not run.
+      console.error('ATLAS: conflict list could not be read.', e);
+      setActiveConflicts([]);
+      setConflictsUnavailable(true);
     }
   };
 
@@ -867,8 +873,50 @@ export default function Schedules() {
    * while real conflicts existed. The server's record is authoritative; local
    * detection only catches grid overlaps the server has not recorded yet.
    */
-  const localOverlapCount = schedules.filter(s => s.isConflicting).length;
-  const activeConflictsCount = Math.max(activeConflicts.length, localOverlapCount);
+  const localOverlaps = React.useMemo(
+    () =>
+      schedules
+        .filter((s) => s.isConflicting)
+        .map((s) => ({
+          id: `local-${s.id}`,
+          conflict_id: null,
+          type: 'Unsaved Overlap',
+          reason:
+            'This class overlaps another in the grid. The server has not recorded it as a conflict yet.',
+          curriculum: s.curriculum?.code || s.subject || 'Subject',
+          faculty_name: s.faculty_name || s.teacher || 'Faculty',
+          curriculum_id: s.curriculum_id ?? null,
+          faculty_id: s.faculty_id ?? null,
+          schedule_id_1: s.id ?? null,
+          schedule_id_2: null,
+          // No conflict row exists for these, so /solve-conflict has nothing to
+          // act on. The lens reads this and explains instead of offering an
+          // action that would fail.
+          unresolvable: true,
+        })),
+    [schedules]
+  );
+
+  // Previously `Math.max(activeConflicts.length, localOverlapCount)`. That is
+  // not a union: two server conflicts plus three *different* local overlaps are
+  // five problems, reported as three. It also fed the button a number the lens
+  // could not account for -- the lens received only the server list, so a count
+  // driven by local overlaps opened a panel that immediately closed itself.
+  // Concatenating keeps the original intent (generator conflicts the grid
+  // cannot see, plus grid overlaps the server has not stored) and makes the
+  // count equal to what the lens actually displays.
+  const lensConflicts = React.useMemo(
+    () => [...activeConflicts, ...localOverlaps],
+    [activeConflicts, localOverlaps]
+  );
+  const activeConflictsCount = lensConflicts.length;
+
+  useEffect(() => {
+    if (isLensOpen && lensConflicts.length === 0) {
+      setIsLensOpen(false);
+      setLensCauseFilter(null);
+    }
+  }, [lensConflicts.length, isLensOpen]);
 
   return (
     <>
@@ -914,6 +962,19 @@ export default function Schedules() {
             }
             actions={
               <>
+                {conflictsUnavailable && (
+                  // The absence of a Conflicts button normally means there are
+                  // none. When the check itself failed, say so rather than let
+                  // that silence be read as an all-clear.
+                  <span
+                    className="no-print inline-flex items-center gap-1.5 h-9 px-3 rounded-control border border-sem-warning text-sem-warning font-ui text-caption"
+                    role="status"
+                  >
+                    <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+                    Conflict check unavailable
+                  </span>
+                )}
+
                 {activeConflictsCount > 0 && (
                   // Destructive-adjacent controls are outlines, not solid red
                   // fills — a red fill reads as alarm in a dense grid, and the
@@ -1290,7 +1351,7 @@ export default function Schedules() {
           hunting for the block it referred to (HEU-08). */}
       <ConflictLens
         isOpen={isLensOpen}
-        conflicts={activeConflicts}
+        conflicts={lensConflicts}
         onClose={() => { setIsLensOpen(false); setLensCauseFilter(null); }}
         onResolve={handleSolveConflict}
         onRegenerate={() => { setIsLensOpen(false); setIsGenerateModalOpen(true); }}

@@ -133,71 +133,95 @@ def get_conflicts(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    try:
-        if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    """
+    List unresolved conflicts for the caller's scope.
+
+    An empty list here means "nothing is wrong with this timetable", so it is
+    never used to report a failure to find out -- a blanket
+    `except Exception: return []` made a crashed query look like a clean
+    schedule. Unexpected errors propagate and the client shows the panel as
+    unavailable. The early returns below are genuine, known-empty cases.
+    """
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        return []
+
+    query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
+
+    # Scope to the caller's department. Without this, a chair saw every
+    # department's conflicts. Resolve the department through curriculum_id
+    # directly, or through the linked schedule for overlap conflicts.
+    if current_user.role in ['program_chair', 'coordinator']:
+        if not current_user.department:
+            return []
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if not dept:
             return []
 
-        query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
+        dept_curriculum_ids = [
+            c.id for c in db.query(models.Curriculum.id).filter(
+                models.Curriculum.department_id == dept.id
+            ).all()
+        ]
+        dept_schedule_ids = [
+            s.id for s in db.query(models.Schedule.id).filter(
+                models.Schedule.curriculum_id.in_(dept_curriculum_ids)
+            ).all()
+        ] if dept_curriculum_ids else []
 
-        # Scope to the caller's department. Without this, a chair saw every
-        # department's conflicts. Resolve the department through curriculum_id
-        # directly, or through the linked schedule for overlap conflicts.
-        if current_user.role in ['program_chair', 'coordinator']:
-            if not current_user.department:
-                return []
-            dept = db.query(models.Department).filter(
-                (models.Department.code == current_user.department) |
-                (models.Department.name == current_user.department)
-            ).first()
-            if not dept:
-                return []
+        query = query.filter(
+            models.Conflict.curriculum_id.in_(dept_curriculum_ids) |
+            models.Conflict.schedule_id_1.in_(dept_schedule_ids)
+        )
 
-            dept_curriculum_ids = [
-                c.id for c in db.query(models.Curriculum.id).filter(
-                    models.Curriculum.department_id == dept.id
-                ).all()
-            ]
-            dept_schedule_ids = [
-                s.id for s in db.query(models.Schedule.id).filter(
-                    models.Schedule.curriculum_id.in_(dept_curriculum_ids)
-                ).all()
-            ] if dept_curriculum_ids else []
+    conflicts = query.offset(skip).limit(limit).all()
 
-            query = query.filter(
-                models.Conflict.curriculum_id.in_(dept_curriculum_ids) |
-                models.Conflict.schedule_id_1.in_(dept_schedule_ids)
-            )
+    res = []
+    for c in conflicts:
+        try:
+            curr = db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first() if c.curriculum_id else None
+            fac = db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first() if c.faculty_id else None
+            s1 = db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first() if c.schedule_id_1 else None
 
-        conflicts = query.offset(skip).limit(limit).all()
+            curriculum_code = curr.code if curr else (s1.curriculum.code if s1 and s1.curriculum else "Subject Issue")
+            faculty_name = f"{fac.first_name} {fac.last_name}" if fac else (f"{s1.faculty.first_name} {s1.faculty.last_name}" if s1 and s1.faculty else "Faculty")
 
-        res = []
-        for c in conflicts:
-            try:
-                curr = db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first() if c.curriculum_id else None
-                fac = db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first() if c.faculty_id else None
-                s1 = db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first() if c.schedule_id_1 else None
+            res.append({
+                "id": c.id,
+                "conflict_id": c.id,
+                "type": (c.conflict_type or "Conflict").replace('_', ' ').title(),
+                "reason": c.reason or "Overlapping time or resource constraints.",
+                "curriculum": curriculum_code,
+                "faculty_name": faculty_name,
+                "curriculum_id": c.curriculum_id or (s1.curriculum_id if s1 else None),
+                "faculty_id": c.faculty_id or (s1.faculty_id if s1 else None),
+                "schedule_id_1": c.schedule_id_1,
+                "schedule_id_2": c.schedule_id_2
+            })
+        except Exception as e:
+            # One unreadable row must not delete a conflict from the user's
+            # view -- `continue` here silently shrank the list, which reads as
+            # "fewer problems than there are". Surface a placeholder instead:
+            # the row still occupies its place and still counts, and it says
+            # plainly that its detail could not be loaded.
+            print(f"[conflicts] row {getattr(c, 'id', '?')} could not be rendered: {type(e).__name__}: {e}")
+            res.append({
+                "id": getattr(c, "id", None),
+                "conflict_id": getattr(c, "id", None),
+                "type": "Unreadable Conflict",
+                "reason": "This conflict exists but its details could not be loaded. Report it to an administrator.",
+                "curriculum": "Unknown",
+                "faculty_name": "Unknown",
+                "curriculum_id": None,
+                "faculty_id": None,
+                "schedule_id_1": None,
+                "schedule_id_2": None,
+                "degraded": True,
+            })
 
-                curriculum_code = curr.code if curr else (s1.curriculum.code if s1 and s1.curriculum else "Subject Issue")
-                faculty_name = f"{fac.first_name} {fac.last_name}" if fac else (f"{s1.faculty.first_name} {s1.faculty.last_name}" if s1 and s1.faculty else "Faculty")
-
-                res.append({
-                    "id": c.id,
-                    "conflict_id": c.id,
-                    "type": (c.conflict_type or "Conflict").replace('_', ' ').title(),
-                    "reason": c.reason or "Overlapping time or resource constraints.",
-                    "curriculum": curriculum_code,
-                    "faculty_name": faculty_name,
-                    "curriculum_id": c.curriculum_id or (s1.curriculum_id if s1 else None),
-                    "faculty_id": c.faculty_id or (s1.faculty_id if s1 else None),
-                    "schedule_id_1": c.schedule_id_1,
-                    "schedule_id_2": c.schedule_id_2
-                })
-            except Exception:
-                continue
-
-        return res
-    except Exception:
-        return []
+    return res
 
 @router.get("/global-schedule")
 def get_global_schedule(

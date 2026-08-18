@@ -210,10 +210,17 @@ export default function ConflictLens({
                   >
                     Next
                   </Button>
+                  {/*
+                    Some entries are grid overlaps the server has not recorded
+                    as conflicts. There is no conflict row for /solve-conflict
+                    to act on, so offering the action would fail; say what to do
+                    instead.
+                  */}
                   <Button
-                    onClick={() => current && onResolve(current)}
+                    onClick={() => current && !current.unresolvable && onResolve(current)}
                     loading={resolvingId != null && resolvingId === (current?.conflict_id ?? current?.id)}
-                    disabled={!current}
+                    disabled={!current || Boolean(current.unresolvable)}
+                    title={current?.unresolvable ? 'Save or regenerate the schedule to record this conflict' : undefined}
                   >
                     Resolve
                   </Button>

@@ -102,6 +102,27 @@ function RailItem({ item, badge, onNavigate, expanded }) {
       <span className={labelClass}>{item.label}</span>
       <span className={srLabelClass}>{item.label}</span>
 
+      {/*
+        `null` is not zero. It means the conflict count could not be read, and
+        showing no badge for it would claim the schedule is clean on the
+        strength of a request that failed. A muted "?" says the number is
+        unknown, which is the honest state and a visibly different one from
+        both "none" and "some".
+      */}
+      {badge === null && (
+        <span
+          className={
+            expanded
+              ? 'ml-auto shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-warning text-atlas-900 font-data text-caption'
+              : 'absolute right-1 top-1 shrink-0 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-sem-warning text-atlas-900 font-data text-[10px] leading-none'
+          }
+          title="Conflict count unavailable"
+        >
+          ?
+          <span className="sr-only"> conflict count unavailable</span>
+        </span>
+      )}
+
       {badge > 0 && (
         <span
           className={

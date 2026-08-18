@@ -17,56 +17,64 @@ def get_conflict_count(
     """
     Returns the total number of unresolved conflicts for the active semester.
     Scoped to the Program Chair's department.
+
+    Deliberately not wrapped in a blanket `except Exception: return {"count": 0}`.
+    Zero is the answer that means "this timetable is clean", and the caller
+    renders it as a green all-clear -- so a query that raised and reported zero
+    was indistinguishable from a genuinely conflict-free schedule. That is the
+    one wrong answer this endpoint must never give, and it is not hypothetical:
+    a column missing from `conflicts` (see the schema-drift note in main.py)
+    raises here, and the panel went quiet instead of saying so. Failing loudly
+    lets the client show "unavailable" rather than "none".
+
+    The early returns below are different: each is a real, known zero, not a
+    failure to find out.
     """
-    try:
-        if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-            return {"count": 0}
-        
-        # 1. Find the active semester
-        active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
-        if not active_semester:
-            return {"count": 0}
-
-        # 2. Build the query.
-        # Conflicts come in two shapes: schedule-overlap conflicts carry
-        # schedule_id_1, while generator conflicts (unplaced subject, workload cap)
-        # carry only faculty_id/curriculum_id and leave schedule_id_1 NULL. An
-        # inner join on schedule_id_1 dropped the entire second group, so this
-        # count read 0 while the conflicts panel listed them. Outer-join instead
-        # and resolve the department through whichever link the row actually has.
-        query = db.query(models.Conflict).outerjoin(
-            models.Schedule,
-            models.Conflict.schedule_id_1 == models.Schedule.id
-        ).outerjoin(
-            models.Curriculum,
-            models.Curriculum.id == func.coalesce(
-                models.Conflict.curriculum_id, models.Schedule.curriculum_id
-            )
-        ).filter(
-            models.Conflict.resolved_at == None,
-            # Keep semester scoping where a schedule link exists; generator
-            # conflicts have no schedule to scope by and are always current.
-            (models.Schedule.id == None) | (models.Schedule.semester_id == active_semester.id)
-        )
-
-        # 3. Apply department scoping for Program Chairs / Coordinators
-        if current_user.role in ['program_chair', 'coordinator']:
-            if not current_user.department:
-                return {"count": 0}
-
-            dept = db.query(models.Department).filter(
-                (models.Department.code == current_user.department) |
-                (models.Department.name == current_user.department)
-            ).first()
-            if not dept:
-                return {"count": 0}
-
-            query = query.filter(models.Curriculum.department_id == dept.id)
-
-        count = query.count()
-        return {"count": count}
-    except Exception as e:
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
         return {"count": 0}
+
+    # 1. Find the active semester
+    active_semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+    if not active_semester:
+        return {"count": 0}
+
+    # 2. Build the query.
+    # Conflicts come in two shapes: schedule-overlap conflicts carry
+    # schedule_id_1, while generator conflicts (unplaced subject, workload cap)
+    # carry only faculty_id/curriculum_id and leave schedule_id_1 NULL. An
+    # inner join on schedule_id_1 dropped the entire second group, so this
+    # count read 0 while the conflicts panel listed them. Outer-join instead
+    # and resolve the department through whichever link the row actually has.
+    query = db.query(models.Conflict).outerjoin(
+        models.Schedule,
+        models.Conflict.schedule_id_1 == models.Schedule.id
+    ).outerjoin(
+        models.Curriculum,
+        models.Curriculum.id == func.coalesce(
+            models.Conflict.curriculum_id, models.Schedule.curriculum_id
+        )
+    ).filter(
+        models.Conflict.resolved_at == None,
+        # Keep semester scoping where a schedule link exists; generator
+        # conflicts have no schedule to scope by and are always current.
+        (models.Schedule.id == None) | (models.Schedule.semester_id == active_semester.id)
+    )
+
+    # 3. Apply department scoping for Program Chairs / Coordinators
+    if current_user.role in ['program_chair', 'coordinator']:
+        if not current_user.department:
+            return {"count": 0}
+
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if not dept:
+            return {"count": 0}
+
+        query = query.filter(models.Curriculum.department_id == dept.id)
+
+    return {"count": query.count()}
  
 @router.post("/validate", response_model=List[schemas.ConflictDetail])
 def validate_schedule_conflict(
