@@ -1,16 +1,30 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-pydantic
-email-validator
-python-multipart
-python-jose[cryptography]
-passlib[bcrypt]
-requests
-python-dotenv
-bcrypt
-alembic
-reportlab
-pandas
-openpyxl
-psycopg2-binary
+# Pinned deliberately. An unpinned list resolves to whatever is newest at build
+# time, so a redeploy months after the last one installs a dependency set the
+# code was never run against — the usual cause of "it deployed fine before".
+# These versions are the ones the application is developed and tested against.
+#
+# To upgrade: change a pin, run the app locally, then deploy. One at a time.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+sqlalchemy==2.0.51
+pydantic==2.13.4
+email-validator==2.3.0
+python-multipart==0.0.32
+python-jose[cryptography]==3.5.0
+requests==2.34.2
+python-dotenv==1.2.2
+alembic==1.18.5
+reportlab==5.0.0
+# pandas was dropped: both Excel paths (curriculum import, schedule
+# import/export) use openpyxl directly and nothing imports pandas. It was
+# pulling pandas + numpy, roughly 50 MB, into every image build.
+openpyxl==3.1.5
+psycopg2-binary==2.9.12
+
+# passlib 1.7.4 reads bcrypt.__about__, which bcrypt dropped in 4.1. The pair
+# below is the combination currently in service; it logs a version-detection
+# warning at startup and hashes correctly. Bumping either one alone is what
+# turns that warning into a login-breaking error, so they move together.
+passlib[bcrypt]==1.7.4
+bcrypt==5.0.0

@@ -476,17 +476,31 @@ def get_schedule_suggestions(
     faculties = db.query(models.Faculty).filter(models.Faculty.department_id == curriculum_item.department_id).all()
     valid_faculties = []
     
+    # One pass for the whole semester instead of a query per faculty plus a
+    # query per schedule row. `semester_schedules` is reused below for the
+    # overlap checks, which used to issue their own query per candidate slot.
+    semester_schedules = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == semester_id
+    ).all()
+    unit_by_curriculum = {
+        c.id: int(c.units or 0)
+        for c in db.query(models.Curriculum.id, models.Curriculum.units).all()
+    }
+    units_by_faculty = {}
+    for s in semester_schedules:
+        if s.faculty_id:
+            units_by_faculty[s.faculty_id] = (
+                units_by_faculty.get(s.faculty_id, 0) + unit_by_curriculum.get(s.curriculum_id, 0)
+            )
+
+    # Faculty unavailability, likewise loaded once.
+    unavailabilities = db.query(models.FacultyUnavailability).filter(
+        models.FacultyUnavailability.faculty_id.in_([f.id for f in faculties])
+    ).all() if faculties else []
+
     # Calculate current units for faculties
     for f in faculties:
-        schedules = db.query(models.Schedule).filter(
-            models.Schedule.faculty_id == f.id,
-            models.Schedule.semester_id == semester_id
-        ).all()
-        total_units = 0
-        for s in schedules:
-            curr = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-            if curr:
-                total_units += int(curr.units)  # type: ignore
+        total_units = units_by_faculty.get(f.id, 0)
         if (total_units + curriculum_item.units) <= f.max_units:
             valid_faculties.append({
                 "faculty": f,
@@ -508,28 +522,31 @@ def get_schedule_suggestions(
         for room in valid_rooms[:3]:  # Try a few valid rooms
             for day in DAYS:
                 for start_t, end_t in TIMESLOTS:
-                    # Check DB schedule overlaps
-                    overlap = db.query(models.Schedule).filter(
-                        models.Schedule.semester_id == semester_id,
-                        models.Schedule.day_of_week == day,
-                        models.Schedule.start_time == start_t,
-                        models.Schedule.end_time == end_t
-                    ).filter(
-                        (models.Schedule.room_id == room.id) | 
-                        (models.Schedule.faculty_id == faculty.id)
-                    ).first()
-                    
+                    # In-memory checks against the rows loaded above. This loop
+                    # runs 3 faculty x 3 rooms x 6 days x 6 slots = 324 times,
+                    # and each iteration used to issue two queries -- up to 648
+                    # round-trips for one request. The early return at five
+                    # suggestions only helped when slots were free, so the full
+                    # cost landed on a full timetable, which is exactly when the
+                    # feature is used. Same comparisons, no round-trips.
+                    overlap = any(
+                        s.day_of_week == day
+                        and s.start_time == start_t
+                        and s.end_time == end_t
+                        and (s.room_id == room.id or s.faculty_id == faculty.id)
+                        for s in semester_schedules
+                    )
                     if overlap:
                         continue
-                        
+
                     # Check faculty unavailability
-                    blocked = db.query(models.FacultyUnavailability).filter(
-                        models.FacultyUnavailability.faculty_id == faculty.id,
-                        models.FacultyUnavailability.day_of_week == day,
-                        models.FacultyUnavailability.start_time < end_t,
-                        models.FacultyUnavailability.end_time > start_t
-                    ).first()
-                    
+                    blocked = any(
+                        u.faculty_id == faculty.id
+                        and u.day_of_week == day
+                        and u.start_time < end_t
+                        and u.end_time > start_t
+                        for u in unavailabilities
+                    )
                     if blocked:
                         continue
                         
@@ -589,7 +606,14 @@ def export_pdf(
             query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
             dept_name = dept.name
 
-    schedules = query.all()
+    # Eager-load the three relationships the row loop reads. Resolving them
+    # per row issued three queries per schedule -- a 500-class export was about
+    # 1,500 round-trips, seconds of latency on a networked database.
+    schedules = query.options(
+        joinedload(models.Schedule.curriculum),
+        joinedload(models.Schedule.faculty),
+        joinedload(models.Schedule.room),
+    ).all()
 
     semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     term_label = f"{semester.academic_year} {semester.term}" if semester else ""
@@ -599,9 +623,9 @@ def export_pdf(
     day_order = {d: i for i, d in enumerate(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])}
     rows = []
     for s in schedules:
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-        faculty = db.query(models.Faculty).filter(models.Faculty.id == s.faculty_id).first()
-        room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
+        curriculum_item = s.curriculum
+        faculty = s.faculty
+        room = s.room
 
         prof = f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA"
         if faculty_name and prof != faculty_name:
@@ -725,7 +749,28 @@ async def import_excel(
             
     success_count = 0
     errors = []
-    
+
+    # Resolve the three lookup tables once instead of three queries per row.
+    # An import of 500 classes was 1,500 round-trips, all of them repeats: the
+    # same handful of curricula, faculty and rooms fetched over and over.
+    # Keyed exactly as the per-row queries were, so unmatched rows still fail
+    # the same way and produce the same error message.
+    # First match wins, matching the `.first()` these replace. `rooms.name` has
+    # no unique constraint -- two buildings may both have a "101" -- so a dict
+    # comprehension, which keeps the LAST duplicate, would have quietly bound
+    # imported rows to a different room than before.
+    def _index(rows_, key):
+        out = {}
+        for r in rows_:
+            k = getattr(r, key)
+            if k and k not in out:
+                out[k] = r
+        return out
+
+    curriculum_by_code = _index(db.query(models.Curriculum).order_by(models.Curriculum.id).all(), "code")
+    faculty_by_email = _index(db.query(models.Faculty).order_by(models.Faculty.id).all(), "email")
+    room_by_name = _index(db.query(models.Room).order_by(models.Room.id).all(), "name")
+
     for index, row in enumerate(rows[1:], start=2):
         if not row or all(v is None for v in row):
             continue
@@ -738,9 +783,9 @@ async def import_excel(
             end_val = row[col_indices['EndTime']]
             sec_val = str(row[col_indices['Section']]).strip() if row[col_indices['Section']] is not None else ""
 
-            curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.code == curr_code).first()
-            faculty = db.query(models.Faculty).filter(models.Faculty.email == fac_email).first()
-            room = db.query(models.Room).filter(models.Room.name == rm_name).first()
+            curriculum_item = curriculum_by_code.get(curr_code)
+            faculty = faculty_by_email.get(fac_email)
+            room = room_by_name.get(rm_name)
             
             if not curriculum_item or not faculty or not room:
                 errors.append(f"Row {index}: Entity not found (Curriculum: {curriculum_item is not None}, Faculty: {faculty is not None}, Room: {room is not None})")
@@ -816,15 +861,22 @@ def export_excel(
             query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
             dept_name = dept.name
             
-    schedules = query.all()
-    
+    # Eager-load the three relationships the row loop reads. Resolving them
+    # per row issued three queries per schedule -- a 500-class export was about
+    # 1,500 round-trips, seconds of latency on a networked database.
+    schedules = query.options(
+        joinedload(models.Schedule.curriculum),
+        joinedload(models.Schedule.faculty),
+        joinedload(models.Schedule.room),
+    ).all()
+
     # Prepare data
     export_data = []
     headers = ["Curriculum Code", "Subject Name", "Section", "Faculty", "Room", "Day", "Start Time", "End Time", "Status", "Locked"]
     for s in schedules:
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-        faculty = db.query(models.Faculty).filter(models.Faculty.id == s.faculty_id).first()
-        room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
+        curriculum_item = s.curriculum
+        faculty = s.faculty
+        room = s.room
         
         export_data.append({
             "Curriculum Code": curriculum_item.code if curriculum_item else "N/A",

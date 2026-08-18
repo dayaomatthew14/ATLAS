@@ -164,7 +164,10 @@ export function clearSession() {
  */
 export function saveSession(response) {
   if (typeof window === 'undefined' || !response) return;
-  if (response.access_token) localStorage.setItem('atlas_token', response.access_token);
+  // The JWT is deliberately NOT stored here. /auth/login sets it as an
+  // HttpOnly cookie, which is the only copy the app needs and the only one a
+  // script cannot read. 'atlas_token' stays in SESSION_KEYS so that signing out
+  // clears any copy left behind by a build that did store it.
   localStorage.setItem('atlas_role', response.role);
   localStorage.setItem('atlas_user_name', response.name || '');
 

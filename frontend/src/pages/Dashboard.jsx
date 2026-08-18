@@ -210,8 +210,12 @@ export default function Dashboard() {
       try {
         const data = await api.get('/conflicts/count');
         setConflictCount(data.count || 0);
-      } catch {
-        setConflictCount(0);
+      } catch (err) {
+        // Not `0`. A failed request tells us nothing about how many conflicts
+        // exist, and reporting none would clear the badge on a schedule that
+        // may well be broken. `null` is the "unknown" the rail renders as "?".
+        console.error('ATLAS: conflict count could not be read.', err);
+        setConflictCount(null);
       }
     };
     fetchConflictCount();

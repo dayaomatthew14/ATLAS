@@ -1,0 +1,33 @@
+# The Dockerfile does `COPY . .`, which without this file ships the entire
+# working directory into the image: a 222 MB Windows-built virtualenv that the
+# Linux image cannot use, the local SQLite database with real user rows, and
+# the .env holding SECRET_KEY.
+
+# Virtualenv — built for the developer's OS, never valid inside the image.
+venv/
+env/
+
+# Secrets. Deployed configuration comes from the platform's environment
+# variables, never from a file baked into an image layer.
+.env
+.env.*
+!.env.example
+
+# Local database. Deployments read DATABASE_URL and must not carry a stale copy.
+*.db
+*.sqlite
+*.sqlite3
+
+# Locally uploaded profile photos — user data, not source.
+uploads/
+
+# Python bytecode and test caches.
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Developer conveniences with no meaning inside a container.
+*.bat
+node_modules/
+package.json
+package-lock.json

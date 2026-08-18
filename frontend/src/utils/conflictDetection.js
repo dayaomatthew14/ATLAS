@@ -58,14 +58,16 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
 
     if (isTimeOverlap(start1, end1, start2, end2)) {
       // Room Conflict (only if room is assigned)
+      // Identity only. Matching on display name additionally flagged two
+      // distinct rooms that happen to share a name -- `rooms` has no unique
+      // constraint on `name`, so "101" in two buildings is normal -- and two
+      // faculty who share a display name. Both produced conflicts the server
+      // does not have and the user cannot resolve. The server compares ids
+      // (schedule_generator.is_room_conflict); so does this now.
       const newRoomId = newSchedule.room_id || newSchedule.roomId;
       const existingRoomId = existing.room_id || existing.roomId;
-      const newRoomName = newSchedule.room_name || newSchedule.room?.name;
-      const existingRoomName = existing.room_name || existing.room?.name;
 
-      const hasRoomConflict =
-        (newRoomId && existingRoomId && newRoomId === existingRoomId) ||
-        (newRoomName && existingRoomName && newRoomName !== '—' && newRoomName === existingRoomName);
+      const hasRoomConflict = Boolean(newRoomId && existingRoomId && newRoomId === existingRoomId);
 
       if (hasRoomConflict) {
         conflicts.push({ type: 'Room', with: existing });
@@ -74,12 +76,8 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
       // Teacher Conflict
       const newFacId = newSchedule.faculty_id || newSchedule.teacherId;
       const existingFacId = existing.faculty_id || existing.teacherId;
-      const newFacName = newSchedule.faculty_name || newSchedule.teacher;
-      const existingFacName = existing.faculty_name || existing.teacher;
 
-      const hasTeacherConflict =
-        (newFacId && existingFacId && newFacId === existingFacId) ||
-        (newFacName && existingFacName && newFacName === existingFacName);
+      const hasTeacherConflict = Boolean(newFacId && existingFacId && newFacId === existingFacId);
 
       if (hasTeacherConflict) {
         conflicts.push({ type: 'Teacher', with: existing });
@@ -113,19 +111,14 @@ export const checkScheduleIntegrity = (schedules) => {
       const otherEnd = other.end_time || other.endTime;
       if (!isTimeOverlap(start, end, otherStart, otherEnd)) return false;
 
+      // Identity only -- see the note in detectConflicts above.
       const itemId = item.room_id || item.roomId;
       const otherRoomId = other.room_id || other.roomId;
-      const itemRoomName = item.room_name || item.room?.name;
-      const otherRoomName = other.room_name || other.room?.name;
-      const roomConflict = (itemId && otherRoomId && itemId === otherRoomId) ||
-        (itemRoomName && otherRoomName && itemRoomName !== '—' && itemRoomName === otherRoomName);
+      const roomConflict = Boolean(itemId && otherRoomId && itemId === otherRoomId);
 
       const itemFacId = item.faculty_id || item.teacherId;
       const otherFacId = other.faculty_id || other.teacherId;
-      const itemFacName = item.faculty_name || item.teacher;
-      const otherFacName = other.faculty_name || other.teacher;
-      const teacherConflict = (itemFacId && otherFacId && itemFacId === otherFacId) ||
-        (itemFacName && otherFacName && itemFacName === otherFacName);
+      const teacherConflict = Boolean(itemFacId && otherFacId && itemFacId === otherFacId);
 
       const sectionConflict = item.section && other.section && item.section === other.section;
 

@@ -70,7 +70,13 @@ export default function DashboardHome() {
         api.get('/schedules').catch(() => []),
         api.get('/semesters').catch(() => []),
         api.get('/professors').catch(() => []),
-        api.get('/conflicts/count').catch(() => ({ count: 0 })),
+        // Not `.catch(() => ({ count: 0 }))`. Zero paints the Conflicts tile
+        // green; a request that failed has not established that anything is
+        // clean. `null` flows through as the "unknown" state below.
+        api.get('/conflicts/count').catch((err) => {
+          console.error('ATLAS: conflict count could not be read.', err);
+          return { count: null };
+        }),
         api.get('/logs?limit=5').catch(() => []),
         api.get('/rooms').catch(() => []),
       ]);
@@ -86,7 +92,7 @@ export default function DashboardHome() {
       setRecentLogs(safeLogs);
 
       setSchedulesCount(safeSchedules.length);
-      setConflictsCount(conflicts?.count || 0);
+      setConflictsCount(conflicts?.count ?? null);
       setRoomsCount(safeRooms.length);
       setFacultyCount(safeFaculty.length);
       setFacultyMissingAvail(safeFaculty.filter((f) => !f.max_units || f.max_units === 0).length);
@@ -178,6 +184,11 @@ export default function DashboardHome() {
   ];
 
   const blockers = [
+    conflictsCount === null && {
+      id: 'conflicts-unknown', to: '/dashboard/schedules', icon: AlertTriangle, iconClass: 'text-sem-warning',
+      label: 'Conflict check unavailable',
+      detail: 'The number of conflicts could not be read, so this timetable is unverified — not clean.',
+    },
     conflictsCount > 0 && {
       id: 'conflicts', to: '/dashboard/schedules', icon: AlertTriangle, iconClass: 'text-sem-conflict',
       label: `${pluralize(conflictsCount, 'unresolved conflict')}`,
@@ -256,8 +267,12 @@ export default function DashboardHome() {
             hint: facultyMissingAvail > 0 ? `${facultyMissingAvail} without a cap` : undefined,
             tone: facultyMissingAvail > 0 ? 'warning' : 'default' },
           { label: 'Rooms', value: roomsCount, icon: MapPin, to: '/dashboard/rooms' },
-          { label: 'Conflicts', value: conflictsCount, icon: AlertTriangle, to: '/dashboard/schedules',
-            tone: conflictsCount > 0 ? 'conflict' : 'good' },
+          // A green "0" is a claim that the timetable is clean. Only make it
+          // when the count actually came back; unknown reads as a warning "—".
+          { label: 'Conflicts', value: conflictsCount === null ? '—' : conflictsCount,
+            icon: AlertTriangle, to: '/dashboard/schedules',
+            hint: conflictsCount === null ? 'Count unavailable' : undefined,
+            tone: conflictsCount === null ? 'warning' : conflictsCount > 0 ? 'conflict' : 'good' },
         ].map((s, i) => (
           // 60ms apart, per the Standard stagger tier — the grid settles in
           // reading order instead of all four landing at once.

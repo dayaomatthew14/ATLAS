@@ -7,7 +7,7 @@ from backend.app import models, schemas, auth
 from backend.app.services.schedule_generator import generate_schedules, is_room_conflict, check_overlap
 from backend.app.routers import (
     auth_router, curriculum, rooms, users, schedules,
-    semesters, faculty, ai_scheduler, logs, ai_rules,
+    semesters, ai_scheduler, logs, ai_rules,
     notifications_router, conflicts, subject_offerings, professors
 )
 
