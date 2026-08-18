@@ -9,31 +9,53 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
-        
+        cache: pip
+        cache-dependency-path: backend/requirements.txt
+
     - name: Install dependencies
       working-directory: ./backend
       run: |
         python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
+        pip install -r requirements.txt
+
     - name: Lint with flake8
       working-directory: ./backend
       run: |
         pip install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-        
-    - name: Test backend import resolution
+        # Syntax errors and undefined names fail the build. Migrations are
+        # code and are deliberately NOT excluded here -- a broken one must not
+        # reach a deploy that runs it.
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
+        # Everything else is advisory.
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,alembic
+
+    - name: Check the application imports
       working-directory: ./backend
-      run: |
-        python -m py_compile main.py
+      env:
+        SECRET_KEY: ci-import-check
+      run: python -c "import main"
+
+    # The step this workflow was missing. Until it existed a green tick meant
+    # only that the files parsed: the suites in tests/ were never executed by
+    # CI, so a change that broke schedule generation still passed.
+    - name: Run tests
+      env:
+        SECRET_KEY: ci-test-secret-not-used-for-anything-real
+      run: python -m unittest discover -s tests -t . -p "*.py" --verbose
+
+    # Fails when models.py has changed without a matching migration -- the
+    # omission that previously reached production unnoticed, because the old
+    # startup helper could only add nullable columns and silently ignored
+    # everything else.
+    - name: Verify migrations describe the models
+      env:
+        SECRET_KEY: ci-test-secret-not-used-for-anything-real
+      run: python -m unittest tests.test_migrations.MigrationTests.test_migrations_produce_the_model_schema

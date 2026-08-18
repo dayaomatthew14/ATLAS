@@ -10,14 +10,18 @@ load_dotenv()
 from contextlib import asynccontextmanager
 from app import database, models, auth
 from app.database import engine
+from app import storage
 from app.routers import (
     auth_router, curriculum, rooms, 
-    users, schedules, semesters, faculty, ai_scheduler, logs, ai_rules,
+    users, schedules, semesters, ai_scheduler, logs, ai_rules,
     notifications_router, conflicts, subject_offerings, professors,
     academics_router
 )
 
 from sqlalchemy import text, inspect
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 def sync_missing_columns(conn):
@@ -62,13 +66,52 @@ def sync_missing_columns(conn):
 
     return added
 
+def _alembic_config():
+    """Alembic configuration resolved relative to this file, not the cwd."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    cfg = Config(os.path.join(here, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(here, "alembic"))
+    return cfg
+
+
 def init_db():
+    """
+    Bring the database to the schema this code expects, then verify it.
+
+    Three cases, distinguished by whether alembic has ever stamped this
+    database:
+
+      * No `alembic_version` table. Either a brand-new database or one created
+        before migrations existed -- which includes the deployed one. Build
+        anything missing the way it was always built, then stamp the baseline
+        so the next change can be a migration rather than a guess.
+      * Stamped. Run the migrations, so the schema follows the code
+        automatically instead of depending on someone remembering.
+
+    `sync_missing_columns` still runs afterwards, but its role has changed. It
+    used to be the only mechanism, which is why a renamed or retyped column
+    could never be applied at all and a missing one was repaired in silence.
+    Now it is a check: anything it finds is a column that reached the models
+    without a migration, and it says so loudly instead of quietly patching and
+    moving on.
+    """
     try:
-        models.Base.metadata.create_all(bind=engine)
+        with engine.connect() as conn:
+            stamped = MigrationContext.configure(conn).get_current_revision()
+
+        if stamped is None:
+            print("Schema: no migration history found; adopting the baseline.")
+            models.Base.metadata.create_all(bind=engine)
+            command.stamp(_alembic_config(), "head")
+            print("Schema: stamped at head. Future changes come from alembic/versions.")
+        else:
+            command.upgrade(_alembic_config(), "head")
+            print(f"Schema: migrations applied (was at {stamped}).")
+
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             if "postgresql" in engine.url.drivername:
                 # Legacy fixup: role was originally an ENUM and must be widened
-                # before the generic column sync can rely on it.
+                # before the generic column check can rely on it.
                 try:
                     conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR;"))
                 except Exception as e:
@@ -76,9 +119,14 @@ def init_db():
 
             added = sync_missing_columns(conn)
             if added:
-                print(f"Schema sync: added {len(added)} missing column(s): {', '.join(added)}")
+                print("=" * 72)
+                print(f"  SCHEMA DRIFT: {len(added)} column(s) existed on the models but not in")
+                print(f"  the database, and were added as nullable: {', '.join(added)}")
+                print("  A migration is missing. Generate one so the next deployment does not")
+                print("  depend on this fallback:  alembic revision --autogenerate -m '...'")
+                print("=" * 72)
             else:
-                print("Schema sync: database schema matches models.")
+                print("Schema: database matches the models.")
     except Exception as e:
         print(f"Database initialization warning: {e}")
 
@@ -238,9 +286,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ATLAS Backend API", redirect_slashes=False, lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
-# Mount static directory for uploads
-os.makedirs("uploads/profiles", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# Mount static directory for uploads. The URL stays /uploads; where those
+# files actually sit is UPLOAD_DIR, which a deployment points at a mounted
+# volume so a redeploy stops wiping every profile photo. See app/storage.py.
+os.makedirs(storage.profiles_dir(), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=storage.UPLOAD_DIR), name="uploads")
 
 origins = [
     "http://localhost:5173", 
@@ -276,7 +326,6 @@ app.include_router(rooms.router)
 app.include_router(users.router)
 app.include_router(schedules.router)
 app.include_router(semesters.router)
-app.include_router(faculty.router)
 app.include_router(ai_scheduler.router)
 app.include_router(logs.router)
 app.include_router(ai_rules.router)
