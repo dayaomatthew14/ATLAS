@@ -40,10 +40,16 @@ async function request(endpoint, options = {}) {
     }
   }
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('atlas_token') : null;
+  // No Authorization header. The session travels in the HttpOnly `atlas_token`
+  // cookie that /auth/login sets, carried by `credentials: 'include'` below.
+  //
+  // A second copy used to be kept in localStorage and sent as a Bearer token,
+  // and because the server prefers the header over the cookie, that copy was
+  // the credential actually in use -- which made the HttpOnly flag decorative.
+  // Any injected script could read the token and replay it for the life of the
+  // session. Removing the readable copy is what makes HttpOnly mean something.
   const headers = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
@@ -149,10 +155,9 @@ async function requestBlob(endpoint, options = {}) {
     if (query) url += (url.includes('?') ? '&' : '?') + query;
   }
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('atlas_token') : null;
+  // Cookie-only, same as `request` above.
   const response = await fetch(url, {
     method: 'GET',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
     credentials: 'include',
   });
 

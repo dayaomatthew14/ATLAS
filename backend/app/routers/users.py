@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-from .. import models, schemas, database, auth
+from .. import models, schemas, database, auth, storage
 from .logs import log_activity
 
 router = APIRouter(
@@ -291,16 +291,19 @@ async def upload_profile_picture(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
 
     filename = f"user_{user_id}_{os.urandom(4).hex()}.{candidate_ext}"
-    file_location = f"uploads/profiles/{filename}"
-    os.makedirs("uploads/profiles", exist_ok=True)
-    with open(file_location, "wb") as file_object:
+    # `file_location` is the value stored and served; the bytes go wherever
+    # UPLOAD_DIR points. Keeping those two separate is what lets a deployment
+    # move the files onto a volume without invalidating existing rows.
+    file_location = storage.stored_path(filename)
+    os.makedirs(storage.profiles_dir(), exist_ok=True)
+    with open(storage.disk_path(file_location), "wb") as file_object:
         file_object.write(contents)
 
 
     # Delete old picture if exists
     if db_user.profile_picture:
         try:
-            os.remove(str(db_user.profile_picture))
+            os.remove(storage.disk_path(str(db_user.profile_picture)))
         except OSError:
             pass
             

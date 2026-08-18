@@ -15,6 +15,7 @@ import Profile from './pages/dashboard/Profile';
 import Settings from './pages/dashboard/Settings';
 import Colleges from './pages/dashboard/Colleges';
 import { ToastProvider } from './components/ToastProvider';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import { getRole, ROLES, ALL_ROLES, SCHEDULING_ROLES } from './utils/session';
 
 const Unauthorized403 = () => (
@@ -49,8 +50,9 @@ const adminOnly = [ROLES.ADMIN];
 
 function App() {
   return (
-    <ToastProvider>
-      <Router>
+    <AppErrorBoundary>
+      <ToastProvider>
+        <Router>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
@@ -146,8 +148,9 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </Router>
-    </ToastProvider>
+        </Router>
+      </ToastProvider>
+    </AppErrorBoundary>
   );
 }
 
