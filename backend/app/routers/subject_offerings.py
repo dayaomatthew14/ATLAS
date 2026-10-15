@@ -57,7 +57,7 @@ def _assert_assignable(curriculum: models.Curriculum, current_user: models.User)
             )
         )
 
-    expected = ROLE_SUBJECT_SCOPE.get(current_user.role)
+    expected = ROLE_SUBJECT_SCOPE.get(str(current_user.role))
     if expected is not None and bool(curriculum.is_major) is not expected:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -229,7 +229,7 @@ def delete_subject_offering(
     # The same scope that governs assigning governs unassigning. Without this a
     # coordinator could drop a chair's major-subject load by id -- the screen
     # never offers it, but the endpoint would.
-    expected = ROLE_SUBJECT_SCOPE.get(current_user.role)
+    expected = ROLE_SUBJECT_SCOPE.get(str(current_user.role))
     # SubjectOffering carries no `curriculum` relationship, so look it up.
     curriculum = db.query(models.Curriculum).filter(
         models.Curriculum.id == offering.curriculum_id

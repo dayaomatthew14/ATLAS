@@ -123,9 +123,14 @@ export default function TopBar({
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
-        <button type="button" onClick={onOpenGuide} className={iconBtn} aria-label="Open the ATLAS user guide">
-          <HelpCircle className="w-5 h-5" aria-hidden="true" />
-        </button>
+        {/* The guide is not offered to every role, so the handler is what
+            decides whether the control exists at all. Rendering a help button
+            that opens nothing is worse than not offering help. */}
+        {onOpenGuide && (
+          <button type="button" onClick={onOpenGuide} className={iconBtn} aria-label="Open the ATLAS user guide">
+            <HelpCircle className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
 
         <div className="relative" ref={menuRef}>
           <button

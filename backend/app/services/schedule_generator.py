@@ -1,5 +1,5 @@
 from datetime import time
-from typing import List
+from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from .. import models
 from . import faculty_load
@@ -119,22 +119,25 @@ def generate_schedules(
     faculty_ids: List[int],
     department_id: int,
     auto_bump_units: bool = True,
-    assign_lab_rooms: bool = True,
-):
+) -> Dict[str, Any]:
     """
     Build a term's timetable.
 
-    `assign_lab_rooms` is the caller's answer to "should laboratories be given a
-    room?". It never affects lectures: a lecture is always saved with room_id
-    NULL, whichever way this is set.
+    Rooms are best-effort, never a requirement.
 
-      True  -- a laboratory must land in a free 'lab' or 'computer_lab' room, and
-               is left unplaced if none is free. Rooms are checked for clashes.
-      False -- laboratories are placed on faculty availability alone and saved
-               with room_id NULL, exactly as lectures are. Many laboratories are
-               assigned centrally by the Registrar, outside ATLAS; when that is
-               how a department works, refusing to schedule the class until
-               ATLAS knows the room invents a blocker that does not exist.
+    What this system owes its users is a professor timetable with no faculty or
+    section clashes; that is what gets exported and submitted, and the Registrar
+    assigns rooms from there. So a laboratory is given a free 'lab' or
+    'computer_lab' room where one exists, and placed without one where it does
+    not. A lecture is never given a room at all.
+
+    This used to be a caller's choice, surfaced as a checkbox on the Generate
+    dialog. It defaulted to requiring rooms, which meant a college whose
+    laboratories are assigned centrally -- and some are -- had classes refused
+    over a column ATLAS does not own. Because the checkbox reset every run and
+    was set per person, two chairs in the same college could also get different
+    timetables from the same data. A blank room now simply means the Registrar
+    assigns that one.
     """
     # Purge existing unlocked draft schedules for this semester and faculty scope
     if faculty_ids:
@@ -373,85 +376,74 @@ def generate_schedules(
                         placed = True
                         break
             else:
-                # Laboratory subjects. Whether they get a room is the caller's
-                # choice; see the docstring.
-                valid_lab_rooms = []
-                if assign_lab_rooms:
-                    valid_lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
-                    if not valid_lab_rooms:
-                        reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
-                        conf_rec = models.Conflict(
-                            faculty_id=pid,
-                            curriculum_id=c.id,
-                            conflict_type="no_lab_room_available",
-                            reason=reason_msg
-                        )
-                        pending_conflicts.append(conf_rec)
-                        unplaced.append({
-                            "faculty": pid,
-                            "curriculum_id": c.id,
-                            "subject": c.code,
-                            "part_type": part_type,
-                            "reason": reason_msg
-                        })
-                        continue
+                # Laboratory subjects.
+                #
+                # Two passes, and the second one is the point: try to find a
+                # free laboratory first, and if none can be had, place the class
+                # anyway with no room. A room is not this system's to guarantee
+                # -- schedules are submitted to the Registrar, who assigns the
+                # rooms -- so refusing to timetable a professor for want of one
+                # withheld the whole deliverable over someone else's column.
+                #
+                # Assigning where possible is still worth doing: a college that
+                # runs its own laboratories gets them filled in, and a blank
+                # simply means "the Registrar assigns this one".
+                lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
+                room_passes = ([lab_rooms] if lab_rooms else []) + [[None]]
 
-                # With rooms off, this runs once with no room and no room-clash
-                # check, so a laboratory is placed on faculty availability alone.
-                room_candidates = valid_lab_rooms if assign_lab_rooms else [None]
-
-                for days_pair in day_pairs_to_try:
+                for room_candidates in room_passes:
                     if placed: break
-                    day1, day2 = days_pair[0], days_pair[1]
-
-                    for start_t, end_t in slots:
+                    for days_pair in day_pairs_to_try:
                         if placed: break
+                        day1, day2 = days_pair[0], days_pair[1]
 
-                        if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
-                        if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
+                        for start_t, end_t in slots:
+                            if placed: break
 
-                        for room in room_candidates:
-                            if room is not None and is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
-                            room_id = room.id if room is not None else None
+                            if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
+                            if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
 
-                            sched1 = models.Schedule(
-                                semester_id=semester_id,
-                                curriculum_id=c.id,
-                                faculty_id=pid,
-                                room_id=room_id,
-                                day_of_week=day1,
-                                start_time=start_t,
-                                end_time=end_t,
-                                section="",
-                                status='draft'
-                            )
-                            sched2 = models.Schedule(
-                                semester_id=semester_id,
-                                curriculum_id=c.id,
-                                faculty_id=pid,
-                                room_id=room_id,
-                                day_of_week=day2,
-                                start_time=start_t,
-                                end_time=end_t,
-                                section="",
-                                status='draft'
-                            )
-                            pending_schedules.extend([sched1, sched2])
-                            all_schedules.extend([sched1, sched2])
-                            scheduled_offerings.add((pid, c.id))
+                            for room in room_candidates:
+                                if room is not None and is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
+                                room_id = room.id if room is not None else None
 
-                            faculty_hours_used[pid] += proposed_hours_total
-                            generated_count += 2
-                            placed = True
-                            break
+                                sched1 = models.Schedule(
+                                    semester_id=semester_id,
+                                    curriculum_id=c.id,
+                                    faculty_id=pid,
+                                    room_id=room_id,
+                                    day_of_week=day1,
+                                    start_time=start_t,
+                                    end_time=end_t,
+                                    section="",
+                                    status='draft'
+                                )
+                                sched2 = models.Schedule(
+                                    semester_id=semester_id,
+                                    curriculum_id=c.id,
+                                    faculty_id=pid,
+                                    room_id=room_id,
+                                    day_of_week=day2,
+                                    start_time=start_t,
+                                    end_time=end_t,
+                                    section="",
+                                    status='draft'
+                                )
+                                pending_schedules.extend([sched1, sched2])
+                                all_schedules.extend([sched1, sched2])
+                                scheduled_offerings.add((pid, c.id))
+
+                                faculty_hours_used[pid] += proposed_hours_total
+                                generated_count += 2
+                                placed = True
+                                break
 
             if not placed:
-                # With rooms off there is no room to blame, so a laboratory
-                # failed for the same reason a lecture would have.
-                if part_type == 'lab' and assign_lab_rooms:
-                    reason_msg = f"{c.code} could not be scheduled because no laboratory room was available."
-                else:
-                    reason_msg = f"{c.code} could not be scheduled due to faculty availability or schedule conflict."
+                # A room is never the reason. Laboratories fall back to being
+                # placed without one, so anything still unplaced here failed on
+                # faculty availability or a clash -- the two things this system
+                # is actually responsible for.
+                reason_msg = f"{c.code} could not be scheduled due to faculty availability or schedule conflict."
                 conf_rec = models.Conflict(
                     faculty_id=pid,
                     curriculum_id=c.id,

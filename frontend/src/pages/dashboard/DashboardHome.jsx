@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, MapPin, AlertTriangle, Clock, Activity, Sparkles, Check,
-  FileDown, Send, Calendar, BookOpen,
+  FileDown, Send, Calendar, BookOpen, ArrowRight,
 } from 'lucide-react';
 import { api, API_BASE } from '../../utils/api';
 import { getUserName, getDepartment } from '../../utils/session';
@@ -10,6 +10,8 @@ import { useToast } from '../../components/ToastProvider';
 import { pluralize, resolveDepartment } from '../../components/ui/tokens';
 import Button from '../../components/ui/Button';
 import { Page, PageHeader, Panel, StatTile, LinkRow } from '../../components/ui/Page';
+import TeachingWeek from '../../components/dashboard/TeachingWeek';
+import FacultyLoadPanel from '../../components/dashboard/FacultyLoadPanel';
 
 /**
  * Overview — program chair and coordinator.
@@ -62,6 +64,11 @@ export default function DashboardHome() {
   const [facultyCount, setFacultyCount] = useState(0);
   const [facultyMissingAvail, setFacultyMissingAvail] = useState(0);
   const [offeringsCount, setOfferingsCount] = useState(0);
+  /* The rows themselves, not just their length. Both lists were already being
+     fetched and thrown away after being counted, so the two panels below cost
+     nothing extra over the wire. */
+  const [schedules, setSchedules] = useState([]);
+  const [faculty, setFaculty] = useState([]);
 
   const fetchStats = async () => {
     setIsLoading(true);
@@ -90,6 +97,9 @@ export default function DashboardHome() {
       const activeSem = safeSemesters.find((s) => s.is_active);
       setActiveSemester(activeSem || null);
       setRecentLogs(safeLogs);
+
+      setSchedules(safeSchedules);
+      setFaculty(safeFaculty);
 
       setSchedulesCount(safeSchedules.length);
       setConflictsCount(conflicts?.count ?? null);
@@ -153,8 +163,30 @@ export default function DashboardHome() {
         fetchStats();
       } else if (action === 'notify') {
         if (activeSemester) {
-          await api.post(`/notifications/notify-faculty?semester_id=${activeSemester.id}`);
-          addToast('All faculty members notified.', 'success');
+          // Report what the server actually did. This said "All faculty members
+          // notified" on every run, including the one where nothing was sent --
+          // the reply carries `sent_count` and it was being thrown away, so a
+          // chair could be told their faculty had their schedules when not one
+          // message had left the building.
+          const res = await api.post(`/notifications/notify-faculty?semester_id=${activeSemester.id}`);
+          const sent = Number(res?.sent_count) || 0;
+          const skipped = Number(res?.skipped_no_contact) || 0;
+
+          if (sent === 0) {
+            addToast(
+              skipped > 0
+                ? `No one was notified. ${pluralize(skipped, 'faculty member')} has no email address on file.`
+                : 'No one was notified. Check that email delivery is set up.',
+              'warning',
+            );
+          } else {
+            addToast(
+              skipped > 0
+                ? `Notified ${pluralize(sent, 'faculty member')}. ${skipped} skipped with no email address.`
+                : `Notified ${pluralize(sent, 'faculty member')}.`,
+              'success',
+            );
+          }
         } else {
           addToast('No active semester found.', 'error');
         }
@@ -168,20 +200,106 @@ export default function DashboardHome() {
 
   /* ---------------------------------------------------------------- derived */
 
+  /*
+   * Each step carries the sentence that would be said to someone stuck on it,
+   * not just its own name. The panel below shows the short label; the "what
+   * now" card at the top of the page shows the long one. Keeping both on the
+   * same object is what stops the checklist and the headline advice from
+   * describing different states of the same term.
+   */
   const readiness = [
-    { label: 'Academic term', ready: Boolean(activeSemester), to: '/dashboard/semesters',
-      detail: activeSemester ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}` : 'None active' },
-    { label: 'Rooms', ready: roomsCount > 0, to: '/dashboard/rooms',
-      detail: roomsCount > 0 ? pluralize(roomsCount, 'room') : 'None registered' },
-    { label: 'Faculty', ready: facultyCount > 0 && facultyMissingAvail === 0, to: '/dashboard/teachers',
+    // No `to`: Academic Terms is administrator-only, so linking a chair there
+    // sent them from their own readiness list to "You do not have access to
+    // this page". The row still reports the state; it just is not a door.
+    {
+      label: 'Academic term',
+      ready: Boolean(activeSemester),
+      detail: activeSemester
+        ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}`
+        : 'None active',
+      icon: Calendar,
+      nextTitle: 'Waiting on an active academic term',
+      nextBody: 'Only an administrator can activate one, and nothing can be generated until they do.',
+    },
+    {
+      label: 'Rooms', ready: roomsCount > 0, to: '/dashboard/rooms', icon: MapPin,
+      detail: roomsCount > 0 ? pluralize(roomsCount, 'room') : 'None registered',
+      nextTitle: 'Register the rooms you need',
+      nextBody: 'A class needs somewhere to go. Laboratories your college runs are yours to add here.',
+      nextAction: 'Go to Rooms',
+    },
+    {
+      label: 'Faculty', ready: facultyCount > 0 && facultyMissingAvail === 0, to: '/dashboard/teachers', icon: Users,
       detail: facultyCount === 0 ? 'None added'
-        : facultyMissingAvail > 0 ? `${facultyMissingAvail} without a unit cap`
-        : pluralize(facultyCount, 'member') },
-    { label: 'Subject offerings', ready: offeringsCount > 0, to: '/dashboard/teachers',
-      detail: offeringsCount > 0 ? pluralize(offeringsCount, 'offering') : 'None assigned' },
-    { label: 'Schedule', ready: schedulesCount > 0, to: '/dashboard/schedules',
-      detail: schedulesCount > 0 ? pluralize(schedulesCount, 'class', 'classes') : 'Not generated' },
+        : facultyMissingAvail > 0 ? `${facultyMissingAvail} without a teaching cap`
+        : pluralize(facultyCount, 'member'),
+      nextTitle: facultyCount === 0 ? 'Add your faculty' : 'Set the missing teaching caps',
+      nextBody: 'Generation cannot respect a limit that has not been set, so anyone without a cap is left out.',
+      nextAction: 'Go to Faculty',
+    },
+    {
+      label: 'Subject offerings', ready: offeringsCount > 0, to: '/dashboard/teachers', icon: BookOpen,
+      detail: offeringsCount > 0 ? pluralize(offeringsCount, 'offering') : 'None assigned',
+      nextTitle: 'Assign subjects to your faculty',
+      nextBody: 'Nothing reaches the timetable until the subjects being taught are assigned to someone.',
+      nextAction: 'Go to Faculty',
+    },
+    {
+      label: 'Schedule', ready: schedulesCount > 0, to: '/dashboard/schedules', icon: Calendar,
+      detail: schedulesCount > 0 ? pluralize(schedulesCount, 'class', 'classes') : 'Not generated',
+      nextTitle: 'Generate the timetable',
+      nextBody: 'Everything this term needs is in place. Generate it, then work through anything it could not place.',
+      nextAction: 'Open Schedule',
+    },
   ];
+
+  const readyCount = readiness.filter((r) => r.ready).length;
+
+  /*
+   * The one thing to do next.
+   *
+   * This screen already held every fact needed to answer "what now" and made
+   * the user assemble the answer themselves from four tiles, a five-row
+   * checklist and a blocker list. The order below is the order the term is
+   * actually built in, so the first unmet step is the real answer.
+   */
+  const nextStep = (() => {
+    const pending = readiness.find((r) => !r.ready);
+    if (pending) {
+      return {
+        tone: pending.to ? 'action' : 'waiting',
+        title: pending.nextTitle,
+        body: pending.nextBody,
+        to: pending.to,
+        action: pending.nextAction,
+      };
+    }
+    if (conflictsCount === null) {
+      return {
+        tone: 'warning',
+        title: 'The conflict check could not be run',
+        body: 'This timetable is unverified rather than clean. Open the schedule and try the check again.',
+        to: '/dashboard/schedules',
+        action: 'Open Schedule',
+      };
+    }
+    if (conflictsCount > 0) {
+      return {
+        tone: 'conflict',
+        title: `Resolve ${pluralize(conflictsCount, 'conflict')}`,
+        body: 'Work through them one at a time in the conflict view. The timetable is not final until they are gone.',
+        to: '/dashboard/schedules',
+        action: 'Resolve conflicts',
+      };
+    }
+    return {
+      tone: 'done',
+      title: 'This term is complete',
+      body: 'Every class is placed and nothing is in conflict. Export it, or keep editing if something changes.',
+      to: '/dashboard/schedules',
+      action: 'Open Schedule',
+    };
+  })();
 
   const blockers = [
     conflictsCount === null && {
@@ -210,9 +328,9 @@ export default function DashboardHome() {
       detail: 'Laboratories need a room to be scheduled into.',
     },
     !activeSemester && {
-      id: 'term', to: '/dashboard/semesters', icon: Calendar, iconClass: 'text-sem-warning',
+      id: 'term', icon: Calendar, iconClass: 'text-sem-warning',
       label: 'No active academic term',
-      detail: 'Nothing can be generated until one is active.',
+      detail: 'Nothing can be generated until one is active. Only an administrator can activate a term.',
     },
   ].filter(Boolean);
 
@@ -242,16 +360,12 @@ export default function DashboardHome() {
   return (
     <Page>
       <PageHeader
+        eyebrow={college.code ? `${college.code} · Overview` : 'Overview'}
         title={`Good to see you, ${getUserName() || 'there'}`}
         meta={
           activeSemester
-            ? `${college.code} · ${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}`
-            : `${college.code} · no active academic term`
-        }
-        note={
-          blockers.length === 0
-            ? 'Everything is in place. You can generate the timetable.'
-            : `${pluralize(blockers.length, 'thing')} to sort out before generating.`
+            ? `${activeSemester.academic_year} · ${formatSemesterTerm(activeSemester.term)}`
+            : 'No active academic term'
         }
         actions={
           <Button icon={Calendar} onClick={() => navigate('/dashboard/schedules')}>
@@ -260,7 +374,60 @@ export default function DashboardHome() {
         }
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/*
+        What to do next, said once and said large.
+        Everything below it is the detail behind this sentence, which is the
+        order a user actually wants them in: the answer, then the evidence.
+      */}
+      <section
+        className={`rise glass sheen surface rounded-panel px-6 py-6 sm:px-8 sm:py-7 mb-6 ${
+          nextStep.tone === 'conflict' ? 'accent-edge-conflict'
+          : nextStep.tone === 'warning' || nextStep.tone === 'waiting' ? 'accent-edge-warning'
+          : 'accent-edge'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+          <span
+            aria-hidden="true"
+            className={`w-14 h-14 rounded-panel flex items-center justify-center shrink-0 ${
+              nextStep.tone === 'conflict' ? 'bg-sem-conflict-bg text-sem-conflict'
+              : nextStep.tone === 'warning' || nextStep.tone === 'waiting' ? 'bg-sem-warning-bg text-sem-warning'
+              : nextStep.tone === 'done' ? 'bg-atlas-100 text-atlas-700'
+              : 'bg-atlas-100 text-atlas-700'
+            }`}
+          >
+            {nextStep.tone === 'conflict' ? <AlertTriangle className="w-7 h-7" />
+              : nextStep.tone === 'warning' ? <AlertTriangle className="w-7 h-7" />
+                : nextStep.tone === 'waiting' ? <Clock className="w-7 h-7" />
+                  : nextStep.tone === 'done' ? <Check className="w-7 h-7" />
+                    : <Sparkles className="w-7 h-7" />}
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <p className="font-ui text-micro uppercase text-atlas-slate">
+              {nextStep.tone === 'done' ? 'Where you stand' : 'What to do next'}
+            </p>
+            <h2 className="font-display text-section text-atlas-ink mt-1.5 leading-snug">
+              {nextStep.title}
+            </h2>
+            <p className="font-ui text-body text-atlas-slate mt-2 leading-relaxed max-w-2xl">
+              {nextStep.body}
+            </p>
+          </div>
+
+          {nextStep.to && nextStep.action && (
+            <Button
+              icon={ArrowRight}
+              className="shrink-0 self-start sm:self-auto"
+              onClick={() => navigate(nextStep.to)}
+            >
+              {nextStep.action}
+            </Button>
+          )}
+        </div>
+      </section>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-6">
         {[
           { label: 'Classes scheduled', value: schedulesCount, icon: Calendar, to: '/dashboard/schedules' },
           { label: 'Faculty', value: facultyCount, icon: Users, to: '/dashboard/teachers',
@@ -282,6 +449,11 @@ export default function DashboardHome() {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+        <TeachingWeek schedules={schedules} />
+        <FacultyLoadPanel faculty={faculty} />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Panel
           className="lg:col-span-2 rise"
@@ -290,40 +462,86 @@ export default function DashboardHome() {
           accent
           title="Before you generate"
           description="Each of these has to be in place for the timetable to come out right."
+          action={
+            <span className="font-ui text-caption text-atlas-slate shrink-0 tabular-nums">
+              {readyCount} of {readiness.length} ready
+            </span>
+          }
         >
-          <ul className="divide-y divide-white/45">
-            {readiness.map((item) => (
-              <li key={item.label}>
-                <button
-                  type="button"
-                  onClick={() => navigate(item.to)}
-                  className="group w-full flex items-center gap-4 px-5 py-3.5 text-left transition-colors
-                             duration-state ease-standard hover:bg-atlas-50
-                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-inset"
-                >
+          {/* The proportion, before the list. Reading five rows to work out how
+              far along you are is work the bar can do for you. */}
+          <div className="px-6 pt-5">
+            <div
+              className="h-2 rounded-full bg-atlas-line/70 overflow-hidden"
+              role="progressbar"
+              aria-valuenow={readyCount}
+              aria-valuemin={0}
+              aria-valuemax={readiness.length}
+              aria-label={`${readyCount} of ${readiness.length} prerequisites ready`}
+            >
+              <span
+                className={`meter-fill block h-full rounded-full ${
+                  readyCount === readiness.length ? 'bg-atlas-700' : 'bg-atlas-300'
+                }`}
+                style={{ '--meter': `${(readyCount / readiness.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          <ul className="divide-y divide-white/45 mt-2">
+            {readiness.map((item) => {
+              const inner = (
+                <>
                   <span
                     aria-hidden="true"
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0
-                                transition-transform duration-overlay ease-emphasis group-hover:scale-110 ${
+                    className={`w-10 h-10 rounded-field flex items-center justify-center shrink-0
+                                transition-transform duration-overlay ease-emphasis group-hover:scale-110
+                                motion-reduce:transition-none motion-reduce:group-hover:scale-100 ${
                       item.ready ? 'bg-atlas-100 text-atlas-700' : 'bg-sem-warning-bg text-sem-warning'
                     }`}
                   >
-                    {item.ready ? <Check className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                    {item.ready ? <Check className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block font-ui text-body text-atlas-ink">{item.label}</span>
-                    <span className="block font-ui text-caption text-atlas-slate truncate">{item.detail}</span>
+                    <span className="block font-ui text-body font-medium text-atlas-ink">{item.label}</span>
+                    <span className="block font-ui text-caption text-atlas-slate mt-1 leading-relaxed">
+                      {item.detail}
+                    </span>
                   </span>
                   <span
-                    className={`font-ui text-caption shrink-0 ${
-                      item.ready ? 'text-atlas-700' : 'text-sem-warning'
+                    className={`font-ui text-caption font-medium shrink-0 px-2.5 py-1 rounded-full ${
+                      item.ready ? 'bg-atlas-100 text-atlas-700' : 'bg-sem-warning-bg text-sem-warning'
                     }`}
                   >
                     {item.ready ? 'Ready' : 'Pending'}
                   </span>
-                </button>
-              </li>
-            ))}
+                </>
+              );
+
+              /* A row with no `to` is one this role cannot act on. It still
+                 reports its state, but it is not a button: navigate(undefined)
+                 is not a destination, and offering the click would only lead
+                 to the 403 page. */
+              return (
+                <li key={item.label}>
+                  {item.to ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate(item.to)}
+                      className="group w-full flex items-center gap-4 px-6 py-4 text-left transition-colors
+                                 duration-state ease-standard hover:bg-atlas-50
+                                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-inset"
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div className="group w-full flex items-center gap-4 px-6 py-4 text-left">
+                      {inner}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </Panel>
 
@@ -335,7 +553,7 @@ export default function DashboardHome() {
           title={blockers.length ? `Needs attention (${blockers.length})` : 'Needs attention'}
         >
           {blockers.length === 0 ? (
-            <p className="px-5 py-10 font-ui text-body text-atlas-slate text-center">
+            <p className="px-6 py-12 font-ui text-body text-atlas-slate text-center">
               Nothing is blocking you.
             </p>
           ) : (
@@ -364,13 +582,13 @@ export default function DashboardHome() {
           description="The last few changes in your college."
         >
           {recentLogs.length === 0 ? (
-            <p className="px-5 py-10 font-ui text-body text-atlas-slate text-center">
+            <p className="px-6 py-12 font-ui text-body text-atlas-slate text-center">
               Nothing has happened yet.
             </p>
           ) : (
             <ul className="divide-y divide-white/45">
               {recentLogs.map((log) => (
-                <li key={log.id} className="flex items-start gap-3 px-5 py-3.5">
+                <li key={log.id} className="flex items-start gap-3.5 px-6 py-4">
                   <span
                     aria-hidden="true"
                     className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
@@ -384,7 +602,7 @@ export default function DashboardHome() {
                   <span className="min-w-0 flex-1">
                     <span className="block font-ui text-body text-atlas-ink">{log.action}</span>
                     {log.details && (
-                      <span className="block font-ui text-caption text-atlas-slate mt-0.5">{log.details}</span>
+                      <span className="block font-ui text-caption text-atlas-slate mt-1 leading-relaxed">{log.details}</span>
                     )}
                   </span>
                   <span className="font-ui text-caption text-atlas-slate shrink-0 tabular-nums">
@@ -397,7 +615,7 @@ export default function DashboardHome() {
         </Panel>
 
         <Panel className="rise" style={{ animationDelay: '420ms' }} icon={Sparkles} title="Quick actions">
-          <div className="p-4 flex flex-col gap-2">
+          <div className="p-5 flex flex-col gap-2.5">
             {quickActions.map((a) => (
               <Button
                 key={a.id}

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 import io
 import re
@@ -320,7 +320,7 @@ def set_schedule_status(
             )
 
     for s in rows:
-        s.status = new_status
+        setattr(s, "status", new_status)
     db.commit()
 
     dept_name = dept.name if dept else "All departments"
@@ -675,7 +675,7 @@ def export_pdf(
 
     header = ["Professor", "Subject Code", "Subject Name", "Day",
               "Start Time", "End Time", "Room", "Building", "Section"]
-    data = [header]
+    data: list[Any] = [header]
     for r in rows:
         data.append([
             Paragraph(cell_text(r["professor"]), cell),

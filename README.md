@@ -72,15 +72,18 @@ ATLAS/
 │   │   ├── App.jsx           # React Router v6 & RBAC Protected Routes
 │   │   └── index.css         # Custom CSS & Tailwind Directives
 │   └── package.json          # Node Dependencies
+├── tests/                    # Backend test suite (python -m unittest)
 ├── docs/                     # Project Technical Documentation
 │   ├── SYSTEM_DESIGN.md      # High-Level Architecture & Diagrams
 │   ├── DATABASE.md           # ERD & Table Schemas
 │   ├── API.md                # Complete REST API Reference
+│   ├── SYSTEM_FLOWCHART.md   # How the System Flows, Start to Finish
+│   ├── SCHEDULING_ENGINE.md  # Generator Rules, Constraints & Conflict Handling
+│   ├── CURRICULUM_IMPORT.md  # Excel Curriculum Parser Specification
 │   ├── USER_GUIDE.md         # Operational Manual per User Role
 │   └── SETUP.md              # Installation & Deployment Guide
+├── SYSTEM_BRIEF.md           # What ATLAS Is, in One Page
 ├── ROADMAP.md                # Sprint Milestones & Release Status
-├── side.md                   # AI Scheduling Engine Protocols & Limits
-├── ROADMAP_v1_4_PROMPT.md    # Excel Curriculum Parser Master Specification
 ├── CHANGELOG.md              # Release History
 └── CONTRIBUTING.md           # Developer Guidelines
 ```

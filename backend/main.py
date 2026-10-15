@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 load_dotenv()
 
 from contextlib import asynccontextmanager
-from app import database, models, auth
+from app import database, models, auth, notifications
 from app.database import engine
 from app import storage
 from app.routers import (
@@ -281,6 +281,15 @@ async def lifespan(app: FastAPI):
                 db.commit()
     except Exception as e:
         print(f"Startup admin seeder result: {e}")
+
+    # Say out loud whether codes can actually reach anyone. A misconfigured
+    # deployment used to start up looking perfectly healthy and then fail every
+    # registration in silence.
+    try:
+        print(notifications.describe_delivery_readiness())
+    except Exception as e:
+        print(f"Could not determine delivery readiness: {e}")
+
     yield
 
 app = FastAPI(title="ATLAS Backend API", redirect_slashes=False, lifespan=lifespan)

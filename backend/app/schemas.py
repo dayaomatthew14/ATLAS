@@ -8,6 +8,38 @@ from datetime import datetime, date
 MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_BYTES = 72  # bcrypt rejects anything longer
 
+# Human names, for a Philippine university.
+#
+# The rule was `^[A-Za-z\s.\-']+$`, which has no accented letters in it, so
+# Peña and Muñoz -- among the most common surnames in the country -- could not
+# be registered at all. The Latin-1 range below carries ñ/Ñ along with the
+# accented vowels, and the lookahead requires at least one actual letter so a
+# name cannot be punctuation alone.
+#
+# Must begin with a letter, so a name cannot be punctuation alone. Expressed as
+# a leading character class rather than a lookahead because Pydantic v2 compiles
+# patterns with the Rust regex engine, which has no look-around.
+#
+# Kept in step with NAME_PATTERN in frontend/src/pages/Login.jsx. The two
+# drifted before: the form was the stricter of the two and rejected O'Brien,
+# Dela Cruz-Santos and "Jr." while the server would have accepted all three.
+NAME_PATTERN = r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ\s.\-']*$"
+
+
+def normalize_email(value):
+    """
+    Lower-case and trim, so an address is one account however it was typed.
+
+    Pydantic's EmailStr lower-cases the domain but preserves the local part, so
+    registering as `Ann.Cruz@DLSAU.edu.ph` stored `Ann.Cruz@dlsau.edu.ph`. The
+    sign-in form sends `email.trim().toLowerCase()`, which then matched nothing
+    -- and the account could not be registered again either, because the
+    address was taken. Anyone who typed a capital was locked out both ways.
+    """
+    if value is None:
+        return value
+    return str(value).strip().lower()
+
 
 def validate_password(value: str) -> str:
     if value is None:
@@ -32,7 +64,7 @@ SELF_REGISTRATION_ROLES = {'program_chair', 'coordinator'}
 def _validate_role(value: Optional[str]) -> Optional[str]:
     if value is None:
         return value
-    normalized = str(value).strip().lower()
+    normalized = value.strip().lower()
     if normalized not in VALID_ROLES:
         raise ValueError(f"Invalid role. Must be one of: {', '.join(sorted(VALID_ROLES))}")
     return normalized
@@ -40,8 +72,8 @@ def _validate_role(value: Optional[str]) -> Optional[str]:
 
 class UserBase(BaseModel):
     email: EmailStr
-    first_name: str = Field(pattern=r"^[A-Za-z\s.\-']+$")
-    last_name: str = Field(pattern=r"^[A-Za-z\s.\-']+$")
+    first_name: str = Field(pattern=NAME_PATTERN)
+    last_name: str = Field(pattern=NAME_PATTERN)
     contact_number: Optional[str] = Field(None, pattern=r"^(|09\d{9}|\+639\d{9})$")
     role: str
     department: Optional[str] = None
@@ -51,6 +83,11 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+
+    @field_validator('email')
+    @classmethod
+    def normalize(cls, v):
+        return normalize_email(v)
 
     @field_validator('role')
     @classmethod

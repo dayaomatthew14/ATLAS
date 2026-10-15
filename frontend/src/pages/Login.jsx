@@ -8,6 +8,20 @@ import { saveSession, getLandingView } from '../utils/session';
 const MIN_PASSWORD_LENGTH = 12;
 
 /**
+ * Human names. Keep in sync with NAME_PATTERN in backend/app/schemas.py.
+ *
+ * This was `^[A-Za-z\s]+$` -- letters and spaces only -- which made the form
+ * stricter than the server it posts to and refused several kinds of real name:
+ * O'Brien, Dela Cruz-Santos and "Jr." were all rejected here while the API
+ * would have accepted them. Worse, neither side allowed an accented letter, so
+ * Peña and Muñoz -- among the most common surnames in the Philippines -- could
+ * not be registered at all.
+ *
+ * Must begin with a letter, so a name cannot be punctuation on its own.
+ */
+const NAME_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ\s.\-']*$/;
+
+/**
  * The college code out of a department option value.
  *
  * Options name a college and an area within it -- "CVMAS - Veterinary Clinical"
@@ -18,6 +32,30 @@ const MIN_PASSWORD_LENGTH = 12;
  */
 const collegeCodeOf = (value) =>
   String(value || '').split(/\s[-—]\s/)[0].trim().toUpperCase();
+
+/**
+ * The class blocks in the backdrop.
+ *
+ * Laid out in percentages down the two flanks and along the top and bottom,
+ * so nothing ever sits behind the card on a wide screen -- the card is a fixed
+ * 480px in the middle, and a block drifting under it would show through the
+ * translucent surface as a coloured smear. Delays are spread across the 16s
+ * cycle so the grid is always partly filled and never pulses as one.
+ */
+const SCENE_BLOCKS = [
+  { left: '3%',  top: '12%', w: '10%', h: '5%',  tone: 'var(--dept-cast)',  delay: '0s'    },
+  { left: '14%', top: '24%', w: '8%',  h: '7%',  tone: 'var(--dept-cvmas)', delay: '2.1s'  },
+  { left: '5%',  top: '38%', w: '11%', h: '6%',  tone: 'var(--dept-coed)',  delay: '5.4s'  },
+  { left: '17%', top: '53%', w: '7%',  h: '8%',  tone: 'var(--dept-cbma)',  delay: '8.2s'  },
+  { left: '2%',  top: '66%', w: '9%',  h: '5%',  tone: 'var(--dept-cast)',  delay: '3.6s'  },
+  { left: '12%', top: '79%', w: '10%', h: '6%',  tone: 'var(--dept-cvmas)', delay: '10.5s' },
+  { left: '80%', top: '10%', w: '9%',  h: '6%',  tone: 'var(--dept-cbma)',  delay: '1.2s'  },
+  { left: '88%', top: '25%', w: '8%',  h: '8%',  tone: 'var(--dept-cast)',  delay: '6.8s'  },
+  { left: '76%', top: '41%', w: '11%', h: '5%',  tone: 'var(--dept-coed)',  delay: '4.3s'  },
+  { left: '86%', top: '56%', w: '9%',  h: '7%',  tone: 'var(--dept-cvmas)', delay: '9.1s'  },
+  { left: '78%', top: '71%', w: '8%',  h: '6%',  tone: 'var(--dept-cbma)',  delay: '12.4s' },
+  { left: '90%', top: '84%', w: '7%',  h: '5%',  tone: 'var(--dept-coed)',  delay: '7.5s'  },
+];
 
 export default function Login() {
   const location = useLocation();
@@ -61,7 +99,14 @@ export default function Login() {
   const validateField = (name, value) => {
     let err = '';
     if (name === 'firstName' || name === 'lastName') {
-      if (!/^[A-Za-z\s]+$/.test(value)) err = "Name must contain letters only. No numbers or symbols allowed.";
+      if (!NAME_PATTERN.test(value)) {
+        err = "Enter a name using letters, spaces, hyphens, apostrophes or periods.";
+      }
+    } else if (name === 'confirmPassword') {
+      // Checked as a field, like every other one. This used to surface only as
+      // a banner at the top of the form on submit, which is the one place the
+      // user is not looking when they mistype the second password box.
+      if (value !== password) err = "Both passwords must match.";
     } else if (name === 'contactNumber') {
       if (!/^(09\d{9}|\+639\d{9})$/.test(value)) err = "Enter a valid PH number: 09XXXXXXXXX or +639XXXXXXXXX.";
     } else if (name === 'email') {
@@ -93,9 +138,11 @@ export default function Login() {
     const isContactValid = validateField('contactNumber', contactNumber);
     const isEmailValid = validateField('email', email);
     const isPasswordValid = validateField('password', password);
+    const isConfirmValid = validateField('confirmPassword', confirmPassword);
     const isDepartmentValid = validateField('department', department);
 
-    return isFirstNameValid && isLastNameValid && isContactValid && isEmailValid && isPasswordValid && isDepartmentValid;
+    return isFirstNameValid && isLastNameValid && isContactValid && isEmailValid
+      && isPasswordValid && isConfirmValid && isDepartmentValid;
   };
 
   const handleSubmit = async (e) => {
@@ -137,11 +184,6 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        if (password !== confirmPassword) {
-          setError('Passwords do not match.');
-          setLoading(false);
-          return;
-        }
 
         // Format contact number to E.164 for Twilio
         let formattedContact = contactNumber;
@@ -150,7 +192,10 @@ export default function Login() {
         }
 
         const payload = {
-          email, password, first_name: firstName, last_name: lastName,
+          email: email.trim().toLowerCase(),
+          password,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
           contact_number: formattedContact, role,
           // The dropdown identifies a college *and* an area within it -- "CAST -
           // Psychology" -- because that is how a chair describes their post.
@@ -257,7 +302,7 @@ export default function Login() {
         setError(
           <div className="flex flex-col space-y-2">
             <span>No account found for this email address.</span>
-            <button type="button" onClick={() => { setError(''); setMode('register'); }} className="text-yellow-600 font-bold hover:underline text-left">
+            <button type="button" onClick={() => { setError(''); setMode('register'); }} className="text-sem-conflict font-bold underline underline-offset-4 decoration-sem-conflict/40 hover:decoration-sem-conflict text-left">
               Create a new account instead?
             </button>
           </div>
@@ -306,27 +351,45 @@ export default function Login() {
     const Icon = icon;
     const hasError = fieldErrors[name];
     return (
-      <div className="mb-4 text-left">
-        <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
+      <div className="text-left">
+        <label htmlFor={`auth-${name}`} className="block text-caption font-semibold text-atlas-slate mb-1.5">
+          {label}
+        </label>
         <div className="relative group">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-400 group-focus-within:text-green-600'}`} />
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <Icon
+              aria-hidden="true"
+              className={`h-4 w-4 transition-colors duration-state ease-standard ${
+                hasError ? 'text-sem-conflict' : 'text-atlas-disabled group-focus-within:text-atlas-700'
+              }`}
+            />
           </div>
           <input
+            id={`auth-${name}`}
             name={name}
             type={type}
             required
             value={value}
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
+            aria-invalid={hasError ? 'true' : undefined}
+            aria-describedby={hasError ? `auth-${name}-error` : undefined}
             {...extraProps}
-            className={`block w-full pl-11 pr-4 py-3 bg-white border rounded-xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-gray-200 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600/20'}
+            className={`block w-full pl-10 pr-3.5 py-2.5 bg-white/70 border rounded-field outline-none text-body text-atlas-ink
+              placeholder:text-atlas-disabled placeholder:font-normal
+              transition-[border-color,box-shadow,background-color] duration-state ease-standard
+              ${hasError
+                ? 'border-sem-conflict focus:border-sem-conflict focus:ring-4 focus:ring-sem-conflict/15 focus:bg-white'
+                : 'border-atlas-control hover:border-atlas-700/60 focus:border-atlas-700 focus:ring-4 focus:ring-atlas-700/15 focus:bg-white'}
             `}
             placeholder={placeholder}
           />
         </div>
-        {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
+        {hasError && (
+          <p id={`auth-${name}-error`} className="text-caption text-sem-conflict font-medium mt-1.5">
+            {hasError}
+          </p>
+        )}
       </div>
     );
   };
@@ -334,6 +397,10 @@ export default function Login() {
 function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+  // A <label> cannot be associated with a <button>, so the trigger carries the
+  // field name itself. Without this a screen reader announces only the chosen
+  // value -- "Program Chair" -- and never says which field it belongs to.
+  const labelId = `auth-select-${label.replace(/\W+/g, '-').toLowerCase()}`;
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -345,62 +412,95 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Escape closes the menu. Without it the only way out of an accidentally
+  // opened list is a click elsewhere, which a keyboard user does not have.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen]);
+
   const selectedOption = options.find(opt => opt.value === value);
 
   return (
-    <div className="mb-4 text-left relative" ref={dropdownRef}>
-      <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
+    <div className="text-left relative" ref={dropdownRef}>
+      <label id={labelId} className="block text-caption font-semibold text-atlas-slate mb-1.5">{label}</label>
       <div className="relative">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`w-full pl-11 pr-10 py-3 bg-white border rounded-xl outline-none transition-all font-medium text-left shadow-sm flex items-center justify-between ${
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-labelledby={labelId}
+          className={`w-full pl-10 pr-9 py-2.5 bg-white/70 border rounded-field outline-none text-left flex items-center justify-between
+            transition-[border-color,box-shadow,background-color] duration-state ease-standard ${
             hasError
-              ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30'
+              ? 'border-sem-conflict ring-4 ring-sem-conflict/15'
               : isOpen
-              ? 'border-green-600 ring-2 ring-green-600/20 bg-white'
-              : 'border-gray-200 hover:border-gray-300'
+              ? 'border-atlas-700 ring-4 ring-atlas-700/15 bg-white'
+              : 'border-atlas-control hover:border-atlas-700/60'
           }`}
         >
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Icon className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : isOpen ? 'text-green-600' : 'text-gray-400'}`} />
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <Icon
+              aria-hidden="true"
+              className={`h-4 w-4 transition-colors duration-state ease-standard ${
+                hasError ? 'text-sem-conflict' : isOpen ? 'text-atlas-700' : 'text-atlas-disabled'
+              }`}
+            />
           </div>
-          <span className={`truncate text-xs sm:text-sm font-semibold ${selectedOption ? 'text-slate-900' : 'text-gray-400'}`}>
+          <span className={`truncate text-body ${selectedOption ? 'text-atlas-ink font-medium' : 'text-atlas-disabled'}`}>
             {selectedOption ? selectedOption.label : `Select ${label}...`}
           </span>
-          <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-gray-400">
-            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-green-600' : ''}`} />
+          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+            <ChevronDown
+              aria-hidden="true"
+              className={`h-4 w-4 transition-transform duration-overlay ease-emphasis ${
+                isOpen ? 'rotate-180 text-atlas-700' : 'text-atlas-disabled'
+              }`}
+            />
           </div>
         </button>
 
         {isOpen && (
-          <div className="absolute top-full left-0 right-0 mt-2 bg-white/95 backdrop-blur-2xl border border-slate-200 shadow-2xl rounded-2xl z-50 overflow-hidden py-1.5 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-150 ring-1 ring-black/5">
+          <div
+            role="listbox"
+            aria-labelledby={labelId}
+            className="auth-pop absolute top-full left-0 right-0 mt-1.5 bg-white border border-atlas-line shadow-overlay rounded-panel z-overlay overflow-hidden py-1 max-h-64 overflow-y-auto"
+          >
             {options.map((opt) => {
               const isSelected = opt.value === value;
               return (
                 <button
                   key={opt.value}
                   type="button"
+                  role="option"
+                  aria-selected={isSelected}
                   onClick={() => {
                     setter(opt.value);
                     setIsOpen(false);
                   }}
-                  className={`w-full px-4 py-3 text-left text-xs sm:text-sm font-bold transition-all flex items-center justify-between gap-3 ${
+                  className={`w-full px-3.5 py-2.5 text-left text-body transition-colors duration-state ease-standard flex items-center justify-between gap-3 ${
                     isSelected
-                      ? 'bg-green-50 text-green-800 border-l-4 border-l-green-600'
-                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-atlas-100 text-atlas-800 font-semibold'
+                      : 'text-atlas-ink hover:bg-atlas-50'
                   }`}
                   title={opt.label}
                 >
                   <span className="whitespace-normal leading-snug break-words flex-1">{opt.label}</span>
-                  {isSelected && <Check className="w-4 h-4 text-green-600 shrink-0" />}
+                  {isSelected && <Check aria-hidden="true" className="w-4 h-4 text-atlas-700 shrink-0" />}
                 </button>
               );
             })}
           </div>
         )}
       </div>
-      {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
+      {hasError && <p className="text-caption text-sem-conflict font-medium mt-1.5">{hasError}</p>}
     </div>
   );
 }
@@ -422,13 +522,21 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
   const renderPasswordField = (name, value, setter, label, placeholder = "••••••••") => {
     const hasError = fieldErrors[name];
     return (
-      <div className="mb-4 text-left">
-        <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">{label}</label>
+      <div className="text-left">
+        <label htmlFor={`auth-${name}`} className="block text-caption font-semibold text-atlas-slate mb-1.5">
+          {label}
+        </label>
         <div className="relative group">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <Key className={`h-4 w-4 transition-colors ${hasError ? 'text-rose-400' : 'text-gray-400 group-focus-within:text-green-600'}`} />
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <Key
+              aria-hidden="true"
+              className={`h-4 w-4 transition-colors duration-state ease-standard ${
+                hasError ? 'text-sem-conflict' : 'text-atlas-disabled group-focus-within:text-atlas-700'
+              }`}
+            />
           </div>
           <input
+            id={`auth-${name}`}
             name={name}
             type={showPassword ? "text" : "password"}
             required
@@ -436,245 +544,308 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
             onChange={(e) => setter(e.target.value)}
             onBlur={handleBlur}
             onKeyUp={handleKeyUp}
-            className={`block w-full pl-11 pr-10 py-3 bg-white border rounded-xl outline-none transition-all text-gray-700 font-medium placeholder:text-gray-300 shadow-sm
-              ${hasError ? 'border-rose-300 focus:border-rose-500 bg-rose-50/30' : 'border-gray-200 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600/20'}
+            aria-invalid={hasError ? 'true' : undefined}
+            aria-describedby={hasError ? `auth-${name}-error` : undefined}
+            className={`block w-full pl-10 pr-10 py-2.5 bg-white/70 border rounded-field outline-none text-body text-atlas-ink
+              placeholder:text-atlas-disabled placeholder:font-normal
+              transition-[border-color,box-shadow,background-color] duration-state ease-standard
+              ${hasError
+                ? 'border-sem-conflict focus:border-sem-conflict focus:ring-4 focus:ring-sem-conflict/15 focus:bg-white'
+                : 'border-atlas-control hover:border-atlas-700/60 focus:border-atlas-700 focus:ring-4 focus:ring-atlas-700/15 focus:bg-white'}
             `}
             placeholder={placeholder}
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-green-600 transition-colors focus:outline-none"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="absolute inset-y-0 right-0 pr-3 flex items-center text-atlas-disabled hover:text-atlas-700 transition-colors duration-state ease-standard focus:outline-none focus-visible:text-atlas-700"
           >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showPassword ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
           </button>
         </div>
-        {hasError && <p className="text-xs text-rose-500 font-medium mt-1.5 ml-1">{hasError}</p>}
+        {hasError && (
+          <p id={`auth-${name}-error`} className="text-caption text-sem-conflict font-medium mt-1.5">
+            {hasError}
+          </p>
+        )}
       </div>
     );
   };
 
+  const title =
+    mode === 'login' ? 'ATLAS' :
+    mode === 'register' ? 'Join ATLAS' :
+    mode === 'verify' ? 'Verify Account' :
+    'Reset Password';
+
+  const subtitle =
+    mode === 'login' ? 'DLSAU Tertiary Education Portal' :
+    mode === 'register' ? 'Register a chair or coordinator account' :
+    mode === 'verify' ? 'Confirm the code we sent you' :
+    mode === 'forgot_email' ? 'We will send a reset code to your address' :
+    mode === 'forgot_otp' ? 'Enter the 6-digit code' :
+    'Choose a new password';
+
   return (
-    <div className="min-h-screen relative flex items-center justify-center font-sans p-4">
-      <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: `url('/dlsau_bg.jpg')`, backgroundColor: '#052e16' }}>
-        <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]"></div>
+    <div className="min-h-screen relative flex items-center justify-center font-ui p-4 sm:p-6">
+      {/* ---------------------------------------------------------------
+          The backdrop: a timetable assembling itself. The grid is drawn on
+          --tt-daycol-min / --tt-hour, the same metrics the real schedule
+          grid uses, and the blocks carry the department colours. It is
+          decorative in the accessibility sense -- nothing here is content --
+          so the whole scene is hidden from assistive tech.
+         --------------------------------------------------------------- */}
+      <div className="auth-scene" aria-hidden="true">
+        <div className="auth-photo" style={{ backgroundImage: `url('/dlsau_bg.jpg')` }} />
+        <div className="auth-blob auth-blob-1" />
+        <div className="auth-blob auth-blob-2" />
+        <div className="auth-blob auth-blob-3" />
+        <div className="auth-grid" />
+        {SCENE_BLOCKS.map((b, i) => (
+          <div
+            key={i}
+            className="auth-block"
+            style={{
+              left: b.left,
+              top: b.top,
+              width: b.w,
+              height: b.h,
+              color: b.tone,
+              animationDelay: b.delay,
+            }}
+          />
+        ))}
+        <div className="auth-vignette" />
       </div>
 
-      <div className="relative z-10 w-full max-w-lg">
-        <div className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-white/20 relative z-20">
-          <div className="pt-12 pb-6 px-10 text-center">
-            <div className="w-28 h-28 flex items-center justify-center mx-auto mb-6 transform hover:scale-105 transition-transform">
-              <img src="/atlas_logo.png" alt="Atlas Logo" className="w-full h-full object-contain drop-shadow-xl" />
+      <div className="relative z-10 w-full max-w-[480px]">
+        <div className="relative auth-card-in">
+          <div className="auth-rim" aria-hidden="true" />
+
+          <div className="auth-card">
+            <div className="auth-shine" aria-hidden="true" />
+
+            <div className="relative pt-10 pb-5 px-8 sm:px-10 text-center">
+              <div className="auth-mark w-24 h-24 mx-auto mb-5">
+                <img src="/atlas_logo.png" alt="" aria-hidden="true" className="w-full h-full object-contain drop-shadow-xl" />
+              </div>
+              <h1 className="font-display text-[2.25rem] leading-none text-atlas-800 tracking-tight">
+                {title}
+              </h1>
+              <p className="text-caption text-atlas-slate mt-2">{subtitle}</p>
             </div>
-            <h2 className="text-4xl font-bold text-green-800 tracking-tight mb-1">
-              {mode === 'login' ? 'ATLAS' :
-                mode === 'register' ? 'Join ATLAS' :
-                  mode === 'verify' ? 'Verify Account' :
-                    'Reset Password'}
-            </h2>
-            <p className="text-gray-500 text-sm font-medium">DLSAU Tertiary Education Portal</p>
-          </div>
 
-          <div className="px-8 pb-10 pt-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Sign-out could not reach the server. The session cookie is
-                  HttpOnly, so nothing in the browser can clear it -- saying so
-                  is the only honest option on a shared machine, where the user
-                  would otherwise walk away believing they had signed out. */}
-              {location.state?.signOutIncomplete && (
-                <div
-                  role="alert"
-                  className="bg-amber-50 text-amber-700 p-4 rounded-2xl text-sm border border-amber-100 flex items-start"
-                >
-                  <AlertCircle className="w-4 h-4 mr-2 mt-0.5 shrink-0" aria-hidden="true" />
-                  <span className="font-medium">
-                    You were signed out on this device, but the server could not be
-                    reached to end the session. Close the browser to be sure it has ended.
-                  </span>
-                </div>
-              )}
-              {error && (
-                <div className="bg-rose-50 text-rose-600 p-4 rounded-2xl text-sm border border-rose-100 flex items-start animate-in fade-in slide-in-from-top-2">
-                  <span className="font-medium">{error}</span>
-                </div>
-              )}
-              {success && (
-                <div className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl text-sm border border-emerald-100 flex items-start animate-in fade-in slide-in-from-top-2">
-                  <span className="font-medium">{success}</span>
-                </div>
-              )}
-
-              {/* Login Mode */}
-              {mode === 'login' && (
-                <>
-                  {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
-                  {renderPasswordField('password', password, setPassword, 'Password')}
-
-                  {capsLockOn && (
-                    <div className="flex items-center text-yellow-600 text-[10px] font-bold uppercase tracking-widest mt-1 ml-1">
-                      <AlertCircle className="w-3 h-3 mr-1.5" /> Caps Lock is ON
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between pt-1">
-                    <label className="flex items-center cursor-pointer group">
-                      <input
-                        type="checkbox"
-                        checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 border-gray-300 cursor-pointer transition-all"
-                      />
-                      <span className="ml-2 text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">Remember me</span>
-                    </label>
-                    <button type="button" onClick={() => setMode('forgot_email')} className="text-sm font-semibold text-green-700 hover:text-green-800">Forgot password?</button>
+            <div className="relative px-6 sm:px-10 pb-9">
+              {/* Re-keyed on mode, so switching between sign in and register
+                  replays the entrance instead of swapping the fields in
+                  place. It is the cheapest honest signal that the form
+                  became a different form. */}
+              <form key={mode} onSubmit={handleSubmit} className="auth-stagger space-y-4">
+                {/* Sign-out could not reach the server. The session cookie is
+                    HttpOnly, so nothing in the browser can clear it -- saying
+                    so is the only honest option on a shared machine, where the
+                    user would otherwise walk away believing they had signed
+                    out. */}
+                {location.state?.signOutIncomplete && (
+                  <div
+                    role="alert"
+                    className="auth-alert bg-sem-warning-bg text-sem-warning p-3.5 rounded-panel text-caption border border-sem-warning/25 flex items-start"
+                  >
+                    <AlertCircle className="w-4 h-4 mr-2 mt-0.5 shrink-0" aria-hidden="true" />
+                    <span className="font-medium leading-relaxed">
+                      You were signed out on this device, but the server could not be
+                      reached to end the session. Close the browser to be sure it has ended.
+                    </span>
                   </div>
-                </>
-              )}
-
-              {/* Register Mode */}
-              {mode === 'register' && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField('firstName', User, 'text', 'Juan', firstName, setFirstName, 'First Name')}
-                    {renderField('lastName', User, 'text', 'Dela Cruz', lastName, setLastName, 'Last Name')}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderSelectField('role', ShieldCheck, role, setRole, 'User Role', [
-                      { value: 'program_chair', label: 'Program Chair' },
-                      { value: 'coordinator', label: 'Coordinator' }
-                    ])}
-                    {renderSelectField('department', Building, department, setDepartment, 'Department / Position', role === 'coordinator' ? [
-                      { value: 'CAST - Language and Literature Courses', label: 'CAST — Language & Literature Courses' },
-                      { value: 'CAST - Math and Science Courses', label: 'CAST — Math & Science Courses' },
-                      { value: 'CAST - Human and Societal Formation Courses', label: 'CAST — Human & Societal Formation Courses' },
-                      { value: 'CAST - NSTP', label: 'CAST — NSTP' },
-                    ] : [
-                      { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science' },
-                      { value: 'CAST - Psychology', label: 'CAST — Psychology' },
-                      { value: 'COED - Education Programs', label: 'COED — Education Programs' },
-                      { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy' },
-                      { value: 'CBMA - Business Administration', label: 'CBMA — Business Administration' },
-                      { value: 'CBMA - Hospitality & Tourism Management', label: 'CBMA — Hospitality & Tourism Management' },
-                      { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture' },
-                      { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Technology' },
-                      { value: 'CVMAS - Basic Veterinary Science', label: 'CVMAS — Basic Veterinary Science' },
-                      { value: 'CVMAS - Veterinary Paraclinical', label: 'CVMAS — Veterinary Paraclinical' },
-                      { value: 'CVMAS - Veterinary Clinical', label: 'CVMAS — Veterinary Clinical' },
-                    ])}
-                  </div>
-                  {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
-                  {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderPasswordField('password', password, setPassword, 'Password')}
-                    {renderPasswordField('confirmPassword', confirmPassword, setConfirmPassword, 'Confirm Password')}
-                  </div>
-                </>
-              )}
-
-              {/* Verify OTP Mode */}
-              {mode === 'verify' && (
-                <>
-                  {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
-                  {renderField('otp', Key, 'text', '123456', otp, setOtp, 'Verification OTP (6 digits)')}
-                  {/* Two routes, named. Offering only "resend" when email is
-                      the thing that is failing sends the user round the same
-                      loop; the second button is the way out of it. */}
-                  <div className="flex flex-col items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleResend('auto')}
-                      disabled={loading}
-                      className="text-xs font-black text-green-700 hover:text-green-600 uppercase tracking-widest disabled:opacity-50"
-                    >
-                      Resend Verification Code
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleResend('sms')}
-                      disabled={loading}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-green-700 disabled:opacity-50"
-                    >
-                      <Phone className="w-3.5 h-3.5" aria-hidden="true" />
-                      Didn’t get the email? Send the code by SMS
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Forgot Password - Step 1: Email */}
-              {mode === 'forgot_email' && (
-                <>
-                  <p className="text-sm text-gray-500 mb-4 font-medium">Enter your registered email address to receive a password reset code.</p>
-                  {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
-                </>
-              )}
-
-              {/* Forgot Password - Step 2: OTP */}
-              {mode === 'forgot_otp' && (
-                <>
-                  <p className="text-sm text-gray-500 mb-4 font-medium">Enter the 6-digit code sent to your email or phone.</p>
-                  {renderField('otp', Key, 'text', '123456', otp, setOtp, 'Reset OTP (6 digits)')}
-                </>
-              )}
-
-              {/* Forgot Password - Step 3: Reset */}
-              {mode === 'forgot_reset' && (
-                <>
-                  <p className="text-sm text-gray-500 mb-4 font-medium">Enter your new password below.</p>
-                  {renderPasswordField('password', password, setPassword, 'New Password')}
-                  {renderPasswordField('confirmPassword', confirmPassword, setConfirmPassword, 'Confirm Password')}
-                </>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex justify-center items-center py-3.5 px-6 rounded-xl shadow-lg text-sm font-bold text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-all transform active:scale-[0.98] disabled:opacity-70 mt-6"
-              >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : mode === 'login' ? (
-                  <><LogIn className="w-4 h-4 mr-2" /> Log in to Atlas</>
-                ) : mode === 'register' ? (
-                  <><UserPlus className="w-4 h-4 mr-2" /> Complete Registration</>
-                ) : mode === 'verify' ? (
-                  <><CheckCircle2 className="w-4 h-4 mr-2" /> Verify Account</>
-                ) : mode === 'forgot_email' ? (
-                  <><Send className="w-4 h-4 mr-2" /> Send Reset Link</>
-                ) : mode === 'forgot_otp' ? (
-                  <><Key className="w-4 h-4 mr-2" /> Verify OTP</>
-                ) : (
-                  <><RefreshCw className="w-4 h-4 mr-2" /> Reset Password</>
                 )}
-              </button>
-            </form>
+                {error && (
+                  <div role="alert" className="auth-alert bg-sem-conflict-bg text-sem-conflict p-3.5 rounded-panel text-caption border border-sem-conflict/25 flex items-start">
+                    <AlertCircle className="w-4 h-4 mr-2 mt-0.5 shrink-0" aria-hidden="true" />
+                    {/* A div, not a span: `error` is sometimes a JSX node with
+                        block children rather than a string. */}
+                    <div className="font-medium leading-relaxed min-w-0">{error}</div>
+                  </div>
+                )}
+                {success && (
+                  <div role="status" className="auth-alert bg-atlas-50 text-atlas-800 p-3.5 rounded-panel text-caption border border-atlas-700/25 flex items-start">
+                    <CheckCircle2 className="w-4 h-4 mr-2 mt-0.5 shrink-0" aria-hidden="true" />
+                    <span className="font-medium leading-relaxed">{success}</span>
+                  </div>
+                )}
 
-            <div className="mt-10 text-center">
-              <p className="text-sm font-semibold text-gray-500 mb-4">
-                {mode === 'login' ? "First time using ATLAS?" : "Already have an account?"}
-              </p>
-              {mode === 'login' ? (
-                <button
-                  type="button"
-                  onClick={() => setMode('register')}
-                  className="w-full py-3 px-6 rounded-xl border border-gray-200 font-bold text-sm text-gray-700 hover:bg-gray-50/50 transition-all"
-                >
-                  Create Account
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => { setMode('login'); setError(''); setSuccess(''); }}
-                  className="w-full py-3 px-6 rounded-xl border border-green-100 font-bold text-sm text-green-700 hover:bg-green-50/50 transition-all"
-                >
-                  Return to Login
-                </button>
-              )}
+                {/* Login Mode */}
+                {mode === 'login' && (
+                  <>
+                    {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
+                    {renderPasswordField('password', password, setPassword, 'Password')}
+
+                    {capsLockOn && (
+                      <div className="flex items-center text-sem-warning text-micro uppercase">
+                        <AlertCircle className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" /> Caps Lock is ON
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={rememberMe}
+                          onChange={(e) => setRememberMe(e.target.checked)}
+                          className="rounded-marker text-atlas-700 focus:ring-atlas-700 h-4 w-4 border-atlas-control cursor-pointer"
+                        />
+                        <span className="ml-2 text-caption font-medium text-atlas-slate group-hover:text-atlas-ink transition-colors duration-state ease-standard">
+                          Remember me
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setMode('forgot_email')}
+                        className="text-caption font-semibold text-atlas-700 hover:text-atlas-800 underline-offset-4 hover:underline transition-colors duration-state ease-standard"
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Register Mode */}
+                {mode === 'register' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderField('firstName', User, 'text', 'Juan', firstName, setFirstName, 'First Name')}
+                      {renderField('lastName', User, 'text', 'Dela Cruz', lastName, setLastName, 'Last Name')}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderSelectField('role', ShieldCheck, role, setRole, 'User Role', [
+                        { value: 'program_chair', label: 'Program Chair' },
+                        { value: 'coordinator', label: 'Coordinator' }
+                      ])}
+                      {renderSelectField('department', Building, department, setDepartment, 'Department / Position', role === 'coordinator' ? [
+                        { value: 'CAST - Language and Literature Courses', label: 'CAST — Language & Literature Courses' },
+                        { value: 'CAST - Math and Science Courses', label: 'CAST — Math & Science Courses' },
+                        { value: 'CAST - Human and Societal Formation Courses', label: 'CAST — Human & Societal Formation Courses' },
+                        { value: 'CAST - NSTP', label: 'CAST — NSTP' },
+                      ] : [
+                        { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science' },
+                        { value: 'CAST - Psychology', label: 'CAST — Psychology' },
+                        { value: 'COED - Education Programs', label: 'COED — Education Programs' },
+                        { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy' },
+                        { value: 'CBMA - Business Administration', label: 'CBMA — Business Administration' },
+                        { value: 'CBMA - Hospitality & Tourism Management', label: 'CBMA — Hospitality & Tourism Management' },
+                        { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture' },
+                        { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Technology' },
+                        { value: 'CVMAS - Basic Veterinary Science', label: 'CVMAS — Basic Veterinary Science' },
+                        { value: 'CVMAS - Veterinary Paraclinical', label: 'CVMAS — Veterinary Paraclinical' },
+                        { value: 'CVMAS - Veterinary Clinical', label: 'CVMAS — Veterinary Clinical' },
+                      ])}
+                    </div>
+                    {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
+                    {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderPasswordField('password', password, setPassword, 'Password')}
+                      {renderPasswordField('confirmPassword', confirmPassword, setConfirmPassword, 'Confirm Password')}
+                    </div>
+                  </>
+                )}
+
+                {/* Verify OTP Mode */}
+                {mode === 'verify' && (
+                  <>
+                    {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
+                    {renderField('otp', Key, 'text', '123456', otp, setOtp, 'Verification OTP (6 digits)')}
+                    {/* Two routes, named. Offering only "resend" when email is
+                        the thing that is failing sends the user round the same
+                        loop; the second button is the way out of it. */}
+                    <div className="flex flex-col items-center gap-2.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleResend('auto')}
+                        disabled={loading}
+                        className="text-caption font-bold text-atlas-700 hover:text-atlas-800 uppercase tracking-wide disabled:opacity-50 transition-colors duration-state ease-standard"
+                      >
+                        Resend Verification Code
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleResend('sms')}
+                        disabled={loading}
+                        className="inline-flex items-center gap-1.5 text-caption font-medium text-atlas-slate hover:text-atlas-700 disabled:opacity-50 transition-colors duration-state ease-standard"
+                      >
+                        <Phone className="w-3.5 h-3.5" aria-hidden="true" />
+                        Didn’t get the email? Send the code by SMS
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Forgot Password - Step 1: Email */}
+                {mode === 'forgot_email' && renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
+
+                {/* Forgot Password - Step 2: OTP */}
+                {mode === 'forgot_otp' && renderField('otp', Key, 'text', '123456', otp, setOtp, 'Reset OTP (6 digits)')}
+
+                {/* Forgot Password - Step 3: Reset */}
+                {mode === 'forgot_reset' && (
+                  <>
+                    {renderPasswordField('password', password, setPassword, 'New Password')}
+                    {renderPasswordField('confirmPassword', confirmPassword, setConfirmPassword, 'Confirm Password')}
+                  </>
+                )}
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="auth-sweep w-full flex justify-center items-center gap-2 py-3.5 px-6 rounded-control text-body font-semibold text-white bg-atlas-800 hover:bg-atlas-700 shadow-overlay hover:shadow-float focus:outline-none focus-visible:ring-4 focus-visible:ring-atlas-700/30 active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed disabled:active:scale-100 transition-[background-color,box-shadow,transform] duration-state ease-standard"
+                  >
+                    {loading ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden="true" />
+                        <span>Working…</span>
+                      </>
+                    ) : mode === 'login' ? (
+                      <><LogIn className="w-4 h-4" aria-hidden="true" /> Log in to Atlas</>
+                    ) : mode === 'register' ? (
+                      <><UserPlus className="w-4 h-4" aria-hidden="true" /> Complete Registration</>
+                    ) : mode === 'verify' ? (
+                      <><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Verify Account</>
+                    ) : mode === 'forgot_email' ? (
+                      <><Send className="w-4 h-4" aria-hidden="true" /> Send Reset Code</>
+                    ) : mode === 'forgot_otp' ? (
+                      <><Key className="w-4 h-4" aria-hidden="true" /> Verify OTP</>
+                    ) : (
+                      <><RefreshCw className="w-4 h-4" aria-hidden="true" /> Reset Password</>
+                    )}
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-7 pt-5 border-t border-atlas-line text-center">
+                <p className="text-caption text-atlas-slate">
+                  {mode === 'login' ? "First time using ATLAS? " : "Already have an account? "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (mode === 'login') {
+                        setMode('register');
+                      } else {
+                        setMode('login');
+                        setError('');
+                        setSuccess('');
+                      }
+                    }}
+                    className="font-semibold text-atlas-700 hover:text-atlas-800 underline underline-offset-4 decoration-atlas-700/30 hover:decoration-atlas-800 transition-colors duration-state ease-standard"
+                  >
+                    {mode === 'login' ? 'Create an account' : 'Return to login'}
+                  </button>
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
-        <p className="mt-8 text-center text-white/40 text-[10px] font-bold uppercase tracking-[0.3em]">
+        <p className="mt-7 text-center text-micro uppercase text-white/45">
           &copy; 2026 ATLAS Academic Timetabling System
         </p>
       </div>

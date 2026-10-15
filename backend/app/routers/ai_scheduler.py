@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, cast
 from datetime import datetime, timezone, time
 from pydantic import BaseModel
 from .. import models, database, auth
@@ -15,10 +15,11 @@ router = APIRouter(
 class GenerateRequest(BaseModel):
     faculty_ids: List[int]
     auto_bump_units: Optional[bool] = True
-    # Whether laboratory subjects should be given a room. Lectures never are,
-    # either way. Defaults to True so an older client keeps the behaviour it
-    # was written against.
-    assign_lab_rooms: Optional[bool] = True
+    # `assign_lab_rooms` used to live here. Rooms are best-effort now and never
+    # a requirement, so there is nothing for a caller to choose. Pydantic
+    # ignores unknown fields by default, so a client still sending it is not an
+    # error -- the value simply has no effect.
+
 
 class SolveConflictRequest(BaseModel):
     conflict_id: Optional[int] = None
@@ -71,15 +72,13 @@ def generate_schedule(
 
     # Map input User IDs to Faculty IDs
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
-    resolved_faculty_ids = [f.id for f in faculty_records]
+    resolved_faculty_ids = [cast(int, f.id) for f in faculty_records]
 
     # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
-    assign_lab_rooms = True if request.assign_lab_rooms is None else bool(request.assign_lab_rooms)
     results = generate_schedules(
-        db, semester_id, resolved_faculty_ids, dept.id,
+        db, semester_id, resolved_faculty_ids, cast(int, dept.id),
         auto_bump_units=False,
-        assign_lab_rooms=assign_lab_rooms,
-    ) # type: ignore
+    )
 
     # The generator commits schedules and conflict records in one transaction, so a
     # failure there discards everything it produced. Never report that as success.
@@ -102,8 +101,7 @@ def generate_schedule(
     workload_warnings = results.get('bumped_warnings', [])
     warnings_count = len(workload_warnings) if isinstance(workload_warnings, list) else 0
     
-    room_mode = "laboratories given rooms" if assign_lab_rooms else "no rooms assigned"
-    log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}. Rooms: {room_mode}."
+    log_detail = f"Generated schedule for {dept.name} ({semester.academic_year} {semester.term}). Schedules generated: {results.get('generated', 0)}. Unplaced: {unplaced_count}. Skipped GenEd: {results.get('skipped_gened', 0)}."
     if warnings_count > 0:
         log_detail += f" Warning: {warnings_count} faculty teaching-load warning(s) (overload or Part-Time ceiling)."
 

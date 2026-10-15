@@ -6,6 +6,19 @@ import openpyxl
 import math
 import io
 import json
+import logging
+
+# The curriculum importer's running commentary -- which sheet was chosen, which
+# rows became subjects -- used to be printed unconditionally. Every import wrote
+# ten-odd lines to the server console, and once deployed those go to the hosting
+# log where they bury anything that actually matters.
+#
+# They are kept rather than deleted because they are genuinely useful when a
+# workbook parses to the wrong thing. As debug-level records they are silent by
+# default and can be switched on for one investigation:
+#     logging.getLogger("app.routers.curriculum").setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 import re
 from .. import models, schemas, database, auth
 from .logs import log_activity
@@ -552,8 +565,7 @@ async def _process_curriculum_import(
             best_sheet = selected_sheet
             sheet_auto_selected = False
 
-        print(f"DEBUG: Selected sheet '{best_sheet}' with confidence score {max_score}")
-
+        logger.debug(f"DEBUG: Selected sheet '{best_sheet}' with confidence score {max_score}")
         ws_best = wb[best_sheet]
         raw_probe_rows = [list(r) for r in list(ws_best.iter_rows(values_only=True))[:25]]
         probe_vals = []
@@ -601,7 +613,7 @@ async def _process_curriculum_import(
 
         if existing_block:
             curriculum_block = existing_block
-            print(f"DEBUG: Found existing block '{extracted_program_name} ({extracted_ay})' (ID: {curriculum_block.id})")
+            logger.debug(f"DEBUG: Found existing block '{extracted_program_name} ({extracted_ay})' (ID: {curriculum_block.id})")
         else:
             curriculum_block = models.CurriculumBlock(
                 department_id=target_dept_id,
@@ -611,8 +623,7 @@ async def _process_curriculum_import(
             )
             db.add(curriculum_block)
             db.flush()
-            print(f"DEBUG: Created new block '{full_block_name}' (ID: {curriculum_block.id})")
-
+            logger.debug(f"DEBUG: Created new block '{full_block_name}' (ID: {curriculum_block.id})")
         ws = wb[best_sheet]
         
         merged_cells = list(ws.merged_cells.ranges)
@@ -714,7 +725,7 @@ async def _process_curriculum_import(
                 looking_for_headers = True 
                 last_row_identifier = None # Reset for new zone
                 seen_any_section = True
-                print(f"DEBUG: Found Section Header at row {idx}: Year={current_year_context}, Sem={current_sem_context}")
+                logger.debug(f"DEBUG: Found Section Header at row {idx}: Year={current_year_context}, Sem={current_sem_context}")
                 continue
 
             # Professional Electives pool.
@@ -761,7 +772,7 @@ async def _process_curriculum_import(
                         current_year_context = '1'
                     if not current_sem_context:
                         current_sem_context = '1st'
-                print(f"DEBUG: Mapped columns at row {idx}: {col_map}")
+                logger.debug(f"DEBUG: Mapped columns at row {idx}: {col_map}")
                 continue
 
             # 3. Subject Row Capture
@@ -772,7 +783,7 @@ async def _process_curriculum_import(
             # that gets scheduled, so it is not curriculum for this purpose.
             if not is_in_active_zone or not col_map or 'code' not in col_map: continue
             if not current_year_context or not current_sem_context: continue
-            if not str(current_year_context).isdigit(): continue
+            if not current_year_context.isdigit(): continue
             
             code_raw = row[col_map['code']] if col_map['code'] < len(row) else None
             name_raw = row[col_map['name']] if 'name' in col_map and col_map['name'] < len(row) else ""
@@ -788,19 +799,19 @@ async def _process_curriculum_import(
             
             if is_na(code_raw):
                 if units > 0:
-                    print(f"DEBUG: Row {idx} skipped: Subtotal row (units={units}, code=None)")
+                    logger.debug(f"DEBUG: Row {idx} skipped: Subtotal row (units={units}, code=None)")
                     continue 
                 if not is_na(name_raw) and current_year_context == 'Elective':
                     sub_cat = str(name_raw).strip()
                     if sub_cat and len(sub_cat) > 3:
                         current_sem_context = sub_cat
-                        print(f"DEBUG: Found Elective Sub-category at row {idx}: {sub_cat}")
+                        logger.debug(f"DEBUG: Found Elective Sub-category at row {idx}: {sub_cat}")
                 continue
             
             # Cleanup code and name for identifier
             code = str(int(code_raw)) if isinstance(code_raw, float) and code_raw.is_integer() else str(code_raw).strip()
             name = str(name_raw).strip() if not is_na(name_raw) else ""
-            print(f"DEBUG: Found Subject candidate at row {idx}: {code} - {name} ({units} units)")
+            logger.debug(f"DEBUG: Found Subject candidate at row {idx}: {code} - {name} ({units} units)")
             # STEP 7 — CONSECUTIVE DEDUPLICATION (Scenario A, Rule 260)
             current_identifier = (code, name, units)
             if current_identifier == last_row_identifier:
@@ -888,7 +899,7 @@ async def _process_curriculum_import(
                             is_major=is_major_val
                         ))
                     all_parsed_data.append(item_data)
-                    print(f"DEBUG: Captured split A/B subject: {ccode} ({ctype_val})")
+                    logger.debug(f"DEBUG: Captured split A/B subject: {ccode} ({ctype_val})")
                 continue
 
             # Determine subject type using Lec and Lab columns as primary source of truth:
@@ -939,8 +950,7 @@ async def _process_curriculum_import(
                     is_major=is_major_val
                 ))
             all_parsed_data.append(item_data)
-            print(f"DEBUG: Successfully captured subject: {code}")
-
+            logger.debug(f"DEBUG: Successfully captured subject: {code}")
         # STEP 6 — SUMMARY OF UNITS (VALIDATION ONLY)
         total_units_extracted = sum(item["units"] for item in all_parsed_data)
         excel_grand_total = 0

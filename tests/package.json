@@ -1,14 +1,11 @@
 {
-  "name": "tests",
+  "name": "atlas-manual-tests",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Playwright walkthrough used to watch ATLAS drive itself. Manual, headed, not part of CI — the automated suite is the Python one in this folder, run with `python -m unittest discover -s tests -t .` from the repository root.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "walkthrough": "node functional_test.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "^1.59.1"

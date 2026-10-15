@@ -192,7 +192,7 @@ body {
   --tt-hour: 56px;
   --tt-daycol-min: 140px;
   --tt-gutter: 64px;
-  --row-h: 44px;
+  --row-h: 52px;
 }
 
 /* Compact density. 60px is the floor for a 90-min block:
@@ -457,6 +457,429 @@ body {
   .lift:hover .travel-y { transform: none; }
   .rise,
   .rise-flat { animation: none; }
+}
+
+/* --- Heatmap cells -------------------------------------------------------
+   The week grid on Overview settles in a diagonal wave rather than all at
+   once: `--d` carries each cell's distance from the top-left corner, so the
+   animation reads as the week filling in from Monday morning outward. 18ms a
+   step keeps the whole 36-cell grid under two thirds of a second.
+
+   `backwards`, not `both`. A held transform makes a stacking context, and 36
+   of them stacked over a panel is how a tooltip ends up painting underneath
+   the thing it belongs to. */
+@keyframes atlas-cell-in {
+  from { opacity: 0; transform: scale(0.55); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.cell-in {
+  animation: atlas-cell-in 360ms var(--ease-emphasis) backwards;
+  animation-delay: calc(var(--d, 0) * 18ms);
+}
+
+/* A load bar that grows from empty, on the same reasoning as the readiness
+   meter: the proportion is legible before the number has been read. */
+@keyframes atlas-bar-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.bar-grow {
+  transform-origin: left center;
+  animation: atlas-bar-grow 720ms var(--ease-emphasis) backwards;
+  animation-delay: calc(var(--d, 0) * 70ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-in { animation-name: auth-fade; }
+  .bar-grow { animation: none; }
+}
+
+/* --- Progress meter ------------------------------------------------------
+   A readiness bar that fills from empty on arrival. The growth is the whole
+   point: "4 of 5" as a static bar is a fact, but a bar that fills shows you
+   how much of the way along you are before you have read the number.
+
+   The target width comes in as `--meter` from the markup, so the resting state
+   and the animation's end state are the same value and cannot drift. */
+@keyframes meter-grow {
+  from { width: 0; }
+  to   { width: var(--meter, 0%); }
+}
+.meter-fill {
+  width: var(--meter, 0%);
+  animation: meter-grow 900ms var(--ease-emphasis) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The bar still shows the proportion; it just arrives at it. */
+  .meter-fill { animation: none; }
+}
+
+/* --- Rise from the bottom edge -------------------------------------------
+   The undo banner and the conflict lens both enter from the bottom of the
+   viewport. Both used `animate-in slide-in-from-bottom-*`, which belongs to
+   tailwindcss-animate -- a plugin this project has never installed, so the
+   classes generated no CSS and neither panel had an entrance at all.
+
+   `backwards`, not `both`: `both` would hold the final transform forever, and
+   a lingering transform creates a stacking context that later siblings paint
+   over. That is exactly what put a select menu behind its own form rows on the
+   sign-in screen. */
+@keyframes atlas-rise-bottom {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise-bottom {
+  animation: atlas-rise-bottom var(--dur-lens) var(--ease-emphasis) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The fade stays; only the travel goes. */
+  .rise-bottom { animation-name: auth-fade; }
+}
+
+/* ==========================================================================
+   AUTH  —  the sign-in / register screen
+   The only screen a signed-out user ever sees, so it is the one place the
+   product gets to introduce itself. The backdrop is not decoration for its
+   own sake: it is a timetable assembling itself, drawn on the same column and
+   row metrics the real grid uses (--tt-daycol-min, --tt-hour), so the first
+   thing a user sees is the thing the product makes.
+
+   Everything ambient is slow and low-contrast. The card itself stays a plain
+   light surface with ink text -- the spectacle is behind it, never under the
+   words someone has to read. All of it stops under prefers-reduced-motion.
+   ========================================================================== */
+
+/* --- The scene ----------------------------------------------------------
+   Fixed rather than absolute: on a short viewport the register form scrolls,
+   and the backdrop should stay put while it does. */
+.auth-scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 85% at 50% -10%, #0B5533 0%, #06381F 48%, #041B12 100%);
+}
+
+/* The campus, present but recessed. Desaturated so the aurora above it reads
+   as light on the building rather than a second colour scheme. */
+.auth-photo {
+  position: absolute;
+  inset: -4%;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.11;
+  filter: saturate(0.4) contrast(1.02) blur(2.5px);
+  animation: auth-drift 60s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes auth-drift {
+  0%, 100% { transform: scale(1.03) translate3d(0, 0, 0); }
+  50%      { transform: scale(1.09) translate3d(-1.4%, -1%, 0); }
+}
+
+/* Three light sources, drifting on different periods so they never repeat a
+   visible pattern. Heavily blurred, so what moves is the light, not an edge. */
+.auth-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  will-change: transform;
+}
+.auth-blob-1 {
+  width: 46vmax; height: 46vmax; left: -13vmax; top: -16vmax;
+  background: radial-gradient(circle, rgb(var(--atlas-green-700-rgb) / 0.95), transparent 70%);
+  animation: auth-blob-a 34s ease-in-out infinite;
+}
+.auth-blob-2 {
+  width: 38vmax; height: 38vmax; right: -12vmax; top: 8vmax;
+  background: radial-gradient(circle, rgb(var(--atlas-green-300-rgb) / 0.42), transparent 70%);
+  animation: auth-blob-b 42s ease-in-out infinite;
+}
+.auth-blob-3 {
+  width: 32vmax; height: 32vmax; left: 28vmax; bottom: -18vmax;
+  background: radial-gradient(circle, rgb(var(--atlas-gold-500-rgb) / 0.38), transparent 68%);
+  animation: auth-blob-c 38s ease-in-out infinite;
+}
+@keyframes auth-blob-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(9vmax, 6vmax, 0) scale(1.16); }
+}
+@keyframes auth-blob-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.08); }
+  50%      { transform: translate3d(-8vmax, 9vmax, 0) scale(0.94); }
+}
+@keyframes auth-blob-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.96); }
+  50%      { transform: translate3d(-7vmax, -8vmax, 0) scale(1.18); }
+}
+
+/* The timetable itself. Same column width and row height as the real grid,
+   masked to fade out at the edges so it reads as a surface receding rather
+   than a texture stopping. */
+.auth-grid {
+  position: absolute;
+  inset: -2px;
+  background-image:
+    repeating-linear-gradient(to right,  rgb(255 255 255 / 0.09) 0 1px, transparent 1px var(--tt-daycol-min)),
+    repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.07) 0 1px, transparent 1px var(--tt-hour));
+  -webkit-mask-image: radial-gradient(78% 68% at 50% 45%, #000 25%, transparent 100%);
+          mask-image: radial-gradient(78% 68% at 50% 45%, #000 25%, transparent 100%);
+}
+
+/* Class blocks, materialising into their slots and clearing again. Each one
+   carries its own delay from the markup, so the grid never fills or empties
+   all at once -- it looks like a schedule being worked out. */
+.auth-block {
+  position: absolute;
+  border-radius: 6px;
+  opacity: 0;
+  /* The department colour arrives as `color` from the markup and the fill is
+     built from `currentColor`. Interpolating the gradient in JS instead would
+     mean string-concatenating an alpha onto a `var(--dept-*)`, which is not a
+     colour any browser can parse. */
+  background: linear-gradient(135deg, currentColor, transparent 150%);
+  box-shadow: inset 0 0 0 1px currentColor;
+  animation: auth-block-cycle 16s var(--ease-standard) infinite;
+  will-change: transform, opacity;
+}
+@keyframes auth-block-cycle {
+  0%          { opacity: 0; transform: translateY(10px) scale(0.94); }
+  5%, 34%     { opacity: 0.5; transform: translateY(0) scale(1); }
+  42%, 100%   { opacity: 0; transform: translateY(-8px) scale(0.97); }
+}
+
+/* The blocks live in the margins either side of a 480px card, so they only
+   have somewhere to be once the viewport is wide enough to have margins.
+   Below that they would sit behind the card -- showing through the translucent
+   surface as coloured smears under the form -- while still animating twelve
+   elements on the least capable devices. So: wide screens only. */
+.auth-block { display: none; }
+@media (min-width: 1024px) {
+  .auth-block { display: block; }
+}
+
+/* Darkens the corners so the card always has a quiet field behind it, whatever
+   the blobs are doing at that moment. */
+.auth-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(68% 58% at 50% 46%, transparent 30%, rgb(2 14 9 / 0.78) 100%),
+    linear-gradient(to bottom, rgb(2 14 9 / 0.28), transparent 32%, transparent 68%, rgb(2 14 9 / 0.38));
+}
+
+/* --- The card -----------------------------------------------------------
+   A rotating conic rim, one and a half pixels wide. It lives in its own
+   absolutely-positioned layer *behind* the card rather than as overflow on
+   the card itself, because the department select opens past the card's bottom
+   edge and `overflow: hidden` there would clip the menu. */
+.auth-rim {
+  position: absolute;
+  inset: -1.5px;
+  border-radius: 30px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.auth-rim::before {
+  content: '';
+  position: absolute;
+  inset: -75%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 42%,
+    rgb(var(--atlas-gold-500-rgb) / 0.85) 52%,
+    rgb(255 255 255 / 0.85) 58%,
+    rgb(var(--atlas-green-300-rgb) / 0.85) 66%,
+    transparent 76% 100%
+  );
+  animation: auth-rim-spin 9s linear infinite;
+  will-change: transform;
+}
+@keyframes auth-rim-spin {
+  to { transform: rotate(360deg); }
+}
+
+.auth-card {
+  position: relative;
+  border-radius: 28px;
+  background: rgb(255 255 255 / 0.94);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+          backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow:
+    0 30px 70px -20px rgb(2 16 10 / 0.55),
+    0 8px 24px -12px rgb(2 16 10 / 0.4);
+}
+
+/* One pass of light across the card as it arrives. Its own layer, with its own
+   overflow, for the same reason the rim has one -- the select menu must stay
+   free to escape the card's bounds. */
+.auth-shine {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.auth-shine::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.65), transparent);
+  transform: translateX(-160%) skewX(-18deg);
+  animation: auth-shine-pass 1500ms var(--ease-standard) 520ms 1 both;
+}
+@keyframes auth-shine-pass {
+  to { transform: translateX(340%) skewX(-18deg); }
+}
+
+/* The card arriving: up, forward, and settling on the emphasis curve. */
+@keyframes auth-card-in {
+  from { opacity: 0; transform: translateY(26px) scale(0.965); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.auth-card-in { animation: auth-card-in 620ms var(--ease-emphasis) backwards; }
+
+/* --- The mark ------------------------------------------------------------ */
+.auth-mark {
+  position: relative;
+  animation: auth-float 7s ease-in-out infinite;
+}
+.auth-mark::before {
+  content: '';
+  position: absolute;
+  inset: -32%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--atlas-green-700-rgb) / 0.22), transparent 68%);
+  animation: auth-halo 5s ease-in-out infinite;
+}
+@keyframes auth-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+@keyframes auth-halo {
+  0%, 100% { opacity: 0.55; transform: scale(0.94); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+
+/* --- Entrances ----------------------------------------------------------- */
+@keyframes auth-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* `backwards`, never `both`.
+   `both` holds the animation's final frame forever, and that final frame is a
+   transform -- translateY(0). A transform creates a stacking context, so every
+   staggered form row stayed a stacking context for the life of the page, and
+   the department menu's `z-index: 100` could only compete *inside its own row*.
+   The rows after it in the DOM painted straight over the open menu.
+   `backwards` covers the delay before each animation starts, then hands the
+   element back to its own styles -- no transform, no stacking context. */
+.auth-enter {
+  animation: auth-enter 460ms var(--ease-emphasis) backwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+/* The same entrance down a list, without every call site having to count.
+   Direct children only, so a `<>...</>` group of fields staggers as the fields
+   it contains rather than as one block. Nine steps covers the longest mode
+   (register); past that they share the last delay, because a stagger that
+   keeps growing just turns into a wait. */
+.auth-stagger > * {
+  animation: auth-enter 460ms var(--ease-emphasis) backwards;
+}
+.auth-stagger > *:nth-child(1) { animation-delay: 320ms; }
+.auth-stagger > *:nth-child(2) { animation-delay: 380ms; }
+.auth-stagger > *:nth-child(3) { animation-delay: 440ms; }
+.auth-stagger > *:nth-child(4) { animation-delay: 500ms; }
+.auth-stagger > *:nth-child(5) { animation-delay: 560ms; }
+.auth-stagger > *:nth-child(6) { animation-delay: 620ms; }
+.auth-stagger > *:nth-child(7) { animation-delay: 680ms; }
+.auth-stagger > *:nth-child(8) { animation-delay: 740ms; }
+.auth-stagger > *:nth-child(n+9) { animation-delay: 800ms; }
+
+/* Alerts arrive from above the form, because that is where they appear. This
+   replaces `animate-in fade-in slide-in-from-top-2`, which was a
+   tailwindcss-animate class on a project that never installed the plugin --
+   so the alerts had no entrance at all. */
+@keyframes auth-alert-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.auth-alert { animation: auth-alert-in var(--dur-lens) var(--ease-emphasis) backwards; }
+
+/* The select menu, opening from the control it belongs to. Replaces the other
+   dead `animate-in zoom-in-95` class for the same reason. */
+@keyframes auth-pop-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.auth-pop {
+  animation: auth-pop-in var(--dur-overlay) var(--ease-emphasis) backwards;
+  transform-origin: top center;
+}
+
+/* --- The submit button --------------------------------------------------- */
+.auth-sweep { position: relative; overflow: hidden; isolation: isolate; }
+.auth-sweep::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 40%;
+  z-index: 1;
+  pointer-events: none;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.3), transparent);
+  transition: left 640ms var(--ease-standard);
+}
+.auth-sweep:hover:not(:disabled)::after,
+.auth-sweep:focus-visible:not(:disabled)::after { left: 130%; }
+
+/* --- Reduced motion ------------------------------------------------------
+   Every ambient loop is decoration and stops outright. The entrances keep
+   their opacity fade: a cross-fade is not what the setting is asking us to
+   remove, the travel is, so only the travel goes. */
+@media (prefers-reduced-motion: reduce) {
+  .auth-photo,
+  .auth-blob,
+  .auth-block,
+  .auth-rim::before,
+  .auth-mark,
+  .auth-mark::before { animation: none; }
+  .auth-shine { display: none; }
+  .auth-sweep::after { display: none; }
+  .auth-block { opacity: 0.4; }
+  .auth-enter,
+  .auth-stagger > *,
+  .auth-card-in,
+  .auth-alert,
+  .auth-pop { animation-name: auth-fade; }
+}
+@keyframes auth-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* People turn this on because translucency makes text hard to read. The card
+   is where the text is, so it goes fully opaque and drops its blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .auth-card {
+    background: var(--atlas-surface);
+    -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .auth-card { background: var(--atlas-surface); }
 }
 
 /* ==========================================================================

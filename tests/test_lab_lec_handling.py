@@ -460,7 +460,7 @@ class TestLabLecHandling(unittest.TestCase):
         if admin_u is None:
             admin_u = models.User(id=1, first_name="Admin", last_name="User", email="admin@dlsau.edu.ph", role="admin", password_hash="pw")
             db.add(admin_u)
-        admin_u.role = "admin"
+        setattr(admin_u, "role", "admin")
         if db.query(models.User).filter(models.User.id == 7).first() is None:
             db.add(models.User(id=7, first_name="Other", last_name="Chair", email="chair7@dlsau.edu.ph", role="program_chair", department="CBM", password_hash="pw"))
         db.commit()
@@ -714,7 +714,17 @@ class TestLabLecHandling(unittest.TestCase):
         for s in lab_scheds:
             self.assertEqual(s.room_id, lab_room.id)
 
-    def test_unplaced_lab_reason_when_no_lab_room(self):
+    def test_lab_is_scheduled_without_a_room_when_none_is_available(self):
+        """
+        A laboratory with no free room is still timetabled, with room_id NULL.
+
+        This asserted the opposite until rooms became best-effort: the class was
+        refused and reported as "no laboratory room was available". Timetables
+        are submitted to the Registrar, who assigns the rooms, so withholding a
+        professor's schedule over a column this system does not own blocked the
+        deliverable for a reason outside its remit. A blank room now means the
+        Registrar assigns that one.
+        """
         db = setup_test_db()
 
         dept = models.Department(name="College of Computer Studies", code="CAST")
@@ -745,10 +755,90 @@ class TestLabLecHandling(unittest.TestCase):
 
         results = generate_schedules(db, sem_id, [fac_id], dept_id, auto_bump_units=False)
 
+        # Nothing is refused for want of a room.
         unplaced_items: List[Dict[str, Any]] = results.get("unplaced", [])  # type: ignore
-        self.assertEqual(len(unplaced_items), 1)
-        unplaced_item = unplaced_items[0]
-        self.assertIn("could not be scheduled because no laboratory room was available", str(unplaced_item.get("reason", "")))
+        self.assertEqual(len(unplaced_items), 0)
+
+        # The lab is on the timetable, twice a week, with no room attached.
+        self.assertEqual(results.get("generated"), 2)
+        lab_scheds = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == sem_id,
+            models.Schedule.curriculum_id == curr_lab.id,
+        ).all()
+        self.assertEqual(len(lab_scheds), 2)
+        for sched in lab_scheds:
+            self.assertIsNone(sched.room_id)
+
+        # The lecture room present in the fixture is not a fallback: a
+        # laboratory is never quietly placed in a lecture hall.
+        for sched in lab_scheds:
+            self.assertNotEqual(sched.room_id, lec_room.id)
+
+    def test_lab_falls_back_to_no_room_when_every_lab_room_is_busy(self):
+        """
+        The two-pass rule: prefer a room, but never fail for want of one.
+
+        Distinct from the no-rooms-exist case above. Here a laboratory room does
+        exist -- it is simply occupied at every slot on every day pair -- which
+        is the realistic shortage. The first pass finds nothing free, and the
+        second places the class with no room rather than refusing it.
+        """
+        from backend.app.services.schedule_generator import LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR
+
+        db = setup_test_db()
+
+        dept = models.Department(name="College of Computer Studies", code="CAST")
+        db.add(dept)
+        db.flush()
+
+        # `blocker` already owns the room; `fac` is the one being scheduled.
+        blocker = models.Faculty(first_name="Grace", last_name="Hopper", max_units=99, department_id=dept.id)
+        fac = models.Faculty(first_name="Ada", last_name="Lovelace", max_units=24, department_id=dept.id)
+        db.add_all([blocker, fac])
+
+        sem = models.Semester(academic_year="AY 2026-2027", term="1st", is_active=True)
+        db.add(sem)
+        lab_room = models.Room(name="COMLAB-1", building="Main", capacity=30, type="computer_lab")
+        db.add(lab_room)
+        db.flush()
+
+        occupied = models.Curriculum(code="OCC101B", name="Occupier (Lab)", units=1, type="lab",
+                                     department_id=dept.id, lec_units=0, lab_units=1)
+        curr_lab = models.Curriculum(code="DS101B", name="Data Science (Lab)", units=1, type="lab",
+                                     department_id=dept.id, lec_units=0, lab_units=1)
+        db.add_all([occupied, curr_lab])
+        db.flush()
+
+        # Fill the only laboratory room across every slot and every day pair.
+        for pair in (MW_PAIR, TTH_PAIR, FS_PAIR):
+            for day in pair:
+                for start_t, end_t in LAB_SLOTS:
+                    db.add(models.Schedule(
+                        semester_id=sem.id, curriculum_id=occupied.id, faculty_id=blocker.id,
+                        room_id=lab_room.id, day_of_week=day, start_time=start_t, end_time=end_t,
+                        section="", status='draft',
+                    ))
+
+        db.add(models.SubjectOffering(faculty_id=fac.id, curriculum_id=curr_lab.id, semester_id=sem.id))
+        db.commit()
+
+        sem_id: int = int(sem.id)  # type: ignore
+        fac_id: int = int(fac.id)  # type: ignore
+        dept_id: int = int(dept.id)  # type: ignore
+
+        results = generate_schedules(db, sem_id, [fac_id], dept_id, auto_bump_units=False)
+
+        unplaced_items: List[Dict[str, Any]] = results.get("unplaced", [])  # type: ignore
+        self.assertEqual(len(unplaced_items), 0, "a busy room must not cost the class its place")
+
+        lab_scheds = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == sem_id,
+            models.Schedule.curriculum_id == curr_lab.id,
+        ).all()
+        self.assertEqual(len(lab_scheds), 2)
+        for sched in lab_scheds:
+            # Placed, and explicitly not double-booked into the occupied room.
+            self.assertIsNone(sched.room_id)
 
     def test_is_room_conflict_ignores_none_room(self):
         self.assertFalse(is_room_conflict(None, "Mon", "Wed", None, None, []))

@@ -1,5 +1,6 @@
 import unittest
 import io
+from typing import cast
 import openpyxl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +39,7 @@ def _lectures_to_reach(target_hours):
 def _make_sample_excel_bytes():
     wb = openpyxl.Workbook()
     ws = wb.active
+    assert ws is not None
     ws.title = "De La Salle Araneta University"
     
     ws.append(["DE LA SALLE ARANETA UNIVERSITY"])
@@ -125,6 +127,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
     def test_01_authentication_and_password_verification(self):
         admin = self.db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
         self.assertIsNotNone(admin)
+        assert admin is not None
         self.assertTrue(auth.verify_password("Admin123!", admin.password_hash))
         self.assertFalse(auth.verify_password("WrongPw", admin.password_hash))
 
@@ -132,6 +135,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         token = auth.create_access_token({"sub": "admin@dlsau.edu.ph", "role": "admin", "sv": 1})
         self.assertIsNotNone(token)
         from jose import jwt
+        assert auth.SECRET_KEY is not None
         payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
         self.assertEqual(payload.get("sub"), "admin@dlsau.edu.ph")
         self.assertEqual(payload.get("role"), "admin")
@@ -148,6 +152,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
 
         fetched_sem = self.db.query(models.Semester).filter(models.Semester.is_active == True).first()
         self.assertIsNotNone(fetched_sem)
+        assert fetched_sem is not None
         self.assertEqual(fetched_sem.academic_year, "2025-2026")
         self.assertEqual(fetched_sem.term, "1st")
 
@@ -167,6 +172,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
 
         user_in_db = self.db.query(models.User).filter(models.User.email == "ana.reyes@dlsau.edu.ph").first()
         self.assertIsNotNone(user_in_db)
+        assert user_in_db is not None
         self.assertEqual(user_in_db.role, "coordinator")
 
     # ----------------------------------------------------------------------
@@ -216,6 +222,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         # Check block entity created
         block = self.db.query(models.CurriculumBlock).first()
         self.assertIsNotNone(block)
+        assert block is not None
         self.assertEqual(block.status, "PUBLISHED")
 
         # Check curriculum subjects created
@@ -293,7 +300,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         self.db.commit()
 
         # Run AI generator
-        res = generate_schedules(self.db, sem.id, [fac1.id], department_id=1, auto_bump_units=False)
+        res = generate_schedules(self.db, cast(int, sem.id), [cast(int, fac1.id)], department_id=1, auto_bump_units=False)
         self.assertGreater(res["generated"], 0)
 
         # Verify generated schedules
@@ -302,9 +309,10 @@ class EndToEndFunctionalAudit(unittest.TestCase):
 
         for s in schedules_in_db:
             c = self.db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-            if c.type == 'lecture':
+            assert c is not None
+            if getattr(c, 'type') == 'lecture':
                 self.assertIsNone(s.room_id) # Lecture has room_id NULL
-            elif c.type == 'lab':
+            elif getattr(c, 'type') == 'lab':
                 self.assertIsNotNone(s.room_id) # Lab has room_id assigned
 
     def test_09b_generated_lectures_match_institutional_patterns(self):
@@ -423,7 +431,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         ])
         self.db.commit()
 
-        res = generate_schedules(self.db, sem.id, [fac.id], department_id=1, auto_bump_units=False)
+        res = generate_schedules(self.db, cast(int, sem.id), [cast(int, fac.id)], department_id=1, auto_bump_units=False)
         self.assertGreater(len(res["bumped_warnings"]), 0)
 
         warning = res["bumped_warnings"][0]
@@ -465,7 +473,7 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         ])
         self.db.commit()
 
-        res = generate_schedules(self.db, sem.id, [fac.id], department_id=1, auto_bump_units=False)
+        res = generate_schedules(self.db, cast(int, sem.id), [cast(int, fac.id)], department_id=1, auto_bump_units=False)
 
         self.assertGreater(len(res["bumped_warnings"]), 0)
         warning = res["bumped_warnings"][0]
@@ -502,10 +510,12 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         self.db.commit()
 
         # Lock schedule
-        sched.is_locked = True
+        setattr(sched, "is_locked", True)
         self.db.commit()
 
         refreshed_sched = self.db.query(models.Schedule).filter(models.Schedule.id == sched.id).first()
+        self.assertIsNotNone(refreshed_sched)
+        assert refreshed_sched is not None
         self.assertTrue(refreshed_sched.is_locked)
 
         # Publish schedules for semester
@@ -513,6 +523,8 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         self.db.commit()
 
         pub_sched = self.db.query(models.Schedule).filter(models.Schedule.id == sched.id).first()
+        self.assertIsNotNone(pub_sched)
+        assert pub_sched is not None
         self.assertEqual(pub_sched.status, "published")
 
 if __name__ == "__main__":

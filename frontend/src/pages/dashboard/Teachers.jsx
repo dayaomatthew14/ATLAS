@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Users as UsersIcon, Clock, X, Search, Trash2 } from 'lucide-react';
+import { Plus, Users as UsersIcon, Clock, X, Search, Trash2, ChevronRight, Eye } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../components/ui/Dialog';
@@ -10,9 +10,25 @@ import { formatHours, PART_TIME_CEILING_HOURS } from '../../utils/load';
 import { TextInput, NumberInput, RadioGroup, SelectInput } from '../../components/ui/Field';
 import { Page, PageHeader, EmptyState } from '../../components/ui/Page';
 import UnavailabilityGrid from '../../components/ui/UnavailabilityGrid';
+import FacultyPreviewDialog from '../../components/FacultyPreviewDialog';
 import { blocksToCells, cellsToBlocks } from '../../utils/availability';
 import { restrictionReason, pluralize, focusRing } from '../../components/ui/tokens';
 import { canManageFaculty as canManageFacultyRole, getRole, ROLES } from '../../utils/session';
+
+/**
+ * Row controls need a border you can actually see.
+ *
+ * `secondary` is a glass button: a white fill behind a white border. That
+ * works on the coloured and glass panels it was designed for, but a DataTable
+ * row is white, so on this screen "Manage" and "Edit" rendered as bare words
+ * with no edge at all — they did not read as controls.
+ *
+ * --atlas-line is not the fix: index.css is explicit that it is a 1.27:1
+ * hairline and NOT legal on an interactive boundary, because WCAG 1.4.11 wants
+ * 3:1 for an edge that identifies a component. --atlas-line-input (3.68:1) is
+ * the token that exists for exactly this, which is why form fields use it.
+ */
+const ROW_CONTROL = '!bg-white !border-atlas-control hover:!bg-atlas-50';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -116,12 +132,18 @@ export default function Teachers() {
             <span
               key={day}
               aria-hidden="true"
-              className={`w-6 h-6 rounded-field inline-flex items-center justify-center font-data text-caption
+              /* Green for free, red for blocked.
+                 The strikethrough stays on top of the colour rather than being
+                 replaced by it: roughly 8% of men cannot separate these two
+                 hues, and a row of six squares that differ only in colour would
+                 tell them nothing. Colour is the fast read; the strike is the
+                 one that always works. */
+              className={`w-7 h-7 rounded-field inline-flex items-center justify-center font-data text-caption
                           ${isBlocked
-                            ? 'bg-sem-conflict-bg text-sem-conflict border border-sem-conflict/30'
-                            : 'bg-atlas-canvas text-atlas-slate border border-atlas-line'}`}
+                            ? 'bg-sem-conflict-bg text-sem-conflict border border-sem-conflict/40 line-through decoration-sem-conflict/70'
+                            : 'bg-atlas-100 text-atlas-800 border border-atlas-700/30'}`}
             >
-              {isBlocked ? '×' : day[0]}
+              {day[0]}
             </span>
           );
         })}
@@ -129,18 +151,79 @@ export default function Teachers() {
     );
   };
 
+  /** "Ann Cruz" -> "AC". Two letters is the most that stays legible at 36px. */
+  const initialsOf = (name) =>
+    String(name || '')
+      .replace(/^(Mr|Mrs|Ms|Dr|Prof)\.?\s+/i, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0].toUpperCase())
+      .join('') || '?';
+
   const columns = [
     {
       key: 'name',
       label: 'Faculty',
-      render: (item) => <span className="font-ui text-body text-atlas-ink">{item.name}</span>,
+      width: '280px',
+      /*
+       * Identity, in one cell: mark, name, and employment beneath it.
+       *
+       * Employment had a column of its own saying "Full-time" and nothing
+       * else, which cost a sixth of the table's width to carry one word per
+       * row. It belongs under the name it describes. The initials give the
+       * row something to aim at when scanning a list of people, which a line
+       * of same-weight text does not.
+       */
+      render: (item) => {
+        const isPartTime = item.type === 'part_time' || item.type === 'Part-Time';
+        return (
+          <button
+            type="button"
+            onClick={() => setPreviewTeacher(item)}
+            className={`group flex items-center gap-3 text-left w-full rounded-field py-1 ${focusRing}`}
+          >
+            <span
+              aria-hidden="true"
+              className="w-9 h-9 rounded-full bg-atlas-100 text-atlas-800 shrink-0 flex items-center justify-center
+                         font-ui text-caption font-semibold transition-transform duration-overlay ease-emphasis
+                         group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+            >
+              {initialsOf(item.name)}
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5">
+                <span className="font-ui text-body font-medium text-atlas-ink truncate
+                                 group-hover:text-atlas-700 transition-colors duration-state ease-standard">
+                  {item.name}
+                </span>
+                <ChevronRight
+                  className="w-4 h-4 shrink-0 text-atlas-disabled transition-transform duration-overlay ease-emphasis
+                             group-hover:translate-x-0.5 group-hover:text-atlas-700 motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+              </span>
+              <span className="block font-ui text-caption text-atlas-slate">
+                {isPartTime ? 'Part-time' : 'Full-time'}
+              </span>
+            </span>
+            <span className="sr-only">— open preview</span>
+          </button>
+        );
+      },
     },
     {
       key: 'load',
-      label: 'REG. hours / week',
-      width: '215px',
+      label: 'Teaching load',
+      width: '230px',
+      // No separate figure line: LoadMeter already renders "6.00 / 20.00 hrs"
+      // beside its bar. Adding one above it printed the same number twice and
+      // squeezed the meter into wrapping at 1024.
       render: (item) => (
-        <span className="flex flex-col gap-1">
+        // nowrap: the declared column width is only a suggestion under
+        // `table-layout: auto`, so when the table compresses, "6.00 hrs" broke
+        // to a second line beside its own bar. The table scrolls instead.
+        <span className="flex flex-col gap-1.5 py-1 whitespace-nowrap">
           <LoadMeter
             used={item.reg_hours || 0}
             required={item.required_hours}
@@ -156,46 +239,53 @@ export default function Teachers() {
       ),
     },
     {
-      key: 'type',
-      label: 'Employment',
-      width: '120px',
-      render: (item) => (
-        <span className="font-ui text-table text-atlas-slate">
-          {item.type === 'part_time' ? 'Part-time' : 'Full-time'}
-        </span>
-      ),
-    },
-    {
       key: 'subject_offerings',
       label: 'Subjects',
       width: '170px',
-      render: (item) => (
-        <span className="flex items-center gap-3">
-          <span className="font-data text-table tabular-nums text-atlas-ink w-4">
-            {item.subject_offerings?.length || 0}
+      render: (item) => {
+        const n = item.subject_offerings?.length || 0;
+        return (
+          <span className="flex items-center gap-2.5">
+            <span
+              className={`inline-flex items-center justify-center min-w-7 h-7 px-2 rounded-full font-data text-caption
+                          tabular-nums ${n === 0
+                            ? 'bg-sem-warning-bg text-sem-warning'
+                            : 'bg-atlas-100 text-atlas-800'}`}
+              title={n === 0 ? 'Nothing assigned — this professor cannot be scheduled' : undefined}
+            >
+              {n}
+            </span>
+            <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenSubjectModal(item)}>
+              Manage
+            </AtlasButton>
           </span>
-          <AtlasButton size="row" variant="ghost" onClick={() => handleOpenSubjectModal(item)}>
-            Manage
-          </AtlasButton>
-        </span>
-      ),
+        );
+      },
     },
     {
       key: 'availability',
       label: 'Availability',
       width: '230px',
-      render: (item) => {
-        return (
-          <span className="flex items-center gap-3">
-            <AvailabilityMarks unavailability={item.unavailability} />
-            <AtlasButton size="row" variant="ghost" icon={Clock} onClick={() => handleOpenAvailability(item)}>
-              Edit
-            </AtlasButton>
-          </span>
-        );
-      }
+      render: (item) => (
+        <span className="flex items-center gap-3">
+          <AvailabilityMarks unavailability={item.unavailability} />
+          <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} icon={Clock} onClick={() => handleOpenAvailability(item)}>
+            Edit
+          </AtlasButton>
+        </span>
+      ),
     },
   ];
+
+  /* The preview needs two things the table never had to load: what each
+     offering actually *is* (offerings carry only ids), and when the professor
+     was plotted. Both are fetched once with the roster rather than on open, so
+     the panel appears filled in instead of spinning. */
+  const [curriculumById, setCurriculumById] = useState(() => new Map());
+  const [schedulesByFaculty, setSchedulesByFaculty] = useState(() => new Map());
+  // Distinct from "no classes". A failed read must not be reported as an empty week.
+  const [scheduleUnavailable, setScheduleUnavailable] = useState(false);
+  const [previewTeacher, setPreviewTeacher] = useState(null);
 
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
@@ -408,16 +498,61 @@ export default function Teachers() {
     return `${fn} ${ln}`.trim();
   };
 
+  /**
+   * The subject catalogue and the plotted timetable, for the preview panel.
+   *
+   * Kept off `fetchTeachers`'s critical path in one respect: whatever fails
+   * here, the roster still renders. A curriculum that will not load costs the
+   * preview its subject names; a timetable that will not load is reported as
+   * unknown rather than as an empty week.
+   */
+  const loadPreviewData = async (semesterId) => {
+    try {
+      const curriculum = await api.get('/curriculum').catch(() => []);
+      setCurriculumById(
+        new Map((Array.isArray(curriculum) ? curriculum : []).map((c) => [c.id, c]))
+      );
+    } catch (e) {
+      console.error('Could not fetch curriculum for preview', e);
+      setCurriculumById(new Map());
+    }
+
+    if (!semesterId) {
+      // No active term is not a failed read — there is genuinely nothing plotted.
+      setSchedulesByFaculty(new Map());
+      setScheduleUnavailable(false);
+      return;
+    }
+
+    try {
+      const plotted = await api.get(`/ai-scheduler/global-schedule?semester_id=${semesterId}`);
+      const grouped = new Map();
+      (Array.isArray(plotted) ? plotted : []).forEach((s) => {
+        if (s.faculty_id == null) return;
+        if (!grouped.has(s.faculty_id)) grouped.set(s.faculty_id, []);
+        grouped.get(s.faculty_id).push(s);
+      });
+      setSchedulesByFaculty(grouped);
+      setScheduleUnavailable(false);
+    } catch (e) {
+      console.error('Could not fetch plotted schedule for preview', e);
+      setSchedulesByFaculty(new Map());
+      setScheduleUnavailable(true);
+    }
+  };
+
   const fetchTeachers = async () => {
     setIsLoading(true);
     try {
       const data = await api.get('/professors');
 
       let offerings = [];
+      let activeSemesterId = null;
       try {
         const sems = await api.get('/semesters');
         const activeSem = sems.find(s => s.is_active);
         if (activeSem) {
+          activeSemesterId = activeSem.id;
           offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
         }
       } catch (e) {
@@ -430,6 +565,8 @@ export default function Teachers() {
         subject_offerings: offerings.filter(o => o.faculty_id === (t.faculty_id || t.id))
       }));
       setTeachers(enrichedData);
+
+      await loadPreviewData(activeSemesterId);
     } catch (error) {
       console.error('Failed to fetch teachers', error);
       setTeachers([]);
@@ -673,16 +810,18 @@ export default function Teachers() {
 
   const rowActions = (t) =>
     canManageFaculty ? (
-      <div className="flex gap-1 justify-end">
-        <AtlasButton size="row" variant="ghost" onClick={() => handleOpenModal(t)} aria-label={`Edit ${t.name}`}>
+      <div className="flex gap-2 justify-end">
+        <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenModal(t)} aria-label={`Edit ${t.name}`}>
           Edit
         </AtlasButton>
+        {/* `destructive` is the system's outlined red — a bordered control
+            rather than red text, which is what made Remove read as a word
+            sitting in the row instead of the button it is. */}
         <AtlasButton
           size="row"
-          variant="ghost"
+          variant="destructive"
           onClick={() => handleDelete(t.id)}
           aria-label={`Remove ${t.name}`}
-          className="text-sem-conflict hover:bg-sem-conflict-bg"
         >
           Remove
         </AtlasButton>
@@ -731,33 +870,45 @@ export default function Teachers() {
           total duty week, not 40 teaching hours -- the distinction the old
           units-based meter gave a chair no way to see. */}
       {workWeek && (
-        <div className="glass rounded-panel p-4 mb-4 rise-flat">
-          <p className="font-ui text-micro uppercase text-atlas-slate mb-2">
-            Full-time work week · {workWeek.term} term
-          </p>
-          <dl className="flex flex-wrap gap-x-8 gap-y-2">
-            {[
-              ['Teaching', workWeek.teaching_hours],
-              ['Off-campus', workWeek.off_campus_hours],
-              ['Consultation', workWeek.consultation_hours],
-              ['Office hours', workWeek.office_hours],
-              ['Total', workWeek.total_hours],
-            ].map(([label, value]) => (
-              <div key={label} className="flex flex-col">
-                <dt className="font-ui text-caption text-atlas-slate">{label}</dt>
-                <dd className="font-data text-table tabular-nums text-atlas-ink">
-                  {formatHours(value)} hrs
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <p className="font-ui text-caption text-atlas-slate mt-2">
-            REG. hours come from the plotted schedule — class duration × meetings per week.
-            Part-time faculty have no required figure and teach under{' '}
+        /* A reminder, not a feature.
+           This is standing institutional policy — it is the same five figures
+           every time the page loads and nothing a chair does here changes
+           them. It earned a full panel of number tiles in an earlier pass,
+           which gave the page's largest, greenest element to its least
+           actionable content. One quiet line, above the roster it qualifies. */
+        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-4 px-4 py-2.5 rounded-field
+                      bg-atlas-50/70 border border-atlas-line font-ui text-caption text-atlas-slate rise-flat">
+          <span className="inline-flex items-center gap-1.5 font-medium text-atlas-800">
+            <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            Full-time week · {workWeek.term} term
+          </span>
+          <span className="tabular-nums">
+            Teaching <span className="font-data text-atlas-ink">{formatHours(workWeek.teaching_hours)}</span>
+            {' · '}Off-campus <span className="font-data text-atlas-ink">{formatHours(workWeek.off_campus_hours)}</span>
+            {' · '}Consultation <span className="font-data text-atlas-ink">{formatHours(workWeek.consultation_hours)}</span>
+            {' · '}Office <span className="font-data text-atlas-ink">{formatHours(workWeek.office_hours)}</span>
+            {' · '}Total <span className="font-data text-atlas-ink">{formatHours(workWeek.total_hours)}</span> hrs
+          </span>
+          <span>
+            REG. hours measure Teaching alone. Part-time teach under{' '}
             {formatHours(PART_TIME_CEILING_HOURS)} hrs/week.
-          </p>
-        </div>
+          </span>
+        </p>
       )}
+
+      <FacultyPreviewDialog
+        isOpen={Boolean(previewTeacher)}
+        teacher={previewTeacher}
+        curriculumById={curriculumById}
+        schedules={previewTeacher
+          ? (schedulesByFaculty.get(previewTeacher.faculty_id || previewTeacher.id) || [])
+          : []}
+        scheduleUnavailable={scheduleUnavailable}
+        canManage={canManageFaculty}
+        onClose={() => setPreviewTeacher(null)}
+        onManageSubjects={(t) => { setPreviewTeacher(null); handleOpenSubjectModal(t); }}
+        onEditAvailability={(t) => { setPreviewTeacher(null); handleOpenAvailability(t); }}
+      />
 
       {/* Table from 1024 up. */}
       <div className="hidden lg:block rise-flat">
@@ -797,7 +948,15 @@ export default function Teachers() {
             <div key={t.id} className="glass rounded-panel p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-ui text-body text-atlas-ink truncate">{t.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTeacher(t)}
+                    className={`font-ui text-body text-atlas-ink text-left underline decoration-atlas-line
+                                underline-offset-4 rounded-field ${focusRing}`}
+                  >
+                    {t.name}
+                    <span className="sr-only"> — open preview</span>
+                  </button>
                   <p className="font-ui text-caption text-atlas-slate mt-0.5">
                     {isFullTime ? 'Full-time' : 'Part-time'} · {pluralize(t.subject_offerings?.length || 0, 'subject')}
                   </p>
@@ -813,21 +972,24 @@ export default function Teachers() {
                   <LoadStatusBadge status={t.load_status} overCeiling={t.exceeds_part_time_ceiling} />
                 </span>
               </div>
-              <div className="mt-3 pt-3 border-t border-white/45 flex items-center justify-between gap-3">
+              {/* Wraps. A third control (Preview) joined this row and pushed the
+                  other two off the right edge of a 375px card, where they could
+                  not be reached at all. */}
+              <div className="mt-3 pt-3 border-t border-white/45 flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                 <AvailabilityMarks unavailability={t.unavailability} />
-                <span className="flex gap-1 shrink-0">
-                  <AtlasButton size="row" variant="ghost" onClick={() => handleOpenSubjectModal(t)}>Subjects</AtlasButton>
-                  <AtlasButton size="row" variant="ghost" onClick={() => handleOpenAvailability(t)}>Hours</AtlasButton>
+                <span className="flex flex-wrap gap-1">
+                  <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} icon={Eye} onClick={() => setPreviewTeacher(t)}>Preview</AtlasButton>
+                  <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenSubjectModal(t)}>Subjects</AtlasButton>
+                  <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenAvailability(t)}>Hours</AtlasButton>
                 </span>
               </div>
               {canManageFaculty && (
-                <div className="mt-2 flex justify-end gap-1">
-                  <AtlasButton size="row" variant="ghost" onClick={() => handleOpenModal(t)}>Edit</AtlasButton>
+                <div className="mt-2 flex flex-wrap justify-end gap-2">
+                  <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenModal(t)}>Edit</AtlasButton>
                   <AtlasButton
                     size="row"
-                    variant="ghost"
+                    variant="destructive"
                     onClick={() => handleDelete(t.id)}
-                    className="text-sem-conflict hover:bg-sem-conflict-bg"
                   >
                     Remove
                   </AtlasButton>
@@ -1156,7 +1318,16 @@ export default function Teachers() {
 
           {!isLoadingSubjects && hasPublishedCurriculum && (
             <>
-              <div className="flex flex-col md:flex-row gap-3">
+              {/* md:items-end, not the default stretch.
+                  Term and Type each carry a visible label, so their controls
+                  start ~22px lower than the search box, which has none — the
+                  row stretched all three to the tallest and left the search
+                  field sitting alone at the top. Aligning on the bottom edge
+                  puts the three controls on one line. Only from md: in the
+                  stacked layout the cross axis is horizontal, and `items-end`
+                  there would shrink every field to its content and shove them
+                  against the right edge. */}
+              <div className="flex flex-col md:flex-row md:items-end gap-3">
                 <div className="relative flex-1 min-w-0">
                   <Search
                     className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"

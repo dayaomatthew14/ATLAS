@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -8,6 +9,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from . import database, models, schemas
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -69,8 +72,14 @@ def get_current_user(request: Request, db: Session = Depends(database.get_db)):
         detail="Could not validate credentials",
     )
     
+    # These paths used to print to stdout on every failure, including the first
+    # ten characters of the bearer token and the account's email address. Both
+    # went straight to the deployment's log stream: a token prefix is part of a
+    # live credential, and an email is personal data. What is useful to an
+    # operator is that authentication failed and roughly why -- never the value
+    # that failed. Logged at debug, so production stays quiet by default.
     if not token:
-        print("DEBUG AUTH: No token found in cookies or headers")
+        logger.debug("Auth rejected: no token in cookies or Authorization header")
         raise credentials_exception
 
     try:
@@ -78,20 +87,20 @@ def get_current_user(request: Request, db: Session = Depends(database.get_db)):
         email: str = payload.get("sub")
         session_version: int = payload.get("sv")
         if email is None:
-            print(f"DEBUG AUTH: Email missing in payload for token: {token[:10]}...")
+            logger.debug("Auth rejected: token payload carries no subject")
             raise credentials_exception
         token_data = schemas.TokenData(email=email)
-    except JWTError as e:
-        print(f"DEBUG AUTH: JWT Decode Error: {str(e)} for token: {token[:10]}...")
+    except JWTError:
+        logger.debug("Auth rejected: token failed to decode")
         raise credentials_exception
-        
+
     user = db.query(models.User).filter(models.User.email == token_data.email).first()
     if user is None:
-        print(f"DEBUG AUTH: User not found in DB: {token_data.email}")
+        logger.debug("Auth rejected: token subject matches no account")
         raise credentials_exception
-        
+
     if session_version is not None and user.session_version != session_version:
-        print(f"DEBUG AUTH: Session version mismatch: DB={user.session_version}, Token={session_version}")
+        logger.debug("Auth rejected: session version does not match the account")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session expired or invalidated. Please log in again."

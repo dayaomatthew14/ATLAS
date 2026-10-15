@@ -117,7 +117,7 @@ export default function ConflictLens({
       >
         <div
           className="pointer-events-auto w-full max-w-3xl rounded-panel bg-atlas-surface border
-                     border-atlas-line shadow-overlay p-4 animate-in slide-in-from-bottom-2
+                     border-atlas-line shadow-overlay p-4 rise-bottom
                      motion-reduce:animate-none duration-lens ease-standard"
         >
           {triageMode ? (

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { focusRing } from './tokens';
+import useCountUp from './useCountUp';
 
 /**
  * Page-level primitives.
@@ -24,15 +25,33 @@ import { focusRing } from './tokens';
  * it — counts, scope, the term — and `actions` is the button cluster, which
  * wraps beneath the title on narrow viewports rather than crushing it.
  */
-export function PageHeader({ title, meta, note, actions, className = '' }) {
+export function PageHeader({ title, eyebrow, meta, note, actions, className = '' }) {
   return (
-    <header className={`flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8 ${className}`}>
-      <div className="min-w-0">
-        <h1 className="font-display text-page text-atlas-ink">{title}</h1>
-        {meta && <p className="font-ui text-body text-atlas-slate mt-1.5">{meta}</p>}
-        {note && <p className="font-ui text-caption text-atlas-slate mt-1">{note}</p>}
+    /*
+     * Wraps rather than squeezes.
+     *
+     * `actions` is `shrink-0`, so on a screen with a large control cluster —
+     * Schedule carries six — a `min-w-0` title column would give up all of its
+     * width to them: the Schedule heading was rendering into an 88px box with
+     * 143px of text in it, and "20 classes across your department" was stacking
+     * three words high beside it. Giving the title a floor instead means that
+     * when both cannot fit on one line, the actions take the next line, which
+     * is the outcome that keeps the page readable at every width.
+     */
+    <header className={`flex flex-wrap items-end justify-between gap-x-6 gap-y-4 mb-9 ${className}`}>
+      <div className="min-w-0 basis-[min(100%,20rem)] grow">
+        {/* One line saying where you are. On a screen reached from a rail of
+            nine destinations, naming the section above the title is cheaper to
+            read than inferring it from the heading. */}
+        {eyebrow && (
+          <p className="font-ui text-micro uppercase text-atlas-700 mb-2">{eyebrow}</p>
+        )}
+        <h1 className="font-display text-display text-atlas-ink leading-tight">{title}</h1>
+        {meta && <p className="font-ui text-lead text-atlas-slate mt-2.5">{meta}</p>}
+        {note && <p className="font-ui text-body text-atlas-slate mt-1.5">{note}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2.5 shrink-0">{actions}</div>}
+
     </header>
   );
 }
@@ -69,20 +88,23 @@ export function Panel({
                   ${interactive ? 'lift' : 'surface'} ${className}`}
     >
       {(title || action) && (
-        <header className="flex items-start justify-between gap-4 px-5 py-4 border-b border-white/45">
-          <div className="flex items-start gap-3 min-w-0">
+        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-white/45">
+          <div className="flex items-start gap-3.5 min-w-0">
             {Icon && (
               <span
                 aria-hidden="true"
-                className="w-8 h-8 rounded-field bg-atlas-100 text-atlas-700 flex items-center justify-center shrink-0"
+                className="w-10 h-10 rounded-field bg-atlas-100 text-atlas-700 flex items-center justify-center shrink-0"
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-[18px] h-[18px]" />
               </span>
             )}
             <div className="min-w-0">
-              {title && <h2 className="font-ui text-body font-semibold text-atlas-ink">{title}</h2>}
+              {/* text-section, not text-body. A panel heading set at the same
+                  size and weight as the rows beneath it gives a page of
+                  identical grey bands with no scannable structure. */}
+              {title && <h2 className="font-display text-section text-atlas-ink leading-snug">{title}</h2>}
               {description && (
-                <p className="font-ui text-caption text-atlas-slate mt-0.5">{description}</p>
+                <p className="font-ui text-body text-atlas-slate mt-1 leading-relaxed">{description}</p>
               )}
             </div>
           </div>
@@ -111,32 +133,48 @@ export function StatTile({ label, value, hint, tone = 'default', icon: Icon, to 
   };
   const t = tones[tone] || tones.default;
 
+  // The figure counts up on arrival, so a tile whose number just changed is
+  // the one that moves. Non-numeric values ("—") pass through untouched.
+  const shown = useCountUp(value);
+
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <span className="font-ui text-micro uppercase text-atlas-slate">{label}</span>
+        {/* Sentence case at caption size, not 11px uppercase. Uppercase costs
+            legibility at the exact size where it can least afford it, and
+            these labels are the part a user scans to find their number. */}
+        <span className="font-ui text-caption font-medium text-atlas-slate">{label}</span>
         {/* The icon sits in a tinted chip that carries the tile's tone, so a
             conflict tile reads as one at a glance rather than only in its
             number — and never by colour alone, since the number is toned too. */}
         {Icon && (
           <span
             aria-hidden="true"
-            className={`w-9 h-9 rounded-field flex items-center justify-center shrink-0 travel-y ${t.chip}`}
+            className={`w-10 h-10 rounded-field flex items-center justify-center shrink-0 travel-y ${t.chip}`}
           >
-            <Icon className="w-[18px] h-[18px]" />
+            <Icon className="w-5 h-5" />
           </span>
         )}
       </div>
-      <span className={`block font-display text-display mt-3 tabular-nums leading-none ${t.value}`}>
-        {value}
+      <span className={`block font-display text-display mt-4 tabular-nums leading-none ${t.value}`}>
+        {shown}
       </span>
-      {hint && <span className="block font-ui text-caption text-atlas-slate mt-2">{hint}</span>}
+      {hint && <span className="block font-ui text-caption text-atlas-slate mt-2.5 leading-relaxed">{hint}</span>}
+      {/* A tile that navigates says so. Without it the only cue that four of
+          these are links and the rest of the page is not was the hover lift,
+          which a user has to already be pointing at to discover. */}
+      {to && (
+        <span className="mt-3 inline-flex items-center gap-1 font-ui text-caption text-atlas-700 opacity-0 -translate-x-1 transition-all duration-overlay ease-emphasis group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0 motion-reduce:transition-none motion-reduce:translate-x-0">
+          View
+          <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+        </span>
+      )}
     </>
   );
 
-  const base = `glass sheen rounded-panel px-5 py-5 block ${t.edge}`;
+  const base = `glass sheen rounded-panel px-6 py-6 block ${t.edge}`;
   return to ? (
-    <Link to={to} className={`${base} lift ${focusRing}`}>
+    <Link to={to} className={`group ${base} lift ${focusRing}`}>
       {body}
     </Link>
   ) : (
@@ -149,23 +187,44 @@ export function StatTile({ label, value, hint, tone = 'default', icon: Icon, to 
  * every item is both a statement and a way to go fix it.
  */
 export function LinkRow({ to, icon: Icon, iconClass = 'text-atlas-slate', label, detail }) {
+  const body = (
+    <>
+      {Icon && <Icon className={`w-[18px] h-[18px] shrink-0 mt-0.5 ${iconClass}`} aria-hidden="true" />}
+      <span className="min-w-0 flex-1">
+        <span className="block font-ui text-body font-medium text-atlas-ink">{label}</span>
+        {/* Wraps. It used to truncate, which meant the sentence explaining what
+            was wrong ended in an ellipsis at exactly the width where it
+            mattered — the detail is the reason the row exists. */}
+        {detail && (
+          <span className="block font-ui text-caption text-atlas-slate mt-1 leading-relaxed">{detail}</span>
+        )}
+      </span>
+    </>
+  );
+
+  /* Some rows report something the reader cannot act on — a state only another
+     role can change. Those get no `to`, and must not render as a link: a
+     <Link> with no destination is a control that goes nowhere, and the chevron
+     would promise a screen this user cannot open. */
+  if (!to) {
+    return (
+      <li className="flex items-start gap-3.5 px-6 py-4">
+        {body}
+      </li>
+    );
+  }
+
   return (
     <li>
       <Link
         to={to}
-        className={`group flex items-center gap-3 px-5 py-3.5 transition-colors duration-state ease-standard
+        className={`group flex items-start gap-3.5 px-6 py-4 transition-colors duration-state ease-standard
                     hover:bg-atlas-50 focus-visible:ring-inset ${focusRing}`}
       >
-        {Icon && <Icon className={`w-4 h-4 shrink-0 ${iconClass}`} aria-hidden="true" />}
-        <span className="min-w-0 flex-1">
-          <span className="block font-ui text-body text-atlas-ink">{label}</span>
-          {detail && (
-            <span className="block font-ui text-caption text-atlas-slate truncate">{detail}</span>
-          )}
-        </span>
+        {body}
         {/* Travels right on hover — the direction the click takes you. */}
         <ChevronRight
-          className="w-4 h-4 text-atlas-slate shrink-0 transition-transform duration-overlay
+          className="w-4 h-4 text-atlas-slate shrink-0 mt-0.5 transition-transform duration-overlay
                      ease-emphasis group-hover:translate-x-1 group-hover:text-atlas-700"
           aria-hidden="true"
         />

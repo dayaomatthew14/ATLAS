@@ -105,6 +105,12 @@ export default {
       boxShadow: {
         overlay: 'var(--shadow-overlay)',
         sticky: 'var(--shadow-sticky)',
+        // The two elevation tiers. Both vars already existed but were only
+        // reachable through the `.surface` / `.lift` classes, so a component
+        // that wanted the resting tier without the hover behaviour had to
+        // hand-write the shadow.
+        raised: 'var(--shadow-raised)',
+        float: 'var(--shadow-float)',
       },
 
       zIndex: {

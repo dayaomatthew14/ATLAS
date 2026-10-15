@@ -9,7 +9,6 @@ import ConflictLens from '../../components/ui/ConflictLens';
 // Badge, ConfirmDialog, restrictionReason and the admin check left with the
 // publish control — they had no other consumer on this screen.
 import Badge from '../../components/ui/Badge';
-import { SelectInput } from '../../components/ui/Field';
 import { PageHeader } from '../../components/ui/Page';
 import { focusRing, pluralize } from '../../components/ui/tokens';
 import { canEditSchedules, getDepartment } from '../../utils/session';
@@ -22,19 +21,37 @@ const formatSemesterTerm = (term) => {
   return term;
 };
 
+/**
+ * Faculty identity colours.
+ *
+ * These say "these classes belong to the same person". They must not also say
+ * anything about status, and that is what the previous set got wrong: it
+ * included rose, orange and amber, so a faculty member whose name happened to
+ * hash to `rose` had every one of their blocks rendered in the same red the
+ * conflict lens uses. Their timetable looked like an alarm going off, and the
+ * one place the system is allowed to be loud stopped being distinguishable
+ * from an ordinary Tuesday.
+ *
+ * So the range runs green through blue to purple and stops there. Red, orange
+ * and amber are spoken for by --sem-conflict and --sem-warning; grey is spoken
+ * for by --atlas-disabled, which is why there are no neutrals here either — a
+ * grey block would read as switched off rather than as somebody's teaching.
+ *
+ * Everything sits at the -50/-200 tint on a light surface, which keeps them
+ * quiet enough to read a subject name against. Colour is the secondary cue in
+ * any case: every block carries the faculty name, and the legend above the
+ * boards states the mapping.
+ */
 const FACULTY_COLOR_PALETTES = [
-  { name: 'emerald', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-950', badge: 'bg-emerald-700 text-white', accent: 'border-l-emerald-600', dot: 'bg-emerald-500' },
+  { name: 'teal', bg: 'bg-teal-50 border-teal-200', text: 'text-teal-950', badge: 'bg-teal-700 text-white', accent: 'border-l-teal-600', dot: 'bg-teal-500' },
   { name: 'indigo', bg: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-950', badge: 'bg-indigo-700 text-white', accent: 'border-l-indigo-600', dot: 'bg-indigo-500' },
-  { name: 'amber', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-950', badge: 'bg-amber-700 text-white', accent: 'border-l-amber-600', dot: 'bg-amber-500' },
+  { name: 'emerald', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-950', badge: 'bg-emerald-700 text-white', accent: 'border-l-emerald-600', dot: 'bg-emerald-500' },
+  { name: 'violet', bg: 'bg-violet-50 border-violet-200', text: 'text-violet-950', badge: 'bg-violet-700 text-white', accent: 'border-l-violet-600', dot: 'bg-violet-500' },
+  { name: 'sky', bg: 'bg-sky-50 border-sky-200', text: 'text-sky-950', badge: 'bg-sky-700 text-white', accent: 'border-l-sky-600', dot: 'bg-sky-500' },
   { name: 'purple', bg: 'bg-purple-50 border-purple-200', text: 'text-purple-950', badge: 'bg-purple-700 text-white', accent: 'border-l-purple-600', dot: 'bg-purple-500' },
   { name: 'cyan', bg: 'bg-cyan-50 border-cyan-200', text: 'text-cyan-950', badge: 'bg-cyan-700 text-white', accent: 'border-l-cyan-600', dot: 'bg-cyan-500' },
-  { name: 'rose', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-950', badge: 'bg-rose-700 text-white', accent: 'border-l-rose-600', dot: 'bg-rose-500' },
-  { name: 'teal', bg: 'bg-teal-50 border-teal-200', text: 'text-teal-950', badge: 'bg-teal-700 text-white', accent: 'border-l-teal-600', dot: 'bg-teal-500' },
   { name: 'blue', bg: 'bg-blue-50 border-blue-200', text: 'text-blue-950', badge: 'bg-blue-700 text-white', accent: 'border-l-blue-600', dot: 'bg-blue-500' },
-  { name: 'violet', bg: 'bg-violet-50 border-violet-200', text: 'text-violet-950', badge: 'bg-violet-700 text-white', accent: 'border-l-violet-600', dot: 'bg-violet-500' },
-  { name: 'fuchsia', bg: 'bg-fuchsia-50 border-fuchsia-200', text: 'text-fuchsia-950', badge: 'bg-fuchsia-700 text-white', accent: 'border-l-fuchsia-600', dot: 'bg-fuchsia-500' },
-  { name: 'sky', bg: 'bg-sky-50 border-sky-200', text: 'text-sky-950', badge: 'bg-sky-700 text-white', accent: 'border-l-sky-600', dot: 'bg-sky-500' },
-  { name: 'orange', bg: 'bg-orange-50 border-orange-200', text: 'text-orange-950', badge: 'bg-orange-700 text-white', accent: 'border-l-orange-600', dot: 'bg-orange-500' }
+  { name: 'lime', bg: 'bg-lime-50 border-lime-200', text: 'text-lime-950', badge: 'bg-lime-700 text-white', accent: 'border-l-lime-600', dot: 'bg-lime-500' },
 ];
 
 const getFacultyColor = (profName) => {
@@ -252,12 +269,12 @@ function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDele
       )}
 
       <div className="flex items-start justify-between gap-2">
-        <span className="font-data text-table text-atlas-ink">{code}</span>
+        <span className="font-data text-table text-atlas-ink min-w-0 break-words">{code}</span>
         {canManage && (
           <button
             type="button"
             onClick={() => onDelete(sched)}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 -m-1 text-rose-600
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 -m-1 shrink-0 text-rose-600
                        hover:bg-rose-100 rounded-lg transition-all no-print"
             aria-label={`Delete ${code} on ${dayLabel}`}
             title="Delete this class"
@@ -268,7 +285,7 @@ function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDele
       </div>
 
       {/* Full name, wrapped. Truncating this is what made the grid unreadable. */}
-      <p className="mt-1.5 font-ui text-body leading-snug text-atlas-ink">{sched.subject_name}</p>
+      <p className="mt-1.5 font-ui text-body leading-snug text-atlas-ink break-words">{sched.subject_name}</p>
 
       <p className="mt-2.5 font-data text-table tabular-nums text-atlas-ink">
         {to12h(sched.start_time)} – {to12h(sched.end_time)}
@@ -297,6 +314,9 @@ export default function Schedules() {
   const { addToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [formConflicts, setFormConflicts] = useState([]);
+  // A room clash does not stop a save; a faculty or section clash does.
+  const blockingFormConflicts = formConflicts.filter((c) => c.severity !== 'advisory');
+  const advisoryFormConflicts = formConflicts.filter((c) => c.severity === 'advisory');
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
 
@@ -304,7 +324,6 @@ export default function Schedules() {
   // Whether the generator should put laboratory subjects in a room. Lecture
   // subjects never get one either way. Defaults on, which is what the generator
   // did before this was a choice.
-  const [assignLabRooms, setAssignLabRooms] = useState(true);
   const [semesters, setSemesters] = useState([]);
   const [selectedGenSemester, setSelectedGenSemester] = useState('');
   const [selectedGenProfessors, setSelectedGenProfessors] = useState([]);
@@ -715,8 +734,7 @@ export default function Schedules() {
     setIsGenerating(true);
     try {
       const res = await api.post(`/ai-scheduler/generate/${selectedGenSemester}`, {
-        faculty_ids: selectedGenProfessors,
-        assign_lab_rooms: assignLabRooms
+        faculty_ids: selectedGenProfessors
       });
       setGenerationResults(res);
       addToast('Generation complete', 'success');
@@ -989,17 +1007,6 @@ export default function Schedules() {
                   </AtlasButton>
                 )}
 
-                <SelectInput
-                  label="Faculty"
-                  className="w-56 no-print"
-                  value={selectedProfessorFilter}
-                  onChange={(e) => setSelectedProfessorFilter(e.target.value)}
-                  options={[
-                    { value: '', label: 'All faculty' },
-                    ...allTeachers.map((t) => ({ value: t.name, label: t.name })),
-                  ]}
-                />
-
                 {canManageSchedules && (
                   <>
                     <AtlasButton
@@ -1066,10 +1073,34 @@ export default function Schedules() {
                   );
                 })}
               </div>
-              <p className="font-ui text-caption text-atlas-slate tabular-nums">
-                {pluralize(globalSchedules.length, 'class', 'classes')} ·{' '}
-                {facultyBoards.filter((b) => b.classes.length > 0).length} of {facultyBoards.length} professors scheduled
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* A filter, not an action. It used to sit in the header's
+                    button cluster, where its stacked label made the row two
+                    lines tall and its 224px pushed the page title into an 88px
+                    column. The colour chips below filter too, but they do not
+                    scale past a handful of faculty — this does. */}
+                <label className="inline-flex items-center gap-2 font-ui text-caption text-atlas-slate">
+                  <span className="shrink-0">Showing</span>
+                  <select
+                    value={selectedProfessorFilter}
+                    onChange={(e) => setSelectedProfessorFilter(e.target.value)}
+                    aria-label="Filter the schedule by faculty member"
+                    className={`h-9 w-48 max-w-full rounded-field border border-atlas-control bg-white
+                                px-3 pr-8 font-ui text-body text-atlas-ink cursor-pointer
+                                transition-colors duration-state ease-standard hover:border-atlas-700/60
+                                ${focusRing}`}
+                  >
+                    <option value="">All faculty</option>
+                    {allTeachers.map((t) => (
+                      <option key={t.name} value={t.name}>{t.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <p className="font-ui text-caption text-atlas-slate tabular-nums">
+                  {pluralize(globalSchedules.length, 'class', 'classes')} ·{' '}
+                  {facultyBoards.filter((b) => b.classes.length > 0).length} of {facultyBoards.length} professors scheduled
+                </p>
+              </div>
             </div>
           )}
 
@@ -1151,8 +1182,16 @@ export default function Schedules() {
                     {hasClasses ? (
                       /* Six day columns that reflow rather than scroll sideways.
                          Classes stack in time order, so two at the same hour sit
-                         one below the other instead of one behind the other. */
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-px bg-slate-100">
+                         one below the other instead of one behind the other.
+
+                         Six only at `wide`. tailwind.config.js derives that
+                         breakpoint from this exact grid: six 140px columns need
+                         904px, which with the 240px rail and page padding is
+                         1208px before it has to scroll. At `xl` the content area
+                         is about 1025px, so six columns left each card with 83px
+                         of usable width — the subject name overflowed it and the
+                         delete button was clipped off the card's right edge. */
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 wide:grid-cols-6 gap-px bg-slate-100">
                         {board.days.map(({ day, classes }) => (
                           <div key={day} className="bg-white/60 p-4 flex flex-col gap-3 min-h-[7rem]">
                             <h4 className="font-ui text-micro uppercase text-atlas-slate text-center py-2 bg-atlas-canvas rounded-field">
@@ -1201,8 +1240,20 @@ export default function Schedules() {
                 {Array.from({length: 13}).map((_, i) => (
                   <div key={i} className="absolute w-full text-right font-data text-caption text-atlas-slate" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
                     {(() => {
-                      const hr = Math.floor(7.5 + i);
-                      const min = (7.5 + i) % 1 === 0 ? '30' : '00';
+                      /* The grid body runs 7:30 to 19:30 — `top: 0%` is 7:30,
+                         matching the generator's first slot — so the axis is
+                         7:30, 8:30, ... 19:30.
+
+                         The test used to read `% 1 === 0 ? '30' : '00'`, which
+                         is inverted: a whole number of hours is the :00 case,
+                         not the :30 one. With a 7.5 base `% 1` is 0.5 for every
+                         label, so it never matched and every reading rendered
+                         as ':00' — the whole axis was labelled half an hour
+                         early against the blocks it measures, which on a
+                         timetable is the one thing it must not get wrong. */
+                      const t = 7.5 + i;
+                      const hr = Math.floor(t);
+                      const min = t % 1 === 0 ? '00' : '30';
                       return `${hr % 12 || 12}:${min} ${hr >= 12 ? 'PM' : 'AM'}`;
                     })()}
                   </div>
@@ -1280,18 +1331,30 @@ export default function Schedules() {
                                 ▲
                               </span>
                             )}
-                            <div className="px-3 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex justify-between items-center shrink-0">
-                              <span className="font-data text-caption text-atlas-ink">{formatSubjectCode(sched)}</span>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-extrabold text-slate-600">{(() => {
+                            {/* Code over time, not code beside time beside a
+                                button. All three sharing one row needed about
+                                130px and a day column is 124px, so the row
+                                overflowed and the delete control — the last
+                                thing in it — was clipped off the block's right
+                                edge. Stacked, the row cannot overflow at any
+                                column width, and the button keeps `shrink-0`
+                                so it is never the thing that gives way. */}
+                            <div className="px-2.5 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex items-start justify-between gap-1 shrink-0">
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-data text-caption text-atlas-ink truncate">
+                                  {formatSubjectCode(sched)}
+                                </span>
+                                <span className="block font-data text-[11px] text-atlas-slate tabular-nums truncate">{(() => {
                                   const formatT = (t) => {
                                     if (!t) return '';
-                                    const [h,m] = t.split(':'); 
-                                    const hr = parseInt(h); 
+                                    const [h,m] = t.split(':');
+                                    const hr = parseInt(h);
                                     return `${hr%12||12}:${m}${hr>=12?'PM':'AM'}`;
                                   };
                                   return `${formatT(sched.start_time)}-${formatT(sched.end_time)}`;
                                 })()}</span>
+                              </span>
+                              <span className="flex items-center shrink-0">
                                 {canManageSchedules && (
                                   <button
                                     type="button"
@@ -1299,16 +1362,16 @@ export default function Schedules() {
                                       e.stopPropagation();
                                       handleDeleteSchedule(sched);
                                     }}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 text-rose-600 hover:bg-rose-100 rounded transition-all"
+                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 shrink-0 text-rose-600 hover:bg-rose-100 rounded transition-all"
                                     title="Delete this schedule"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 )}
-                              </div>
+                              </span>
                             </div>
                             <div className="p-3 flex flex-col flex-1 justify-between gap-1 overflow-y-auto">
-                              <div className="font-ui text-table leading-snug text-atlas-ink" title={sched.subject_name}>
+                              <div className="font-ui text-table leading-snug text-atlas-ink break-words" title={sched.subject_name}>
                                 {sched.subject_name}
                               </div>
                               <div className="pt-1 border-t border-black/5 space-y-1">
@@ -1366,13 +1429,35 @@ export default function Schedules() {
         title="Create New Schedule"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          {formConflicts.length > 0 && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-3 flex items-start">
-              <AlertTriangle className="w-5 h-5 text-red-600 mr-3 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold text-red-800">Potential Conflict Detected!</p>
-                <p className="text-[11px] text-red-700 mt-0.5">
-                  This time slot overlaps with another class in the same {formConflicts[0].type.toLowerCase()}.
+          {/* Blocking and advisory are reported differently, because they ask
+              different things of the user: a faculty or section clash has to be
+              resolved here, while a shared room is a note for the Registrar. */}
+          {blockingFormConflicts.length > 0 && (
+            <div className="rounded-panel bg-sem-conflict-bg border border-sem-conflict/30 p-3.5 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-sem-conflict shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="font-ui text-caption font-semibold text-sem-conflict">
+                  {blockingFormConflicts[0].type === 'Teacher'
+                    ? 'This professor is already teaching then'
+                    : 'This section already has a class then'}
+                </p>
+                <p className="font-ui text-caption text-sem-conflict/90 mt-0.5 leading-relaxed">
+                  Two classes cannot share {blockingFormConflicts[0].type === 'Teacher' ? 'a professor' : 'a section'} at
+                  the same time. Change the time, or the {blockingFormConflicts[0].type === 'Teacher' ? 'professor' : 'section'}.
+                </p>
+              </div>
+            </div>
+          )}
+          {blockingFormConflicts.length === 0 && advisoryFormConflicts.length > 0 && (
+            <div className="rounded-panel bg-sem-warning-bg border border-sem-warning/30 p-3.5 flex items-start gap-2.5">
+              <MapPin className="w-4 h-4 text-sem-warning shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="font-ui text-caption font-semibold text-sem-warning">
+                  That room is already in use then
+                </p>
+                <p className="font-ui text-caption text-sem-warning/90 mt-0.5 leading-relaxed">
+                  You can save this — the Registrar assigns the final rooms. Clear the room if you
+                  would rather leave it to them.
                 </p>
               </div>
             </div>
@@ -1471,10 +1556,10 @@ export default function Schedules() {
               </button>
               <button
                 type="submit"
-                className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${formConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
+                className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${blockingFormConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
                   }`}
               >
-                {formConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
+                {blockingFormConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
               </button>
             </div>
           </div>
@@ -1545,46 +1630,22 @@ export default function Schedules() {
                 })()}
               </div>
 
-              {/* Rooms. Asked before generating because it changes what the
-                  generator will refuse: with this on, a laboratory with no free
-                  room comes back unplaced; with it off, laboratories are placed
-                  on faculty availability alone and the room is settled
-                  elsewhere. Lecture subjects are never given a room either way,
-                  which the copy says outright rather than leaving to be
-                  discovered in the results. */}
-              <fieldset>
-                <legend className="font-ui text-micro uppercase text-atlas-slate mb-2">
-                  Laboratory rooms
-                </legend>
-                <label
-                  className={`flex items-start gap-3 p-4 rounded-panel border cursor-pointer
-                              transition-colors duration-state ease-standard ${
-                    assignLabRooms
-                      ? 'bg-atlas-100/70 border-atlas-700/25'
-                      : 'glass hover:bg-white/90'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={assignLabRooms}
-                    onChange={(e) => setAssignLabRooms(e.target.checked)}
-                    className={`mt-0.5 w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
-                  />
-                  <span className="min-w-0">
-                    <span className="block font-ui text-body text-atlas-ink">
-                      Assign rooms to laboratory subjects
-                    </span>
-                    <span className="block font-ui text-caption text-atlas-slate mt-1">
-                      {assignLabRooms
-                        ? 'Each laboratory is placed in a free laboratory or computer laboratory room. A laboratory with no free room is reported as unplaced.'
-                        : 'Laboratories are scheduled without a room, so none is reserved and none can clash. Use this when rooms are assigned outside ATLAS.'}
-                    </span>
-                    <span className="block font-ui text-caption text-atlas-disabled mt-1.5">
-                      Lecture subjects are never assigned a room.
-                    </span>
-                  </span>
-                </label>
-              </fieldset>
+              {/* Rooms are not asked about any more.
+                  A laboratory is given a free room where one exists and placed
+                  without one where it does not, so there is no longer a choice
+                  that changes what the generator will refuse. This states what
+                  will happen instead of asking a question whose wrong answer
+                  used to cost a class its place on the timetable. */}
+              <p className="flex items-start gap-2.5 px-4 py-3 rounded-panel bg-atlas-50 border border-atlas-line
+                            font-ui text-caption text-atlas-slate leading-relaxed">
+                <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-atlas-700" aria-hidden="true" />
+                <span>
+                  <span className="block font-medium text-atlas-ink">Rooms are filled in where possible</span>
+                  Laboratories are given a free laboratory room when your college has one. Anything
+                  left blank — including every lecture — is for the Registrar to assign once you
+                  submit. A missing room never stops a class being scheduled.
+                </span>
+              </p>
 
               <fieldset>
                 <div className="flex items-center justify-between gap-3 mb-2">
@@ -1964,7 +2025,7 @@ export default function Schedules() {
       </Modal>
 
       {undoBackup && (
-        <div className="fixed bottom-6 right-6 z-[250] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-300 border border-slate-800">
+        <div className="fixed bottom-6 right-6 z-[250] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 rise-bottom border border-slate-800">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-400" />
             <span className="text-sm font-bold">{undoBackup.label}</span>

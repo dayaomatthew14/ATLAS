@@ -83,8 +83,11 @@ export default function Dialog({
 
         <div className="px-6 pb-6 overflow-y-auto">{children}</div>
 
+        {/* The footer wraps: three actions at 375px pushed the first button off
+            the left edge of the panel, and a control you cannot reach is worse
+            than one that costs a second row. */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/40 bg-white/30 rounded-b-panel">
+          <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-white/40 bg-white/30 rounded-b-panel">
             {footer}
           </div>
         )}

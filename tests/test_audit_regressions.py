@@ -18,11 +18,12 @@ BACKEND = Path(__file__).resolve().parents[1] / "backend"
 sys.path.insert(0, str(BACKEND))
 os.environ.setdefault("SECRET_KEY", "test-secret-for-audit-regressions")
 
+import re  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
-from backend.app import models, storage  # noqa: E402
+from backend.app import models, schemas, storage  # noqa: E402
 from backend.app.routers.conflicts import get_conflict_count  # noqa: E402
 from backend.app.routers.ai_scheduler import get_conflicts  # noqa: E402
 
@@ -162,8 +163,89 @@ class UploadPathTests(unittest.TestCase):
             importlib.reload(storage)
 
     def test_default_matches_the_historical_layout(self):
-        self.assertEqual(storage.UPLOAD_DIR, "uploads")
+        """
+        The default still puts files in a directory called `uploads`, and the
+        stored path -- the thing rows and URLs contain -- is unchanged.
+
+        It is anchored to the backend package rather than to the working
+        directory now. As a bare relative "uploads" it resolved against wherever
+        the process started, so running this suite from the repository root
+        created a second empty `uploads/` beside the source tree, and a server
+        started from a different directory could not see photos written by
+        another. What must not drift is the stored form, which is asserted
+        below and is what makes UPLOAD_DIR repointable without rewriting rows.
+        """
+        self.assertEqual(os.path.basename(storage.UPLOAD_DIR), "uploads")
+        self.assertTrue(
+            os.path.isabs(storage.UPLOAD_DIR),
+            "the default must not depend on the working directory",
+        )
+        self.assertEqual(
+            os.path.basename(os.path.dirname(storage.UPLOAD_DIR)),
+            "backend",
+            "the default belongs beside the application, not wherever it was launched",
+        )
         self.assertEqual(storage.stored_path("x.png"), "uploads/profiles/x.png")
+
+
+class RegistrationInputTests(unittest.TestCase):
+    """
+    What the sign-up form is allowed to accept, and what it must not reject.
+    """
+
+    def test_email_is_normalised_so_capitals_do_not_create_a_dead_account(self):
+        """
+        Pydantic lower-cases an address's domain but keeps the local part as
+        typed, so `Ann.Cruz@DLSAU.edu.ph` was stored with its capitals. Sign-in
+        sends `email.trim().toLowerCase()`, which matched nothing -- and the
+        address could not be registered again either, because it was taken.
+        Anyone who typed a capital was locked out in both directions.
+        """
+        user = schemas.UserCreate(
+            email="  Ann.Cruz@DLSAU.edu.ph  ",
+            first_name="Ann", last_name="Cruz",
+            contact_number="09171234567", role="program_chair",
+            department="CAST", password="CorrectHorse12",
+        )
+        self.assertEqual(str(user.email), "ann.cruz@dlsau.edu.ph")
+
+    def test_lookup_finds_accounts_however_they_were_capitalised(self):
+        """
+        Rows written before normalisation still hold mixed case, so the lookup
+        has to reach them too -- normalising new writes alone would leave the
+        already-locked-out accounts locked out.
+        """
+        from backend.app.routers.auth_router import user_by_email
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        db = sessionmaker(bind=engine)()
+        db.add(models.User(
+            email="Ann.Cruz@dlsau.edu.ph", first_name="Ann", last_name="Cruz",
+            role="program_chair", password_hash="x",
+        ))
+        db.commit()
+
+        for typed in ("ann.cruz@dlsau.edu.ph", "Ann.Cruz@DLSAU.edu.ph", "  ANN.CRUZ@dlsau.edu.ph  "):
+            self.assertIsNotNone(user_by_email(db, typed), f"{typed!r} should find the account")
+
+        self.assertIsNone(user_by_email(db, "nobody@dlsau.edu.ph"))
+        self.assertIsNone(user_by_email(db, ""))
+        self.assertIsNone(user_by_email(db, None))
+
+    def test_names_used_in_the_philippines_are_accepted(self):
+        """
+        The rule carried no accented letters, so Peña and Muñoz -- among the
+        most common surnames in the country -- could not be registered at all.
+        """
+        pattern = re.compile(schemas.NAME_PATTERN)
+        for name in ["Dela Cruz", "O'Brien", "Peña", "Muñoz", "Peña-Reyes", "Jr.", "Ma. Teresa"]:
+            self.assertTrue(pattern.match(name), f"{name!r} is a real name and must be accepted")
+
+    def test_a_name_still_has_to_be_a_name(self):
+        pattern = re.compile(schemas.NAME_PATTERN)
+        for junk in ["...", "123", "", "-'-", "  ", "9Lives"]:
+            self.assertFalse(pattern.match(junk), f"{junk!r} must not pass as a name")
 
 
 class SessionInvalidationTests(unittest.TestCase):

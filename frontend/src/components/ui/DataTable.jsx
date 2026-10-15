@@ -31,8 +31,8 @@ export default function DataTable({
   rowActions,
 }) {
   const headCell =
-    'sticky top-0 z-sticky bg-white/85 backdrop-blur-md shadow-sticky px-4 py-3 ' +
-    'font-ui text-micro uppercase text-atlas-slate text-left whitespace-nowrap';
+    'sticky top-0 z-sticky bg-white/85 backdrop-blur-md shadow-sticky px-5 py-3.5 ' +
+    'font-ui text-caption font-semibold text-atlas-slate text-left whitespace-nowrap';
 
   if (isLoading) {
     return (
@@ -41,7 +41,7 @@ export default function DataTable({
         {[0, 1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="flex items-center gap-4 px-4 border-b border-white/45 last:border-0"
+            className="flex items-center gap-4 px-5 border-b border-white/45 last:border-0"
             style={{ height: 'var(--row-h)' }}
           >
             <div className="h-3 w-1/4 rounded-sm bg-atlas-line animate-pulse motion-reduce:animate-none" />
@@ -138,7 +138,7 @@ export default function DataTable({
                   <td
                     key={c.key}
                     className={[
-                      'px-4 text-table text-atlas-ink align-middle',
+                      'px-5 text-body text-atlas-ink align-middle',
                       // Exactly one font class. Applying `font-ui` on the base
                       // and `font-data` as a modifier does NOT work: equal
                       // specificity means Tailwind's stylesheet order decides,
@@ -152,7 +152,7 @@ export default function DataTable({
                   </td>
                 ))}
                 {rowActions && (
-                  <td className="px-4 text-right whitespace-nowrap">{rowActions(row)}</td>
+                  <td className="px-5 text-right whitespace-nowrap">{rowActions(row)}</td>
                 )}
               </tr>
             );

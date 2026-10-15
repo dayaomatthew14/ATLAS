@@ -1,344 +1,402 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, HelpCircle, MapPin, Users, BookOpen, Clock, Download, RotateCcw, ArrowRight, Compass, ShieldCheck, Library, CalendarRange, FileSpreadsheet } from 'lucide-react';
-import Modal from './Modal';
-import { isAdmin as isAdminRole } from '../utils/session';
+import {
+  ArrowRight, BookOpen, CalendarRange, Clock, Compass, Download,
+  HelpCircle, MapPin, ShieldCheck, Sparkles, Users,
+} from 'lucide-react';
+import Dialog from './ui/Dialog';
+import Button from './ui/Button';
+import { focusRing } from './ui/tokens';
+import { getRole, ROLES } from '../utils/session';
 
 /**
- * The guide is written twice, once per role shape, for the same reason the rail
- * and the tour are: the single version walked everyone through Faculty and
- * Generate the Schedule, and both of those buttons sent an administrator to
- * "You do not have access to this page". A guide that links where you cannot go
- * is worse than no guide, because it is read as instructions.
+ * The user guide, for program chairs and coordinators.
+ *
+ * It is not offered on the admin side, so the administrator half of this file —
+ * a second set of steps, features and FAQs, and the role branch that chose
+ * between them — has been removed rather than left to rot behind a condition
+ * that can no longer be true.
+ *
+ * Everything asserted here is checked against the code that implements it, and
+ * every link goes somewhere this role may actually open. A guide that describes
+ * a screen you cannot reach, or a rule the generator does not follow, is worse
+ * than no guide at all, because it is read as instructions. The previous
+ * version had drifted on four counts:
+ *
+ *   - it sent chairs to Curriculum to "assign subject offerings", which happens
+ *     on the Faculty screen; their curriculum screen is two GETs and a table
+ *   - it told them to register lecture halls, which only an administrator may do
+ *   - it described teaching load as "unit caps (e.g. 18 units)"; load is REG.
+ *     HOURS per week and has been since utils/load.js was written
+ *   - it offered "print to PDF", after the print control was removed in favour
+ *     of Export writing a real file
  */
 
-const CHAIR_STEPS = [
+/**
+ * Which subjects this role assigns. A program chair holds their programme's
+ * major subjects; a coordinator holds General Education. Same split as
+ * Teachers.jsx, and it is a fact about the role rather than a choice.
+ */
+const SUBJECT_SCOPE = {
+  [ROLES.PROGRAM_CHAIR]: 'your programme’s major subjects',
+  [ROLES.COORDINATOR]: 'the General Education subjects',
+};
+
+/**
+ * The order is the readiness checklist on Overview, deliberately: a chair who
+ * follows this guide top to bottom is ticking that list off in the order it
+ * asks. The two lists drifting apart is what makes a guide stop being trusted.
+ */
+const buildSteps = (subjectScope) => [
   {
-    step: 1,
-    title: '1. Check the Active Semester',
-    desc: 'The school year & semester (e.g. 1st Sem 2026-2027) shown in the top bar is the one you are working in.',
-    link: '/dashboard',
-    linkText: 'Go to Dashboard',
-    icon: Clock,
-    color: 'bg-purple-100 text-purple-700'
+    n: 1,
+    title: 'Confirm the active term',
+    desc:
+      'The academic year and term in the top bar is the one everything you build belongs to. ' +
+      'Only an administrator can change it, and nothing can be generated while none is active.',
+    to: '/dashboard',
+    linkText: 'Overview',
+    icon: CalendarRange,
   },
   {
-    step: 2,
-    title: '2. Set Up Campus Rooms',
-    desc: 'List lecture halls and computer labs with accurate student capacities.',
-    link: '/dashboard/rooms',
-    linkText: 'Manage Rooms',
-    icon: MapPin,
-    color: 'bg-cyan-100 text-cyan-700'
-  },
-  {
-    step: 3,
-    title: '3. Assign Subject Offerings',
-    desc: 'Verify department subjects and lecture/lab units in the flowchart.',
-    link: '/dashboard/curriculum',
-    linkText: 'View Curriculum',
-    icon: BookOpen,
-    color: 'bg-blue-100 text-blue-700'
-  },
-  {
-    step: 4,
-    title: '4. Configure Faculty',
-    desc: 'Set max unit caps (e.g. 18 units) and day/time unavailability blocks.',
-    link: '/dashboard/teachers',
-    linkText: 'Manage Faculty',
+    n: 2,
+    title: 'Add your faculty',
+    desc:
+      'Add each member of your college, set the teaching hours they may carry in a week, and mark ' +
+      'the days and times they are unavailable. Generation cannot respect a limit that is not set.',
+    to: '/dashboard/teachers',
+    linkText: 'Faculty',
     icon: Users,
-    color: 'bg-emerald-100 text-emerald-700'
   },
   {
-    step: 5,
-    title: '5. Generate the Schedule',
-    desc: 'Generate the timetable, then work through any conflicts one at a time.',
-    link: '/dashboard/schedules',
-    linkText: 'Go to Schedules',
-    icon: Sparkles,
-    color: 'bg-amber-100 text-amber-700'
-  }
-];
-
-const ADMIN_STEPS = [
-  {
-    step: 1,
-    title: '1. Set the Active Academic Term',
-    desc: 'Exactly one term is active at a time. No department can generate a timetable until one is.',
-    link: '/dashboard/semesters',
-    linkText: 'Academic Terms',
-    icon: CalendarRange,
-    color: 'bg-purple-100 text-purple-700'
-  },
-  {
-    step: 2,
-    title: '2. Verify Accounts',
-    desc: 'New registrations cannot sign in until you verify them, and each one needs a role and a college.',
-    link: '/dashboard/users',
-    linkText: 'Manage Users',
-    icon: ShieldCheck,
-    color: 'bg-emerald-100 text-emerald-700'
-  },
-  {
-    step: 3,
-    title: '3. Maintain Colleges & Programmes',
-    desc: 'Keep the colleges and the programmes each one offers up to date.',
-    link: '/dashboard/colleges',
-    linkText: 'Colleges & Programmes',
-    icon: Library,
-    color: 'bg-blue-100 text-blue-700'
-  },
-  {
-    step: 4,
-    title: '4. Import Each Curriculum',
-    desc: 'Import the catalog a programme is taught from, term by term.',
-    link: '/dashboard/curriculum',
-    linkText: 'View Curriculum',
+    n: 3,
+    title: 'Assign subject offerings',
+    desc:
+      `Still on the Faculty screen, assign ${subjectScope} to the people who teach them. ` +
+      'Nothing reaches the timetable until subjects are assigned to someone.',
+    to: '/dashboard/teachers',
+    linkText: 'Faculty',
     icon: BookOpen,
-    color: 'bg-amber-100 text-amber-700'
   },
   {
-    step: 5,
-    title: '5. Register Campus Rooms',
-    desc: 'Rooms are shared campus infrastructure. List lecture halls and labs with accurate capacities.',
-    link: '/dashboard/rooms',
-    linkText: 'Manage Rooms',
+    n: 4,
+    title: 'Check the rooms you need',
+    desc:
+      'Lecture halls and centrally assigned rooms belong to the whole campus and only an administrator ' +
+      'may alter them. If your college runs laboratories of its own, add them here. Many colleges run ' +
+      'none, and that is not a gap.',
+    to: '/dashboard/rooms',
+    linkText: 'Rooms',
     icon: MapPin,
-    color: 'bg-cyan-100 text-cyan-700'
-  }
-];
-
-const CHAIR_FEATURES = [
+  },
   {
-    name: 'AI Schedule Generator',
+    n: 5,
+    title: 'Generate, then resolve',
+    desc:
+      'Generate the timetable for the active term, then work through anything it could not place, ' +
+      'one conflict at a time. Export once it is clean.',
+    to: '/dashboard/schedules',
+    linkText: 'Schedules',
     icon: Sparkles,
-    color: 'text-amber-500',
-    text: 'Auto-schedules lecture (1.5h) and lab (2.0h) subjects across Mon/Wed, Tue/Thu, and Fri/Sat slot pairs.'
   },
-  {
-    // "Auto-Solve All" was described here after the button was removed. It
-    // looped a resolver that force-placed on failure, so it could double-book
-    // a whole term and report success. Conflicts are stepped through one at a
-    // time now, and the guide has to say so.
-    name: 'Conflict resolution',
-    icon: ShieldCheck,
-    color: 'text-emerald-500',
-    text: 'Open the conflict view from the Schedule screen and resolve them one at a time, so each change is a decision you made.'
-  },
-  {
-    name: 'Undo and restore',
-    icon: RotateCcw,
-    color: 'text-rose-500',
-    text: 'Deleted a class or cleared the schedule? Use Undo / Restore in the banner that appears at the bottom right.'
-  },
-  {
-    name: 'Export and print',
-    icon: Download,
-    color: 'text-indigo-500',
-    text: 'Download a CSV for Excel, or print to PDF. Unpublished schedules print with a DRAFT watermark.'
-  }
 ];
 
-const ADMIN_FEATURES = [
+/**
+ * How the system behaves. Every figure here comes from
+ * services/schedule_generator.py or utils/load.js.
+ */
+const RULES = [
   {
-    name: 'Curriculum import',
-    icon: FileSpreadsheet,
-    color: 'text-emerald-500',
-    text: 'Import a curriculum from an Excel file. The wizard shows the detected sheet and column mapping before anything is saved.'
-  },
-  {
-    name: 'Account verification',
-    icon: ShieldCheck,
-    color: 'text-indigo-500',
-    text: 'Registrations arrive unverified. Verify from Overview or the Users screen; nobody can sign in until you do.'
-  },
-  {
-    name: 'One active term',
+    name: 'Every class meets twice a week',
     icon: CalendarRange,
-    color: 'text-amber-500',
-    text: 'Activating a term sets the one every department works in, and it is shown in the top bar on every screen.'
+    text:
+      'Classes are placed on a day pair — Mon/Wed, Tue/Thu or Fri/Sat — so the weekly total is ' +
+      'always the slot length doubled.',
   },
   {
-    name: 'Activity log',
+    name: 'Slot lengths are fixed',
     icon: Clock,
-    color: 'text-rose-500',
-    text: 'Every change is recorded with who made it and when, across all colleges.'
-  }
+    text:
+      'Lectures run 80 minutes, which is 2.67 hrs a week. BS Computer Engineering lectures run two ' +
+      'hours, 4.00 a week. Laboratories are two hours in every college.',
+  },
+  {
+    name: 'Load is hours, not units',
+    icon: Users,
+    text:
+      'Teaching load is REG. HOURS per week — class duration times meetings — shown to two decimals. ' +
+      'A part-time member must stay under 20 hours.',
+  },
+  {
+    name: 'The curriculum is read-only',
+    icon: BookOpen,
+    text:
+      'The administrator authors the catalog. You read the published curricula for your own college ' +
+      'and assign offerings from them.',
+  },
+  {
+    name: 'Conflicts are resolved one at a time',
+    icon: ShieldCheck,
+    text:
+      'The grid dims and only the clashing classes stay lit. There is no bulk auto-solve, so every ' +
+      'change to a timetable is a decision somebody made.',
+  },
+  {
+    name: 'Export writes a real file',
+    icon: Download,
+    text:
+      'Choose a spreadsheet, a Word document or a PDF. The exact rows the file will contain are ' +
+      'shown before anything downloads.',
+  },
 ];
 
-const CHAIR_FAQS = [
+const FAQS = [
   {
-    q: 'Why is a subject marked "Unplaced"?',
-    a: 'The faculty member reached their unit cap, or no free room matched the subject type. Open the conflict view to resolve it.'
+    q: 'Why could a subject not be placed?',
+    a:
+      'One of three things: the faculty member has no teaching hours left, no room of the right type ' +
+      'was free, or every slot in their day pairs was already taken. The conflict view names which.',
   },
   {
-    q: 'How do I edit or delete a schedule entry?',
-    a: 'On the Schedule screen, hover a class and use the delete icon, or press Delete with it focused. Use Create to add one manually.'
+    q: 'Why can I not edit the curriculum?',
+    a:
+      'The curriculum is the institutional catalog and the administrator authors it. Your screen shows ' +
+      'the published curricula for your college; ask an administrator for a correction.',
   },
   {
-    q: 'Can I restore cleared schedules?',
-    a: 'Yes. Clearing or deleting shows an Undo / Restore banner at the bottom right.'
+    q: 'Why can I not change the academic term?',
+    a:
+      'One term is active across the whole university at a time, and only an administrator sets it. ' +
+      'The active one is in the top bar on every screen.',
   },
   {
-    q: 'Are changes saved automatically?',
-    a: 'Yes. Generation and conflict resolutions are saved as they happen.'
-  }
+    q: 'How do I add or remove a single class?',
+    a:
+      'On Schedules, Create adds one by hand. To remove one, hover it and use the delete icon, or give ' +
+      'it keyboard focus and press Delete or Backspace.',
+  },
+  {
+    q: 'Can I get a cleared timetable back?',
+    a:
+      'Yes. Deleting a class or clearing the timetable leaves an Undo / Restore banner in the ' +
+      'bottom-right corner.',
+  },
+  {
+    q: 'Do I need to save my work?',
+    a: 'No. Generation, manual edits and conflict resolutions are all saved as they happen.',
+  },
+  {
+    q: 'Who publishes the timetable?',
+    a:
+      'Publishing is an administrator action. Your part is complete once the term generates without ' +
+      'unresolved conflicts.',
+  },
 ];
 
-const ADMIN_FAQS = [
-  {
-    q: 'Where is the Schedule screen?',
-    a: 'Timetables are departmental work. Program chairs and coordinators build the schedule for their own college; your role sets the frame they work inside — accounts, colleges, curriculum, terms, and rooms.'
-  },
-  {
-    q: 'A programme shows no curriculum. What now?',
-    a: 'Open Colleges & Programmes and import one for it. If the curriculum was imported before the taxonomy existed it will be listed as unassigned — assign it to the programme rather than importing again.'
-  },
-  {
-    q: 'Why can an account not sign in?',
-    a: 'It is most likely unverified. Overview lists everyone awaiting verification, and the Users screen shows the state of every account.'
-  },
-  {
-    q: 'What does activating a different term change?',
-    a: 'Only one term is active at a time. Activating another changes the term shown in the top bar and the term departments generate against.'
-  }
+const TABS = [
+  { id: 'steps', label: 'Getting started' },
+  { id: 'rules', label: 'How it works' },
+  { id: 'faq', label: 'Questions' },
 ];
 
 export default function SystemGuideModal({ isOpen, onClose, onStartTour }) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('workflow'); // 'workflow', 'features', 'faq'
+  const [activeTab, setActiveTab] = useState('steps');
+  const tabRefs = useRef({});
 
-  const isAdmin = isAdminRole();
-  const steps = isAdmin ? ADMIN_STEPS : CHAIR_STEPS;
-  const features = isAdmin ? ADMIN_FEATURES : CHAIR_FEATURES;
-  const faqs = isAdmin ? ADMIN_FAQS : CHAIR_FAQS;
+  const steps = buildSteps(SUBJECT_SCOPE[getRole()] || 'the subjects you are responsible for');
 
   const handleNavigate = (path) => {
     onClose();
     navigate(path);
   };
 
+  /* Arrow keys move between tabs, which is what a tablist is expected to do
+     and what makes the three panels reachable without a pointer. */
+  const onTabKeyDown = (e) => {
+    const i = TABS.findIndex((t) => t.id === activeTab);
+    const next =
+      e.key === 'ArrowRight' ? (i + 1) % TABS.length
+        : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length
+          : e.key === 'Home' ? 0
+            : e.key === 'End' ? TABS.length - 1
+              : null;
+    if (next === null) return;
+    e.preventDefault();
+    setActiveTab(TABS[next].id);
+    tabRefs.current[TABS[next].id]?.focus();
+  };
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="ATLAS User Guide" maxWidth="sm:max-w-3xl">
-      <div className="space-y-6 pt-1">
-        {/* Banner Header with Guided Tour CTA */}
-        <div className="bg-gradient-to-r from-emerald-900 via-green-800 to-emerald-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-white/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h3 className="text-base sm:text-lg font-extrabold tracking-tight flex items-center gap-2 text-white">
-              <Sparkles className="w-5 h-5 text-amber-300" />
-              Interactive Guided Navigation
-            </h3>
-            <p className="text-xs sm:text-sm text-green-100 font-medium max-w-lg leading-relaxed">
-              Want a step-by-step tour? Click below to let ATLAS guide you page by page!
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      title="ATLAS user guide"
+      description="How to build a term timetable for your college, start to finish."
+      footer={<Button variant="primary" onClick={onClose}>Close</Button>}
+    >
+      <div className="space-y-5">
+        {/* The tour walks the same five screens this guide names, in the same
+            order, so it is offered beside them rather than as a rival path. */}
+        <div className="rounded-panel accent-edge bg-atlas-50 border border-atlas-line px-4 py-3.5
+                        flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="font-ui text-body font-semibold text-atlas-ink flex items-center gap-2">
+              <Compass className="w-4 h-4 text-atlas-700 shrink-0" aria-hidden="true" />
+              Prefer to be shown?
+            </p>
+            <p className="font-ui text-caption text-atlas-slate mt-0.5 leading-relaxed">
+              The guided tour opens each screen in turn and explains it in place.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              if (onStartTour) onStartTour();
-            }}
-            className="px-6 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black rounded-full uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shrink-0 transform hover:scale-105"
-          >
-            <Compass className="w-4 h-4" /> Start tour
-          </button>
-        </div>
-
-        {/* Tab Selection */}
-        <div className="flex items-center gap-4 sm:gap-8 border-b border-slate-100 pb-1 overflow-x-auto">
-          {[
-            { id: 'workflow', label: 'Setup steps' },
-            { id: 'features', label: 'Features' },
-            { id: 'faq', label: 'FAQ' }
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={`pb-3 text-xs sm:text-sm font-extrabold tracking-wider transition-all border-b-4 shrink-0 ${
-                activeTab === t.id
-                  ? 'border-emerald-600 text-emerald-900 font-black'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
-              }`}
+          {onStartTour && (
+            <Button
+              variant="secondary"
+              icon={Compass}
+              className="shrink-0 self-start sm:self-auto"
+              onClick={() => { onClose(); onStartTour(); }}
             >
-              {t.label}
-            </button>
-          ))}
+              Start tour
+            </Button>
+          )}
         </div>
 
-        {/* Scrollable Content Container */}
-        <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3.5">
-          {/* Tab 1: Recommended Steps */}
-          {activeTab === 'workflow' && (
-            <div className="space-y-3">
-              {steps.map(s => (
-                <div key={s.step} className="p-4 bg-slate-50/90 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-white hover:shadow-md transition-all">
-                  <div className="flex items-start sm:items-center gap-4">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm shrink-0 shadow-xs ${s.color}`}>
-                      {s.step}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">{s.title}</h4>
-                      <p className="text-xs text-slate-500 mt-0.5 leading-relaxed font-medium">{s.desc}</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleNavigate(s.link)}
-                    className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200/90 rounded-2xl text-xs font-bold shrink-0 transition-all flex items-center gap-1.5 shadow-2xs self-end sm:self-center"
-                  >
-                    {s.linkText} <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        <div
+          role="tablist"
+          aria-label="User guide sections"
+          onKeyDown={onTabKeyDown}
+          className="flex items-center gap-1 border-b border-atlas-line overflow-x-auto"
+        >
+          {TABS.map((t) => {
+            const selected = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                ref={(el) => { tabRefs.current[t.id] = el; }}
+                type="button"
+                role="tab"
+                id={`guide-tab-${t.id}`}
+                aria-selected={selected}
+                aria-controls={`guide-panel-${t.id}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setActiveTab(t.id)}
+                className={`shrink-0 -mb-px px-3 py-2 border-b-2 font-ui text-body rounded-t-field
+                            transition-colors duration-state ease-standard ${focusRing} ${
+                  selected
+                    ? 'border-atlas-700 text-atlas-800 font-semibold'
+                    : 'border-transparent text-atlas-slate hover:text-atlas-ink'
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
 
-          {/* Tab 2: Feature Guide */}
-          {activeTab === 'features' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {features.map((f, i) => {
-                const Icon = f.icon;
+        {activeTab === 'steps' && (
+          <div
+            role="tabpanel"
+            id="guide-panel-steps"
+            aria-labelledby="guide-tab-steps"
+            tabIndex={0}
+            className={`space-y-2.5 ${focusRing}`}
+          >
+            <ol className="space-y-2.5">
+              {steps.map((s) => {
+                const Icon = s.icon;
                 return (
-                  <div key={i} className="p-4 bg-slate-50/90 border border-slate-200/80 rounded-2xl flex flex-col hover:bg-white hover:shadow-md transition-all">
-                    <div className="flex items-center gap-2.5 mb-2">
-                      <Icon className={`w-5 h-5 ${f.color}`} />
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">{f.name}</h4>
+                  <li
+                    key={s.n}
+                    className="rounded-panel border border-atlas-line bg-white/60 px-4 py-3.5
+                               flex flex-col sm:flex-row sm:items-start gap-3"
+                  >
+                    <span
+                      className="shrink-0 w-7 h-7 rounded-full bg-atlas-100 text-atlas-800
+                                 font-ui text-caption font-semibold flex items-center justify-center"
+                      aria-hidden="true"
+                    >
+                      {s.n}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-ui text-body font-semibold text-atlas-ink flex items-center gap-2">
+                        <Icon className="w-4 h-4 text-atlas-700 shrink-0" aria-hidden="true" />
+                        {s.title}
+                      </h3>
+                      <p className="font-ui text-caption text-atlas-slate mt-1 leading-relaxed">
+                        {s.desc}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-600 leading-relaxed font-medium">{f.text}</p>
-                  </div>
+                    <Button
+                      variant="secondary"
+                      size="row"
+                      icon={ArrowRight}
+                      className="shrink-0 self-start"
+                      onClick={() => handleNavigate(s.to)}
+                    >
+                      {s.linkText}
+                    </Button>
+                  </li>
                 );
               })}
-            </div>
-          )}
+            </ol>
+          </div>
+        )}
 
-          {/* Tab 3: FAQ */}
-          {activeTab === 'faq' && (
-            <div className="space-y-3">
-              {faqs.map((faq, i) => (
-                <div key={i} className="p-4 bg-slate-50/90 border border-slate-200/80 rounded-2xl space-y-1.5 hover:bg-white hover:shadow-md transition-all">
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 flex items-start gap-2.5">
-                    <HelpCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>{faq.q}</span>
-                  </h4>
-                  <p className="text-xs text-slate-600 leading-relaxed pl-6 font-medium">{faq.a}</p>
+        {activeTab === 'rules' && (
+          <div
+            role="tabpanel"
+            id="guide-panel-rules"
+            aria-labelledby="guide-tab-rules"
+            tabIndex={0}
+            className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${focusRing}`}
+          >
+            {RULES.map((r) => {
+              const Icon = r.icon;
+              return (
+                <div
+                  key={r.name}
+                  className="rounded-panel border border-atlas-line bg-white/60 px-4 py-3.5"
+                >
+                  <h3 className="font-ui text-body font-semibold text-atlas-ink flex items-start gap-2">
+                    <Icon className="w-4 h-4 text-atlas-700 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{r.name}</span>
+                  </h3>
+                  <p className="font-ui text-caption text-atlas-slate mt-1.5 leading-relaxed">
+                    {r.text}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === 'faq' && (
+          <div
+            role="tabpanel"
+            id="guide-panel-faq"
+            aria-labelledby="guide-tab-faq"
+            tabIndex={0}
+            className={`space-y-2.5 ${focusRing}`}
+          >
+            <dl className="space-y-2.5">
+              {FAQS.map((f) => (
+                <div
+                  key={f.q}
+                  className="rounded-panel border border-atlas-line bg-white/60 px-4 py-3.5"
+                >
+                  <dt className="font-ui text-body font-semibold text-atlas-ink flex items-start gap-2">
+                    <HelpCircle className="w-4 h-4 text-atlas-700 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{f.q}</span>
+                  </dt>
+                  <dd className="font-ui text-caption text-atlas-slate mt-1.5 leading-relaxed pl-6">
+                    {f.a}
+                  </dd>
                 </div>
               ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">ATLAS user guide</span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-7 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-full uppercase tracking-wider shadow-md transition-all transform hover:scale-105"
-          >
-            Close
-          </button>
-        </div>
+            </dl>
+          </div>
+        )}
       </div>
-    </Modal>
+    </Dialog>
   );
 }

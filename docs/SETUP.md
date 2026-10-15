@@ -96,7 +96,10 @@ cd ATLAS
 In the root directory, you can launch both services using batch files:
 - **`start_atlas.bat`**: Launches backend Uvicorn server and frontend Vite server concurrently.
 - **`backend/run_server.bat`**: Activates backend virtualenv and starts Uvicorn.
-- **`frontend/run_vite.bat`**: Starts Vite dev server.
+- **`backend/run_seed.bat`**: Activates backend virtualenv and seeds the master admin.
+
+The frontend has no batch wrapper: `npm run dev` in `frontend/` is the command,
+and `start_atlas.bat` already runs it.
 
 ---
 

@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Form, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+from typing import Optional
 from datetime import timedelta, datetime, timezone
 import secrets
 import string
@@ -168,10 +170,7 @@ def login_for_access_token(
     password: str = Form(...),
     remember_me: bool = Form(False)
 ):
-    clean_username = username.strip().lower() if username else ""
-    user = db.query(models.User).filter(models.User.email == clean_username).first()
-    if not user:
-        user = db.query(models.User).filter(models.User.email == username).first()
+    user = user_by_email(db, username)
 
     if not user:
         raise HTTPException(
@@ -318,6 +317,24 @@ def read_users_me(
         "created_at": current_user.created_at
     }
 
+def user_by_email(db: Session, email) -> Optional[models.User]:
+    """
+    Find an account by address, without caring how it was capitalised.
+
+    Registration now stores addresses lower-cased, but rows written before that
+    kept the local part as typed -- `Ann.Cruz@dlsau.edu.ph` -- while the sign-in
+    form sends `email.trim().toLowerCase()`. Those accounts matched nothing and
+    could not be re-registered either, because the address was already taken.
+    Comparing on the lower-cased column reaches both the old rows and the new.
+    """
+    if email is None:
+        return None
+    cleaned = str(email).strip().lower()
+    if not cleaned:
+        return None
+    return db.query(models.User).filter(func.lower(models.User.email) == cleaned).first()
+
+
 @router.post("/register", response_model=schemas.RegistrationResponse)
 def register_user(
     request: Request,
@@ -352,7 +369,7 @@ def register_user(
             )
         )
 
-    db_user = db.query(models.User).filter(models.User.email == user.email).first()
+    db_user = user_by_email(db, user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -426,7 +443,7 @@ def register_user(
 
 @router.post("/verify-email")
 def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    user = user_by_email(db, payload.email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
@@ -471,7 +488,7 @@ def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_
 
 @router.post("/resend-verification")
 def resend_verification(payload: schemas.ResendVerification, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    user = user_by_email(db, payload.email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -528,7 +545,7 @@ def resend_verification(payload: schemas.ResendVerification, db: Session = Depen
 
 @router.post("/forgot-password")
 def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    user = user_by_email(db, payload.email)
     # Always return success to prevent user enumeration
     # The throttle applies here too, but silently. Answering "wait 60 seconds"
     # only for real accounts would turn this endpoint into an existence oracle,
@@ -573,7 +590,7 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
 
 @router.post("/reset-password")
 def reset_password(payload: schemas.ResetPassword, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    user = user_by_email(db, payload.email)
     if not user or not user.reset_otp:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 

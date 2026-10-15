@@ -19,7 +19,19 @@ rewriting existing rows.
 
 import os
 
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+# The default is anchored to the backend package rather than left relative to
+# the working directory. As a bare "uploads" it resolved against wherever the
+# process happened to start: running the test suite from the repository root --
+# which is how CI runs it -- imported the app and created a second, empty
+# `uploads/` beside the source tree, while the real one sat in `backend/`.
+# Photos written by a server started from one directory were then invisible to
+# a server started from another.
+#
+# UPLOAD_DIR is still honoured verbatim when set, which is what a deployment
+# does to point at a mounted volume.
+_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+UPLOAD_DIR = os.getenv("UPLOAD_DIR") or os.path.join(_BACKEND_ROOT, "uploads")
 
 # The public URL prefix, and the first segment of every stored path. Fixed.
 PUBLIC_PREFIX = "uploads"

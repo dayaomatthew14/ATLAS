@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Plus, Search, Monitor, FlaskConical, Presentation, Building2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -84,7 +84,10 @@ export default function Rooms() {
   const [deleteBlockedReason, setDeleteBlockedReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchRooms = async () => {
+  /* useCallback so the mount effect can declare its real dependency instead of
+     lying with an empty array. `isAdmin` is a boolean read from the session, so
+     the identity is stable across renders and this does not re-fetch in a loop. */
+  const fetchRooms = useCallback(async () => {
     setIsLoading(true);
     setLoadError('');
     try {
@@ -102,9 +105,9 @@ export default function Rooms() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAdmin]);
 
-  useEffect(() => { fetchRooms(); }, []);
+  useEffect(() => { fetchRooms(); }, [fetchRooms]);
 
   const buildings = useMemo(
     () => [...new Set(rooms.map((r) => r.building).filter(Boolean))].sort(),

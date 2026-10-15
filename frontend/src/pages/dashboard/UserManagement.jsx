@@ -406,7 +406,14 @@ export default function UserManagement() {
         </div>
       </header>
 
-      <div className="flex flex-col md:flex-row gap-3 mb-5">
+      {/* items-end, because the controls in this row do not have the same
+          height: the search box is a bare input, while Role and Status each
+          carry a label stacked above the control. Stretching aligned the
+          search box with the top of those labels rather than with the
+          selects beside it. Bottom-aligning lines the three controls up.
+          Only from md up -- below that the row is a column and items-end
+          would shrink each field to its content width. */}
+      <div className="flex flex-col md:flex-row md:items-end gap-3 mb-5">
         <div className="relative flex-1 min-w-0">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"

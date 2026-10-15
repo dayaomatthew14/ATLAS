@@ -37,10 +37,8 @@ const getProfilePictureUrl = (path) => {
  * remaining consumer of the old onboarding flow, so its copy is kept plain and
  * describes what the screen is for rather than advertising features.
  *
- * There are two tours, for the same reason there are two rails: the one tour
- * walked every role through Faculty and Schedule, neither of which an
- * administrator may open, so the last two steps of their own onboarding ended
- * on "You do not have access to this page".
+ * Chairs and coordinators only. The user guide is not offered on the admin
+ * side, so there is no administrator tour to keep in step with this one.
  */
 const CHAIR_TOUR_STEPS = [
   {
@@ -75,45 +73,6 @@ const CHAIR_TOUR_STEPS = [
   },
 ];
 
-const ADMIN_TOUR_STEPS = [
-  {
-    title: 'Overview',
-    desc: 'Check what needs you: accounts awaiting verification, curriculum gaps, orphaned data.',
-    path: '/dashboard',
-    nextLabel: 'Next: Users',
-  },
-  {
-    title: 'Users',
-    desc: 'Verify new registrations and give every account a role and a college.',
-    path: '/dashboard/users',
-    nextLabel: 'Next: Colleges',
-  },
-  {
-    title: 'Colleges & Programmes',
-    desc: 'Maintain the colleges and the programmes each one offers.',
-    path: '/dashboard/colleges',
-    nextLabel: 'Next: Curriculum',
-  },
-  {
-    title: 'Curriculum',
-    desc: 'Import and revise the catalog each programme is taught from.',
-    path: '/dashboard/curriculum',
-    nextLabel: 'Next: Academic Terms',
-  },
-  {
-    title: 'Academic Terms',
-    desc: 'Set the active academic year and term. No department can generate until one is active.',
-    path: '/dashboard/semesters',
-    nextLabel: 'Next: Rooms',
-  },
-  {
-    title: 'Rooms',
-    desc: 'Register lecture halls and laboratories with their student capacity.',
-    path: '/dashboard/rooms',
-    nextLabel: 'Finish',
-  },
-];
-
 export default function Dashboard() {
   const navigate = useNavigate();
 
@@ -121,7 +80,9 @@ export default function Dashboard() {
   const isAdmin = role === ROLES.ADMIN;
   const department = getDepartment();
   const roleDisplay = ROLE_LABELS[role] || 'Signed in';
-  const tourSteps = isAdmin ? ADMIN_TOUR_STEPS : CHAIR_TOUR_STEPS;
+  const tourSteps = CHAIR_TOUR_STEPS;
+  // The user guide and its tour are not part of the admin side.
+  const showGuide = !isAdmin;
 
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [profileName, setProfileName] = useState(() => getUserName() || roleDisplay);
@@ -272,13 +233,13 @@ export default function Dashboard() {
         railCollapsed={railCollapsed}
         onOpenTerm={() => navigate('/dashboard/semesters')}
         onToggleRail={() => setRailCollapsed((v) => !v)}
-        onOpenGuide={() => setIsGuideOpen(true)}
+        onOpenGuide={showGuide ? () => setIsGuideOpen(true) : undefined}
         onLogout={handleLogout}
       >
         <Outlet />
       </AppShell>
 
-      {isTourActive && (
+      {showGuide && isTourActive && (
         <div
           role="region"
           aria-label="Guided tour"
@@ -329,14 +290,16 @@ export default function Dashboard() {
         </div>
       )}
 
-      <SystemGuideModal
-        isOpen={isGuideOpen}
-        onClose={() => setIsGuideOpen(false)}
-        onStartTour={() => {
-          setIsGuideOpen(false);
-          goToStep(1);
-        }}
-      />
+      {showGuide && (
+        <SystemGuideModal
+          isOpen={isGuideOpen}
+          onClose={() => setIsGuideOpen(false)}
+          onStartTour={() => {
+            setIsGuideOpen(false);
+            goToStep(1);
+          }}
+        />
+      )}
     </>
   );
 }

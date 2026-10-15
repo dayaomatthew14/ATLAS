@@ -196,6 +196,46 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
         return False
 
 
+def configured_transports() -> dict:
+    """
+    Which ways of sending a message are actually filled in.
+
+    Read at call time rather than at import, so a server that reloads after an
+    edit to .env reports what is true now.
+    """
+    return {
+        "SendGrid": bool(os.getenv("SENDGRID_API_KEY")),
+        "Resend": bool(os.getenv("RESEND_API_KEY")),
+        "Google Apps Script": bool(os.getenv("GOOGLE_SCRIPT_URL")),
+        "SMTP": bool(SMTP_USERNAME and SMTP_PASSWORD),
+        "SMS (TextBee)": bool(TEXTBEE_API_KEY and TEXTBEE_DEVICE_ID),
+    }
+
+
+def describe_delivery_readiness() -> str:
+    """
+    One line for the startup log saying whether codes can actually be sent.
+
+    Nothing checked this before, so a deployment with no transport configured
+    started up looking healthy and then failed every registration silently --
+    the only trace being one console line per attempt that nobody reads.
+    """
+    ready = [name for name, on in configured_transports().items() if on]
+    if ready:
+        return f"Email/SMS delivery configured: {', '.join(ready)}."
+    if _is_production():
+        return (
+            "WARNING: no email or SMS transport is configured. Verification and "
+            "password-reset codes CANNOT be delivered, so new users will not be "
+            "able to sign in. Set SMTP_USERNAME and SMTP_PASSWORD (or a provider "
+            "key) in the environment."
+        )
+    return (
+        "No email transport configured. Verification codes will be printed to "
+        "this console instead of being sent (development mode)."
+    )
+
+
 def deliver_otp(to_email, to_phone, otp: str, purpose: str = "Verification",
                 channel: str = "auto") -> dict:
     """
