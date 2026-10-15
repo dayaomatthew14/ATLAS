@@ -1,7 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import TopBar from './TopBar';
-import ContextBar from './ContextBar';
 import NavRail from './NavRail';
 import { focusRing } from '../ui/tokens';
 
@@ -76,14 +75,6 @@ export default function AppShell({
         onOpenDrawer={() => setDrawerOpen(true)}
       />
 
-      {role !== 'admin' && (
-        <ContextBar
-          department={department}
-          role={role}
-          termLabel={termLabel}
-          isPublished={isPublished}
-        />
-      )}
 
       <div className="flex-1 flex min-h-0">
         {/* Persistent rail from 1024 up. 64px icons, 240px with labels at 1440. */}

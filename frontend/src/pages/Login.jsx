@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { LogIn, Key, User, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check } from 'lucide-react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { LogIn, Key, User, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check, ArrowLeft } from 'lucide-react';
 import { api } from '../utils/api';
 import { saveSession, getLandingView } from '../utils/session';
 
@@ -588,7 +588,10 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
     'Choose a new password';
 
   return (
-    <div className="min-h-screen relative flex items-center justify-center font-ui p-4 sm:p-6">
+    <div
+      style={{ fontFamily: "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', Arial, sans-serif" }}
+      className="min-h-screen relative flex items-center justify-center font-ui p-4 sm:p-6"
+    >
       {/* ---------------------------------------------------------------
           The backdrop: a timetable assembling itself. The grid is drawn on
           --tt-daycol-min / --tt-hour, the same metrics the real schedule
@@ -626,10 +629,26 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
           <div className="auth-card">
             <div className="auth-shine" aria-hidden="true" />
 
+            {/* Back button to return to landing page */}
+            <Link
+              to="/"
+              aria-label="Return to landing page"
+              title="Return to landing page"
+              className="absolute top-5 left-5 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-atlas-800/80 hover:text-atlas-900 bg-black/5 hover:bg-black/10 active:scale-95 transition-all group"
+            >
+              <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" aria-hidden="true" />
+              <span>Back</span>
+            </Link>
+
             <div className="relative pt-10 pb-5 px-8 sm:px-10 text-center">
-              <div className="auth-mark w-24 h-24 mx-auto mb-5">
-                <img src="/atlas_logo.png" alt="" aria-hidden="true" className="w-full h-full object-contain drop-shadow-xl" />
-              </div>
+              <Link
+                to="/"
+                aria-label="Return to landing page"
+                title="Return to landing page"
+                className="auth-mark w-24 h-24 mx-auto mb-5 block transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+              >
+                <img src="/atlas_logo.png" alt="ATLAS Logo - Return to landing page" className="w-full h-full object-contain drop-shadow-xl" />
+              </Link>
               <h1 className="font-display text-[2.25rem] leading-none text-atlas-800 tracking-tight">
                 {title}
               </h1>
