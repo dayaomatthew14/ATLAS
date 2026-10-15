@@ -676,7 +676,6 @@ async def _process_curriculum_import(
         current_year_context = None
         current_sem_context = None
         is_in_active_zone = False
-        looking_for_headers = True
         seen_any_section = False
         col_map = {} 
 
@@ -722,7 +721,6 @@ async def _process_curriculum_import(
 
             if section_updated:
                 is_in_active_zone = True
-                looking_for_headers = True 
                 last_row_identifier = None # Reset for new zone
                 seen_any_section = True
                 logger.debug(f"DEBUG: Found Section Header at row {idx}: Year={current_year_context}, Sem={current_sem_context}")
@@ -740,7 +738,6 @@ async def _process_curriculum_import(
                 current_year_context = None
                 current_sem_context = None
                 is_in_active_zone = False
-                looking_for_headers = False
                 last_row_identifier = None
                 continue
 
@@ -761,7 +758,6 @@ async def _process_curriculum_import(
 
             if 'code' in temp_map:
                 col_map = temp_map
-                looking_for_headers = False
                 is_in_active_zone = True
                 # Only assume Year 1 / 1st Term for a sheet that has no year or
                 # term structure at all. Applying it after a section has been

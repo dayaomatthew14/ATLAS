@@ -126,13 +126,6 @@ class RegistrationResponse(UserResponse):
     verification_sent: bool = False
     verification_channels: VerificationChannels = VerificationChannels()
 
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    role: str
-    name: str
-
 class TokenData(BaseModel):
     email: Optional[str] = None
 
@@ -194,22 +187,6 @@ class UserUpdate(BaseModel):
     def check_role(cls, v):
         return _validate_role(v)
 
-class DepartmentBase(BaseModel):
-    name: str
-    code: str
-    description: Optional[str] = None
-
-class DepartmentCreate(DepartmentBase):
-    pass
-
-class DepartmentUpdate(BaseModel):
-    name: Optional[str] = None
-    code: Optional[str] = None
-    description: Optional[str] = None
-
-class DepartmentResponse(DepartmentBase):
-    id: int
-    model_config = ConfigDict(from_attributes=True)
 
 class CurriculumBlockBase(BaseModel):
     program_name: str

@@ -21,10 +21,5 @@ reportlab==5.0.0
 # pulling pandas + numpy, roughly 50 MB, into every image build.
 openpyxl==3.1.5
 psycopg2-binary==2.9.12
-
-# passlib 1.7.4 reads bcrypt.__about__, which bcrypt dropped in 4.1. The pair
-# below is the combination currently in service; it logs a version-detection
-# warning at startup and hashes correctly. Bumping either one alone is what
-# turns that warning into a login-breaking error, so they move together.
-passlib[bcrypt]==1.7.4
+# bcrypt is imported and used directly by app/auth.py for salted password hashing.
 bcrypt==5.0.0

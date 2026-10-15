@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional, cast
-from datetime import datetime, timezone, time
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from .. import models, database, auth
-from ..services.schedule_generator import generate_schedules, TIMESLOTS, DAYS
+from ..services.schedule_generator import generate_schedules
 from .logs import log_activity
 
 router = APIRouter(

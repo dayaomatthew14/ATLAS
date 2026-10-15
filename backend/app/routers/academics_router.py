@@ -11,7 +11,7 @@ sprawl happened.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .. import models, database, auth
 from ..academics import COLLEGE_CODES
@@ -27,9 +27,7 @@ class ProgramOut(BaseModel):
     department_id: int
     block_count: int = 0
     subject_count: int = 0
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CollegeOut(BaseModel):
@@ -86,9 +84,12 @@ def _program_out(db: Session, program: models.Program) -> ProgramOut:
             models.Curriculum.block_id.in_([b.id for b in blocks])
         ).count()
     return ProgramOut(
-        id=program.id, code=program.code, name=program.name,
-        department_id=program.department_id,
-        block_count=len(blocks), subject_count=subject_count,
+        id=int(program.id),  # type: ignore
+        code=str(program.code),  # type: ignore
+        name=str(program.name),  # type: ignore
+        department_id=int(program.department_id),  # type: ignore
+        block_count=len(blocks),
+        subject_count=subject_count,
     )
 
 
@@ -113,8 +114,10 @@ def list_colleges(
     colleges = _seeded_colleges(db)
     return [
         CollegeOut(
-            id=c.id, code=c.code, name=c.name,
-            programs=[_program_out(db, p) for p in sorted(c.programs, key=lambda p: p.name)],
+            id=int(c.id),  # type: ignore
+            code=str(c.code),  # type: ignore
+            name=str(c.name),  # type: ignore
+            programs=[_program_out(db, p) for p in sorted(list(c.programs or []), key=lambda p: str(getattr(p, 'name', '')))],  # type: ignore
         )
         for c in colleges
     ]
@@ -172,9 +175,9 @@ def assign_block(
     )
     db.commit()
     log_activity(
-        db, current_user.id, "Assign Curriculum Block",
+        db, int(current_user.id), "Assign Curriculum Block",  # type: ignore
         f"Assigned '{block.program_name}' to {program.code}", "success",
-        department_id=program.department_id,
+        department_id=int(program.department_id),  # type: ignore
     )
     return {"message": f"Assigned to {program.name}."}
 
@@ -196,7 +199,7 @@ def create_program(
     db.add(program)
     db.commit()
     db.refresh(program)
-    log_activity(db, current_user.id, "Create Programme", f"Created programme {code}", "success",
+    log_activity(db, int(current_user.id), "Create Programme", f"Created programme {code}", "success",  # type: ignore
                  department_id=payload.department_id)
     return _program_out(db, program)
 
@@ -220,16 +223,16 @@ def update_program(
         ).first()
         if clash:
             raise HTTPException(status_code=409, detail=f"Programme code {code} is already in use.")
-        program.code = code
+        program.code = code  # type: ignore
     if payload.name:
-        program.name = payload.name.strip()
+        program.name = payload.name.strip()  # type: ignore
     if payload.department_id:
-        program.department_id = payload.department_id
+        program.department_id = payload.department_id  # type: ignore
 
     db.commit()
     db.refresh(program)
-    log_activity(db, current_user.id, "Update Programme", f"Updated programme {program.code}", "success",
-                 department_id=program.department_id)
+    log_activity(db, int(current_user.id), "Update Programme", f"Updated programme {program.code}", "success",  # type: ignore
+                 department_id=int(program.department_id))  # type: ignore
     return _program_out(db, program)
 
 
@@ -261,6 +264,6 @@ def delete_program(
     dept_id = program.department_id
     db.delete(program)
     db.commit()
-    log_activity(db, current_user.id, "Delete Programme", f"Deleted programme {code}", "success",
-                 department_id=dept_id)
+    log_activity(db, int(current_user.id), "Delete Programme", f"Deleted programme {code}", "success",  # type: ignore
+                 department_id=int(dept_id) if dept_id is not None else None)  # type: ignore
     return None

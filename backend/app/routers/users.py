@@ -1,10 +1,9 @@
 import os
-import shutil
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List, Optional
+from typing import Optional
 from .. import models, schemas, database, auth, storage
 from .logs import log_activity
 

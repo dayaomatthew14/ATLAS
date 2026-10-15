@@ -7,7 +7,6 @@ import io
 import re
 import openpyxl
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
