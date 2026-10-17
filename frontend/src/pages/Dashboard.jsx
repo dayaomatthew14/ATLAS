@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Outlet } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { api } from '../utils/api';
-import { clearSession, getRole, getDepartment, getUserName, ROLES } from '../utils/session';
+import { clearSession, getRole, getUserName, ROLES } from '../utils/session';
 import { ROLE_LABELS } from '../components/ui/tokens';
 import SystemGuideModal from '../components/SystemGuideModal';
 import AppShell from '../components/shell/AppShell';
@@ -77,11 +77,10 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const role = getRole();
-  const isAdmin = role === ROLES.ADMIN;
-  const department = getDepartment();
+  const isAdmin = role === ROLES.ADMIN || role === 'admin' || role === 'administrator';
   const roleDisplay = ROLE_LABELS[role] || 'Signed in';
   const tourSteps = CHAIR_TOUR_STEPS;
-  // The user guide and its tour are not part of the admin side.
+  // The user guide and its tour are for program chairs and coordinators only, strictly excluded from the admin side.
   const showGuide = !isAdmin;
 
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -222,10 +221,8 @@ export default function Dashboard() {
     <>
       <AppShell
         role={role}
-        department={department}
         termLabel={termLabel}
         canChangeTerm={isAdmin}
-        isPublished={false}
         conflictCount={conflictCount}
         profileName={profileName}
         profilePicture={profilePicture}
@@ -233,13 +230,13 @@ export default function Dashboard() {
         railCollapsed={railCollapsed}
         onOpenTerm={() => navigate('/dashboard/semesters')}
         onToggleRail={() => setRailCollapsed((v) => !v)}
-        onOpenGuide={showGuide ? () => setIsGuideOpen(true) : undefined}
+        onOpenGuide={!isAdmin && showGuide ? () => setIsGuideOpen(true) : undefined}
         onLogout={handleLogout}
       >
         <Outlet />
       </AppShell>
 
-      {showGuide && isTourActive && (
+      {!isAdmin && showGuide && isTourActive && (
         <div
           role="region"
           aria-label="Guided tour"
@@ -290,7 +287,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {showGuide && (
+      {!isAdmin && showGuide && (
         <SystemGuideModal
           isOpen={isGuideOpen}
           onClose={() => setIsGuideOpen(false)}

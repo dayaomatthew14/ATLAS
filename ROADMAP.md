@@ -4,13 +4,13 @@
 
 ---
 
-## 🎯 Target Audience & Core Constraints
+##  Target Audience & Core Constraints
 - **Target Users**: System Administrators, Program Chairs (CAST, CBMA, CVMAS, COED), and Coordinators.
 - **Scope**: Tertiary Education Academic Scheduling, Curriculum Ingestion, Faculty Workload Management, Timetables, and Conflict Resolution.
 
 ---
 
-## 🏆 Completed Release Milestones (v1.4.0 Live)
+##  Completed Release Milestones (v1.4.0 Live)
 
 ### Phase 1 — Project Initialization & Architecture [COMPLETED]
 - [x] **Frontend Architecture**: Initialized React 18 SPA with Vite, Tailwind CSS, Lucide React icons, and custom light/dark theme switcher.

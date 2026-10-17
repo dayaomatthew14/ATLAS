@@ -1,50 +1,92 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
-  Users, MapPin, AlertTriangle, Clock, Activity, Sparkles, Check,
-  FileDown, Send, Calendar, BookOpen, ArrowRight,
+  Users, MapPin, AlertTriangle, Clock, Sparkles,
+  CheckCircle2, FileDown, Send, Calendar, BookOpen,
+  RefreshCw, ChevronRight, User, Filter, ArrowUpRight,
 } from 'lucide-react';
 import { api, API_BASE } from '../../utils/api';
 import { getUserName, getDepartment } from '../../utils/session';
 import { useToast } from '../../components/ToastProvider';
 import { pluralize, resolveDepartment } from '../../components/ui/tokens';
 import Button from '../../components/ui/Button';
-import { Page, PageHeader, Panel, StatTile, LinkRow } from '../../components/ui/Page';
-import TeachingWeek from '../../components/dashboard/TeachingWeek';
-import FacultyLoadPanel from '../../components/dashboard/FacultyLoadPanel';
+import { Page, PageHeader, Panel, StatTile } from '../../components/ui/Page';
 
 /**
- * Overview — program chair and coordinator.
+ * Overview — Program Chair and Coordinator dashboard.
  *
- * Rewritten onto the design system. What was here was a marketing page: a
- * gradient hero with two blurred colour orbs, a pinging halo behind a shield
- * icon, "Master the Schedule." in gradient text, and a "Workspace Health"
- * card that displayed a heading and a badge reading "Diagnostics" and no
- * measurement of anything. None of it told a chair what to do next, which is
- * the only question this screen exists to answer.
- *
- * What replaced it is the same data in the system's own language: four
- * numbers, a readiness checklist that says whether you can generate yet, the
- * things blocking you, and the recent activity.
+ * Streamlined, high-signal summary of term health, readiness prerequisites,
+ * and operational tools.
  */
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
   if (term === '1st') return '1st Semester';
   if (term === '2nd') return '2nd Semester';
-  if (term === '3rd semester') return '3rd Semester';
+  if (term === '3rd semester' || term === '3rd') return '3rd Semester';
   return term;
 };
 
-const timeAgo = (value) => {
-  const then = new Date(value);
-  if (Number.isNaN(then.getTime())) return '';
-  const mins = Math.round((Date.now() - then.getTime()) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} ${hrs === 1 ? 'hour' : 'hours'} ago`;
-  return then.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const FACULTY_COLOR_PALETTES = [
+  { name: 'teal', bg: 'bg-teal-50/80 border-teal-200/90', text: 'text-teal-950', badge: 'bg-teal-700 text-white', accent: 'border-l-teal-600', dot: 'bg-teal-500' },
+  { name: 'indigo', bg: 'bg-indigo-50/80 border-indigo-200/90', text: 'text-indigo-950', badge: 'bg-indigo-700 text-white', accent: 'border-l-indigo-600', dot: 'bg-indigo-500' },
+  { name: 'emerald', bg: 'bg-emerald-50/80 border-emerald-200/90', text: 'text-emerald-950', badge: 'bg-emerald-700 text-white', accent: 'border-l-emerald-600', dot: 'bg-emerald-500' },
+  { name: 'violet', bg: 'bg-violet-50/80 border-violet-200/90', text: 'text-violet-950', badge: 'bg-violet-700 text-white', accent: 'border-l-violet-600', dot: 'bg-violet-500' },
+  { name: 'sky', bg: 'bg-sky-50/80 border-sky-200/90', text: 'text-sky-950', badge: 'bg-sky-700 text-white', accent: 'border-l-sky-600', dot: 'bg-sky-500' },
+  { name: 'purple', bg: 'bg-purple-50/80 border-purple-200/90', text: 'text-purple-950', badge: 'bg-purple-700 text-white', accent: 'border-l-purple-600', dot: 'bg-purple-500' },
+  { name: 'cyan', bg: 'bg-cyan-50/80 border-cyan-200/90', text: 'text-cyan-950', badge: 'bg-cyan-700 text-white', accent: 'border-l-cyan-600', dot: 'bg-cyan-500' },
+  { name: 'blue', bg: 'bg-blue-50/80 border-blue-200/90', text: 'text-blue-950', badge: 'bg-blue-700 text-white', accent: 'border-l-blue-600', dot: 'bg-blue-500' },
+  { name: 'lime', bg: 'bg-lime-50/80 border-lime-200/90', text: 'text-lime-950', badge: 'bg-lime-700 text-white', accent: 'border-l-lime-600', dot: 'bg-lime-500' },
+];
+
+const getFacultyColor = (profName) => {
+  if (!profName) return FACULTY_COLOR_PALETTES[0];
+  let hash = 0;
+  for (let i = 0; i < profName.length; i++) {
+    hash = profName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % FACULTY_COLOR_PALETTES.length;
+  return FACULTY_COLOR_PALETTES[index];
+};
+
+const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LABELS = {
+  Mon: 'Monday',
+  Tue: 'Tuesday',
+  Wed: 'Wednesday',
+  Thu: 'Thursday',
+  Fri: 'Friday',
+  Sat: 'Saturday',
+};
+
+const to12h = (t) => {
+  if (!t) return '';
+  const [h, m] = String(t).split(':');
+  const hr = parseInt(h, 10);
+  if (Number.isNaN(hr)) return '';
+  return `${hr % 12 || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`;
+};
+
+const minutesOf = (t) => {
+  const [h, m] = String(t || '0:0').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+const dayKey = (value) => {
+  const head = String(value || '').trim().slice(0, 3).toLowerCase();
+  return DAY_ORDER.find((d) => d.toLowerCase() === head) || '';
+};
+
+const formatSubjectCode = (sched) => {
+  if (!sched || !sched.subject_code) return '';
+  const rawCode = sched.subject_code;
+  const abMatch = rawCode.match(/^(.*?)[_\-\s]*A\/B$/i);
+  if (abMatch) {
+    const baseCode = abMatch[1].trim();
+    const isLec = !sched.room_id || sched.room_name === '—' || sched.room_name === '' || sched.part_type === 'lecture';
+    return isLec ? `${baseCode}A` : `${baseCode}B`;
+  }
+  return rawCode;
 };
 
 export default function DashboardHome() {
@@ -54,7 +96,6 @@ export default function DashboardHome() {
   const college = resolveDepartment(getDepartment());
 
   const [activeSemester, setActiveSemester] = useState(null);
-  const [recentLogs, setRecentLogs] = useState([]);
   const [isProcessing, setIsProcessing] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -63,28 +104,22 @@ export default function DashboardHome() {
   const [roomsCount, setRoomsCount] = useState(0);
   const [facultyCount, setFacultyCount] = useState(0);
   const [facultyMissingAvail, setFacultyMissingAvail] = useState(0);
-  const [offeringsCount, setOfferingsCount] = useState(0);
-  /* The rows themselves, not just their length. Both lists were already being
-     fetched and thrown away after being counted, so the two panels below cost
-     nothing extra over the wire. */
-  const [schedules, setSchedules] = useState([]);
-  const [faculty, setFaculty] = useState([]);
+
+  const [weeklySchedules, setWeeklySchedules] = useState([]);
+  const [selectedDay, setSelectedDay] = useState('Mon');
+  const [selectedFacultyFilter, setSelectedFacultyFilter] = useState('all');
 
   const fetchStats = async () => {
     setIsLoading(true);
     try {
-      const [schedules, semesters, faculty, conflicts, logsData, rooms] = await Promise.all([
+      const [schedules, semesters, faculty, conflicts, rooms] = await Promise.all([
         api.get('/schedules').catch(() => []),
         api.get('/semesters').catch(() => []),
         api.get('/professors').catch(() => []),
-        // Not `.catch(() => ({ count: 0 }))`. Zero paints the Conflicts tile
-        // green; a request that failed has not established that anything is
-        // clean. `null` flows through as the "unknown" state below.
         api.get('/conflicts/count').catch((err) => {
           console.error('ATLAS: conflict count could not be read.', err);
           return { count: null };
         }),
-        api.get('/logs?limit=5').catch(() => []),
         api.get('/rooms').catch(() => []),
       ]);
 
@@ -92,14 +127,9 @@ export default function DashboardHome() {
       const safeSchedules = Array.isArray(schedules) ? schedules : [];
       const safeFaculty = Array.isArray(faculty) ? faculty : [];
       const safeRooms = Array.isArray(rooms) ? rooms : [];
-      const safeLogs = Array.isArray(logsData) ? logsData : [];
 
       const activeSem = safeSemesters.find((s) => s.is_active);
       setActiveSemester(activeSem || null);
-      setRecentLogs(safeLogs);
-
-      setSchedules(safeSchedules);
-      setFaculty(safeFaculty);
 
       setSchedulesCount(safeSchedules.length);
       setConflictsCount(conflicts?.count ?? null);
@@ -108,10 +138,31 @@ export default function DashboardHome() {
       setFacultyMissingAvail(safeFaculty.filter((f) => !f.max_units || f.max_units === 0).length);
 
       if (activeSem) {
-        const offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
-        setOfferingsCount(Array.isArray(offerings) ? offerings.length : 0);
+        const globalScheds = await api.get(`/ai-scheduler/global-schedule?semester_id=${activeSem.id}`).catch(() => []);
+        const validGlobal = Array.isArray(globalScheds) ? globalScheds : [];
+        if (validGlobal.length > 0) {
+          setWeeklySchedules(validGlobal);
+        } else if (safeSchedules.length > 0) {
+          const fallback = safeSchedules.map((s) => ({
+            id: s.id,
+            curriculum_id: s.curriculum_id,
+            faculty_id: s.faculty_id,
+            subject_code: s.curriculum?.code || s.subject_code || '',
+            subject_name: s.curriculum?.name || s.subject_name || '',
+            faculty_name: s.faculty ? `${s.faculty.first_name} ${s.faculty.last_name}` : (s.faculty_name || 'TBA'),
+            room_name: s.room?.name || s.room_name || '—',
+            room_building: s.room?.building || s.room_building || '',
+            day_of_week: s.day_of_week,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            section: s.section || '',
+          }));
+          setWeeklySchedules(fallback);
+        } else {
+          setWeeklySchedules([]);
+        }
       } else {
-        setOfferingsCount(0);
+        setWeeklySchedules([]);
       }
     } catch (e) {
       console.error('Failed to fetch dashboard stats', e);
@@ -120,8 +171,6 @@ export default function DashboardHome() {
     }
   };
 
-  // Load once on mount. This screen only ever serves chairs and coordinators
-  // now, so there is no role to re-key the fetch on.
   useEffect(() => {
     fetchStats();
   }, []);
@@ -148,9 +197,6 @@ export default function DashboardHome() {
     setIsProcessing(action);
     try {
       if (action === 'pdf') {
-        // HEU-03: `api` is a plain object with no `defaults`, so this threw a
-        // TypeError the moment the button was clicked. It also hardcoded
-        // semester_id=1 rather than using the active term.
         if (!activeSemester) {
           addToast('Set an active term before exporting a schedule.', 'warning');
           return;
@@ -163,11 +209,6 @@ export default function DashboardHome() {
         fetchStats();
       } else if (action === 'notify') {
         if (activeSemester) {
-          // Report what the server actually did. This said "All faculty members
-          // notified" on every run, including the one where nothing was sent --
-          // the reply carries `sent_count` and it was being thrown away, so a
-          // chair could be told their faculty had their schedules when not one
-          // message had left the building.
           const res = await api.post(`/notifications/notify-faculty?semester_id=${activeSemester.id}`);
           const sent = Number(res?.sent_count) || 0;
           const skipped = Number(res?.skipped_no_contact) || 0;
@@ -191,7 +232,7 @@ export default function DashboardHome() {
           addToast('No active semester found.', 'error');
         }
       }
-    } catch (e) {
+    } catch {
       addToast('Action failed: the service is unavailable.', 'error');
     } finally {
       setIsProcessing('');
@@ -200,145 +241,54 @@ export default function DashboardHome() {
 
   /* ---------------------------------------------------------------- derived */
 
-  /*
-   * Each step carries the sentence that would be said to someone stuck on it,
-   * not just its own name. The panel below shows the short label; the "what
-   * now" card at the top of the page shows the long one. Keeping both on the
-   * same object is what stops the checklist and the headline advice from
-   * describing different states of the same term.
-   */
-  const readiness = [
-    // No `to`: Academic Terms is administrator-only, so linking a chair there
-    // sent them from their own readiness list to "You do not have access to
-    // this page". The row still reports the state; it just is not a door.
-    {
-      label: 'Academic term',
-      ready: Boolean(activeSemester),
-      detail: activeSemester
-        ? `${activeSemester.academic_year} ${formatSemesterTerm(activeSemester.term)}`
-        : 'None active',
-      icon: Calendar,
-      nextTitle: 'Waiting on an active academic term',
-      nextBody: 'Only an administrator can activate one, and nothing can be generated until they do.',
-    },
-    {
-      label: 'Rooms', ready: roomsCount > 0, to: '/dashboard/rooms', icon: MapPin,
-      detail: roomsCount > 0 ? pluralize(roomsCount, 'room') : 'None registered',
-      nextTitle: 'Register the rooms you need',
-      nextBody: 'A class needs somewhere to go. Laboratories your college runs are yours to add here.',
-      nextAction: 'Go to Rooms',
-    },
-    {
-      label: 'Faculty', ready: facultyCount > 0 && facultyMissingAvail === 0, to: '/dashboard/teachers', icon: Users,
-      detail: facultyCount === 0 ? 'None added'
-        : facultyMissingAvail > 0 ? `${facultyMissingAvail} without a teaching cap`
-        : pluralize(facultyCount, 'member'),
-      nextTitle: facultyCount === 0 ? 'Add your faculty' : 'Set the missing teaching caps',
-      nextBody: 'Generation cannot respect a limit that has not been set, so anyone without a cap is left out.',
-      nextAction: 'Go to Faculty',
-    },
-    {
-      label: 'Subject offerings', ready: offeringsCount > 0, to: '/dashboard/teachers', icon: BookOpen,
-      detail: offeringsCount > 0 ? pluralize(offeringsCount, 'offering') : 'None assigned',
-      nextTitle: 'Assign subjects to your faculty',
-      nextBody: 'Nothing reaches the timetable until the subjects being taught are assigned to someone.',
-      nextAction: 'Go to Faculty',
-    },
-    {
-      label: 'Schedule', ready: schedulesCount > 0, to: '/dashboard/schedules', icon: Calendar,
-      detail: schedulesCount > 0 ? pluralize(schedulesCount, 'class', 'classes') : 'Not generated',
-      nextTitle: 'Generate the timetable',
-      nextBody: 'Everything this term needs is in place. Generate it, then work through anything it could not place.',
-      nextAction: 'Open Schedule',
-    },
-  ];
+  const todayIndex = new Date().getDay();
+  const todayDayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][todayIndex];
 
-  const readyCount = readiness.filter((r) => r.ready).length;
+  const facultyOptions = useMemo(() => {
+    const names = new Set();
+    weeklySchedules.forEach((s) => {
+      if (s.faculty_name && s.faculty_name !== 'TBA') {
+        names.add(s.faculty_name);
+      }
+    });
+    return Array.from(names).sort();
+  }, [weeklySchedules]);
 
-  /*
-   * The one thing to do next.
-   *
-   * This screen already held every fact needed to answer "what now" and made
-   * the user assemble the answer themselves from four tiles, a five-row
-   * checklist and a blocker list. The order below is the order the term is
-   * actually built in, so the first unmet step is the real answer.
-   */
-  const nextStep = (() => {
-    const pending = readiness.find((r) => !r.ready);
-    if (pending) {
-      return {
-        tone: pending.to ? 'action' : 'waiting',
-        title: pending.nextTitle,
-        body: pending.nextBody,
-        to: pending.to,
-        action: pending.nextAction,
-      };
+  const filteredSchedules = useMemo(() => {
+    let result = weeklySchedules;
+    if (selectedFacultyFilter !== 'all') {
+      result = result.filter((s) => s.faculty_name === selectedFacultyFilter);
     }
-    if (conflictsCount === null) {
-      return {
-        tone: 'warning',
-        title: 'The conflict check could not be run',
-        body: 'This timetable is unverified rather than clean. Open the schedule and try the check again.',
-        to: '/dashboard/schedules',
-        action: 'Open Schedule',
-      };
-    }
-    if (conflictsCount > 0) {
-      return {
-        tone: 'conflict',
-        title: `Resolve ${pluralize(conflictsCount, 'conflict')}`,
-        body: 'Work through them one at a time in the conflict view. The timetable is not final until they are gone.',
-        to: '/dashboard/schedules',
-        action: 'Resolve conflicts',
-      };
-    }
-    return {
-      tone: 'done',
-      title: 'This term is complete',
-      body: 'Every class is placed and nothing is in conflict. Export it, or keep editing if something changes.',
-      to: '/dashboard/schedules',
-      action: 'Open Schedule',
+    return result;
+  }, [weeklySchedules, selectedFacultyFilter]);
+
+  const daySchedulesMap = useMemo(() => {
+    const map = {
+      Mon: [],
+      Tue: [],
+      Wed: [],
+      Thu: [],
+      Fri: [],
+      Sat: [],
     };
-  })();
+    filteredSchedules.forEach((s) => {
+      const key = dayKey(s.day_of_week);
+      if (key && map[key]) {
+        map[key].push(s);
+      }
+    });
+    DAY_ORDER.forEach((day) => {
+      map[day].sort((a, b) => minutesOf(a.start_time) - minutesOf(b.start_time));
+    });
+    return map;
+  }, [filteredSchedules]);
 
-  const blockers = [
-    conflictsCount === null && {
-      id: 'conflicts-unknown', to: '/dashboard/schedules', icon: AlertTriangle, iconClass: 'text-sem-warning',
-      label: 'Conflict check unavailable',
-      detail: 'The number of conflicts could not be read, so this timetable is unverified — not clean.',
-    },
-    conflictsCount > 0 && {
-      id: 'conflicts', to: '/dashboard/schedules', icon: AlertTriangle, iconClass: 'text-sem-conflict',
-      label: `${pluralize(conflictsCount, 'unresolved conflict')}`,
-      detail: 'Resolve these before the timetable can be relied on.',
-    },
-    facultyMissingAvail > 0 && {
-      id: 'avail', to: '/dashboard/teachers', icon: Users, iconClass: 'text-sem-warning',
-      label: `${pluralize(facultyMissingAvail, 'faculty member')} without a teaching cap`,
-      detail: 'Generation cannot respect a limit that is not set.',
-    },
-    offeringsCount === 0 && {
-      id: 'offerings', to: '/dashboard/teachers', icon: BookOpen, iconClass: 'text-sem-warning',
-      label: 'No subjects assigned to anyone',
-      detail: 'Assign subjects to professors before generating.',
-    },
-    roomsCount === 0 && {
-      id: 'rooms', to: '/dashboard/rooms', icon: MapPin, iconClass: 'text-sem-warning',
-      label: 'No rooms registered',
-      detail: 'Laboratories need a room to be scheduled into.',
-    },
-    !activeSemester && {
-      id: 'term', icon: Calendar, iconClass: 'text-sem-warning',
-      label: 'No active academic term',
-      detail: 'Nothing can be generated until one is active. Only an administrator can activate a term.',
-    },
-  ].filter(Boolean);
-
-  const quickActions = [
-    { id: 'resolve', label: 'Resolve conflicts', icon: Sparkles },
-    { id: 'pdf', label: 'Export schedule PDF', icon: FileDown },
-    { id: 'notify', label: 'Notify faculty', icon: Send },
-  ];
+  const totalWeeklyHours = useMemo(() => {
+    return filteredSchedules.reduce((acc, s) => {
+      const dur = (minutesOf(s.end_time) - minutesOf(s.start_time)) / 60;
+      return acc + (dur > 0 ? dur : 0);
+    }, 0);
+  }, [filteredSchedules]);
 
   if (isLoading) {
     return (
@@ -368,270 +318,302 @@ export default function DashboardHome() {
             : 'No active academic term'
         }
         actions={
-          <Button icon={Calendar} onClick={() => navigate('/dashboard/schedules')}>
-            Open Schedule
+          <Button
+            variant="secondary"
+            icon={RefreshCw}
+            loading={isLoading}
+            onClick={fetchStats}
+          >
+            Refresh
           </Button>
         }
       />
 
-      {/*
-        What to do next, said once and said large.
-        Everything below it is the detail behind this sentence, which is the
-        order a user actually wants them in: the answer, then the evidence.
-      */}
-      <section
-        className={`rise glass sheen surface rounded-panel px-6 py-6 sm:px-8 sm:py-7 mb-6 ${
-          nextStep.tone === 'conflict' ? 'accent-edge-conflict'
-          : nextStep.tone === 'warning' || nextStep.tone === 'waiting' ? 'accent-edge-warning'
-          : 'accent-edge'
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-          <span
-            aria-hidden="true"
-            className={`w-14 h-14 rounded-panel flex items-center justify-center shrink-0 ${
-              nextStep.tone === 'conflict' ? 'bg-sem-conflict-bg text-sem-conflict'
-              : nextStep.tone === 'warning' || nextStep.tone === 'waiting' ? 'bg-sem-warning-bg text-sem-warning'
-              : nextStep.tone === 'done' ? 'bg-atlas-100 text-atlas-700'
-              : 'bg-atlas-100 text-atlas-700'
-            }`}
-          >
-            {nextStep.tone === 'conflict' ? <AlertTriangle className="w-7 h-7" />
-              : nextStep.tone === 'warning' ? <AlertTriangle className="w-7 h-7" />
-                : nextStep.tone === 'waiting' ? <Clock className="w-7 h-7" />
-                  : nextStep.tone === 'done' ? <Check className="w-7 h-7" />
-                    : <Sparkles className="w-7 h-7" />}
-          </span>
-
-          <div className="min-w-0 flex-1">
-            <p className="font-ui text-micro uppercase text-atlas-slate">
-              {nextStep.tone === 'done' ? 'Where you stand' : 'What to do next'}
-            </p>
-            <h2 className="font-display text-section text-atlas-ink mt-1.5 leading-snug">
-              {nextStep.title}
-            </h2>
-            <p className="font-ui text-body text-atlas-slate mt-2 leading-relaxed max-w-2xl">
-              {nextStep.body}
-            </p>
-          </div>
-
-          {nextStep.to && nextStep.action && (
-            <Button
-              icon={ArrowRight}
-              className="shrink-0 self-start sm:self-auto"
-              onClick={() => navigate(nextStep.to)}
-            >
-              {nextStep.action}
-            </Button>
-          )}
-        </div>
-      </section>
-
+      {/* Metric Stat Tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-6">
         {[
-          { label: 'Classes scheduled', value: schedulesCount, icon: Calendar, to: '/dashboard/schedules' },
-          { label: 'Faculty', value: facultyCount, icon: Users, to: '/dashboard/teachers',
-            hint: facultyMissingAvail > 0 ? `${facultyMissingAvail} without a cap` : undefined,
-            tone: facultyMissingAvail > 0 ? 'warning' : 'default' },
-          { label: 'Rooms', value: roomsCount, icon: MapPin, to: '/dashboard/rooms' },
-          // A green "0" is a claim that the timetable is clean. Only make it
-          // when the count actually came back; unknown reads as a warning "—".
-          { label: 'Conflicts', value: conflictsCount === null ? '—' : conflictsCount,
-            icon: AlertTriangle, to: '/dashboard/schedules',
-            hint: conflictsCount === null ? 'Count unavailable' : undefined,
-            tone: conflictsCount === null ? 'warning' : conflictsCount > 0 ? 'conflict' : 'good' },
+          {
+            label: 'Classes scheduled',
+            value: schedulesCount,
+            icon: Calendar,
+            to: '/dashboard/schedules',
+            hint: schedulesCount > 0 ? `${pluralize(schedulesCount, 'class', 'classes')} active` : 'No classes placed',
+          },
+          {
+            label: 'Faculty',
+            value: facultyCount,
+            icon: Users,
+            to: '/dashboard/teachers',
+            hint: facultyMissingAvail > 0 ? `${facultyMissingAvail} without a cap` : 'All caps configured',
+            tone: facultyMissingAvail > 0 ? 'warning' : 'default',
+          },
+          {
+            label: 'Rooms',
+            value: roomsCount,
+            icon: MapPin,
+            to: '/dashboard/rooms',
+            hint: roomsCount > 0 ? `${pluralize(roomsCount, 'room')} registered` : 'No rooms registered',
+            tone: roomsCount === 0 ? 'warning' : 'default',
+          },
+          {
+            label: 'Schedule Health',
+            value: conflictsCount === null ? '—' : conflictsCount,
+            icon: AlertTriangle,
+            to: '/dashboard/schedules',
+            hint: conflictsCount === null ? 'Count unavailable' : conflictsCount > 0 ? `${pluralize(conflictsCount, 'conflict')} detected` : 'Zero clashes detected',
+            tone: conflictsCount === null ? 'warning' : conflictsCount > 0 ? 'conflict' : 'good',
+          },
         ].map((s, i) => (
-          // 60ms apart, per the Standard stagger tier — the grid settles in
-          // reading order instead of all four landing at once.
           <div key={s.label} className="rise" style={{ animationDelay: `${i * 60}ms` }}>
             <StatTile {...s} />
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-        <TeachingWeek schedules={schedules} />
-        <FacultyLoadPanel faculty={faculty} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Panel
-          className="lg:col-span-2 rise"
-          style={{ animationDelay: '240ms' }}
-          icon={Check}
-          accent
-          title="Before you generate"
-          description="Each of these has to be in place for the timetable to come out right."
-          action={
-            <span className="font-ui text-caption text-atlas-slate shrink-0 tabular-nums">
-              {readyCount} of {readiness.length} ready
-            </span>
-          }
-        >
-          {/* The proportion, before the list. Reading five rows to work out how
-              far along you are is work the bar can do for you. */}
-          <div className="px-6 pt-5">
-            <div
-              className="h-2 rounded-full bg-atlas-line/70 overflow-hidden"
-              role="progressbar"
-              aria-valuenow={readyCount}
-              aria-valuemin={0}
-              aria-valuemax={readiness.length}
-              aria-label={`${readyCount} of ${readiness.length} prerequisites ready`}
+      {/* Weekly Schedule Calendar Panel — Replacing the old checklist & cards */}
+      <Panel
+        className="rise"
+        style={{ animationDelay: '240ms' }}
+        icon={Calendar}
+        accent={conflictsCount > 0 ? 'warning' : 'default'}
+        title="Weekly Schedule Overview"
+        description={
+          activeSemester
+            ? `Summarized plotted timetable for ${activeSemester.academic_year} · ${formatSemesterTerm(activeSemester.term)}`
+            : 'Summarized plotted timetable for the active academic term'
+        }
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {conflictsCount > 0 && (
+              <Button
+                variant="secondary"
+                icon={Sparkles}
+                loading={isProcessing === 'resolve'}
+                onClick={() => handleQuickAction('resolve')}
+                className="text-amber-800 border-amber-500/30 hover:bg-amber-500/10 text-xs px-3 py-1.5"
+              >
+                Resolve Clashes
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              icon={FileDown}
+              loading={isProcessing === 'pdf'}
+              onClick={() => handleQuickAction('pdf')}
+              className="text-xs px-3 py-1.5"
             >
-              <span
-                className={`meter-fill block h-full rounded-full ${
-                  readyCount === readiness.length ? 'bg-atlas-700' : 'bg-atlas-300'
-                }`}
-                style={{ '--meter': `${(readyCount / readiness.length) * 100}%` }}
-              />
-            </div>
+              Export PDF
+            </Button>
+            <Button
+              variant="secondary"
+              icon={Send}
+              loading={isProcessing === 'notify'}
+              onClick={() => handleQuickAction('notify')}
+              className="text-xs px-3 py-1.5"
+            >
+              Notify Faculty
+            </Button>
+            <Button
+              variant="primary"
+              icon={ChevronRight}
+              onClick={() => navigate('/dashboard/schedules')}
+              className="text-xs px-3 py-1.5"
+            >
+              Full Timetable
+            </Button>
           </div>
-
-          <ul className="divide-y divide-white/45 mt-2">
-            {readiness.map((item) => {
-              const inner = (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className={`w-10 h-10 rounded-field flex items-center justify-center shrink-0
-                                transition-transform duration-overlay ease-emphasis group-hover:scale-110
-                                motion-reduce:transition-none motion-reduce:group-hover:scale-100 ${
-                      item.ready ? 'bg-atlas-100 text-atlas-700' : 'bg-sem-warning-bg text-sem-warning'
-                    }`}
-                  >
-                    {item.ready ? <Check className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-ui text-body font-medium text-atlas-ink">{item.label}</span>
-                    <span className="block font-ui text-caption text-atlas-slate mt-1 leading-relaxed">
-                      {item.detail}
-                    </span>
-                  </span>
-                  <span
-                    className={`font-ui text-caption font-medium shrink-0 px-2.5 py-1 rounded-full ${
-                      item.ready ? 'bg-atlas-100 text-atlas-700' : 'bg-sem-warning-bg text-sem-warning'
-                    }`}
-                  >
-                    {item.ready ? 'Ready' : 'Pending'}
-                  </span>
-                </>
-              );
-
-              /* A row with no `to` is one this role cannot act on. It still
-                 reports its state, but it is not a button: navigate(undefined)
-                 is not a destination, and offering the click would only lead
-                 to the 403 page. */
+        }
+      >
+        {/* Top Control Bar & Filter Tabs */}
+        <div className="px-6 pt-5 pb-4 border-b border-emerald-900/10 flex flex-wrap items-center justify-between gap-4 bg-slate-50/50">
+          {/* Day selection tabs */}
+          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-slate-200/60 border border-slate-200/80">
+            {DAY_ORDER.map((day) => {
+              const count = daySchedulesMap[day]?.length || 0;
+              const isToday = day === todayDayKey;
+              const isSelected = selectedDay === day;
               return (
-                <li key={item.label}>
-                  {item.to ? (
-                    <button
-                      type="button"
-                      onClick={() => navigate(item.to)}
-                      className="group w-full flex items-center gap-4 px-6 py-4 text-left transition-colors
-                                 duration-state ease-standard hover:bg-atlas-50
-                                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-inset"
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => setSelectedDay(day)}
+                  className={`px-3.5 py-2 rounded-lg font-ui text-caption font-bold flex items-center gap-2 transition-all ${
+                    isSelected
+                      ? 'bg-emerald-800 text-white shadow-xs'
+                      : 'text-slate-800 hover:text-emerald-950 hover:bg-white/60'
+                  }`}
+                >
+                  <span>{day}</span>
+                  {count > 0 && (
+                    <span
+                      className={`text-micro px-1.5 py-0.5 rounded-full tabular-nums font-bold ${
+                        isSelected
+                          ? 'bg-emerald-950/40 text-emerald-100'
+                          : 'bg-emerald-800/10 text-emerald-900'
+                      }`}
                     >
-                      {inner}
-                    </button>
-                  ) : (
-                    <div className="group w-full flex items-center gap-4 px-6 py-4 text-left">
-                      {inner}
-                    </div>
+                      {count}
+                    </span>
                   )}
-                </li>
+                  {isToday && !isSelected && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-600" title="Today" />
+                  )}
+                </button>
               );
             })}
-          </ul>
-        </Panel>
-
-        <Panel
-          className="rise"
-          style={{ animationDelay: '300ms' }}
-          icon={blockers.length ? AlertTriangle : Check}
-          accent={blockers.length ? 'warning' : undefined}
-          title={blockers.length ? `Needs attention (${blockers.length})` : 'Needs attention'}
-        >
-          {blockers.length === 0 ? (
-            <p className="px-6 py-12 font-ui text-body text-atlas-slate text-center">
-              Nothing is blocking you.
-            </p>
-          ) : (
-            <ul className="divide-y divide-white/45">
-              {blockers.map((b) => (
-                <LinkRow
-                  key={b.id}
-                  to={b.to}
-                  icon={b.icon}
-                  iconClass={b.iconClass}
-                  label={b.label}
-                  detail={b.detail}
-                />
-              ))}
-            </ul>
-          )}
-        </Panel>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
-        <Panel
-          className="lg:col-span-2 rise"
-          style={{ animationDelay: '360ms' }}
-          icon={Activity}
-          title="Recent activity"
-          description="The last few changes in your college."
-        >
-          {recentLogs.length === 0 ? (
-            <p className="px-6 py-12 font-ui text-body text-atlas-slate text-center">
-              Nothing has happened yet.
-            </p>
-          ) : (
-            <ul className="divide-y divide-white/45">
-              {recentLogs.map((log) => (
-                <li key={log.id} className="flex items-start gap-3.5 px-6 py-4">
-                  <span
-                    aria-hidden="true"
-                    className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                      log.status === 'error' ? 'bg-sem-conflict-bg text-sem-conflict'
-                      : log.status === 'warning' ? 'bg-sem-warning-bg text-sem-warning'
-                      : 'bg-atlas-100 text-atlas-700'
-                    }`}
-                  >
-                    <Activity className="w-3.5 h-3.5" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-ui text-body text-atlas-ink">{log.action}</span>
-                    {log.details && (
-                      <span className="block font-ui text-caption text-atlas-slate mt-1 leading-relaxed">{log.details}</span>
-                    )}
-                  </span>
-                  <span className="font-ui text-caption text-atlas-slate shrink-0 tabular-nums">
-                    {timeAgo(log.timestamp)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel className="rise" style={{ animationDelay: '420ms' }} icon={Sparkles} title="Quick actions">
-          <div className="p-5 flex flex-col gap-2.5">
-            {quickActions.map((a) => (
-              <Button
-                key={a.id}
-                variant="secondary"
-                icon={a.icon}
-                loading={isProcessing === a.id}
-                disabled={Boolean(isProcessing) && isProcessing !== a.id}
-                onClick={() => handleQuickAction(a.id)}
-                className="justify-start w-full"
-              >
-                {a.label}
-              </Button>
-            ))}
           </div>
-        </Panel>
-      </div>
+
+          {/* Right side: Faculty filter & KPI summary pill */}
+          <div className="flex items-center gap-3">
+            {facultyOptions.length > 1 && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="calendar-faculty-filter" className="font-ui text-caption font-semibold text-slate-700 sr-only">
+                  Filter by Faculty
+                </label>
+                <select
+                  id="calendar-faculty-filter"
+                  value={selectedFacultyFilter}
+                  onChange={(e) => setSelectedFacultyFilter(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg px-3 py-2 font-ui text-caption font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-800"
+                >
+                  <option value="all">All Faculty ({facultyOptions.length})</option>
+                  {facultyOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="hidden sm:flex items-center gap-2 text-caption font-semibold text-slate-700 bg-white/90 border border-slate-300 rounded-lg px-3.5 py-2 tabular-nums">
+              <span className="text-emerald-900 font-bold">{filteredSchedules.length}</span>
+              <span>{pluralize(filteredSchedules.length, 'class', 'classes')}</span>
+              <span className="text-slate-400">·</span>
+              <span className="text-slate-800 font-bold">{totalWeeklyHours.toFixed(1)} hrs/wk</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Calendar Body */}
+        {filteredSchedules.length === 0 ? (
+          <div className="p-12 sm:p-16 text-center flex flex-col items-center justify-center">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-800/10 border border-emerald-800/20 text-emerald-800 flex items-center justify-center mb-4">
+              <Calendar className="w-7 h-7 stroke-[2]" />
+            </div>
+            <h3 className="font-display text-lg font-bold text-emerald-950">
+              {weeklySchedules.length === 0 ? 'No classes scheduled for this term' : 'No classes match this filter'}
+            </h3>
+            <p className="font-ui text-body text-slate-600 max-w-md mt-1 mb-6 leading-relaxed">
+              {weeklySchedules.length === 0
+                ? 'Generate an AI-optimized schedule or plot subjects manually in the Schedule studio to see your weekly timetable overview here.'
+                : 'Try resetting the faculty filter to see the other classes scheduled.'}
+            </p>
+            {weeklySchedules.length === 0 ? (
+              <Button variant="primary" icon={Sparkles} onClick={() => navigate('/dashboard/schedules')}>
+                Go to Schedule Studio
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSelectedDay('Mon');
+                  setSelectedFacultyFilter('all');
+                }}
+              >
+                Reset Filters
+              </Button>
+            )}
+          </div>
+        ) : (
+          /* Day Detailed Agenda View */
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-5 pb-3 border-b border-emerald-900/10">
+              <div>
+                <h3 className="font-display text-lead font-bold text-emerald-950 flex items-center gap-2.5">
+                  <span>{DAY_LABELS[selectedDay]} Schedule</span>
+                  {selectedDay === todayDayKey && (
+                    <span className="font-ui text-micro font-bold px-2.5 py-0.5 rounded-full bg-emerald-800 text-white uppercase tracking-wider">
+                      Today
+                    </span>
+                  )}
+                </h3>
+                <p className="font-ui text-caption text-slate-600 mt-1 font-medium">
+                  {daySchedulesMap[selectedDay]?.length || 0} {pluralize(daySchedulesMap[selectedDay]?.length || 0, 'class', 'classes')} plotted
+                  {daySchedulesMap[selectedDay]?.length > 0 && (
+                    <>
+                      {' · '}
+                      <span className="tabular-nums font-bold text-slate-800">
+                        {daySchedulesMap[selectedDay]
+                          .reduce((sum, c) => sum + (minutesOf(c.end_time) - minutesOf(c.start_time)) / 60, 0)
+                          .toFixed(1)}{' '}
+                        hrs
+                      </span>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {daySchedulesMap[selectedDay]?.length === 0 ? (
+              <div className="py-16 text-center text-slate-400 font-ui text-body flex flex-col items-center justify-center">
+                <Calendar className="w-8 h-8 text-slate-400 stroke-[1.5] mb-2" />
+                <p className="font-semibold text-slate-600">No classes scheduled on {DAY_LABELS[selectedDay]}</p>
+                <p className="text-caption text-slate-500 mt-1">Select another day above to view scheduled classes.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {daySchedulesMap[selectedDay].map((sched) => {
+                  const color = getFacultyColor(sched.faculty_name);
+                  return (
+                    <div
+                      key={sched.id}
+                      className={`rounded-2xl border border-l-[6px] p-4.5 shadow-xs hover:shadow-md transition-all duration-150 flex flex-col justify-between gap-3.5 bg-white ${color.bg} ${color.border} ${color.accent}`}
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-data text-table font-bold text-emerald-950">
+                            {formatSubjectCode(sched)}
+                          </span>
+                          <span className="font-data text-caption font-bold text-slate-800 bg-white/95 border border-slate-200 px-2.5 py-1 rounded tabular-nums shadow-xs">
+                            {to12h(sched.start_time)} – {to12h(sched.end_time)}
+                          </span>
+                        </div>
+                        <h4 className="font-ui text-body font-bold text-slate-900 mt-2 leading-snug">
+                          {sched.subject_name}
+                        </h4>
+                      </div>
+
+                      <div className="pt-3 border-t border-black/5 flex flex-col gap-2 text-caption font-medium text-slate-700">
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-indigo-700 shrink-0" />
+                          <span className="font-bold text-slate-800">{sched.faculty_name || 'TBA'}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2">
+                            <MapPin className="w-4 h-4 text-emerald-700 shrink-0" />
+                            <span className="text-slate-700">
+                              {sched.room_name && sched.room_name !== '—'
+                                ? sched.room_name
+                                : 'No room assigned'}
+                              {sched.room_building ? ` · ${sched.room_building}` : ''}
+                            </span>
+                          </span>
+                          {sched.section && (
+                            <span className="font-data text-micro font-bold text-slate-700 bg-slate-200/80 px-2.5 py-0.5 rounded">
+                              Section {sched.section}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
     </Page>
   );
 }

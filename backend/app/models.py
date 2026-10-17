@@ -182,6 +182,7 @@ class Faculty(Base):
     email = Column(String(255), nullable=True)
     contact_number = Column(String(20), nullable=True)
     max_units = Column(Integer, nullable=False, default=18)
+    load_unit = Column(String(10), nullable=False, default='units')
     type = Column(Enum('full_time', 'part_time', name='faculty_types'), nullable=False, default='full_time')
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
 

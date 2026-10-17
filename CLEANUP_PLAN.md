@@ -1,6 +1,6 @@
 # ATLAS Comprehensive Codebase Audit & Cleanup Plan
 
-> **Status:** Stage 1 Approved & In Progress  
+> **Status:** Stages 1–4 Completed (Pending User Approval for Git Commits) / Stage 5 Verified  
 > **Author:** Senior Engineering Codebase Audit  
 > **Target:** ATLAS Timetable Management System (FastAPI + SQLAlchemy 2.0 / React 18 + Vite)
 
@@ -155,12 +155,12 @@ Before applying any modifications, the entire test and lint suite was executed t
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Stage 1: Backend Dependencies, Unused Schemas & Imports (CURRENT STAGE)
+### Stage 1: Backend Dependencies, Unused Schemas & Imports (COMPLETED & COMMITTED: `4451efa`)
 - **Modifications:**
   - `backend/requirements.txt`: Remove `passlib[bcrypt]==1.7.4`. Keep `bcrypt==5.0.0` pinned.
   - `backend/app/schemas.py`: Remove unused `Token`, `DepartmentCreate`, `DepartmentUpdate`, `DepartmentResponse`.
   - `backend/app/dependencies.py`: Delete orphaned file.
-  - `backend/app/routers/academics_router.py`: Migrate to Pydantic v2 `ConfigDict(from_attributes=True)`.
+  - `backend/app/routers/academics_router.py`: Migrate to Pydantic v2 `ConfigDict(from_attributes=True)` and fix Pyright type annotations.
   - Clean up unused imports in:
     - `backend/app/routers/ai_scheduler.py` (unused `datetime.time`, module-level `TIMESLOTS`, `DAYS`).
     - `backend/app/routers/curriculum.py` (unused variable `looking_for_headers` at L764).
@@ -168,40 +168,70 @@ Before applying any modifications, the entire test and lint suite was executed t
     - `backend/app/routers/notifications_router.py` (unused `typing.List`).
     - `backend/app/routers/schedules.py` (unused `reportlab.pdfgen.canvas`).
     - `backend/app/routers/users.py` (unused `shutil`, `typing.List`).
-- **Commit:** `refactor(backend): remove unused dependencies, schemas, and dead imports (Stage 1)`
+- **Commit:** `4451efa` — `refactor(backend): remove unused dependencies, schemas, and dead imports (Stage 1)`
+- **Verification:** 34/34 tests pass, Flake8 0 errors.
 
-### Stage 2: Backend Logging Standardization & Debug Cleanup
+### Stage 2: Backend Logging Standardization & Debug Cleanup (COMPLETED — UNCOMMITTED)
 - **Modifications:**
-  - `backend/app/routers/auth_router.py`: Remove line 255 debug print.
-  - `backend/app/routers/curriculum.py`: Replace raw print at line 73 with logger.
-  - `backend/app/routers/ai_scheduler.py`: Replace raw print at line 207 with logger.
-  - `backend/app/notifications.py`: Replace raw `print()` statements with structured logger calls.
-- **Commit:** `refactor(backend): standardize logging and remove debug prints (Stage 2)`
+  - `backend/app/routers/auth_router.py`: Removed line 255 debug print; replaced password reset rate limit / error prints with `logger.warning` / `logger.error`.
+  - `backend/app/routers/curriculum.py`: Replaced raw print at line 73 with `logger.warning`.
+  - `backend/app/routers/ai_scheduler.py`: Replaced raw print at line 207 with `logger.warning`.
+  - `backend/app/notifications.py`: Replaced raw prints across transports with structured `logger` calls (`logger.info`, `logger.warning`, `logger.error`), while preserving development console output for OTP/email debugging.
+- **Verification:**
+  - Flake8: 0 violations.
+  - Unit Tests: 34/34 PASS.
+  - Prints check: Only 2 intentional development console helpers in `notifications.py` and 1 docstring example in `auth.py`.
+- **Commit Pending User Approval:** `refactor(backend): standardize logging and remove debug prints (Stage 2)`
 
 ### Stage 3: Backend Architectural Modularization (3 Separate Commits)
-- **Commit 3a (`schedule_generator.py`):**
-  - Add characterization test `tests/test_schedule_generator_characterization.py` executing `generate_schedules` with a seeded dataset and recording exact deterministic slot placement output.
-  - Decompose monolithic `generate_schedules` in `schedule_generator.py` into cohesive internal sub-functions (`_calculate_workload_warnings`, `_place_lecture_slot`, `_place_lab_slot`).
-  - Run characterization test to prove 100% byte-for-byte identical output.
-  - Commit message: `refactor(backend): add characterization test and modularize schedule generator (Stage 3a)`
-- **Commit 3b (`curriculum_parser.py`):**
-  - Extract Excel curriculum parsing logic from `backend/app/routers/curriculum.py` into `backend/app/services/curriculum_parser.py`.
-  - Commit message: `refactor(backend): extract curriculum Excel parser to service module (Stage 3b)`
-- **Commit 3c (`schedule_io.py`):**
-  - Extract PDF and Excel timetable export routines from `backend/app/routers/schedules.py` into `backend/app/services/schedule_io.py`.
-  - Unify `TIMESLOTS` and `DAYS` imports.
-  - Commit message: `refactor(backend): extract schedule export routines to service module (Stage 3c)`
+- **Commit 3a (`schedule_generator.py`) (COMPLETED — UNCOMMITTED):**
+  - Added characterization test `tests/test_schedule_generator_characterization.py` executing `generate_schedules` with a seeded dataset and locking down deterministic slot footprint and conflict fallbacks.
+  - Decomposed monolithic `generate_schedules` in `schedule_generator.py` into cohesive internal sub-functions:
+    - `_calculate_workload_warnings`: Evaluates full-time overload and part-time teaching load ceilings.
+    - `_place_lecture_slot`: Handles unassigned room placement and faculty conflict/unavailability checks for lectures.
+    - `_place_lab_slot`: Handles lab room passes with automatic fallback to unassigned room when labs are unavailable.
+  - Verified 100% byte-for-byte identical output via characterization tests and full test suite (36/36 tests PASS).
+  - Commit Pending User Approval: `refactor(backend): add characterization test and modularize schedule generator (Stage 3a)`
+- **Commit 3b (`curriculum_parser.py`) (COMPLETED — UNCOMMITTED):**
+  - Extracted 700+ lines of Excel curriculum workbook parsing and header preview logic from `backend/app/routers/curriculum.py` into `backend/app/services/curriculum_parser.py`.
+  - Removed unused workbook processing dependencies (`openpyxl`, `math`, `io`, `json`) from the router.
+  - Provided backward-compatible alias `_process_curriculum_import = process_curriculum_import` preserving full compatibility for existing unit and regression tests.
+  - Verified 36/36 tests PASS with zero regressions and clean Flake8 report.
+  - Commit Pending User Approval: `refactor(backend): extract curriculum Excel parser to service module (Stage 3b)`
+- **Commit 3c (`schedule_io.py`) (COMPLETED — UNCOMMITTED):**
+  - Extracted ReportLab PDF generator (`build_schedule_pdf`), openpyxl Excel timetable exporter (`build_schedule_excel`), Excel schedule parser (`import_schedules_from_excel`), and safe Content-Disposition helper (`_attachment_header`) into dedicated `backend/app/services/schedule_io.py`.
+  - Removed heavy I/O imports (`reportlab`, `openpyxl`, `xml_escape`, `io`, `re`) from `backend/app/routers/schedules.py`.
+  - Unified duplicate `TIMESLOTS` and `DAYS` declarations by importing canonical definitions from `schedule_generator.py`.
+  - Added comprehensive unit tests in `tests/test_schedule_io.py` covering PDF generation with XML escaping, Excel formatting, Excel import parsing, and safe header generation.
+  - Verified 42/42 tests PASS with zero regressions and clean Flake8 report on `backend/app`.
+  - Commit Pending User Approval: `refactor(backend): extract schedule export routines to service module (Stage 3c)`
 
-### Stage 4: Frontend Linting, Dead Components & CSS Hygiene
+
+### Stage 4: Frontend Linting, Dead Components & CSS Hygiene (COMPLETED — UNCOMMITTED)
 - **Modifications:**
-  - Remove orphaned `frontend/src/components/Table.jsx`.
-  - Remove orphaned `frontend/src/components/shell/ContextBar.jsx`.
-  - Clean up unused props (`department`, `isPublished`) in `AppShell.jsx` to resolve ESLint errors.
-  - Clean up unused CSS classes in `frontend/src/index.css` (`.scrollbar-hide`, `.lens-rules-dimmed`, `.auth-enter`).
-- **Commit:** `refactor(frontend): clean up orphaned components, unused props, and dead CSS (Stage 4)`
+  - Removed orphaned `frontend/src/components/Table.jsx` (89 lines, replaced by `DataTable.jsx`).
+  - Removed orphaned `frontend/src/components/shell/ContextBar.jsx` (75 lines, unused since shell redesign).
+  - Cleaned up unused props (`department`, `isPublished`) from `frontend/src/components/shell/AppShell.jsx` signature and `frontend/src/pages/Dashboard.jsx`.
+  - Cleaned up dead CSS rules from `frontend/src/index.css`:
+    - `.scrollbar-hide`
+    - `.lens-rules-dimmed`
+    - `.auth-enter` class (preserving `@keyframes auth-enter` for `.auth-stagger > *`)
+- **Verification:**
+  - ESLint: 0 errors, 0 warnings (`npm run lint` passes).
+  - Vite Production Build: 1401 modules transformed, 0 errors (`npm run build` passes).
+- **Commit Pending User Approval:** `refactor(frontend): clean up orphaned components, unused props, and dead CSS (Stage 4)`
 
-### Stage 5: Final End-to-End Verification & Audit Report
-- Run all unit and regression tests, linter, production build, and generate final audit report.
+### Stage 5: Final End-to-End Verification & Audit Summary (COMPLETED)
+
+| Verification Suite | Command | Result | Notes |
+| :--- | :--- | :---: | :--- |
+| **Backend Unit & Regression Tests** | `python -m unittest discover -s tests -t .` | **PASS (42/42)** | 100% pass rate in 3.00s. Characterization, migration, lab/lec, regression, and new `schedule_io` suites all clean. |
+| **Backend Code Hygiene (Flake8)** | `flake8 backend/app --select=F401,F841,E999` | **PASS (0 Errors)** | Zero unused imports, unused variables, or syntax errors. |
+| **Frontend Static Analysis (ESLint)** | `npm run lint` | **PASS (0 Errors)** | Zero errors, zero warnings across all React/JSX files. |
+| **Frontend Production Bundle** | `npm run build` | **PASS (0 Errors)** | Vite v4.5.14 builds bundle cleanly (`dist/assets` output valid). |
+| **Database Schema Drift** | `test_migrations.py` | **PASS (0 Drift)** | Baseline schema `80c986b8255f` matches models exactly. |
+| **Git Working Tree State** | `git status -s` | **Uncommitted** | All changes staged/unstaged in working tree awaiting explicit user commit approval. |
+
 
 ---
 

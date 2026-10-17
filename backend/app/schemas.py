@@ -281,6 +281,7 @@ class FacultyBase(BaseModel):
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
     max_units: int = 18
+    load_unit: Optional[str] = 'units'
     type: str = 'full_time'
     department_id: Optional[int] = None
 
@@ -293,6 +294,7 @@ class FacultyUpdate(BaseModel):
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
     max_units: Optional[int] = None
+    load_unit: Optional[str] = None
     type: Optional[str] = None
     department_id: Optional[int] = None
 

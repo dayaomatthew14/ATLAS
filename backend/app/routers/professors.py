@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, cast
 from .. import models, schemas, database, auth
 from ..services import faculty_load
 from .logs import log_activity
@@ -22,13 +22,14 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
     the subject-assignment dialog still totals units when a chair picks
     subjects. They are academic information, not the load basis.
     """
+    fac_id = cast(int, faculty.id)
     if load is None:
-        load = faculty_load.summarise_many(db, [faculty], semester).get(faculty.id, {})
+        load = faculty_load.summarise_many(db, [faculty], semester).get(fac_id, {})
 
     max_u = faculty.max_units if (faculty.max_units and faculty.max_units > 0) else (
         18 if faculty.type == 'full_time' else 12
     )
-    current_u = _unit_load(db, faculty.id, semester)
+    current_u = _unit_load(db, fac_id, semester)
 
     return {
         "id": faculty.id,
@@ -37,6 +38,7 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
         "email": faculty.email,
         "contact_number": faculty.contact_number,
         "max_units": max_u,
+        "load_unit": getattr(faculty, 'load_unit', 'units') or 'units',
         "type": faculty.type,
         "department_id": faculty.department_id,
         "current_units": current_u,
@@ -46,7 +48,7 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
     }
 
 
-def _plural(n: int, singular: str, plural: str = None) -> str:
+def _plural(n: int, singular: str, plural: Optional[str] = None) -> str:
     """`plural` is explicit because "class" does not take a bare -s."""
     return f"{n} {singular}" if n == 1 else f"{n} {plural or singular + 's'}"
 
@@ -214,8 +216,9 @@ def get_professors(
 
     result = []
     for f in faculty_members:
+        f_id = cast(int, f.id)
         max_u = f.max_units if (f.max_units and f.max_units > 0) else (18 if f.type == 'full_time' else 12)
-        curr_u = unit_loads.get(f.id, 0)
+        curr_u = unit_loads.get(f_id, 0)
         result.append({
             "id": f.id,
             "first_name": f.first_name,
@@ -223,12 +226,13 @@ def get_professors(
             "email": f.email,
             "contact_number": f.contact_number,
             "max_units": max_u,
+            "load_unit": getattr(f, 'load_unit', 'units') or 'units',
             "type": f.type,
             "department_id": f.department_id,
             "current_units": curr_u,
             "remaining_units": max(0, max_u - curr_u),
             "unavailability": f.unavailabilities,
-            **loads.get(f.id, {}),
+            **loads.get(f_id, {}),
         })
 
     return result
@@ -258,8 +262,11 @@ def create_professor(
         
     faculty_data = faculty.model_dump()
 
+    if not faculty_data.get('load_unit'):
+        faculty_data['load_unit'] = 'units'
+
     if faculty_data.get('type') == 'full_time' and (not faculty_data.get('max_units') or faculty_data.get('max_units') == 0):
-        faculty_data['max_units'] = 18
+        faculty_data['max_units'] = 24 if faculty_data.get('load_unit') == 'hrs' else 18
     
     if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(

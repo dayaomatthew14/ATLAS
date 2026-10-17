@@ -305,15 +305,19 @@ export default function UserManagement() {
       label: 'Name',
       render: (u) => (
         <span className="flex flex-col">
-          <span className="text-atlas-ink">{displayName(u)}</span>
-          <span className="font-ui text-caption text-atlas-slate">{u.email}</span>
+          <span className="text-black font-bold text-body">{displayName(u)}</span>
+          <span className="font-ui text-caption text-black font-medium">{u.email}</span>
         </span>
       ),
     },
     {
       key: 'role',
       label: 'Role',
-      render: (u) => ROLE_LABELS[u.role] || u.role || '—',
+      render: (u) => (
+        <span className="font-ui text-body font-semibold text-black">
+          {ROLE_LABELS[u.role] || u.role || '—'}
+        </span>
+      ),
     },
     {
       key: 'department',
@@ -325,10 +329,10 @@ export default function UserManagement() {
       label: 'Contact',
       render: (u) =>
         u.contact_number
-          ? <span className="font-data text-table">{u.contact_number}</span>
+          ? <span className="font-data text-table font-semibold text-black">{u.contact_number}</span>
           // Blank is worth stating: the number is what the SMS verification
           // code is sent to, so a missing one explains a stalled sign-up.
-          : <span className="font-ui text-caption text-atlas-slate">Not set</span>,
+          : <span className="font-ui text-caption text-black/80 font-medium">Not set</span>,
     },
     {
       key: 'last_login',
@@ -336,10 +340,10 @@ export default function UserManagement() {
       render: (u) => {
         const rel = relativeTime(u.last_login);
         if (!rel) {
-          return <span className="font-ui text-caption text-sem-warning">Never</span>;
+          return <span className="font-ui text-caption text-amber-800 font-bold">Never</span>;
         }
         return (
-          <span className="font-ui text-caption text-atlas-slate" title={exactTime(u.last_login)}>
+          <span className="font-ui text-caption text-black font-semibold" title={exactTime(u.last_login)}>
             {rel}
           </span>
         );
@@ -349,7 +353,7 @@ export default function UserManagement() {
       key: 'created_at',
       label: 'Added',
       render: (u) => (
-        <span className="font-ui text-caption text-atlas-slate" title={exactTime(u.created_at)}>
+        <span className="font-ui text-caption text-black font-semibold" title={exactTime(u.created_at)}>
           {relativeTime(u.created_at) || '—'}
         </span>
       ),
@@ -390,8 +394,8 @@ export default function UserManagement() {
     <div className="p-6 lg:p-8">
       <header className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
         <div className="min-w-0">
-          <h1 className="font-display text-page text-atlas-ink">Users</h1>
-          <p className="font-ui text-body text-atlas-slate mt-1">
+          <h1 className="font-display text-page font-bold text-black">Users</h1>
+          <p className="font-ui text-base text-black font-medium mt-1">
             {users.length} accounts · {verifiedCount} verified · {pendingCount} awaiting verification
           </p>
         </div>
@@ -414,24 +418,28 @@ export default function UserManagement() {
           Only from md up -- below that the row is a column and items-end
           would shrink each field to its content width. */}
       <div className="flex flex-col md:flex-row md:items-end gap-3 mb-5">
-        <div className="relative flex-1 min-w-0">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
-            aria-hidden="true"
-          />
-          <label htmlFor="user-search" className="sr-only">Search users</label>
-          <input
-            id="user-search"
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, email, or department"
-            className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
-                        bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
-                        hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
-          />
+        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+          <label htmlFor="user-search" className="font-ui text-caption font-bold uppercase tracking-wider text-black flex items-center gap-2">
+            Search
+          </label>
+          <div className="relative">
+            <Search
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-black/70 pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              id="user-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, email, or department"
+              className={`w-full h-11 pl-10 pr-4 rounded-field font-ui text-body text-black placeholder:text-black/50
+                          bg-white border border-slate-300
+                          hover:border-slate-500 transition-colors duration-state ease-standard shadow-2xs ${focusRing}`}
+            />
+          </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex md:items-end gap-3">
           <SelectInput
             label="Role"
             className="w-52"
@@ -667,7 +675,6 @@ export default function UserManagement() {
             : ''
         }
         confirmLabel="Delete User"
-        confirmPhrase={deleteTarget ? displayName(deleteTarget) : undefined}
         destructive
         loading={isDeleting}
       />

@@ -66,7 +66,7 @@ def _seeded_colleges(db: Session):
     )
 
 
-def _require_admin(current_user: models.User):
+def _require_admin(current_user: models.User) -> None:
     if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

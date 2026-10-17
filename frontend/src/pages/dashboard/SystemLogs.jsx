@@ -175,25 +175,29 @@ export default function SystemLogs() {
         </div>
       </header>
 
-      <div className="flex flex-col md:flex-row gap-3 mb-5">
-        <div className="relative flex-1 min-w-0">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
-            aria-hidden="true"
-          />
-          <label htmlFor="log-search" className="sr-only">Search activity</label>
-          <input
-            id="log-search"
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search action, detail, or person"
-            className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
-                        bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
-                        hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
-          />
+      <div className="flex flex-col md:flex-row md:items-end gap-3 mb-5">
+        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+          <label htmlFor="log-search" className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2">
+            Search
+          </label>
+          <div className="relative">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              id="log-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search action, detail, or person"
+              className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
+                          bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
+                          hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
+            />
+          </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex md:items-end gap-3">
           <SelectInput
             label="Status"
             className="w-40"

@@ -3,9 +3,12 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, cast
 from datetime import datetime, timezone
 from pydantic import BaseModel
+import logging
 from .. import models, database, auth
 from ..services.schedule_generator import generate_schedules
 from .logs import log_activity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/ai-scheduler",
@@ -204,7 +207,7 @@ def get_conflicts(
             # "fewer problems than there are". Surface a placeholder instead:
             # the row still occupies its place and still counts, and it says
             # plainly that its detail could not be loaded.
-            print(f"[conflicts] row {getattr(c, 'id', '?')} could not be rendered: {type(e).__name__}: {e}")
+            logger.warning(f"[conflicts] row {getattr(c, 'id', '?')} could not be rendered: {type(e).__name__}: {e}")
             res.append({
                 "id": getattr(c, "id", None),
                 "conflict_id": getattr(c, "id", None),

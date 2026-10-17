@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, RefreshCw, AlertTriangle } from 'lucide-react';
+import {
+  Plus, RefreshCw, AlertTriangle, Library, Building2, GraduationCap, BookOpen, AlertCircle,
+} from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import Button from '../../components/ui/Button';
@@ -97,7 +99,7 @@ export default function Colleges() {
   const validate = () => {
     const errors = {};
     const code = form.code.trim();
-    if (code.length < 2) errors.code = 'Enter a programme code, such as BSCS.';
+    if (code.length < 2) errors.code = 'Enter a program code, such as BSCS.';
     else if (!/^[A-Za-z0-9]+$/.test(code)) errors.code = 'Use letters and numbers only.';
     else {
       const clash = allPrograms.find(
@@ -107,7 +109,7 @@ export default function Colleges() {
       // timetables where there is no context to tell two the same apart.
       if (clash) errors.code = `${clash.code} is already used by ${clash.name}.`;
     }
-    if (form.name.trim().length < 3) errors.name = 'Enter the full programme name.';
+    if (form.name.trim().length < 3) errors.name = 'Enter the full program name.';
     if (!form.department_id) errors.department_id = 'Choose a college.';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -133,7 +135,7 @@ export default function Colleges() {
       setIsFormOpen(false);
       fetchAll();
     } catch (err) {
-      addToast(err.message || 'Could not save the programme.', 'error');
+      addToast(err.message || 'Could not save the program.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -151,7 +153,7 @@ export default function Colleges() {
       // 409 carries the curriculum-block count; that is a refusal with a
       // reason, not a failure.
       if (err.status === 409) setDeleteBlockedReason(err.message);
-      else addToast(err.message || 'Could not delete the programme.', 'error');
+      else addToast(err.message || 'Could not delete the program.', 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -177,20 +179,71 @@ export default function Colleges() {
 
   return (
     <div className="p-6 lg:p-8">
-      <header className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
-        <div className="min-w-0">
-          <h1 className="font-display text-page text-atlas-ink">Colleges &amp; Programmes</h1>
-          <p className="font-ui text-body text-atlas-slate mt-1">
-            {isLoading
-              ? 'Loading the academic taxonomy…'
-              : `${colleges.length} colleges · ${pluralize(programCount, 'programme')} · ${withCurriculum} with curriculum loaded`}
-          </p>
+      <header className="mb-6 flex flex-col gap-4">
+        {/* Title row with icon badge & action buttons */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-800 to-emerald-950 text-white flex items-center justify-center shrink-0 shadow-md border border-emerald-500/30">
+              <Library className="w-5.5 h-5.5 text-emerald-200" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="font-ui text-2xl sm:text-3xl font-bold tracking-tight text-atlas-ink">
+                Colleges and Programs
+              </h1>
+              <p className="font-ui text-xs sm:text-sm text-atlas-slate mt-0.5 font-medium">
+                Academic structure, degree offerings, and curriculum coverage
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto">
+            <Button variant="secondary" icon={RefreshCw} onClick={fetchAll}>
+              Refresh
+            </Button>
+            <Button icon={Plus} onClick={() => openCreate()} disabled={!colleges.length}>
+              Add Program
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <Button variant="secondary" icon={RefreshCw} onClick={fetchAll}>Refresh</Button>
-          <Button icon={Plus} onClick={() => openCreate()} disabled={!colleges.length}>
-            Add Programme
-          </Button>
+
+        {/* Stats strip with executive pill chips */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/70 backdrop-blur-xs border border-emerald-900/10 shadow-xs">
+            <Building2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" aria-hidden="true" />
+            <span className="font-ui text-xs font-semibold text-emerald-950">
+              {colleges.length} {colleges.length === 1 ? 'College' : 'Colleges'}
+            </span>
+          </div>
+
+          <span className="text-slate-300 font-light" aria-hidden="true">·</span>
+
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/70 backdrop-blur-xs border border-emerald-900/10 shadow-xs">
+            <GraduationCap className="w-3.5 h-3.5 text-emerald-700 shrink-0" aria-hidden="true" />
+            <span className="font-ui text-xs font-semibold text-emerald-950">
+              {pluralize(programCount, 'Program')}
+            </span>
+          </div>
+
+          <span className="text-slate-300 font-light" aria-hidden="true">·</span>
+
+          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-xs border shadow-xs ${
+            withCurriculum === programCount && programCount > 0
+              ? 'bg-emerald-50/80 border-emerald-300 text-emerald-900'
+              : 'bg-amber-50/80 border-amber-300/80 text-amber-900'
+          }`}>
+            <BookOpen className={`w-3.5 h-3.5 shrink-0 ${
+              withCurriculum === programCount && programCount > 0 ? 'text-emerald-700' : 'text-amber-700'
+            }`} aria-hidden="true" />
+            <span className="font-ui text-xs font-semibold">
+              {withCurriculum} with Curriculum Loaded
+            </span>
+            <span className={`px-1.5 py-0.5 rounded-full font-data text-[10px] font-bold ${
+              withCurriculum === programCount && programCount > 0
+                ? 'bg-emerald-200/80 text-emerald-900'
+                : 'bg-amber-200/80 text-amber-900'
+            }`}>
+              {programCount > 0 ? `${Math.round((withCurriculum / programCount) * 100)}%` : '0%'}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -216,56 +269,69 @@ export default function Colleges() {
         {colleges.map((college) => (
           <section
             key={college.id}
-            className="glass rounded-panel overflow-hidden"
+            className="glass rounded-panel overflow-hidden border border-emerald-900/10 shadow-xs"
           >
             {/* The hue never appears without its college code as adjacent text:
                 the four differ in hue, not luminance, so the stripe alone is
                 unreliable in greyscale and under deuteranopia. */}
             <header
-              className="flex items-start justify-between gap-4 px-5 py-4 border-b border-white/45"
-              style={{ borderLeft: `3px solid ${collegeHue(college.code)}` }}
+              className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-emerald-900/10 bg-white/40"
+              style={{ borderLeft: `4px solid ${collegeHue(college.code)}` }}
             >
-              <div className="min-w-0">
-                <h2 className="font-data text-body font-semibold text-atlas-ink">{college.code}</h2>
-                <p className="font-ui text-caption text-atlas-slate mt-0.5">{college.name}</p>
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  className="px-2.5 py-1 rounded-md font-ui text-xs font-bold text-white shadow-xs shrink-0"
+                  style={{ backgroundColor: collegeHue(college.code) }}
+                >
+                  {college.code}
+                </span>
+                <div className="min-w-0">
+                  <h2 className="font-ui text-sm sm:text-base font-bold text-atlas-ink truncate">{college.name}</h2>
+                  <p className="font-ui text-xs text-atlas-slate">
+                    {pluralize(college.programs.length, 'degree program')}
+                  </p>
+                </div>
               </div>
               <Button size="row" variant="ghost" icon={Plus} onClick={() => openCreate(college.id)}>
-                Add
+                Add Program
               </Button>
             </header>
 
             {college.programs.length === 0 ? (
               <p className="px-5 py-6 font-ui text-body text-atlas-slate text-center">
-                No programmes in this college yet.
+                No programs in this college yet.
               </p>
             ) : (
-              <ul className="divide-y divide-white/45">
+              <ul className="divide-y divide-emerald-900/5">
                 {college.programs.map((program) => (
-                  <li key={program.id} className="flex items-center gap-4 px-5 py-3">
-                    <span className="font-data text-table text-atlas-slate w-20 shrink-0">
+                  <li key={program.id} className="flex items-center gap-4 px-5 py-3 hover:bg-white/30 transition-colors">
+                    <span className="font-data text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 text-atlas-ink border border-slate-200/60 shrink-0">
                       {program.code}
                     </span>
-                    <span className="font-ui text-body text-atlas-ink flex-1 min-w-0 truncate">
+                    <span className="font-ui text-body font-medium text-atlas-ink flex-1 min-w-0 truncate">
                       {program.name}
                     </span>
                     {program.block_count > 0 ? (
-                      <span className="font-ui text-caption text-atlas-slate shrink-0 tabular-nums">
-                        {pluralize(program.block_count, 'curriculum', 'curricula')} ·{' '}
-                        {pluralize(program.subject_count, 'subject')}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-ui text-xs font-medium border border-emerald-200/80 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                        <span>
+                          {pluralize(program.block_count, 'curriculum', 'curricula')} · {pluralize(program.subject_count, 'subject')}
+                        </span>
                       </span>
                     ) : (
-                      // A programme with no curriculum is the gap this screen
+                      // A program with no curriculum is the gap this screen
                       // exists to surface, so it is stated rather than blank.
-                      <span className="font-ui text-caption text-sem-warning shrink-0">
-                        No curriculum loaded
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 font-ui text-xs font-medium border border-amber-200 shrink-0">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>No curriculum loaded</span>
                       </span>
                     )}
                     <RowMenu
                       label={`Actions for ${program.name}`}
                       items={[
-                        { label: 'Edit programme', onSelect: () => openEdit(program) },
+                        { label: 'Edit program', onSelect: () => openEdit(program) },
                         {
-                          label: 'Delete programme',
+                          label: 'Delete program',
                           destructive: true,
                           onSelect: () => { setDeleteTarget(program); setDeleteBlockedReason(''); },
                           disabled: program.block_count > 0,
@@ -280,7 +346,7 @@ export default function Colleges() {
           </section>
         ))}
 
-        {/* Curriculum that matches no programme. Kept visible on purpose —
+        {/* Curriculum that matches no program. Kept visible on purpose —
             hiding it would lose real subject data silently. */}
         {unassigned.length > 0 && (
           <section className="rounded-panel border border-sem-warning/40 bg-sem-warning-bg overflow-hidden">
@@ -292,7 +358,7 @@ export default function Colleges() {
                 </h2>
                 <p className="font-ui text-caption text-atlas-slate mt-0.5">
                   {pluralize(unassigned.length, 'curriculum block', 'curriculum blocks')} that
-                  {unassigned.length === 1 ? ' does' : ' do'} not belong to any programme, imported
+                  {unassigned.length === 1 ? ' does' : ' do'} not belong to any program, imported
                   before the taxonomy existed. Assign or delete each one.
                 </p>
               </div>
@@ -323,20 +389,20 @@ export default function Colleges() {
       <Dialog
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
-        title={editing ? `Edit ${editing.name}` : 'Add Programme'}
+        title={editing ? `Edit ${editing.name}` : 'Add Program'}
         dismissible={!isSaving}
         footer={
           <>
             <Button variant="ghost" onClick={() => setIsFormOpen(false)} disabled={isSaving}>Cancel</Button>
             <Button type="submit" form="program-form" loading={isSaving}>
-              {editing ? 'Save Programme' : 'Add Programme'}
+              {editing ? 'Save Program' : 'Add Program'}
             </Button>
           </>
         }
       >
         <form id="program-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <TextInput
-            label="Programme code"
+            label="Program code"
             required
             hint="Printed on timetables — keep it unique"
             placeholder="BSCS"
@@ -354,7 +420,7 @@ export default function Colleges() {
           />
           <div className="md:col-span-2">
             <TextInput
-              label="Programme name"
+              label="Program name"
               required
               placeholder="BS Computer Science"
               value={form.name}
@@ -369,7 +435,7 @@ export default function Colleges() {
         isOpen={Boolean(assignTarget)}
         onClose={() => setAssignTarget(null)}
         title={assignTarget ? `Assign "${assignTarget.program_name}"` : ''}
-        description="Its subjects move to the college that owns the programme you choose."
+        description="Its subjects move to the college that owns the program you choose."
         size="confirm"
         dismissible={!isAssigning}
         footer={
@@ -382,12 +448,12 @@ export default function Colleges() {
         }
       >
         <SelectInput
-          label="Programme"
+          label="Program"
           required
           value={assignProgramId}
           onChange={(e) => setAssignProgramId(e.target.value)}
           options={[
-            { value: '', label: 'Choose a programme…' },
+            { value: '', label: 'Choose a program…' },
             ...colleges.map((c) => ({
               group: `${c.code} — ${c.name}`,
               options: c.programs.map((p) => ({ value: String(p.id), label: `${p.code} · ${p.name}` })),
@@ -405,8 +471,8 @@ export default function Colleges() {
             ? `${deleteTarget?.name} cannot be deleted`
             : `Delete ${deleteTarget?.name}?`
         }
-        description="Accounts assigned to this programme's college are not affected."
-        confirmLabel="Delete Programme"
+        description="Accounts assigned to this program's college are not affected."
+        confirmLabel="Delete Program"
         destructive
         loading={isDeleting}
         blocked={Boolean(deleteBlockedReason)}

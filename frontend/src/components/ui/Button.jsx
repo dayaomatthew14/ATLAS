@@ -31,25 +31,27 @@ import { focusRing, focusRingOnDark } from './tokens';
  */
 const VARIANTS = {
   primary:
-    'bg-atlas-700 text-white hover:bg-atlas-800 active:bg-atlas-900 ' +
-    'shadow-[inset_0_1px_0_0_rgb(255_255_255/0.28),0_2px_8px_-2px_rgb(5_48_31/0.35)] ' +
-    'disabled:bg-atlas-700/[.38] disabled:text-white/70 disabled:shadow-none',
+    'bg-emerald-900 text-white hover:bg-emerald-800 active:bg-emerald-950 font-semibold ' +
+    'border border-emerald-400/25 shadow-sm shadow-emerald-950/20 ' +
+    'disabled:bg-emerald-900/40 disabled:text-white/60 disabled:shadow-none',
   secondary:
-    'glass text-atlas-700 hover:bg-white/90 active:bg-white ' +
-    'disabled:bg-atlas-canvas/60 disabled:text-atlas-disabled disabled:shadow-none',
+    'bg-white text-emerald-950 font-semibold hover:bg-slate-50 hover:text-emerald-950 ' +
+    'border border-slate-300 active:bg-slate-100 shadow-xs ' +
+    'disabled:bg-slate-100 disabled:text-atlas-disabled disabled:shadow-none',
   ghost:
-    'glass-hover text-atlas-slate bg-transparent border border-transparent hover:text-atlas-ink ' +
+    'glass-hover text-slate-700 bg-transparent border border-transparent hover:text-emerald-950 ' +
     'active:bg-white/80 disabled:text-atlas-disabled disabled:bg-transparent',
   destructive:
-    'glass text-sem-conflict !border-sem-conflict/40 hover:bg-sem-conflict-bg/80 ' +
-    'active:bg-sem-conflict-bg disabled:text-atlas-disabled disabled:shadow-none',
+    'bg-rose-50/70 !text-rose-700 !border-rose-300 font-semibold hover:!bg-rose-100 hover:!text-rose-800 hover:!border-rose-400 ' +
+    'active:!bg-rose-200/80 disabled:text-atlas-disabled disabled:shadow-none shadow-xs',
 };
 
 const SIZES = {
-  // 40px is the standard control height. `row` exists only for table rows,
-  // where the 44px target is met by the row itself being the click area.
-  default: 'h-10 px-4 text-body',
-  row: 'h-8 px-3 text-table',
+  // 44px is standard accessible control height with generous horizontal pill padding
+  // so text and icons are never crowded by the rounded end caps.
+  default: 'h-11 px-6 text-body',
+  sm: 'h-9 px-5 text-caption',
+  row: 'h-8 px-3.5 text-table',
 };
 
 export default function Button({
@@ -71,9 +73,11 @@ export default function Button({
   const reasonId = React.useId();
 
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-control font-ui font-medium ' +
+    'inline-flex items-center justify-center gap-2.5 rounded-control font-ui font-semibold ' +
     'whitespace-nowrap transition-colors duration-state ease-standard select-none ' +
     'disabled:cursor-not-allowed';
+
+  const iconClass = size === 'row' ? 'w-4 h-4' : 'w-[18px] h-[18px]';
 
   if (restricted) {
     return (
@@ -91,14 +95,14 @@ export default function Button({
           }}
           className={[
             base,
-            SIZES[size],
+            SIZES[size] || SIZES.default,
             'border border-atlas-line bg-atlas-canvas text-atlas-disabled cursor-not-allowed',
             onDark ? focusRingOnDark : focusRing,
             className,
           ].join(' ')}
           {...rest}
         >
-          <Lock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <Lock className={`${size === 'row' ? 'w-3.5 h-3.5' : 'w-4 h-4'} shrink-0`} aria-hidden="true" />
           {children}
         </button>
         {reason && (
@@ -119,7 +123,7 @@ export default function Button({
       onKeyDown={onKeyDown}
       className={[
         base,
-        SIZES[size],
+        SIZES[size] || SIZES.default,
         VARIANTS[variant] || VARIANTS.primary,
         onDark ? focusRingOnDark : focusRing,
         className,
@@ -127,9 +131,9 @@ export default function Button({
       {...rest}
     >
       {loading ? (
-        <Loader2 className="w-4 h-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <Loader2 className={`${iconClass} shrink-0 animate-spin motion-reduce:animate-none`} aria-hidden="true" />
       ) : (
-        Icon && <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+        Icon && <Icon className={`${iconClass} shrink-0`} aria-hidden="true" />
       )}
       {/* Label persists while loading so the button width does not jump. */}
       {children}

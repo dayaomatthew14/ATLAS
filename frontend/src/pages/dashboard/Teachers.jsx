@@ -47,12 +47,15 @@ const validateName = (value) => {
  * figure; this field is curriculum bookkeeping. Demanding it before a faculty
  * member could be saved asked for a number that changes no outcome.
  */
-const validateUnits = (value) => {
+const validateUnits = (value, unitType = 'units', facultyType = 'full_time') => {
   if (value === '' || value === null || value === undefined) return undefined;
   const n = Number(value);
-  if (Number.isNaN(n)) return 'Enter a number of units, or leave it blank.';
-  if (!Number.isInteger(n)) return 'Units must be a whole number.';
-  if (n < 1 || n > 30) return 'Enter a value between 1 and 30, or leave it blank.';
+  const isHrs = unitType === 'hrs';
+  const label = isHrs ? 'hours' : 'units';
+  const max = isHrs ? (facultyType === 'part_time' ? 20 : 30) : (facultyType === 'part_time' ? 12 : 18);
+  if (Number.isNaN(n)) return `Enter a number of ${label}, or leave it blank.`;
+  if (!Number.isInteger(n)) return `${isHrs ? 'Hours' : 'Units'} must be a whole number.`;
+  if (n < 1 || n > max) return `Enter a value between 1 and ${max}, or leave it blank.`;
   return undefined;
 };
 
@@ -89,6 +92,7 @@ export default function Teachers() {
     name: '',
     type: 'full_time',
     max_units: 18,
+    load_unit: 'units',
     unavailability: []
   });
   const [selectedDays, setSelectedDays] = useState([]);
@@ -265,13 +269,10 @@ export default function Teachers() {
     {
       key: 'availability',
       label: 'Availability',
-      width: '230px',
+      width: '180px',
       render: (item) => (
-        <span className="flex items-center gap-3">
+        <span className="flex items-center">
           <AvailabilityMarks unavailability={item.unavailability} />
-          <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} icon={Clock} onClick={() => handleOpenAvailability(item)}>
-            Edit
-          </AtlasButton>
         </span>
       ),
     },
@@ -585,10 +586,12 @@ export default function Teachers() {
   const handleOpenModal = (teacher = null) => {
     if (teacher) {
       setEditingTeacher(teacher);
+      const loadUnit = teacher.load_unit || 'units';
       setFormData({
         name: computeFullName(teacher.first_name, teacher.last_name),
         type: teacher.faculty_type || teacher.type || 'full_time',
-        max_units: teacher.max_units || 18,
+        max_units: teacher.max_units || (loadUnit === 'hrs' ? 24 : 18),
+        load_unit: loadUnit,
         unavailability: teacher.unavailability || []
       });
 
@@ -611,7 +614,7 @@ export default function Teachers() {
       setCustomRanges(ranges);
     } else {
       setEditingTeacher(null);
-      setFormData({ name: '', type: 'full_time', max_units: 18, unavailability: [] });
+      setFormData({ name: '', type: 'full_time', max_units: 18, load_unit: 'units', unavailability: [] });
       setSelectedDays([]);
       setCustomRanges({});
     }
@@ -631,7 +634,7 @@ export default function Teachers() {
     // interpret from a toast (ux-guidelines: Error Placement, Inline Validation).
     const errors = {
       name: validateName(formData.name),
-      max_units: validateUnits(formData.max_units),
+      max_units: validateUnits(formData.max_units, formData.load_unit, formData.type),
     };
     setFormErrors(errors);
     if (errors.name || errors.max_units) return;
@@ -656,11 +659,13 @@ export default function Teachers() {
 
     // Field names must match schemas.FacultyCreate / FacultyUpdate. `faculty_type`
     // was silently dropped by the API, so the employment type never saved.
+    const defaultVal = formData.load_unit === 'hrs' ? 24 : 18;
     const submissionData = {
       first_name,
       last_name,
       email: editingTeacher?.email || `${formData.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().replace(/\s+/g, '.')}@dlsau.edu.ph`,
-      max_units: parseInt(formData.max_units) || 18,
+      max_units: parseInt(formData.max_units) || defaultVal,
+      load_unit: formData.load_unit || 'units',
       type: formData.type,
     };
 
@@ -1063,25 +1068,85 @@ export default function Teachers() {
               ]}
             />
 
-            {/* Units are academic information, not the load basis -- the
-                required teaching load comes from the term and employment type
-                and is not editable here. This field is kept because curriculum
-                planning still counts units, and the hint no longer claims it
-                governs generation, which it no longer does. */}
-            <NumberInput
-              label="Maximum subject units"
-              suffix="units"
-              hint="Optional, 1–30. Curriculum bookkeeping only — it does not cap teaching load."
-              min={1}
-              max={30}
-              value={formData.max_units}
-              error={formErrors.max_units}
-              onChange={(e) => {
-                setFormData({ ...formData, max_units: e.target.value });
-                if (formErrors.max_units) setFormErrors({ ...formErrors, max_units: undefined });
-              }}
-              onBlur={() => setFormErrors((prev) => ({ ...prev, max_units: validateUnits(formData.max_units) }))}
-            />
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="faculty-load-limit"
+                  className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2"
+                >
+                  {formData.load_unit === 'hrs' ? 'Maximum teaching hours' : 'Maximum subject units'}
+                </label>
+                <div
+                  className="inline-flex p-0.5 rounded-field bg-atlas-100 border border-atlas-line text-caption font-ui"
+                  role="group"
+                  aria-label="Load limit unit of measurement"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (formData.load_unit === 'units') return;
+                      const maxLimit = formData.type === 'part_time' ? 12 : 18;
+                      setFormData((prev) => ({
+                        ...prev,
+                        load_unit: 'units',
+                        max_units: prev.max_units ? Math.min(maxLimit, Math.max(1, Math.round(Number(prev.max_units)))) : maxLimit,
+                      }));
+                      if (formErrors.max_units) setFormErrors((prev) => ({ ...prev, max_units: undefined }));
+                    }}
+                    className={`px-2.5 py-1 rounded-[4px] font-medium transition-all duration-state ease-standard ${
+                      formData.load_unit !== 'hrs'
+                        ? 'bg-white text-atlas-ink shadow-sm'
+                        : 'text-atlas-slate hover:text-atlas-ink'
+                    }`}
+                  >
+                    Units
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (formData.load_unit === 'hrs') return;
+                      const maxLimit = formData.type === 'part_time' ? 20 : 30;
+                      setFormData((prev) => ({
+                        ...prev,
+                        load_unit: 'hrs',
+                        max_units: prev.max_units ? Math.min(maxLimit, Math.max(1, Math.round(Number(prev.max_units)))) : (formData.type === 'part_time' ? 16 : 24),
+                      }));
+                      if (formErrors.max_units) setFormErrors((prev) => ({ ...prev, max_units: undefined }));
+                    }}
+                    className={`px-2.5 py-1 rounded-[4px] font-medium transition-all duration-state ease-standard ${
+                      formData.load_unit === 'hrs'
+                        ? 'bg-white text-atlas-ink shadow-sm'
+                        : 'text-atlas-slate hover:text-atlas-ink'
+                    }`}
+                  >
+                    Hours (hrs)
+                  </button>
+                </div>
+              </div>
+
+              <NumberInput
+                id="faculty-load-limit"
+                suffix={formData.load_unit === 'hrs' ? 'hrs' : 'units'}
+                hint={
+                  formData.load_unit === 'hrs'
+                    ? (formData.type === 'part_time' ? 'Optional, 1–20 hrs.' : 'Optional, 1–30 hrs.')
+                    : (formData.type === 'part_time' ? 'Optional, 1–12 units.' : 'Optional, 1–18 units.')
+                }
+                min={1}
+                max={
+                  formData.load_unit === 'hrs'
+                    ? (formData.type === 'part_time' ? 20 : 30)
+                    : (formData.type === 'part_time' ? 12 : 18)
+                }
+                value={formData.max_units}
+                error={formErrors.max_units}
+                onChange={(e) => {
+                  setFormData({ ...formData, max_units: e.target.value });
+                  if (formErrors.max_units) setFormErrors({ ...formErrors, max_units: undefined });
+                }}
+                onBlur={() => setFormErrors((prev) => ({ ...prev, max_units: validateUnits(formData.max_units, formData.load_unit, formData.type) }))}
+              />
+            </div>
           </div>
 
           {/* Unavailable hours.
@@ -1142,10 +1207,9 @@ export default function Teachers() {
                   </span>
                   <AtlasButton
                     size="row"
-                    variant="ghost"
+                    variant="destructive"
                     icon={Trash2}
                     onClick={() => { setSelectedDays([]); setCustomRanges({}); }}
-                    className="text-sem-conflict hover:bg-sem-conflict-bg"
                   >
                     Clear all
                   </AtlasButton>
@@ -1242,11 +1306,6 @@ export default function Teachers() {
         title={`Remove ${deleteTeacherTarget?.name || ''}?`}
         description={deleteDescription()}
         confirmLabel="Remove Faculty Member"
-        // Typing the name is required only when plotted classes would go with
-        // them. A record nobody has scheduled against is an ordinary delete,
-        // and asking for a typed confirmation every time teaches people to
-        // type it without reading.
-        confirmPhrase={deleteImpact?.schedule_count ? deleteTeacherTarget?.name : undefined}
         destructive
         // Held while the count is in flight, so the chair cannot confirm before
         // being told what goes.
@@ -1328,25 +1387,29 @@ export default function Teachers() {
                   there would shrink every field to its content and shove them
                   against the right edge. */}
               <div className="flex flex-col md:flex-row md:items-end gap-3">
-                <div className="relative flex-1 min-w-0">
-                  <Search
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
-                    aria-hidden="true"
-                  />
-                  <label htmlFor="subject-search" className="sr-only">Search subjects</label>
-                  <input
-                    id="subject-search"
-                    type="search"
-                    value={subjectSearchQuery}
-                    onChange={(e) => setSubjectSearchQuery(e.target.value)}
-                    placeholder="Search by code or name"
-                    className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
-                                bg-white/70 backdrop-blur-sm border border-atlas-control
-                                placeholder:text-atlas-disabled hover:border-atlas-slate
-                                transition-colors duration-state ease-standard ${focusRing}`}
-                  />
+                <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                  <label htmlFor="subject-search" className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2">
+                    Search
+                  </label>
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-atlas-slate pointer-events-none"
+                      aria-hidden="true"
+                    />
+                    <input
+                      id="subject-search"
+                      type="search"
+                      value={subjectSearchQuery}
+                      onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                      placeholder="Search by code or name"
+                      className={`w-full h-10 pl-9 pr-3 rounded-field font-ui text-body text-atlas-ink
+                                  bg-white/70 backdrop-blur-sm border border-atlas-control
+                                  placeholder:text-atlas-disabled hover:border-atlas-slate
+                                  transition-colors duration-state ease-standard ${focusRing}`}
+                    />
+                  </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex md:items-end gap-3">
                   <SelectInput
                     label="Term"
                     className="w-36"

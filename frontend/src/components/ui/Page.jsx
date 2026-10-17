@@ -27,31 +27,21 @@ import useCountUp from './useCountUp';
  */
 export function PageHeader({ title, eyebrow, meta, note, actions, className = '' }) {
   return (
-    /*
-     * Wraps rather than squeezes.
-     *
-     * `actions` is `shrink-0`, so on a screen with a large control cluster —
-     * Schedule carries six — a `min-w-0` title column would give up all of its
-     * width to them: the Schedule heading was rendering into an 88px box with
-     * 143px of text in it, and "20 classes across your department" was stacking
-     * three words high beside it. Giving the title a floor instead means that
-     * when both cannot fit on one line, the actions take the next line, which
-     * is the outcome that keeps the page readable at every width.
-     */
-    <header className={`flex flex-wrap items-end justify-between gap-x-6 gap-y-4 mb-9 ${className}`}>
+    <header className={`flex flex-wrap items-end justify-between gap-x-6 gap-y-4 mb-8 ${className}`}>
       <div className="min-w-0 basis-[min(100%,20rem)] grow">
-        {/* One line saying where you are. On a screen reached from a rail of
-            nine destinations, naming the section above the title is cheaper to
-            read than inferring it from the heading. */}
         {eyebrow && (
-          <p className="font-ui text-micro uppercase text-atlas-700 mb-2">{eyebrow}</p>
+          <div className="mb-2.5">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-caption font-bold tracking-wider uppercase text-emerald-900 bg-emerald-900/10 border border-emerald-800/20 shadow-xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-700" />
+              {eyebrow}
+            </span>
+          </div>
         )}
-        <h1 className="font-display text-display text-atlas-ink leading-tight">{title}</h1>
-        {meta && <p className="font-ui text-lead text-atlas-slate mt-2.5">{meta}</p>}
-        {note && <p className="font-ui text-body text-atlas-slate mt-1.5">{note}</p>}
+        <h1 className="text-3xl sm:text-4xl text-emerald-950 font-extrabold tracking-tight leading-tight">{title}</h1>
+        {meta && <p className="font-ui text-base text-slate-700 font-medium mt-2 max-w-3xl leading-relaxed">{meta}</p>}
+        {note && <p className="font-ui text-caption text-slate-600 mt-1.5">{note}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2.5 shrink-0">{actions}</div>}
-
+      {actions && <div className="flex flex-wrap items-center gap-3 shrink-0">{actions}</div>}
     </header>
   );
 }
@@ -84,27 +74,24 @@ export function Panel({
   return (
     <section
       style={style}
-      className={`glass sheen rounded-panel overflow-hidden ${accentClass}
+      className={`glass sheen rounded-panel overflow-hidden border border-emerald-900/10 ${accentClass}
                   ${interactive ? 'lift' : 'surface'} ${className}`}
     >
       {(title || action) && (
-        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-white/45">
+        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-emerald-900/10">
           <div className="flex items-start gap-3.5 min-w-0">
             {Icon && (
               <span
                 aria-hidden="true"
-                className="w-10 h-10 rounded-field bg-atlas-100 text-atlas-700 flex items-center justify-center shrink-0"
+                className="w-10 h-10 rounded-xl bg-emerald-800/10 text-emerald-800 border border-emerald-800/15 flex items-center justify-center shrink-0 shadow-xs"
               >
-                <Icon className="w-[18px] h-[18px]" />
+                <Icon className="w-5 h-5 stroke-[2.2]" />
               </span>
             )}
             <div className="min-w-0">
-              {/* text-section, not text-body. A panel heading set at the same
-                  size and weight as the rows beneath it gives a page of
-                  identical grey bands with no scannable structure. */}
-              {title && <h2 className="font-display text-section text-atlas-ink leading-snug">{title}</h2>}
+              {title && <h2 className="text-lg sm:text-xl font-bold text-emerald-950 leading-snug tracking-tight">{title}</h2>}
               {description && (
-                <p className="font-ui text-body text-atlas-slate mt-1 leading-relaxed">{description}</p>
+                <p className="font-ui text-caption sm:text-body text-slate-700 mt-1 leading-relaxed font-medium">{description}</p>
               )}
             </div>
           </div>
@@ -119,62 +106,48 @@ export function Panel({
 /**
  * One number and what it counts.
  *
- * The value uses the display face at page size with tabular figures, so a
- * row of tiles has its digits on a common baseline and grid. No trend arrows:
- * there is no history to compare against, and an arrow that always points the
- * same way is decoration claiming to be data.
+ * Tabular display numbers on linen porcelain surfaces with medallion chips.
  */
 export function StatTile({ label, value, hint, tone = 'default', icon: Icon, to }) {
   const tones = {
-    default: { value: 'text-atlas-ink', chip: 'bg-atlas-100 text-atlas-700', edge: 'accent-edge' },
-    good: { value: 'text-atlas-700', chip: 'bg-atlas-100 text-atlas-700', edge: 'accent-edge' },
-    warning: { value: 'text-sem-warning', chip: 'bg-sem-warning-bg text-sem-warning', edge: 'accent-edge-warning' },
-    conflict: { value: 'text-sem-conflict', chip: 'bg-sem-conflict-bg text-sem-conflict', edge: 'accent-edge-conflict' },
+    default: { value: 'text-emerald-950', chip: 'bg-emerald-800/10 text-emerald-800 border border-emerald-800/15', edge: 'accent-edge' },
+    good: { value: 'text-emerald-800', chip: 'bg-emerald-800/15 text-emerald-800 border border-emerald-800/20', edge: 'accent-edge' },
+    warning: { value: 'text-amber-800', chip: 'bg-amber-500/15 text-amber-800 border border-amber-500/25', edge: 'accent-edge-warning' },
+    conflict: { value: 'text-rose-800', chip: 'bg-rose-500/15 text-rose-800 border border-rose-500/25', edge: 'accent-edge-conflict' },
   };
   const t = tones[tone] || tones.default;
 
-  // The figure counts up on arrival, so a tile whose number just changed is
-  // the one that moves. Non-numeric values ("—") pass through untouched.
   const shown = useCountUp(value);
 
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        {/* Sentence case at caption size, not 11px uppercase. Uppercase costs
-            legibility at the exact size where it can least afford it, and
-            these labels are the part a user scans to find their number. */}
-        <span className="font-ui text-caption font-medium text-atlas-slate">{label}</span>
-        {/* The icon sits in a tinted chip that carries the tile's tone, so a
-            conflict tile reads as one at a glance rather than only in its
-            number — and never by colour alone, since the number is toned too. */}
+        <span className="font-ui text-caption font-bold text-slate-700 tracking-wider uppercase">{label}</span>
         {Icon && (
           <span
             aria-hidden="true"
-            className={`w-10 h-10 rounded-field flex items-center justify-center shrink-0 travel-y ${t.chip}`}
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-xs transition-transform group-hover:scale-105 duration-overlay ${t.chip}`}
           >
-            <Icon className="w-5 h-5" />
+            <Icon className="w-5 h-5 stroke-[2.2]" />
           </span>
         )}
       </div>
-      <span className={`block font-display text-display mt-4 tabular-nums leading-none ${t.value}`}>
+      <span className={`block text-3xl sm:text-4xl font-extrabold mt-4 tabular-nums tracking-tight leading-none ${t.value}`}>
         {shown}
       </span>
-      {hint && <span className="block font-ui text-caption text-atlas-slate mt-2.5 leading-relaxed">{hint}</span>}
-      {/* A tile that navigates says so. Without it the only cue that four of
-          these are links and the rest of the page is not was the hover lift,
-          which a user has to already be pointing at to discover. */}
+      {hint && <span className="block font-ui text-caption text-slate-700 mt-2 leading-relaxed font-medium">{hint}</span>}
       {to && (
-        <span className="mt-3 inline-flex items-center gap-1 font-ui text-caption text-atlas-700 opacity-0 -translate-x-1 transition-all duration-overlay ease-emphasis group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0 motion-reduce:transition-none motion-reduce:translate-x-0">
-          View
-          <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+        <span className="mt-3.5 inline-flex items-center gap-1 font-ui text-caption font-bold text-emerald-800 group-hover:text-emerald-950 transition-colors">
+          View details
+          <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
         </span>
       )}
     </>
   );
 
-  const base = `glass sheen rounded-panel px-6 py-6 block ${t.edge}`;
+  const base = `glass sheen rounded-panel px-6 py-6 block border border-emerald-900/10 ${t.edge}`;
   return to ? (
-    <Link to={to} className={`group ${base} lift ${focusRing}`}>
+    <Link to={to} className={`group ${base} lift hover:border-emerald-700/30 transition-all ${focusRing}`}>
       {body}
     </Link>
   ) : (
@@ -259,6 +232,13 @@ export function EmptyState({ icon: Icon, title, body, action, tone = 'default' }
 }
 
 /** The page shell: consistent padding and max width on every screen. */
-export function Page({ children, className = '' }) {
-  return <div className={`p-6 lg:p-8 ${className}`}>{children}</div>;
+export function Page({ children, className = '', style = {} }) {
+  return (
+    <div
+      className={`p-6 lg:p-8 font-sans ${className}`}
+      style={{ fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif', ...style }}
+    >
+      {children}
+    </div>
+  );
 }

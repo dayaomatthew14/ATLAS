@@ -31,22 +31,23 @@ export default function DataTable({
   rowActions,
 }) {
   const headCell =
-    'sticky top-0 z-sticky bg-white/85 backdrop-blur-md shadow-sticky px-5 py-3.5 ' +
-    'font-ui text-caption font-semibold text-atlas-slate text-left whitespace-nowrap';
+    'sticky top-0 z-sticky bg-slate-50 px-5 py-4 ' +
+    'font-ui text-caption font-bold text-black text-left whitespace-nowrap tracking-wider uppercase ' +
+    'border-b border-slate-200';
 
   if (isLoading) {
     return (
-      <div className="glass rounded-panel overflow-hidden" aria-busy="true">
-        <div className="h-11 border-b border-white/45 bg-atlas-surface" />
+      <div className="bg-white rounded-panel overflow-hidden border border-slate-200 shadow-sm" aria-busy="true">
+        <div className="h-11 border-b border-slate-200 bg-slate-50" />
         {[0, 1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="flex items-center gap-4 px-5 border-b border-white/45 last:border-0"
+            className="flex items-center gap-4 px-5 border-b border-slate-200 last:border-0 bg-white"
             style={{ height: 'var(--row-h)' }}
           >
-            <div className="h-3 w-1/4 rounded-sm bg-atlas-line animate-pulse motion-reduce:animate-none" />
-            <div className="h-3 w-1/3 rounded-sm bg-atlas-line animate-pulse motion-reduce:animate-none" />
-            <div className="h-3 w-16 rounded-sm bg-atlas-line animate-pulse motion-reduce:animate-none" />
+            <div className="h-3 w-1/4 rounded-sm bg-slate-200 animate-pulse motion-reduce:animate-none" />
+            <div className="h-3 w-1/3 rounded-sm bg-slate-200 animate-pulse motion-reduce:animate-none" />
+            <div className="h-3 w-16 rounded-sm bg-slate-200 animate-pulse motion-reduce:animate-none" />
           </div>
         ))}
         <span className="sr-only">Loading…</span>
@@ -56,8 +57,8 @@ export default function DataTable({
 
   if (error) {
     return (
-      <div className="glass rounded-panel !border-sem-info/30 p-6 text-center">
-        <p className="font-ui text-body text-atlas-ink">{error}</p>
+      <div className="bg-white rounded-panel border border-rose-200 p-6 text-center shadow-sm">
+        <p className="font-ui text-body text-slate-800">{error}</p>
         {onRetry && (
           <div className="mt-3 flex justify-center">
             <Button variant="secondary" onClick={onRetry}>Retry</Button>
@@ -71,12 +72,12 @@ export default function DataTable({
     // An empty result set and an empty dataset are different states with
     // different remedies. The existing UI shows "No data found" for both.
     return (
-      <div className="glass rounded-panel p-12 text-center">
-        <h3 className="font-display text-section text-atlas-ink">
+      <div className="bg-white rounded-panel border border-slate-200 shadow-sm p-12 text-center">
+        <h3 className="font-display text-section text-slate-900 font-bold">
           {isFiltered ? 'No results match your filters.' : emptyTitle}
         </h3>
         {(isFiltered || emptyBody) && (
-          <p className="mt-2 font-ui text-body text-atlas-slate">
+          <p className="mt-2 font-ui text-body text-slate-600 font-medium">
             {isFiltered ? 'Clear the filters or widen your search.' : emptyBody}
           </p>
         )}
@@ -92,11 +93,11 @@ export default function DataTable({
   }
 
   return (
-    <div className="glass rounded-panel overflow-x-auto">
-      <table className="w-full border-collapse">
+    <div className="bg-white rounded-panel overflow-x-auto border border-slate-200 shadow-sm">
+      <table className="w-full border-collapse bg-white">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
-          <tr>
+          <tr className="bg-slate-50 border-b border-slate-200">
             {columns.map((c, i) => (
               <th
                 key={c.key}
@@ -107,7 +108,7 @@ export default function DataTable({
                   c.numeric ? 'text-right' : '',
                   // Sticky first column keeps the row's identity visible while
                   // wide tables scroll horizontally.
-                  i === 0 ? 'sticky left-0 z-sticky' : '',
+                  i === 0 ? 'sticky left-0 z-sticky bg-slate-50' : '',
                 ].join(' ')}
               >
                 {c.srOnlyLabel ? <span className="sr-only">{c.label}</span> : c.label}
@@ -121,7 +122,7 @@ export default function DataTable({
           </tr>
         </thead>
 
-        <tbody>
+        <tbody className="divide-y divide-slate-200 bg-white">
           {rows.map((row) => {
             const selected = selectedId != null && row[keyField] === selectedId;
             return (
@@ -129,8 +130,10 @@ export default function DataTable({
                 key={row[keyField]}
                 aria-selected={selected || undefined}
                 className={[
-                  'border-t border-white/45 transition-colors duration-state ease-standard',
-                  selected ? 'bg-atlas-100/80' : 'hover:bg-white/55',
+                  'transition-colors duration-state ease-standard group bg-white',
+                  selected
+                    ? '!bg-emerald-50'
+                    : 'hover:bg-slate-50 even:bg-slate-50/50',
                 ].join(' ')}
                 style={{ height: 'var(--row-h)' }}
               >
@@ -138,21 +141,29 @@ export default function DataTable({
                   <td
                     key={c.key}
                     className={[
-                      'px-5 text-body text-atlas-ink align-middle',
+                      'px-5 py-4 text-body text-black align-middle border-b border-slate-200',
                       // Exactly one font class. Applying `font-ui` on the base
                       // and `font-data` as a modifier does NOT work: equal
                       // specificity means Tailwind's stylesheet order decides,
                       // not the order in the class attribute, and numerics
                       // silently rendered in Plex Sans.
                       c.numeric ? 'text-right font-data tabular-nums' : 'font-ui',
-                      i === 0 ? `sticky left-0 ${selected ? 'bg-atlas-100' : 'bg-white/80 backdrop-blur-md'}` : '',
+                      i === 0
+                        ? `sticky left-0 ${
+                            selected
+                              ? 'bg-emerald-50'
+                              : 'bg-white group-hover:bg-slate-50 group-even:bg-slate-50/50'
+                          }`
+                        : '',
                     ].join(' ')}
                   >
                     {c.render ? c.render(row) : row[c.key]}
                   </td>
                 ))}
                 {rowActions && (
-                  <td className="px-5 text-right whitespace-nowrap">{rowActions(row)}</td>
+                  <td className="px-5 py-4 text-right whitespace-nowrap border-b border-slate-200 bg-transparent">
+                    {rowActions(row)}
+                  </td>
                 )}
               </tr>
             );

@@ -78,27 +78,33 @@ export default {
       // config loads, which Sprint 1 must not do. Fallbacks are metric-
       // adjacent so nothing shifts before the webfonts land in Sprint 2.
       fontFamily: {
-        display: ['"Source Serif 4"', 'Georgia', 'Cambria', 'serif'],
-        ui: ['"IBM Plex Sans"', 'system-ui', '-apple-system', 'sans-serif'],
-        data: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        sans: ['"Segoe UI"', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+        display: ['"Segoe UI"', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+        ui: ['"Segoe UI"', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', 'sans-serif'],
+        data: ['"Segoe UI"', '"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
 
-      // New scale keys. Tailwind's text-sm / text-base etc. are untouched.
+      // Enlarged typography scale for comfortable readability on 14-inch laptops and desktop displays.
       fontSize: {
-        micro: ['11px', { lineHeight: '16px', letterSpacing: '0.06em' }],
-        caption: ['12px', { lineHeight: '18px' }],
-        table: ['13px', { lineHeight: '20px' }],
-        body: ['14px', { lineHeight: '22px' }],
-        lead: ['16px', { lineHeight: '24px' }],
-        section: ['20px', { lineHeight: '28px' }],
-        page: ['28px', { lineHeight: '34px' }],
-        display: ['36px', { lineHeight: '44px' }],
+        micro: ['12.5px', { lineHeight: '18px', letterSpacing: '0.04em' }],
+        caption: ['14px', { lineHeight: '20px' }],
+        table: ['15px', { lineHeight: '22px' }],
+        body: ['16px', { lineHeight: '24px' }],
+        lead: ['18px', { lineHeight: '28px' }],
+        section: ['22px', { lineHeight: '30px' }],
+        page: ['30px', { lineHeight: '38px' }],
+        display: ['38px', { lineHeight: '46px' }],
+        xs: ['13px', { lineHeight: '18px' }],
+        sm: ['15px', { lineHeight: '22px' }],
+        base: ['16px', { lineHeight: '24px' }],
+        lg: ['18px', { lineHeight: '28px' }],
+        xl: ['20px', { lineHeight: '28px' }],
       },
 
       borderRadius: {
         control: '9999px',  // buttons — pill
         field: '8px',       // inputs, selects
-        panel: '12px',      // cards, tables, modals
+        panel: '20px',      // cards, tables, modals (matching landing/login 20-28px curvature)
         marker: '4px',      // badges, timetable blocks
       },
 

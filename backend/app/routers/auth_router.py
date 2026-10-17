@@ -6,8 +6,11 @@ from datetime import timedelta, datetime, timezone
 import secrets
 import string
 import os
+import logging
 from .. import database, models, schemas, auth, notifications, rate_limit
 from .logs import log_activity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/auth",
@@ -71,7 +74,7 @@ def register_otp_failure(db: Session, user: models.User) -> int:
     schema sync adds columns without backfilling, so an existing row arrives
     NULL and has to read as zero.
     """
-    attempts = (user.otp_attempts or 0) + 1
+    attempts: int = int(getattr(user, "otp_attempts", 0) or 0) + 1
     user.otp_attempts = attempts  # type: ignore
 
     if attempts >= MAX_OTP_ATTEMPTS:
@@ -252,7 +255,6 @@ def login_for_access_token(
     samesite_val = "none" if is_prod else "lax"
     secure_val = True if is_prod else False
 
-    print(f"DEBUG AUTH: Setting atlas_token cookie for user {user.email} (is_prod={is_prod})")
     response.set_cookie(
         key="atlas_token",
         value=access_token,
@@ -380,7 +382,7 @@ def register_user(
     requested = (user.department or "").strip().upper()
     college = db.query(models.Department).filter(models.Department.code == requested).first()
     if college is None:
-        known = [c.code for c in db.query(models.Department).order_by(models.Department.code).all()]
+        known = [str(c.code) for c in db.query(models.Department).order_by(models.Department.code).all() if c.code]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Select a college. Choose one of: {', '.join(known)}."
@@ -418,9 +420,9 @@ def register_user(
 
     if not sent["delivered"]:
         log_activity(
-            db, db_user.id, "Register",
+            db, int(db_user.id), "Register",  # type: ignore
             f"Verification code could not be delivered to {db_user.email}", "warning",
-        )  # type: ignore
+        )
 
     # Return user details returning the friendly department name to the frontend
     return {
@@ -469,7 +471,7 @@ def verify_email(payload: schemas.VerifyOTP, db: Session = Depends(database.get_
             detail="That code has expired. Request a new one.",
         )
 
-    if not secrets.compare_digest(str(user.verification_otp), str(payload.otp)):
+    if not secrets.compare_digest(str(user.verification_otp or ""), payload.otp):
         attempts = register_otp_failure(db, user)
         remaining = MAX_OTP_ATTEMPTS - attempts
         if remaining <= 0:
@@ -553,7 +555,7 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
     # is rate limited gets the same sentence as everyone else; they simply do
     # not get a second message.
     if user and otp_send_blocked(user):
-        print(f"[RATE LIMIT] Suppressed password reset send for {user.email}")
+        logger.warning(f"[RATE LIMIT] Suppressed password reset send for {user.email}")
         user = None
 
     if user:
@@ -573,7 +575,7 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
         if not sent["delivered"]:
             refund_otp_send(user)
             db.commit()
-            print(f"[ERROR] Password reset code could not be delivered to {user.email}")
+            logger.error(f"Password reset code could not be delivered to {user.email}")
 
 
         # Get department for logging
@@ -604,7 +606,7 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
     # Counted after the existence and expiry checks so a wrong code against a
     # live reset is what burns an attempt, and before the password is changed so
     # a guessing run exhausts the code rather than eventually landing on it.
-    if not secrets.compare_digest(str(user.reset_otp), str(payload.otp)):
+    if not secrets.compare_digest(str(user.reset_otp or ""), payload.otp):
         attempts = register_otp_failure(db, user)
         if MAX_OTP_ATTEMPTS - attempts <= 0:
             raise HTTPException(

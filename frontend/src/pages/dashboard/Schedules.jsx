@@ -1035,7 +1035,7 @@ export default function Schedules() {
                       title="Clear all schedules for this semester"
                       className="no-print"
                     >
-                      Clear All
+                      Clear all
                     </AtlasButton>
                   </>
                 )}
@@ -1233,49 +1233,66 @@ export default function Schedules() {
             /* The scroll container and the wide content must be separate elements:
                `overflow-x-auto` and `min-w-[900px]` on the same div meant the div
                grew to 900px and overflowed its parent instead of scrolling. */
-            <div className="print-grid relative mt-12 overflow-x-auto pb-8">
-            <div className="flex relative min-w-[900px]">
-              {/* Time column (7:30 AM to 7:30 PM - 12 hours) */}
-              <div className="w-20 flex flex-col relative border-r border-slate-200 pr-4 shrink-0" style={{ height: '1400px' }}>
-                {Array.from({length: 13}).map((_, i) => (
-                  <div key={i} className="absolute w-full text-right font-data text-caption text-atlas-slate" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
-                    {(() => {
-                      /* The grid body runs 7:30 to 19:30 — `top: 0%` is 7:30,
-                         matching the generator's first slot — so the axis is
-                         7:30, 8:30, ... 19:30.
-
-                         The test used to read `% 1 === 0 ? '30' : '00'`, which
-                         is inverted: a whole number of hours is the :00 case,
-                         not the :30 one. With a 7.5 base `% 1` is 0.5 for every
-                         label, so it never matched and every reading rendered
-                         as ':00' — the whole axis was labelled half an hour
-                         early against the blocks it measures, which on a
-                         timetable is the one thing it must not get wrong. */
-                      const t = 7.5 + i;
-                      const hr = Math.floor(t);
-                      const min = t % 1 === 0 ? '00' : '30';
-                      return `${hr % 12 || 12}:${min} ${hr >= 12 ? 'PM' : 'AM'}`;
-                    })()}
+            <div className="print-grid relative mt-6 overflow-x-auto pb-8">
+              <div className="min-w-[900px]">
+                {/* Day Headers Row */}
+                <div className="flex items-center mb-3">
+                  {/* Spacer for time column */}
+                  <div className="w-20 shrink-0 pr-4" />
+                  {/* Day column headers */}
+                  <div className="flex-1 flex">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                      <div key={day} className="flex-1 px-1.5 min-w-[140px]">
+                        <div className="w-full text-center font-ui text-micro uppercase text-atlas-slate bg-atlas-canvas py-1.5 rounded-field border border-atlas-line">
+                          {day}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              
-              {/* Days columns */}
-              <div className="flex-1 flex relative" style={{ height: '1400px' }}>
-                {/* Grid lines */}
-                {Array.from({length: 13}).map((_, i) => (
-                  <div key={`line-${i}`} className="absolute w-full border-t border-slate-200/80 border-dashed" style={{ top: `${(i/12)*100}%` }} />
-                ))}
-                
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
-                  let dayScheds = globalSchedules.filter(s => s.day_of_week === day || s.day_of_week === day.substring(0,3));
-                  if (selectedProfessorFilter) {
-                      dayScheds = dayScheds.filter(s => s.faculty_name === selectedProfessorFilter);
-                  }
+                </div>
 
-                  return (
-                    <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0 min-w-[140px]">
-                      <div className="absolute -top-10 w-full text-center font-ui text-micro uppercase text-atlas-slate bg-atlas-canvas py-1.5 rounded-field border border-atlas-line">{day}</div>
+                {/* Timetable Body (Time column + Day grid) */}
+                <div className="flex relative pt-3">
+                  {/* Time column (7:30 AM to 7:30 PM - 12 hours) */}
+                  <div className="w-20 flex flex-col relative border-r border-slate-200 pr-4 shrink-0" style={{ height: '1400px' }}>
+                    {Array.from({length: 13}).map((_, i) => (
+                      <div key={i} className="absolute w-full text-right font-data text-caption text-atlas-slate" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
+                        {(() => {
+                          /* The grid body runs 7:30 to 19:30 — `top: 0%` is 7:30,
+                             matching the generator's first slot — so the axis is
+                             7:30, 8:30, ... 19:30.
+
+                             The test used to read `% 1 === 0 ? '30' : '00'`, which
+                             is inverted: a whole number of hours is the :00 case,
+                             not the :30 one. With a 7.5 base `% 1` is 0.5 for every
+                             label, so it never matched and every reading rendered
+                             as ':00' — the whole axis was labelled half an hour
+                             early against the blocks it measures, which on a
+                             timetable is the one thing it must not get wrong. */
+                          const t = 7.5 + i;
+                          const hr = Math.floor(t);
+                          const min = t % 1 === 0 ? '00' : '30';
+                          return `${hr % 12 || 12}:${min} ${hr >= 12 ? 'PM' : 'AM'}`;
+                        })()}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Days columns */}
+                  <div className="flex-1 flex relative" style={{ height: '1400px' }}>
+                    {/* Grid lines */}
+                    {Array.from({length: 13}).map((_, i) => (
+                      <div key={`line-${i}`} className="absolute w-full border-t border-slate-200/80 border-dashed" style={{ top: `${(i/12)*100}%` }} />
+                    ))}
+                    
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
+                      let dayScheds = globalSchedules.filter(s => s.day_of_week === day || s.day_of_week === day.substring(0,3));
+                      if (selectedProfessorFilter) {
+                          dayScheds = dayScheds.filter(s => s.faculty_name === selectedProfessorFilter);
+                      }
+
+                      return (
+                        <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0 min-w-[140px]">
                       {dayScheds.map(sched => {
                         const [h, m] = sched.start_time.split(':').map(Number);
                         const [eh, em] = sched.end_time.split(':').map(Number);
@@ -1392,6 +1409,7 @@ export default function Schedules() {
                   );
                 })}
               </div>
+            </div>
             </div>
             </div>
           )}

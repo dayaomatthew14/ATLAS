@@ -1,5 +1,5 @@
 from datetime import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from .. import models
 from . import faculty_load
@@ -112,6 +112,209 @@ def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
             if check_overlap(u.start_time, u.end_time, start_t, end_t):
                 return True
     return False
+
+
+def _calculate_workload_warnings(
+    semester: models.Semester,
+    f_obj: models.Faculty,
+    pid: Any,
+    c: models.Curriculum,
+    part_type: str,
+    proposed_hours_total: float,
+    current_hours: float
+) -> Tuple[Optional[Dict[str, Any]], Optional[models.Conflict]]:
+    """
+    Evaluate teaching workload for full-time overload or part-time ceiling.
+    Returns (warning_dict, conflict_model) if a threshold is exceeded, else (None, None).
+    """
+    required_hours = faculty_load.required_teaching_hours(
+        getattr(semester, 'term', None), getattr(f_obj, 'type', None)
+    )
+    projected_hours = current_hours + proposed_hours_total
+
+    # Overload is a legitimate state the institution recognises and pays
+    # for, so passing the required figure warns rather than refuses. The
+    # class is still placed; the chair decides whether to keep it.
+    if required_hours is not None and projected_hours > required_hours + 0.005:
+        fac_fname = getattr(f_obj, 'first_name', '')
+        fac_lname = getattr(f_obj, 'last_name', '')
+        fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
+        emp_type = "Full-Time"
+        current_hrs = faculty_load.round_hours(current_hours)
+        over_by = faculty_load.round_hours(projected_hours - required_hours)
+        reason_msg = (
+            f"Overload for {fac_name} ({emp_type}): {current_hrs} + "
+            f"{faculty_load.round_hours(proposed_hours_total)} hrs/week exceeds the "
+            f"{required_hours} hrs/week required load by {over_by} hrs"
+        )
+
+        warning = {
+            "faculty_id": pid,
+            "faculty_name": fac_name,
+            "employment_type": emp_type,
+            "current_hours": current_hrs,
+            "required_hours": required_hours,
+            "additional_hours": faculty_load.round_hours(proposed_hours_total),
+            "overload_hours": over_by,
+            "subject_code": c.code,
+            "part_type": part_type,
+            "message": (
+                f"Faculty '{fac_name}' ({emp_type}) goes into overload: {c.code} "
+                f"brings them to {faculty_load.round_hours(projected_hours)} hrs/week "
+                f"against a required {required_hours}."
+            )
+        }
+        conflict = models.Conflict(
+            faculty_id=pid,
+            curriculum_id=c.id,
+            conflict_type="overload",
+            reason=reason_msg
+        )
+        return warning, conflict
+
+    # A Part-Time member has no required figure, only a ceiling they
+    # must stay under -- crossing it makes them Full-Time in all but name.
+    elif required_hours is None and not faculty_load.is_full_time(getattr(f_obj, 'type', None)):
+        if projected_hours >= faculty_load.PART_TIME_CEILING_HOURS:
+            fac_fname = getattr(f_obj, 'first_name', '')
+            fac_lname = getattr(f_obj, 'last_name', '')
+            fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
+            reason_msg = (
+                f"Part-Time ceiling reached for {fac_name}: "
+                f"{faculty_load.round_hours(projected_hours)} hrs/week is at or above the "
+                f"{faculty_load.PART_TIME_CEILING_HOURS} hrs/week a Part-Time member must stay under"
+            )
+
+            warning = {
+                "faculty_id": pid,
+                "faculty_name": fac_name,
+                "employment_type": "Part-Time",
+                "current_hours": faculty_load.round_hours(current_hours),
+                "required_hours": None,
+                "part_time_ceiling_hours": faculty_load.PART_TIME_CEILING_HOURS,
+                "additional_hours": faculty_load.round_hours(proposed_hours_total),
+                "subject_code": c.code,
+                "part_type": part_type,
+                "message": (
+                    f"Faculty '{fac_name}' (Part-Time) reaches "
+                    f"{faculty_load.round_hours(projected_hours)} hrs/week with {c.code}, at or above "
+                    f"the {faculty_load.PART_TIME_CEILING_HOURS} hrs/week Part-Time ceiling."
+                )
+            }
+            conflict = models.Conflict(
+                faculty_id=pid,
+                curriculum_id=c.id,
+                conflict_type="part_time_ceiling",
+                reason=reason_msg
+            )
+            return warning, conflict
+
+    return None, None
+
+
+def _place_lecture_slot(
+    semester_id: int,
+    curriculum_id: Any,
+    faculty_id: Any,
+    day_pairs_to_try: List[List[str]],
+    slots: List[Tuple[time, time]],
+    all_unavails: List[models.FacultyUnavailability],
+    all_schedules: List[models.Schedule],
+) -> Optional[Tuple[models.Schedule, models.Schedule]]:
+    """
+    Attempt to find an unconflicted day-pair and timeslot for a lecture.
+    Lectures do not assign rooms (room_id=None).
+    """
+    for days_pair in day_pairs_to_try:
+        day1, day2 = days_pair[0], days_pair[1]
+        for start_t, end_t in slots:
+            if is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
+                continue
+            if is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_schedules):
+                continue
+
+            sched1 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day1,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+            sched2 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day2,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+            return sched1, sched2
+    return None
+
+
+def _place_lab_slot(
+    semester_id: int,
+    curriculum_id: Any,
+    faculty_id: Any,
+    day_pairs_to_try: List[List[str]],
+    slots: List[Tuple[time, time]],
+    rooms_by_type: Dict[str, List[models.Room]],
+    all_unavails: List[models.FacultyUnavailability],
+    all_schedules: List[models.Schedule],
+) -> Optional[Tuple[models.Schedule, models.Schedule]]:
+    """
+    Attempt to place a lab slot. Tries available lab/computer_lab rooms first,
+    falling back to unassigned room (room_id=None) if no lab rooms are free.
+    """
+    lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
+    room_passes = ([lab_rooms] if lab_rooms else []) + [[None]]
+
+    for room_candidates in room_passes:
+        for days_pair in day_pairs_to_try:
+            day1, day2 = days_pair[0], days_pair[1]
+            for start_t, end_t in slots:
+                if is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
+                    continue
+                if is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_schedules):
+                    continue
+
+                for room in room_candidates:
+                    if room is not None and is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules):
+                        continue
+                    room_id = room.id if room is not None else None
+
+                    sched1 = models.Schedule(
+                        semester_id=semester_id,
+                        curriculum_id=curriculum_id,
+                        faculty_id=faculty_id,
+                        room_id=room_id,
+                        day_of_week=day1,
+                        start_time=start_t,
+                        end_time=end_t,
+                        section="",
+                        status='draft'
+                    )
+                    sched2 = models.Schedule(
+                        semester_id=semester_id,
+                        curriculum_id=curriculum_id,
+                        faculty_id=faculty_id,
+                        room_id=room_id,
+                        day_of_week=day2,
+                        start_time=start_t,
+                        end_time=end_t,
+                        section="",
+                        status='draft'
+                    )
+                    return sched1, sched2
+    return None
+
 
 def generate_schedules(
     db: Session,
@@ -243,202 +446,51 @@ def generate_schedules(
         for part_type, day_pairs_to_try, slots in parts:
             proposed_hours_total = get_duration_hours(slots[0][0], slots[0][1]) * 2
 
-            # Required weekly teaching hours for this term and employment type.
-            # This used to read `max_units` -- an integer count of subject units
-            # -- and compare it against `faculty_hours_used`, which is a sum of
-            # plotted durations. The two were never the same quantity, so an
-            # 18-unit cap silently acted as an 18-hour one.
-            required_hours = faculty_load.required_teaching_hours(
-                getattr(semester, 'term', None), getattr(f_obj, 'type', None)
+            warn, conf = _calculate_workload_warnings(
+                semester=semester,
+                f_obj=f_obj,
+                pid=pid,
+                c=c,
+                part_type=part_type,
+                proposed_hours_total=proposed_hours_total,
+                current_hours=faculty_hours_used[pid]
             )
-
-            projected_hours = faculty_hours_used[pid] + proposed_hours_total
-
-            # Overload is a legitimate state the institution recognises and pays
-            # for, so passing the required figure warns rather than refuses. The
-            # class is still placed; the chair decides whether to keep it.
-            if required_hours is not None and projected_hours > required_hours + 0.005:
-                fac_fname = getattr(f_obj, 'first_name', '')
-                fac_lname = getattr(f_obj, 'last_name', '')
-                fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
-                emp_type = "Full-Time"
-                current_hrs = faculty_load.round_hours(faculty_hours_used[pid])
-                over_by = faculty_load.round_hours(projected_hours - required_hours)
-                reason_msg = (
-                    f"Overload for {fac_name} ({emp_type}): {current_hrs} + "
-                    f"{faculty_load.round_hours(proposed_hours_total)} hrs/week exceeds the "
-                    f"{required_hours} hrs/week required load by {over_by} hrs"
-                )
-
-                bumped_warnings.append({
-                    "faculty_id": pid,
-                    "faculty_name": fac_name,
-                    "employment_type": emp_type,
-                    "current_hours": current_hrs,
-                    "required_hours": required_hours,
-                    "additional_hours": faculty_load.round_hours(proposed_hours_total),
-                    "overload_hours": over_by,
-                    "subject_code": c.code,
-                    "part_type": part_type,
-                    "message": (
-                        f"Faculty '{fac_name}' ({emp_type}) goes into overload: {c.code} "
-                        f"brings them to {faculty_load.round_hours(projected_hours)} hrs/week "
-                        f"against a required {required_hours}."
-                    )
-                })
-
-                pending_conflicts.append(models.Conflict(
-                    faculty_id=pid,
-                    curriculum_id=c.id,
-                    conflict_type="overload",
-                    reason=reason_msg
-                ))
-
-            # A Part-Time member has no required figure, only a ceiling they
-            # must stay under -- crossing it makes them Full-Time in all but name.
-            elif required_hours is None and not faculty_load.is_full_time(getattr(f_obj, 'type', None)):
-                if projected_hours >= faculty_load.PART_TIME_CEILING_HOURS:
-                    fac_fname = getattr(f_obj, 'first_name', '')
-                    fac_lname = getattr(f_obj, 'last_name', '')
-                    fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
-                    reason_msg = (
-                        f"Part-Time ceiling reached for {fac_name}: "
-                        f"{faculty_load.round_hours(projected_hours)} hrs/week is at or above the "
-                        f"{faculty_load.PART_TIME_CEILING_HOURS} hrs/week a Part-Time member must stay under"
-                    )
-
-                    bumped_warnings.append({
-                        "faculty_id": pid,
-                        "faculty_name": fac_name,
-                        "employment_type": "Part-Time",
-                        "current_hours": faculty_load.round_hours(faculty_hours_used[pid]),
-                        "required_hours": None,
-                        "part_time_ceiling_hours": faculty_load.PART_TIME_CEILING_HOURS,
-                        "additional_hours": faculty_load.round_hours(proposed_hours_total),
-                        "subject_code": c.code,
-                        "part_type": part_type,
-                        "message": (
-                            f"Faculty '{fac_name}' (Part-Time) reaches "
-                            f"{faculty_load.round_hours(projected_hours)} hrs/week with {c.code}, at or above "
-                            f"the {faculty_load.PART_TIME_CEILING_HOURS} hrs/week Part-Time ceiling."
-                        )
-                    })
-
-                    pending_conflicts.append(models.Conflict(
-                        faculty_id=pid,
-                        curriculum_id=c.id,
-                        conflict_type="part_time_ceiling",
-                        reason=reason_msg
-                    ))
-
-            placed = False
+            if warn:
+                bumped_warnings.append(warn)
+            if conf:
+                pending_conflicts.append(conf)
 
             if part_type == 'lecture':
-                # Lecture subjects do NOT require or use a room (room_id = NULL)
-                for days_pair in day_pairs_to_try:
-                    if placed: break
-                    day1, day2 = days_pair[0], days_pair[1]
-
-                    for start_t, end_t in slots:
-                        if placed: break
-
-                        if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
-                        if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
-
-                        sched1 = models.Schedule(
-                            semester_id=semester_id,
-                            curriculum_id=c.id,
-                            faculty_id=pid,
-                            room_id=None,
-                            day_of_week=day1,
-                            start_time=start_t,
-                            end_time=end_t,
-                            section="",
-                            status='draft'
-                        )
-                        sched2 = models.Schedule(
-                            semester_id=semester_id,
-                            curriculum_id=c.id,
-                            faculty_id=pid,
-                            room_id=None,
-                            day_of_week=day2,
-                            start_time=start_t,
-                            end_time=end_t,
-                            section="",
-                            status='draft'
-                        )
-                        pending_schedules.extend([sched1, sched2])
-                        all_schedules.extend([sched1, sched2])
-                        scheduled_offerings.add((pid, c.id))
-
-                        faculty_hours_used[pid] += proposed_hours_total
-                        generated_count += 2
-                        placed = True
-                        break
+                placed_pair = _place_lecture_slot(
+                    semester_id=semester_id,
+                    curriculum_id=c.id,
+                    faculty_id=pid,
+                    day_pairs_to_try=day_pairs_to_try,
+                    slots=slots,
+                    all_unavails=all_unavails,
+                    all_schedules=all_schedules
+                )
             else:
-                # Laboratory subjects.
-                #
-                # Two passes, and the second one is the point: try to find a
-                # free laboratory first, and if none can be had, place the class
-                # anyway with no room. A room is not this system's to guarantee
-                # -- schedules are submitted to the Registrar, who assigns the
-                # rooms -- so refusing to timetable a professor for want of one
-                # withheld the whole deliverable over someone else's column.
-                #
-                # Assigning where possible is still worth doing: a college that
-                # runs its own laboratories gets them filled in, and a blank
-                # simply means "the Registrar assigns this one".
-                lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
-                room_passes = ([lab_rooms] if lab_rooms else []) + [[None]]
+                placed_pair = _place_lab_slot(
+                    semester_id=semester_id,
+                    curriculum_id=c.id,
+                    faculty_id=pid,
+                    day_pairs_to_try=day_pairs_to_try,
+                    slots=slots,
+                    rooms_by_type=rooms_by_type,
+                    all_unavails=all_unavails,
+                    all_schedules=all_schedules
+                )
 
-                for room_candidates in room_passes:
-                    if placed: break
-                    for days_pair in day_pairs_to_try:
-                        if placed: break
-                        day1, day2 = days_pair[0], days_pair[1]
+            if placed_pair:
+                sched1, sched2 = placed_pair
+                pending_schedules.extend([sched1, sched2])
+                all_schedules.extend([sched1, sched2])
+                scheduled_offerings.add((pid, c.id))
 
-                        for start_t, end_t in slots:
-                            if placed: break
-
-                            if is_prof_unavail(pid, day1, day2, start_t, end_t, all_unavails): continue
-                            if is_prof_conflict(pid, day1, day2, start_t, end_t, all_schedules): continue
-
-                            for room in room_candidates:
-                                if room is not None and is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules): continue
-                                room_id = room.id if room is not None else None
-
-                                sched1 = models.Schedule(
-                                    semester_id=semester_id,
-                                    curriculum_id=c.id,
-                                    faculty_id=pid,
-                                    room_id=room_id,
-                                    day_of_week=day1,
-                                    start_time=start_t,
-                                    end_time=end_t,
-                                    section="",
-                                    status='draft'
-                                )
-                                sched2 = models.Schedule(
-                                    semester_id=semester_id,
-                                    curriculum_id=c.id,
-                                    faculty_id=pid,
-                                    room_id=room_id,
-                                    day_of_week=day2,
-                                    start_time=start_t,
-                                    end_time=end_t,
-                                    section="",
-                                    status='draft'
-                                )
-                                pending_schedules.extend([sched1, sched2])
-                                all_schedules.extend([sched1, sched2])
-                                scheduled_offerings.add((pid, c.id))
-
-                                faculty_hours_used[pid] += proposed_hours_total
-                                generated_count += 2
-                                placed = True
-                                break
-
-            if not placed:
+                faculty_hours_used[pid] += proposed_hours_total
+                generated_count += 2
+            else:
                 # A room is never the reason. Laboratories fall back to being
                 # placed without one, so anything still unplaced here failed on
                 # faculty availability or a clash -- the two things this system

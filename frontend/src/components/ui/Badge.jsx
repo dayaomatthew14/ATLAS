@@ -53,7 +53,7 @@ export default function Badge({ status, label, className = '' }) {
   const s = STATUSES[status] || STATUSES.draft;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 h-6 rounded-marker font-ui text-caption font-medium ${s.className} ${className}`}
+      className={`inline-flex items-center gap-1.5 px-3 h-7 rounded-marker font-ui text-caption font-bold ${s.className} ${className}`}
     >
       <span aria-hidden="true" className={s.glyphClassName || ''}>
         {s.glyph}
@@ -71,14 +71,14 @@ export default function Badge({ status, label, className = '' }) {
 export function DepartmentMark({ code, showName = false, className = '' }) {
   const d = resolveDepartment(code);
   return (
-    <span className={`inline-flex items-center gap-2 font-ui text-body ${className}`}>
+    <span className={`inline-flex items-center gap-2 font-ui text-body font-semibold ${className}`}>
       <span
         aria-hidden="true"
-        className="inline-block w-[3px] h-4 rounded-sm shrink-0"
+        className="inline-block w-[3.5px] h-4.5 rounded-sm shrink-0"
         style={{ backgroundColor: d.hue }}
       />
-      <span className="text-atlas-ink">{d.code}</span>
-      {showName && <span className="text-atlas-slate text-caption">{d.name}</span>}
+      <span className="text-black font-bold">{d.code}</span>
+      {showName && <span className="text-black text-caption font-medium">{d.name}</span>}
     </span>
   );
 }

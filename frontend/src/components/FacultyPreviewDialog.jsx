@@ -121,7 +121,7 @@ export default function FacultyPreviewDialog({
       isOpen={isOpen}
       onClose={onClose}
       title={teacher.name}
-      description={`${isPartTime ? 'Part-time' : 'Full-time'} · ${pluralize(subjects.length + unresolvedSubjects, 'subject')} assigned`}
+      description={`${isPartTime ? 'Part-time' : 'Full-time'}${teacher.max_units ? ` · Limit: ${teacher.max_units} ${teacher.load_unit || 'units'}` : ''} · ${pluralize(subjects.length + unresolvedSubjects, 'subject')} assigned`}
       footer={
         <>
           {canManage && (

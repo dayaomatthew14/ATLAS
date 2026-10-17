@@ -15,10 +15,10 @@ import { focusRing } from './tokens';
  */
 
 const controlBase =
-  'w-full h-10 px-3 rounded-field font-ui text-body text-atlas-ink bg-white/70 backdrop-blur-sm ' +
-  'border border-atlas-control transition-colors duration-state ease-standard ' +
-  'placeholder:text-atlas-disabled hover:border-atlas-slate ' +
-  'focus:bg-white/95 disabled:bg-atlas-canvas/70 disabled:border-atlas-line disabled:text-atlas-disabled ' +
+  'w-full h-11 px-3.5 rounded-field font-ui text-body text-slate-900 bg-white ' +
+  'border border-slate-300 transition-colors duration-state ease-standard shadow-2xs ' +
+  'placeholder:text-atlas-disabled hover:border-slate-500 ' +
+  'focus:bg-white disabled:bg-slate-100 disabled:border-atlas-line disabled:text-atlas-disabled ' +
   'disabled:cursor-not-allowed';
 
 const errorRing = 'border-sem-conflict bg-sem-conflict-bg';
@@ -46,18 +46,18 @@ export function Field({
     <div className={`flex flex-col gap-1.5 ${className}`}>
       <label
         htmlFor={id}
-        className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2"
+        className="font-ui text-caption font-bold uppercase tracking-wider text-black flex items-center gap-2"
       >
         {label}
         {/* The word, not an asterisk — an asterisk is not announced usefully. */}
-        {required && <span className="text-atlas-disabled normal-case">Required</span>}
-        {readOnlyReason && <Lock className="w-3 h-3" aria-hidden="true" />}
+        {required && <span className="text-black/60 normal-case font-normal">Required</span>}
+        {readOnlyReason && <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
       </label>
 
       {children({ id, describedBy, invalid: Boolean(error) })}
 
       {hint && !error && (
-        <p id={hintId} className="font-ui text-caption text-atlas-slate">
+        <p id={hintId} className="font-ui text-caption font-medium text-black/80">
           {hint}
         </p>
       )}
@@ -170,9 +170,9 @@ export function RadioGroup({ label, hint, error, required, name, value, onChange
       aria-describedby={[hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined}
       aria-invalid={Boolean(error) || undefined}
     >
-      <legend className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2 mb-1.5">
+      <legend className="font-ui text-caption font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2 mb-1.5">
         {label}
-        {required && <span className="text-atlas-disabled normal-case">Required</span>}
+        {required && <span className="text-atlas-disabled normal-case font-normal">Required</span>}
       </legend>
 
       <div className="flex flex-col gap-2">

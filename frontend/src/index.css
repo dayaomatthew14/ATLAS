@@ -9,20 +9,28 @@
   dashboard navbar. Wide content (schedule grids, tables) must still opt into
   its own `overflow-x-auto` container so it stays reachable.
 */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (min-width: 1280px) {
+  html {
+    font-size: 16.5px;
+  }
+}
+
 html,
 body {
   max-width: 100%;
   overflow-x: clip;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* Horizontal scrolling without a visible scrollbar, for the nav strip. */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
+
 
 /* ==========================================================================
    ATLAS DESIGN TOKENS  —  Phase 1 §1.1
@@ -48,9 +56,9 @@ body {
   --atlas-green-100-rgb: 230 240 234;
   --atlas-green-050-rgb: 242 247 244;
   --atlas-gold-500-rgb: 200 162 39;
-  --atlas-ink-rgb: 20 24 26;
-  --atlas-slate-rgb: 90 101 96;
-  --atlas-disabled-rgb: 126 135 130;
+  --atlas-ink-rgb: 0 0 0;
+  --atlas-slate-rgb: 20 20 20;
+  --atlas-disabled-rgb: 100 100 100;
   --atlas-line-rgb: 225 229 226;
   --atlas-line-input-rgb: 125 136 129;
   --atlas-surface-rgb: 255 255 255;
@@ -76,9 +84,9 @@ body {
   --atlas-gold-500: #C8A227;
 
   /* --- Ink ---------------------------------------------------------------- */
-  --atlas-ink: #14181A;         /* surface 17.87 · canvas 16.78               */
-  --atlas-slate: #5A6560;       /* surface 6.06  · canvas 5.69                */
-  --atlas-disabled: #7E8782;    /* surface 3.70 — WCAG-exempt, kept legible   */
+  --atlas-ink: #000000;         /* 100% black text for maximum readability */
+  --atlas-slate: #141414;       /* deep black secondary text                */
+  --atlas-disabled: #555555;    /* legible dark grey                        */
 
   /* --- Lines --------------------------------------------------------------
      Two border tokens, deliberately. --atlas-line is 1.27:1 and is fine for
@@ -192,7 +200,7 @@ body {
   --tt-hour: 56px;
   --tt-daycol-min: 140px;
   --tt-gutter: 64px;
-  --row-h: 52px;
+  --row-h: 58px;
 }
 
 /* Compact density. 60px is the floor for a 90-min block:
@@ -212,9 +220,12 @@ body {
    ========================================================================== */
 
 .glass {
-  background-color: var(--glass-fill);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(246, 250, 247, 0.94) 100%);
+  border: 1px solid rgba(4, 106, 56, 0.12);
+  box-shadow:
+    0 1px 3px rgb(4 106 56 / 0.04),
+    0 10px 28px -10px rgb(4 106 56 / 0.10),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.95);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   backdrop-filter: blur(var(--glass-blur)) saturate(150%);
 }
@@ -226,7 +237,7 @@ body {
 */
 .glass-hover:hover:not(:disabled) {
   background-color: var(--glass-fill);
-  border-color: var(--glass-border);
+  border-color: rgba(4, 106, 56, 0.18);
   box-shadow: var(--glass-shadow);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   backdrop-filter: blur(var(--glass-blur)) saturate(150%);
@@ -235,29 +246,32 @@ body {
 /* Overlays sit above arbitrary content, so they carry more fill. */
 .glass-strong {
   background-color: var(--glass-fill-strong);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
+  border: 1px solid rgba(4, 106, 56, 0.16);
+  box-shadow:
+    0 4px 14px rgb(4 106 56 / 0.08),
+    0 20px 40px -12px rgb(4 106 56 / 0.18),
+    inset 0 1px 0 0 rgba(255, 255, 255, 1);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
 }
 
-/* The same material on the green-900 chrome. */
+/* The same material on the green-900 chrome, carrying DLSAU depth. */
 .glass-dark {
-  background-color: var(--glass-fill-dark);
-  border: 1px solid var(--glass-border-dark);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  backdrop-filter: blur(12px) saturate(140%);
+  background: linear-gradient(180deg, rgba(4, 27, 18, 0.97) 0%, rgba(6, 48, 28, 0.97) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
 }
 
 /*
-  The ambient wash. Three broad, low-opacity pools fixed to the viewport, so
-  panels refract something as the page scrolls rather than sliding over a flat
-  field. `fixed` rather than a scrolling pseudo-element keeps the cost to one
-  composited layer.
+  The ambient wash and authentic academic blueprint grid.
+  Inspired by the Landing & Login pages: soft ambient pools plus faint
+  timetable blueprint lines (var(--tt-daycol-min), var(--tt-hour)) that give
+  the dashboard an authentic academic scheduling presence.
 */
 .glass-canvas {
   position: relative;
-  background-color: var(--atlas-canvas);
+  background-color: #F4F7F5;
 }
 .glass-canvas::before {
   content: '';
@@ -269,6 +283,18 @@ body {
     radial-gradient(58rem 42rem at 12% -8%, var(--glass-ambient-a), transparent 60%),
     radial-gradient(48rem 38rem at 92% 6%, var(--glass-ambient-b), transparent 62%),
     radial-gradient(52rem 40rem at 68% 104%, var(--glass-ambient-c), transparent 60%);
+}
+.glass-canvas::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(to right,  rgb(4 106 56 / 0.035) 0 1px, transparent 1px var(--tt-daycol-min)),
+    repeating-linear-gradient(to bottom, rgb(4 106 56 / 0.03) 0 1px, transparent 1px var(--tt-hour));
+  -webkit-mask-image: radial-gradient(ellipse 95% 85% at 50% 20%, #000 30%, transparent 95%);
+          mask-image: radial-gradient(ellipse 95% 85% at 50% 20%, #000 30%, transparent 95%);
 }
 /*
   Everything the shell renders sits above the wash.
@@ -319,7 +345,8 @@ body {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .glass-canvas::before { display: none; }
+  .glass-canvas::before,
+  .glass-canvas::after { display: none; }
 }
 
 /* Printing a translucent panel wastes ink and prints grey text on grey. */
@@ -332,7 +359,8 @@ body {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
-  .glass-canvas::before { display: none !important; }
+  .glass-canvas::before,
+  .glass-canvas::after { display: none !important; }
 }
 
 /* ==========================================================================
@@ -562,6 +590,9 @@ body {
   pointer-events: none;
   background:
     radial-gradient(120% 85% at 50% -10%, #0B5533 0%, #06381F 48%, #041B12 100%);
+  contain: strict;
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
 }
 
 /* The campus, present but recessed. Desaturated so the aurora above it reads
@@ -572,7 +603,6 @@ body {
   background-size: cover;
   background-position: center;
   opacity: 0.11;
-  filter: saturate(0.4) contrast(1.02) blur(2.5px);
   animation: auth-drift 60s ease-in-out infinite;
   will-change: transform;
 }
@@ -582,11 +612,10 @@ body {
 }
 
 /* Three light sources, drifting on different periods so they never repeat a
-   visible pattern. Heavily blurred, so what moves is the light, not an edge. */
+   visible pattern. Naturally feathered by radial gradients for 60fps performance. */
 .auth-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(72px);
   will-change: transform;
 }
 .auth-blob-1 {
@@ -706,26 +735,24 @@ body {
 .auth-card {
   position: relative;
   border-radius: 28px;
-  background: linear-gradient(180deg, rgba(238, 243, 239, 0.94) 0%, rgba(228, 235, 230, 0.94) 100%);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
-          backdrop-filter: blur(24px) saturate(1.2);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: linear-gradient(180deg, rgba(240, 244, 241, 0.98) 0%, rgba(232, 238, 233, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow:
     0 30px 70px -20px rgb(2 16 10 / 0.6),
     0 8px 24px -12px rgb(2 16 10 / 0.45);
+  contain: paint;
 }
 
 /* Landing card: Muted stone / soft linen parchment (#E2E7E3) - matte, eye-friendly, glare-free */
 .landing-glass-card {
   position: relative;
   border-radius: 28px;
-  background: linear-gradient(175deg, rgba(230, 235, 231, 0.96) 0%, rgba(220, 227, 222, 0.96) 100%);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-          backdrop-filter: blur(20px) saturate(1.2);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: linear-gradient(175deg, rgba(234, 239, 235, 0.98) 0%, rgba(225, 231, 226, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow:
     0 30px 70px -20px rgb(2 16 10 / 0.55),
     0 8px 24px -12px rgb(2 16 10 / 0.4);
+  contain: paint;
 }
 
 /* One pass of light across the card as it arrives. Its own layer, with its own
@@ -794,12 +821,6 @@ body {
    staggered form row stayed a stacking context for the life of the page, and
    the department menu's `z-index: 100` could only compete *inside its own row*.
    The rows after it in the DOM painted straight over the open menu.
-   `backwards` covers the delay before each animation starts, then hands the
-   element back to its own styles -- no transform, no stacking context. */
-.auth-enter {
-  animation: auth-enter 460ms var(--ease-emphasis) backwards;
-  animation-delay: calc(var(--i, 0) * 70ms);
-}
 
 /* The same entrance down a list, without every call site having to count.
    Direct children only, so a `<>...</>` group of fields staggers as the fields
@@ -872,7 +893,6 @@ body {
   .auth-shine { display: none; }
   .auth-sweep::after { display: none; }
   .auth-block { opacity: 0.4; }
-  .auth-enter,
   .auth-stagger > *,
   .auth-card-in,
   .auth-alert,
@@ -984,10 +1004,6 @@ body {
   opacity: 0.15;
   transition: opacity var(--dur-lens) var(--ease-standard);
 }
-.lens-rules-dimmed {
-  opacity: 0.4;
-  transition: opacity var(--dur-lens) var(--ease-standard);
-}
 
 /*
   45-degree hatch over the block's own fill. This is the reason the lens does
@@ -1071,7 +1087,7 @@ body {
 
 body {
   margin: 0;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.3s ease, color 0.3s ease;

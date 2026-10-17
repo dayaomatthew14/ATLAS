@@ -1,12 +1,15 @@
 import os
 import smtplib
 import requests
+import logging
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Email Config
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -54,8 +57,9 @@ def log_otp_for_development(destination: str, otp: str, purpose: str):
     through User Management rather than by reading a secret out of a log.
     """
     if _is_production():
-        print(f"[OTP] Issued {purpose.lower()} code for {destination} (value not logged)")
+        logger.info("[OTP] Issued %s code for %s (value not logged)", purpose.lower(), destination)
     else:
+        logger.info("[DEVELOPMENT] %s OTP for %s: %s", purpose, destination, otp)
         print(f"\n[DEVELOPMENT] {purpose} OTP for {destination}: {otp}\n")
 
 def textbee_device_status() -> dict:
@@ -82,10 +86,10 @@ def textbee_device_status() -> dict:
         res = requests.get(url, headers={"x-api-key": TEXTBEE_API_KEY}, timeout=HTTP_TIMEOUT_SECONDS)
         snippet = " ".join((res.text or "").split())[:300]
         if res.status_code != 200:
-            print(f"[TEXTBEE] Could not read device status (HTTP {res.status_code}): {snippet}")
+            logger.warning("[TEXTBEE] Could not read device status (HTTP %s): %s", res.status_code, snippet)
             return {"known": False}
 
-        print(f"[TEXTBEE] Device status: {snippet}")
+        logger.info("[TEXTBEE] Device status: %s", snippet)
         payload = res.json()
         device = payload.get("data", payload) if isinstance(payload, dict) else {}
         if not isinstance(device, dict):
@@ -106,12 +110,13 @@ def textbee_device_status() -> dict:
                 stale_days = None
 
         if stale_days is not None and stale_days > FCM_STALE_AFTER_DAYS:
-            print(
-                f"[TEXTBEE] WARNING: the gateway's push token was last refreshed "
-                f"{stale_days} days ago. TextBee wakes the handset with a Firebase "
-                f"push, so a token this old usually means messages are accepted and "
-                f"then never transmitted. Open the TextBee app on the device to "
-                f"re-register it."
+            logger.warning(
+                "[TEXTBEE] WARNING: the gateway's push token was last refreshed "
+                "%s days ago. TextBee wakes the handset with a Firebase "
+                "push, so a token this old usually means messages are accepted and "
+                "then never transmitted. Open the TextBee app on the device to "
+                "re-register it.",
+                stale_days,
             )
 
         # Different builds of the gateway report this differently; take the
@@ -126,7 +131,7 @@ def textbee_device_status() -> dict:
                 }
         return {"known": False, "stale_days": stale_days}
     except Exception as e:
-        print(f"[TEXTBEE] Device status check failed: {e}")
+        logger.warning("[TEXTBEE] Device status check failed: %s", e)
         return {"known": False}
 
 
@@ -143,7 +148,7 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
     sent from accepted-and-queued-for-a-phone-that-is-switched-off.
     """
     if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
-        print(f"[WARNING] TextBee credentials missing. Could not send {purpose} OTP to {to_phone}")
+        logger.warning("[WARNING] TextBee credentials missing. Could not send %s OTP to %s", purpose, to_phone)
         return False
 
     url = f"https://api.textbee.dev/api/v1/gateway/devices/{TEXTBEE_DEVICE_ID}/send-sms"
@@ -161,10 +166,12 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
     # go and look at their phone either way.
     status = textbee_device_status()
     if status.get("known") and not status.get("online"):
-        print(
-            f"[ERROR] TextBee gateway device is not online "
-            f"(reported by '{status.get('field')}'), so the {purpose.lower()} SMS "
-            f"for {to_phone} would only sit in a queue. Not sending."
+        logger.error(
+            "[ERROR] TextBee gateway device is not online "
+            "(reported by '%s'), so the %s SMS for %s would only sit in a queue. Not sending.",
+            status.get("field"),
+            purpose.lower(),
+            to_phone,
         )
         return False
 
@@ -173,7 +180,7 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
         snippet = " ".join((response.text or "").split())[:250]
 
         if response.status_code not in [200, 201]:
-            print(f"[ERROR] TextBee failed with status {response.status_code}: {snippet}")
+            logger.error("[ERROR] TextBee failed with status %s: %s", response.status_code, snippet)
             return False
 
         # "SMS added to queue for processing" is the answer TextBee gives when
@@ -184,15 +191,17 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
         # for something that is not coming.
         queued = "queue" in snippet.lower()
         if queued:
-            print(
-                f"[QUEUED] TextBee queued the {purpose.lower()} SMS for {to_phone}; "
-                f"it will only arrive once the gateway handset connects. Response: {snippet}"
+            logger.info(
+                "[QUEUED] TextBee queued the %s SMS for %s; it will only arrive once the gateway handset connects. Response: %s",
+                purpose.lower(),
+                to_phone,
+                snippet,
             )
         else:
-            print(f"[SUCCESS] TextBee accepted {purpose} SMS for {to_phone}. Response: {snippet}")
+            logger.info("[SUCCESS] TextBee accepted %s SMS for %s. Response: %s", purpose, to_phone, snippet)
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to send TextBee SMS to {to_phone}: {e}")
+        logger.error("[ERROR] Failed to send TextBee SMS to %s: %s", to_phone, e)
         return False
 
 
@@ -260,13 +269,13 @@ def deliver_otp(to_email, to_phone, otp: str, purpose: str = "Verification",
     sms_sent = False
 
     if channel in ("auto", "email") and to_email:
-        email_sent = bool(send_email_otp(to_email, otp, purpose))
+        email_sent = send_email_otp(to_email, otp, purpose)
 
     if channel == "sms" and to_phone:
-        sms_sent = bool(send_textbee_otp(to_phone, otp, purpose))
+        sms_sent = send_textbee_otp(to_phone, otp, purpose)
     elif channel == "auto" and not email_sent and to_phone:
-        print(f"[FALLBACK] Email did not send; trying SMS for {purpose.lower()} code.")
-        sms_sent = bool(send_textbee_otp(to_phone, otp, purpose))
+        logger.info("[FALLBACK] Email did not send; trying SMS for %s code.", purpose.lower())
+        sms_sent = send_textbee_otp(to_phone, otp, purpose)
 
     return {
         "email": email_sent,
@@ -276,7 +285,7 @@ def deliver_otp(to_email, to_phone, otp: str, purpose: str = "Verification",
 
 def send_textbee_notification(to_phone: str, message: str):
     if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
-        print(f"[WARNING] TextBee credentials missing. Could not send notification to {to_phone}")
+        logger.warning("[WARNING] TextBee credentials missing. Could not send notification to %s", to_phone)
         return False
         
     url = f"https://api.textbee.dev/api/v1/gateway/devices/{TEXTBEE_DEVICE_ID}/send-sms"
@@ -292,13 +301,13 @@ def send_textbee_notification(to_phone: str, message: str):
     try:
         response = requests.post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT_SECONDS)
         if response.status_code in [200, 201]:
-            print(f"[SUCCESS] Sent SMS via TextBee to {to_phone}")
+            logger.info("[SUCCESS] Sent SMS via TextBee to %s", to_phone)
             return True
         else:
-            print(f"[ERROR] TextBee failed with status {response.status_code}: {response.text}")
+            logger.error("[ERROR] TextBee failed with status %s: %s", response.status_code, response.text)
             return False
     except Exception as e:
-        print(f"[ERROR] Failed to send TextBee SMS to {to_phone}: {e}")
+        logger.error("[ERROR] Failed to send TextBee SMS to %s: %s", to_phone, e)
         return False
 
 def _apps_script_delivered(res) -> bool:
@@ -345,11 +354,11 @@ def _send_via_sendgrid(to_email: str, subject: str, body: str) -> bool:
             timeout=HTTP_TIMEOUT_SECONDS,
         )
         if res.status_code in (200, 201, 202):
-            print(f"[SUCCESS] Sent email via SendGrid to {to_email}")
+            logger.info("[SUCCESS] Sent email via SendGrid to %s", to_email)
             return True
-        print(f"[ERROR] SendGrid failed: {res.status_code} - {res.text[:200]}")
+        logger.error("[ERROR] SendGrid failed: %s - %s", res.status_code, res.text[:200])
     except Exception as e:
-        print(f"[ERROR] SendGrid exception: {e}")
+        logger.error("[ERROR] SendGrid exception: %s", e)
     return False
 
 
@@ -375,11 +384,11 @@ def _send_via_resend(to_email: str, subject: str, body: str) -> bool:
             timeout=HTTP_TIMEOUT_SECONDS,
         )
         if res.status_code in (200, 201, 202):
-            print(f"[SUCCESS] Sent email via Resend to {to_email}")
+            logger.info("[SUCCESS] Sent email via Resend to %s", to_email)
             return True
-        print(f"[ERROR] Resend failed: {res.status_code} - {res.text[:200]}")
+        logger.error("[ERROR] Resend failed: %s - %s", res.status_code, res.text[:200])
     except Exception as e:
-        print(f"[ERROR] Resend exception: {e}")
+        logger.error("[ERROR] Resend exception: %s", e)
     return False
 
 
@@ -418,14 +427,14 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
             # made undelivered mail impossible to diagnose from the outside.
             snippet = " ".join((res.text or "").split())[:200]
             if _apps_script_delivered(res):
-                print(f"[SUCCESS] Sent email via Google Apps Script to {to_email}. Response: {snippet}")
+                logger.info("[SUCCESS] Sent email via Google Apps Script to %s. Response: %s", to_email, snippet)
                 return True
             # The body is what identifies the cause -- a sign-in page means the
             # deployment is not public, an error page means the script raised.
             snippet = " ".join((res.text or "").split())[:300]
-            print(f"[ERROR] Google Apps Script did not send (HTTP {res.status_code}). Response: {snippet}")
+            logger.error("[ERROR] Google Apps Script did not send (HTTP %s). Response: %s", res.status_code, snippet)
         except Exception as e:
-            print(f"[ERROR] Google Apps Script exception: {e}")
+            logger.error("[ERROR] Google Apps Script exception: %s", e)
 
     return False
 
@@ -449,7 +458,7 @@ def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
         return True
 
     if not SMTP_USERNAME or not SMTP_PASSWORD:
-        print(f"[ERROR] No email transport configured; {purpose.lower()} code for {to_email} was not sent.")
+        logger.error("[ERROR] No email transport configured; %s code for %s was not sent.", purpose.lower(), to_email)
         return False
 
     msg = MIMEMultipart()
@@ -464,10 +473,10 @@ def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
         server.login(SMTP_USERNAME, SMTP_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print(f"[SUCCESS] Sent {purpose} email to {to_email}")
+        logger.info("[SUCCESS] Sent %s email to %s", purpose, to_email)
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to send email to {to_email}: {e}")
+        logger.error("[ERROR] Failed to send email to %s: %s", to_email, e)
         return False
 
 # `send_sms_otp` was removed. It printed the code and returned True without
@@ -477,6 +486,7 @@ def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
 
 def send_email_notification(to_email: str, subject: str, body: str):
     if not _is_production():
+        logger.info("[DEVELOPMENT] Email to %s: %s\n%s", to_email, subject, body)
         print(f"\n[DEVELOPMENT] Email to {to_email}: {subject}\n{body}\n")
 
 
@@ -485,7 +495,7 @@ def send_email_notification(to_email: str, subject: str, body: str):
         return True
 
     if not SMTP_USERNAME or not SMTP_PASSWORD:
-        print(f"[ERROR] No email transport configured; notification to {to_email} was not sent.")
+        logger.error("[ERROR] No email transport configured; notification to %s was not sent.", to_email)
         return False
 
 
@@ -503,6 +513,6 @@ def send_email_notification(to_email: str, subject: str, body: str):
         server.quit()
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to send email to {to_email}: {e}")
+        logger.error("[ERROR] Failed to send email to %s: %s", to_email, e)
         return False
 

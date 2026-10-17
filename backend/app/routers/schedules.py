@@ -1,33 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional, Any
-from datetime import datetime
-import io
-import re
-import openpyxl
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from xml.sax.saxutils import escape as xml_escape
+from typing import List, Optional
 from .. import models, schemas, database, auth
+from ..services.schedule_generator import TIMESLOTS, DAYS
+from ..services.schedule_io import (
+    _attachment_header,
+    build_schedule_pdf,
+    build_schedule_excel,
+    import_schedules_from_excel,
+)
 from .logs import log_activity
-
-
-def _attachment_header(stem: str, ext: str) -> dict:
-    """
-    A Content-Disposition a browser will accept.
-
-    `filename=schedule_College_of_Arts,_Sciences_&_Technology.pdf` was being sent
-    unquoted, and a comma is a header-value separator: Chrome read it as two
-    Content-Disposition headers and refused the whole response
-    (ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION). Every college at DLSAU
-    has a comma in its name, so the PDF and Excel exports failed for all of them.
-    Reduced to a safe ASCII stem, and quoted.
-    """
-    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', stem).strip('_') or 'schedule'
-    return {"Content-Disposition": f'attachment; filename="{safe}.{ext}"'}
 
 router = APIRouter(
     prefix="/api/schedules",
@@ -456,17 +439,6 @@ def get_schedule_suggestions(
             return []
         semester_id = active_sem.id # type: ignore
 
-    from datetime import time
-    TIMESLOTS = [
-        (time(8, 0), time(9, 30)),
-        (time(9, 30), time(11, 0)),
-        (time(11, 0), time(12, 30)),
-        (time(13, 0), time(14, 30)),
-        (time(14, 30), time(16, 0)),
-        (time(16, 0), time(17, 30)),
-    ]
-    DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
     # Get valid rooms for the curriculum item type
     rooms = db.query(models.Room).all()
     valid_rooms = [r for r in rooms if r.type == curriculum_item.type or (r.type == 'computer_lab' and curriculum_item.type == 'lab')]
@@ -595,7 +567,7 @@ def export_pdf(
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
 
     dept = None
-    dept_name = "All Departments"
+    dept_name: str = "All Departments"
     if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
@@ -603,7 +575,7 @@ def export_pdf(
         ).first()
         if dept:
             query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
-            dept_name = dept.name
+            dept_name = str(dept.name)
 
     # Eager-load the three relationships the row loop reads. Resolving them
     # per row issued three queries per schedule -- a 500-class export was about
@@ -617,99 +589,14 @@ def export_pdf(
     semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     term_label = f"{semester.academic_year} {semester.term}" if semester else ""
 
-    # Resolve each row once, then sort the way the preview does: professor,
-    # then the week in order, then time of day.
-    day_order = {d: i for i, d in enumerate(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])}
-    rows = []
-    for s in schedules:
-        curriculum_item = s.curriculum
-        faculty = s.faculty
-        room = s.room
-
-        prof = f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA"
-        if faculty_name and prof != faculty_name:
-            continue
-
-        rows.append({
-            "professor": prof,
-            "code": curriculum_item.code if curriculum_item else "N/A",
-            "name": curriculum_item.name if curriculum_item else "N/A",
-            "day": str(s.day_of_week or ""),
-            "start": s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else "",
-            "end": s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else "",
-            "room": room.name if room else "No room assigned",
-            "building": room.building if room else "",
-            "section": s.section or "",
-            "_sort": (prof, day_order.get(str(s.day_of_week or "")[:3], 9),
-                      s.start_time.strftime('%H:%M') if s.start_time else ""),
-        })
-    rows.sort(key=lambda r: r["_sort"])
-
-    # Create PDF
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=landscape(letter),
-        leftMargin=24, rightMargin=24, topMargin=28, bottomMargin=28,
+    buffer, row_count = build_schedule_pdf(
+        schedules,
+        dept_name=dept_name,
+        term_label=term_label,
+        faculty_name=faculty_name,
     )
-    elements = []
-    styles = getSampleStyleSheet()
-    cell = ParagraphStyle('cell', parent=styles['Normal'], fontSize=7.5, leading=9.5)
 
-    def cell_text(value):
-        """
-        reportlab parses a Paragraph's text as mini-HTML, so any '<' or '&' in
-        real data is markup. A subject named 'Data Structures #2 <Lab>' lost the
-        '<Lab>' silently as an unknown tag, and a stray '<' can abort the whole
-        render. Escaping first means the file says what the database says.
-        """
-        return xml_escape(str(value if value is not None else ''))
-
-    scope_line = faculty_name if faculty_name else "All professors"
-    elements.append(Paragraph(cell_text(f"ATLAS Schedule — {dept_name}"), styles['Title']))
-    elements.append(Paragraph(cell_text(
-        f"{term_label} · {scope_line} · {len(rows)} classes · "
-        f"generated {datetime.now().strftime('%d %b %Y %H:%M')}"
-    ), styles['Normal']))
-    elements.append(Paragraph("<br/>", styles['Normal']))
-
-    header = ["Professor", "Subject Code", "Subject Name", "Day",
-              "Start Time", "End Time", "Room", "Building", "Section"]
-    data: list[Any] = [header]
-    for r in rows:
-        data.append([
-            Paragraph(cell_text(r["professor"]), cell),
-            Paragraph(cell_text(r["code"]), cell),
-            Paragraph(cell_text(r["name"]), cell),
-            Paragraph(cell_text(r["day"]), cell),
-            Paragraph(cell_text(r["start"]), cell),
-            Paragraph(cell_text(r["end"]), cell),
-            Paragraph(cell_text(r["room"]), cell),
-            Paragraph(cell_text(r["building"]), cell),
-            Paragraph(cell_text(r["section"]), cell),
-        ])
-
-    if not rows:
-        elements.append(Paragraph("No classes are scheduled for this selection.", styles['Normal']))
-    else:
-        t = Table(data, repeatRows=1,
-                  colWidths=[95, 62, 175, 55, 58, 58, 82, 72, 45])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0d3b26')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 7.5),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f4f6f5')]),
-            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#c9d2cd')),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ]))
-        elements.append(t)
-
-    doc.build(elements)
-    buffer.seek(0)
-
-    log_activity(db, current_user.id, "Export PDF", f"Exported schedule for {dept_name} to PDF ({len(rows)} classes)", department_id=dept.id if dept else None) # type: ignore
+    log_activity(db, current_user.id, "Export PDF", f"Exported schedule for {dept_name} to PDF ({row_count} classes)", department_id=dept.id if dept else None) # type: ignore
 
     return StreamingResponse(buffer, media_type="application/pdf",
                              headers=_attachment_header(f"schedule_{dept_name}", "pdf"))
@@ -729,100 +616,7 @@ async def import_excel(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     contents = await file.read()
-    wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
-    sheet = wb.active
-    if sheet is None:
-        raise HTTPException(status_code=400, detail="Excel sheet not found")
-    rows = list(sheet.iter_rows(values_only=True))
-    if not rows:
-        raise HTTPException(status_code=400, detail="Excel file is empty")
-    
-    # Basic validation
-    header = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
-    required_cols = ['CurriculumCode', 'FacultyEmail', 'RoomName', 'Day', 'StartTime', 'EndTime', 'Section']
-    col_indices = {}
-    for col in required_cols:
-        if col not in header:
-            raise HTTPException(status_code=400, detail=f"Missing required column: {col}")
-        col_indices[col] = header.index(col)
-            
-    success_count = 0
-    errors = []
-
-    # Resolve the three lookup tables once instead of three queries per row.
-    # An import of 500 classes was 1,500 round-trips, all of them repeats: the
-    # same handful of curricula, faculty and rooms fetched over and over.
-    # Keyed exactly as the per-row queries were, so unmatched rows still fail
-    # the same way and produce the same error message.
-    # First match wins, matching the `.first()` these replace. `rooms.name` has
-    # no unique constraint -- two buildings may both have a "101" -- so a dict
-    # comprehension, which keeps the LAST duplicate, would have quietly bound
-    # imported rows to a different room than before.
-    def _index(rows_, key):
-        out = {}
-        for r in rows_:
-            k = getattr(r, key)
-            if k and k not in out:
-                out[k] = r
-        return out
-
-    curriculum_by_code = _index(db.query(models.Curriculum).order_by(models.Curriculum.id).all(), "code")
-    faculty_by_email = _index(db.query(models.Faculty).order_by(models.Faculty.id).all(), "email")
-    room_by_name = _index(db.query(models.Room).order_by(models.Room.id).all(), "name")
-
-    for index, row in enumerate(rows[1:], start=2):
-        if not row or all(v is None for v in row):
-            continue
-        try:
-            curr_code = str(row[col_indices['CurriculumCode']]).strip() if row[col_indices['CurriculumCode']] is not None else ""
-            fac_email = str(row[col_indices['FacultyEmail']]).strip() if row[col_indices['FacultyEmail']] is not None else ""
-            rm_name = str(row[col_indices['RoomName']]).strip() if row[col_indices['RoomName']] is not None else ""
-            day_val = str(row[col_indices['Day']]).strip() if row[col_indices['Day']] is not None else ""
-            start_val = row[col_indices['StartTime']]
-            end_val = row[col_indices['EndTime']]
-            sec_val = str(row[col_indices['Section']]).strip() if row[col_indices['Section']] is not None else ""
-
-            curriculum_item = curriculum_by_code.get(curr_code)
-            faculty = faculty_by_email.get(fac_email)
-            room = room_by_name.get(rm_name)
-            
-            if not curriculum_item or not faculty or not room:
-                errors.append(f"Row {index}: Entity not found (Curriculum: {curriculum_item is not None}, Faculty: {faculty is not None}, Room: {room is not None})")
-                continue
-                
-            def parse_time_val(t_val):
-                if isinstance(t_val, datetime):
-                    return t_val.time()
-                if hasattr(t_val, 'hour'):
-                    return t_val
-                if isinstance(t_val, str):
-                    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
-                        try:
-                            return datetime.strptime(t_val.strip(), fmt).time()
-                        except ValueError:
-                            pass
-                return datetime.strptime(str(t_val).strip(), "%H:%M:%S").time()
-
-            start_t = parse_time_val(start_val)
-            end_t = parse_time_val(end_val)
-            
-            new_sched = models.Schedule(
-                semester_id=semester_id,
-                curriculum_id=curriculum_item.id,
-                faculty_id=faculty.id,
-                room_id=room.id,
-                day_of_week=day_val,
-                start_time=start_t,
-                end_time=end_t,
-                section=sec_val,
-                status='draft'
-            )
-            db.add(new_sched)
-            success_count += 1
-        except Exception as e:
-            errors.append(f"Row {index}: {str(e)}")
-            
-    db.commit()
+    success_count, errors = import_schedules_from_excel(contents, db, semester_id)
     
     dept = db.query(models.Department).filter(
         (models.Department.code == current_user.department) | 
@@ -850,7 +644,8 @@ def export_excel(
     # Fetch data
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
     
-    dept_name = "All Departments"
+    dept = None
+    dept_name: str = "All Departments"
     if current_user.role in ['program_chair', 'coordinator']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
@@ -858,7 +653,7 @@ def export_excel(
         ).first()
         if dept:
             query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
-            dept_name = dept.name
+            dept_name = str(dept.name)
             
     # Eager-load the three relationships the row loop reads. Resolving them
     # per row issued three queries per schedule -- a 500-class export was about
@@ -869,40 +664,7 @@ def export_excel(
         joinedload(models.Schedule.room),
     ).all()
 
-    # Prepare data
-    export_data = []
-    headers = ["Curriculum Code", "Subject Name", "Section", "Faculty", "Room", "Day", "Start Time", "End Time", "Status", "Locked"]
-    for s in schedules:
-        curriculum_item = s.curriculum
-        faculty = s.faculty
-        room = s.room
-        
-        export_data.append({
-            "Curriculum Code": curriculum_item.code if curriculum_item else "N/A",
-            "Subject Name": curriculum_item.name if curriculum_item else "N/A",
-            "Section": s.section,
-            "Faculty": f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA",
-            "Room": room.name if room else "N/A",
-            "Day": s.day_of_week,
-            "Start Time": s.start_time.strftime('%I:%M %p') if s.start_time else "",
-            "End Time": s.end_time.strftime('%I:%M %p') if s.end_time else "",
-            "Status": s.status,
-            "Locked": "Yes" if s.is_locked else "No"
-        })
-    
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    if ws is None:
-        ws = wb.create_sheet("Schedules")
-    ws.title = "Schedules"
-    ws.append(headers)
-    
-    for item in export_data:
-        ws.append([item[h] for h in headers])
-        
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
+    output = build_schedule_excel(schedules)
     
     log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel", department_id=dept.id if current_user.role in ['program_chair', 'coordinator'] and dept else None) # type: ignore
     

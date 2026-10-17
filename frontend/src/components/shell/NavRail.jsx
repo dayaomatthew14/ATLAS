@@ -57,7 +57,7 @@ const ADMIN_SECTIONS = [
   {
     label: 'Academic structure',
     items: [
-      { to: '/dashboard/colleges', label: 'Colleges & Programmes', icon: Library },
+      { to: '/dashboard/colleges', label: 'Colleges and Programs', icon: Library },
       { to: '/dashboard/curriculum', label: 'Curriculum', icon: BookOpen },
       { to: '/dashboard/semesters', label: 'Academic Terms', icon: CalendarRange },
     ],
@@ -74,10 +74,6 @@ const ADMIN_SECTIONS = [
 
 function RailItem({ item, badge, onNavigate, expanded }) {
   const Icon = item.icon;
-  // `expanded` forces labels on regardless of viewport — the drawer is always
-  // 240px wide even on a phone, so it should never render as an icon rail.
-  const labelClass = expanded ? 'truncate' : 'hidden';
-  const srLabelClass = expanded ? 'hidden' : 'sr-only';
   return (
     <NavLink
       to={item.to}
@@ -85,71 +81,69 @@ function RailItem({ item, badge, onNavigate, expanded }) {
       onClick={onNavigate}
       className={({ isActive }) =>
         [
-          'group relative flex items-center h-10 rounded-field',
-          expanded ? 'gap-3 px-3' : 'justify-center px-0',
-          'font-ui text-body transition-colors duration-state ease-standard',
+          'group relative flex items-center h-10 w-full rounded-xl overflow-hidden',
+          'font-ui text-body transition-all duration-state ease-standard',
           focusRingOnDark,
           isActive
-            ? 'bg-white/95 text-atlas-900 font-semibold shadow-[inset_0_1px_0_0_rgb(255_255_255/0.9)]'
-            : 'text-atlas-100 hover:bg-white/[.14] hover:text-white',
+            ? 'bg-emerald-800/85 text-white font-semibold border border-emerald-400/35 shadow-sm'
+            : 'text-emerald-100/75 hover:bg-white/10 hover:text-white',
         ].join(' ')
       }
-      // aria-current is set by NavLink automatically as aria-current="page".
     >
-      <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <span
+              className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"
+              aria-hidden="true"
+            />
+          )}
+          <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+            <Icon
+              className={`w-[18px] h-[18px] shrink-0 transition-colors ${
+                isActive ? 'text-amber-300' : 'text-emerald-200/80 group-hover:text-white'
+              }`}
+              aria-hidden="true"
+            />
+          </div>
 
-      {/* Label is hidden at collapsed rail width but stays in the accessible name. */}
-      <span className={labelClass}>{item.label}</span>
-      <span className={srLabelClass}>{item.label}</span>
-
-      {/*
-        `null` is not zero. It means the conflict count could not be read, and
-        showing no badge for it would claim the schedule is clean on the
-        strength of a request that failed. A muted "?" says the number is
-        unknown, which is the honest state and a visibly different one from
-        both "none" and "some".
-      */}
-      {badge === null && (
-        <span
-          className={
-            expanded
-              ? 'ml-auto shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-warning text-atlas-900 font-data text-caption'
-              : 'absolute right-1 top-1 shrink-0 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-sem-warning text-atlas-900 font-data text-[10px] leading-none'
-          }
-          title="Conflict count unavailable"
-        >
-          ?
-          <span className="sr-only"> conflict count unavailable</span>
-        </span>
-      )}
-
-      {badge > 0 && (
-        <span
-          className={
-            expanded
-              ? 'ml-auto shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-caption tabular-nums'
-              : 'absolute right-1 top-1 shrink-0 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-[10px] leading-none tabular-nums'
-          }
-        >
-          {badge}
-          <span className="sr-only">
-            {badge === 1 ? ' unresolved conflict' : ' unresolved conflicts'}
+          <span
+            className={`font-ui text-body truncate whitespace-nowrap transition-opacity duration-200 ${
+              expanded ? 'opacity-100' : 'opacity-0 sr-only'
+            }`}
+          >
+            {item.label}
           </span>
-        </span>
-      )}
 
-      {/* Flyout label for the collapsed rail only. Hover and focus both trigger
-          it, so it is reachable without a pointer. */}
-      {!expanded && (
-        <span
-          className="pointer-events-none absolute left-full ml-2 px-2 py-1 rounded-field
-                     bg-atlas-900 text-white font-ui text-caption whitespace-nowrap opacity-0
-                     group-hover:opacity-100 group-focus-visible:opacity-100
-                     transition-opacity duration-state ease-standard z-railflyout shadow-overlay"
-          aria-hidden="true"
-        >
-          {item.label}
-        </span>
+          {badge === null && (
+            <span
+              className={
+                expanded
+                  ? 'ml-auto mr-2.5 shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-warning text-atlas-900 font-data text-caption font-bold'
+                  : 'absolute right-1 top-1 shrink-0 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-sem-warning text-atlas-900 font-data text-micro leading-none font-bold'
+              }
+              title="Conflict count unavailable"
+            >
+              ?
+              <span className="sr-only"> conflict count unavailable</span>
+            </span>
+          )}
+
+          {badge > 0 && (
+            <span
+              className={
+                expanded
+                  ? 'ml-auto mr-2.5 shrink-0 min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-caption font-bold tabular-nums shadow-sm'
+                  : 'absolute right-1 top-1 shrink-0 min-w-4 h-4 px-1 inline-flex items-center justify-center rounded-full bg-sem-conflict text-white font-data text-micro leading-none font-bold tabular-nums shadow-sm'
+              }
+            >
+              {badge}
+              <span className="sr-only">
+                {badge === 1 ? ' unresolved conflict' : ' unresolved conflicts'}
+              </span>
+            </span>
+          )}
+        </>
       )}
     </NavLink>
   );
@@ -162,16 +156,16 @@ export default function NavRail({ role, conflictCount = 0, onNavigate, expanded 
     <nav
       id="primary-nav"
       aria-label="Primary"
-      className="h-full w-full glass-dark border-y-0 border-l-0 px-3 py-4 flex flex-col gap-1 overflow-y-auto"
+      className="h-full w-full px-3 py-3 flex flex-col gap-1 overflow-y-auto"
     >
       {sections.map((section, i) => (
         <div key={section.label || `top-${i}`} className="flex flex-col gap-1">
           {section.label && (
             <>
-              <hr className="my-2 border-white/15" aria-hidden="true" />
+              <hr className="my-2 border-emerald-500/20" aria-hidden="true" />
               <p
-                className={`px-3 pb-1 font-ui text-micro uppercase text-atlas-300 ${
-                  expanded ? '' : 'sr-only'
+                className={`px-2 pb-1 font-ui text-caption font-bold tracking-wider uppercase text-emerald-300/80 truncate whitespace-nowrap transition-opacity duration-200 ${
+                  expanded ? 'opacity-100' : 'sr-only'
                 }`}
               >
                 {section.label}
