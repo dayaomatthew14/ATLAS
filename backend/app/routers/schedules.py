@@ -632,6 +632,7 @@ async def import_excel(
 @router.get("/export/excel")
 def export_excel(
     semester_id: int,
+    faculty_name: Optional[str] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -664,9 +665,17 @@ def export_excel(
         joinedload(models.Schedule.room),
     ).all()
 
-    output = build_schedule_excel(schedules)
+    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    term_label = f"{semester.academic_year} {semester.term}" if semester else ""
+
+    output, row_count = build_schedule_excel(
+        schedules,
+        dept_name=dept_name,
+        term_label=term_label,
+        faculty_name=faculty_name,
+    )
     
-    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel", department_id=dept.id if current_user.role in ['program_chair', 'coordinator'] and dept else None) # type: ignore
+    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel ({row_count} classes)", department_id=dept.id if current_user.role in ['program_chair', 'coordinator'] and dept else None) # type: ignore
     
     return StreamingResponse(
         output,

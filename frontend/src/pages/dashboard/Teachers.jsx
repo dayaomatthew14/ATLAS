@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Users as UsersIcon, Clock, X, Search, Trash2, ChevronRight, Eye } from 'lucide-react';
+import { Plus, Users as UsersIcon, Clock, X, Search, Trash2, ChevronRight, Eye, UserPlus, BookOpen } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../components/ui/Dialog';
@@ -96,7 +96,7 @@ export default function Teachers() {
     unavailability: []
   });
   const [selectedDays, setSelectedDays] = useState([]);
-  const [customRanges, setCustomRanges] = useState({}); // { 'Mon': { start: '07:30', end: '17:30', active: false } }
+  const [customRanges, setCustomRanges] = useState({}); // { 'Mon': [{ id: '...', start: '07:30', end: '17:30', active: false }] }
 
   const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
   const [selectedTeacherForSubjects, setSelectedTeacherForSubjects] = useState(null);
@@ -583,6 +583,77 @@ export default function Teachers() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const getRangesForDay = (day) => {
+    const val = customRanges[day];
+    if (Array.isArray(val) && val.length > 0) return val;
+    if (val && typeof val === 'object' && val.start) return [{ id: 'default', ...val }];
+    return [{ id: 'default', start: '07:30', end: '17:30', active: false }];
+  };
+
+  const handleAddRange = (day) => {
+    const existing = getRangesForDay(day);
+    let newStart = '13:00';
+    let newEnd = '17:30';
+
+    if (existing.length > 0) {
+      const lastRange = existing[existing.length - 1];
+      if (lastRange.end && lastRange.end <= '12:00') {
+        newStart = '13:00';
+        newEnd = '17:30';
+      } else if (lastRange.end && lastRange.end < '16:00') {
+        const [h, m] = lastRange.end.split(':').map(Number);
+        const nextHour = Math.min((h || 0) + 1, 16);
+        newStart = `${String(nextHour).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+        newEnd = '17:30';
+      }
+    }
+
+    // When adding a second/additional slot, existing full-day slots switch to active
+    const updatedExisting = existing.map((r) => {
+      if (!r.active) {
+        return { ...r, start: '07:30', end: '12:00', active: true };
+      }
+      return r;
+    });
+
+    const newSlot = {
+      id: Math.random().toString(36).substring(2, 9),
+      start: newStart,
+      end: newEnd,
+      active: true,
+    };
+
+    setCustomRanges((prev) => ({
+      ...prev,
+      [day]: [...updatedExisting, newSlot],
+    }));
+  };
+
+  const handleRemoveRange = (day, rangeId) => {
+    const existing = getRangesForDay(day);
+    if (existing.length <= 1) {
+      setSelectedDays((prev) => prev.filter((d) => d !== day));
+      setCustomRanges((prev) => {
+        const next = { ...prev };
+        delete next[day];
+        return next;
+      });
+    } else {
+      setCustomRanges((prev) => ({
+        ...prev,
+        [day]: existing.filter((r) => r.id !== rangeId),
+      }));
+    }
+  };
+
+  const handleUpdateRange = (day, rangeId, updates) => {
+    const existing = getRangesForDay(day);
+    setCustomRanges((prev) => ({
+      ...prev,
+      [day]: existing.map((r) => (r.id === rangeId ? { ...r, ...updates } : r)),
+    }));
+  };
+
   const handleOpenModal = (teacher = null) => {
     if (teacher) {
       setEditingTeacher(teacher);
@@ -600,16 +671,36 @@ export default function Teachers() {
       const ranges = {};
       (teacher.unavailability || []).forEach(u => {
         const day = u.day_of_week.substring(0, 3);
-        days.push(day);
+        if (!days.includes(day)) {
+          days.push(day);
+        }
+        if (!ranges[day]) {
+          ranges[day] = [];
+        }
         const uStart = u.start_time ? u.start_time.substring(0, 5) : '07:30';
         const uEnd = u.end_time ? u.end_time.substring(0, 5) : '17:30';
         const isCustom = uStart !== '07:30' || uEnd !== '17:30';
-        ranges[day] = {
+        ranges[day].push({
+          id: u.id ? String(u.id) : Math.random().toString(36).substring(2, 9),
           start: uStart,
           end: uEnd,
           active: u.is_custom !== undefined ? u.is_custom : isCustom
-        };
+        });
       });
+
+      days.forEach(day => {
+        if (!ranges[day] || ranges[day].length === 0) {
+          ranges[day] = [{
+            id: Math.random().toString(36).substring(2, 9),
+            start: '07:30',
+            end: '17:30',
+            active: false
+          }];
+        } else if (ranges[day].length > 1) {
+          ranges[day] = ranges[day].map(r => ({ ...r, active: true }));
+        }
+      });
+
       setSelectedDays(days);
       setCustomRanges(ranges);
     } else {
@@ -639,23 +730,55 @@ export default function Teachers() {
     setFormErrors(errors);
     if (errors.name || errors.max_units) return;
 
+    // Construct unavailability array for submission
+    const finalUnavailability = [];
+    selectedDays.forEach((day) => {
+      const dayRanges = getRangesForDay(day);
+      dayRanges.forEach((range) => {
+        finalUnavailability.push({
+          day_of_week: day,
+          start_time: (range.active && range.start) ? range.start : '07:30',
+          end_time: (range.active && range.end) ? range.end : '17:30',
+          is_custom: !!range.active,
+        });
+      });
+    });
+
+    // Validate times (end must be after start)
+    for (const u of finalUnavailability) {
+      if (u.end_time <= u.start_time) {
+        addToast(
+          `Unavailable time on ${u.day_of_week} must end after it starts (${formatTime(u.start_time)} to ${formatTime(u.end_time)}).`,
+          'error'
+        );
+        return;
+      }
+    }
+
+    // Validate against overlapping slots on the same day
+    for (const day of selectedDays) {
+      const daySlots = finalUnavailability.filter((u) => u.day_of_week === day);
+      for (let i = 0; i < daySlots.length; i++) {
+        for (let j = i + 1; j < daySlots.length; j++) {
+          const a = daySlots[i];
+          const b = daySlots[j];
+          if (a.start_time < b.end_time && a.end_time > b.start_time) {
+            addToast(
+              `Unavailable times on ${day} overlap (${formatTime(a.start_time)}–${formatTime(a.end_time)} and ${formatTime(b.start_time)}–${formatTime(b.end_time)}).`,
+              'error'
+            );
+            return;
+          }
+        }
+      }
+    }
+
     setIsSavingTeacher(true);
 
     // Split name into first and last cleanly
     const nameParts = formData.name.trim().split(/\s+/);
     const first_name = nameParts[0] || '';
     const last_name = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-
-    // Construct unavailability array for submission
-    const finalUnavailability = selectedDays.map(day => {
-      const range = customRanges[day] || { start: '07:30', end: '17:30', active: false };
-      return {
-        day_of_week: day,
-        start_time: range.active ? range.start : '07:30',
-        end_time: range.active ? range.end : '17:30',
-        is_custom: range.active
-      };
-    });
 
     // Field names must match schemas.FacultyCreate / FacultyUpdate. `faculty_type`
     // was silently dropped by the API, so the employment type never saved.
@@ -1008,6 +1131,7 @@ export default function Teachers() {
       <AtlasDialog
         isOpen={isModalOpen}
         onClose={handleCloseModal}
+        icon={editingTeacher ? UsersIcon : UserPlus}
         title={editingTeacher ? `Edit ${editingTeacher.name}` : 'Add Faculty'}
         description="Their teaching cap and unavailable hours both constrain generation."
         dismissible={!isSavingTeacher}
@@ -1172,12 +1296,18 @@ export default function Teachers() {
                     aria-pressed={isSelected}
                     onClick={() => {
                       if (isSelected) {
-                        setSelectedDays(selectedDays.filter((d) => d !== day));
+                        setSelectedDays((prev) => prev.filter((d) => d !== day));
+                        setCustomRanges((prev) => {
+                          const next = { ...prev };
+                          delete next[day];
+                          return next;
+                        });
                       } else {
-                        setSelectedDays([...selectedDays, day]);
-                        if (!customRanges[day]) {
-                          setCustomRanges({ ...customRanges, [day]: { start: '07:30', end: '17:30', active: false } });
-                        }
+                        setSelectedDays((prev) => [...prev, day]);
+                        setCustomRanges((prev) => ({
+                          ...prev,
+                          [day]: [{ id: Math.random().toString(36).substring(2, 9), start: '07:30', end: '17:30', active: false }],
+                        }));
                       }
                     }}
                     className={`h-10 px-4 rounded-control font-ui text-body border
@@ -1200,9 +1330,9 @@ export default function Teachers() {
             </p>
 
             {selectedDays.length > 0 && (
-              <div className="mt-4 rounded-panel border border-atlas-line overflow-hidden">
-                <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-atlas-canvas border-b border-atlas-line">
-                  <span className="font-ui text-micro uppercase text-atlas-slate">
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between gap-3 px-1 py-1">
+                  <span className="font-ui text-micro uppercase text-atlas-slate font-medium">
                     {pluralize(selectedDays.length, 'day')} unavailable
                   </span>
                   <AtlasButton
@@ -1215,76 +1345,119 @@ export default function Teachers() {
                   </AtlasButton>
                 </div>
 
-                <ul className="divide-y divide-atlas-line">
-                  {DAYS.filter((d) => selectedDays.includes(d)).map((day) => {
-                    const range = customRanges[day] || { start: '07:30', end: '17:30', active: false };
-                    return (
-                      <li key={day} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                        <span className="font-ui text-body text-atlas-ink w-12 shrink-0">{day}</span>
+                {DAYS.filter((d) => selectedDays.includes(d)).map((day) => {
+                  const ranges = getRangesForDay(day);
+                  return (
+                    <div
+                      key={day}
+                      className="rounded-panel border border-atlas-line bg-atlas-canvas/40 overflow-hidden divide-y divide-atlas-line shadow-xs"
+                    >
+                      {ranges.map((range, rangeIdx) => {
+                        const isFirst = rangeIdx === 0;
+                        return (
+                          <div
+                            key={`${day}-${range.id || rangeIdx}`}
+                            className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2.5"
+                          >
+                            {isFirst ? (
+                              <>
+                                <span className="font-ui text-body text-atlas-ink w-11 shrink-0 font-semibold">
+                                  {day}
+                                </span>
 
-                        <label className="flex items-center gap-2.5 cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={range.active}
-                            onChange={(e) => setCustomRanges({
-                              ...customRanges,
-                              [day]: { ...range, active: e.target.checked },
-                            })}
-                            className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
-                          />
-                          <span className="font-ui text-caption text-atlas-slate">Specific hours</span>
-                        </label>
+                                <label className="flex items-center gap-2 cursor-pointer shrink-0 w-[116px]">
+                                  <input
+                                    type="checkbox"
+                                    checked={range.active}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      if (!checked && ranges.length > 1) {
+                                        setCustomRanges((prev) => ({
+                                          ...prev,
+                                          [day]: [{
+                                            id: Math.random().toString(36).substring(2, 9),
+                                            start: '07:30',
+                                            end: '17:30',
+                                            active: false,
+                                          }],
+                                        }));
+                                      } else {
+                                        handleUpdateRange(day, range.id, { active: checked });
+                                      }
+                                    }}
+                                    className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
+                                  />
+                                  <span className="font-ui text-caption text-atlas-slate">Specific hours</span>
+                                </label>
+                              </>
+                            ) : (
+                              <>
+                                {/* On added time slots, do not duplicate text before time (only the time) */}
+                                <span className="w-11 shrink-0 hidden sm:block" aria-hidden="true" />
+                                <span className="w-[116px] shrink-0 hidden sm:block" aria-hidden="true" />
+                              </>
+                            )}
 
-                        {range.active ? (
-                          <span className="flex items-center gap-2 flex-1 min-w-0">
-                            <label className="sr-only" htmlFor={`unavail-${day}-from`}>
-                              {day} unavailable from
-                            </label>
-                            <input
-                              id={`unavail-${day}-from`}
-                              type="time"
-                              value={range.start}
-                              onChange={(e) => setCustomRanges({
-                                ...customRanges, [day]: { ...range, start: e.target.value },
-                              })}
-                              className={`h-10 px-3 rounded-field font-data text-table text-atlas-ink
-                                          bg-white/70 border border-atlas-control ${focusRing}`}
-                            />
-                            <span className="font-ui text-caption text-atlas-slate">to</span>
-                            <label className="sr-only" htmlFor={`unavail-${day}-to`}>
-                              {day} unavailable until
-                            </label>
-                            <input
-                              id={`unavail-${day}-to`}
-                              type="time"
-                              value={range.end}
-                              onChange={(e) => setCustomRanges({
-                                ...customRanges, [day]: { ...range, end: e.target.value },
-                              })}
-                              className={`h-10 px-3 rounded-field font-data text-table text-atlas-ink
-                                          bg-white/70 border border-atlas-control ${focusRing}`}
-                            />
-                          </span>
-                        ) : (
-                          <span className="flex-1 font-ui text-caption text-atlas-slate tabular-nums">
-                            All day · {formatTime('07:30')} – {formatTime('17:30')}
-                          </span>
-                        )}
+                            {range.active ? (
+                              <span className="flex items-center gap-1.5 shrink-0">
+                                <label className="sr-only" htmlFor={`unavail-${day}-${range.id}-from`}>
+                                  {day} unavailable from
+                                </label>
+                                <input
+                                  id={`unavail-${day}-${range.id}-from`}
+                                  type="time"
+                                  value={range.start}
+                                  onChange={(e) => handleUpdateRange(day, range.id, { start: e.target.value })}
+                                  className={`h-9 px-2 w-[116px] rounded-field font-data text-table text-atlas-ink
+                                              bg-white/70 border border-atlas-control ${focusRing}`}
+                                />
+                                <span className="font-ui text-caption text-atlas-slate px-0.5">to</span>
+                                <label className="sr-only" htmlFor={`unavail-${day}-${range.id}-to`}>
+                                  {day} unavailable until
+                                </label>
+                                <input
+                                  id={`unavail-${day}-${range.id}-to`}
+                                  type="time"
+                                  value={range.end}
+                                  onChange={(e) => handleUpdateRange(day, range.id, { end: e.target.value })}
+                                  className={`h-9 px-2 w-[116px] rounded-field font-data text-table text-atlas-ink
+                                              bg-white/70 border border-atlas-control ${focusRing}`}
+                                />
+                              </span>
+                            ) : (
+                              <span className="font-ui text-caption text-atlas-slate tabular-nums py-0.5">
+                                All day · {formatTime('07:30')} – {formatTime('17:30')}
+                              </span>
+                            )}
 
-                        <AtlasButton
-                          size="row"
-                          variant="ghost"
-                          icon={X}
-                          onClick={() => setSelectedDays(selectedDays.filter((d) => d !== day))}
-                          aria-label={`Make ${day} available again`}
-                          className="shrink-0 ml-auto"
-                        >
-                          Remove
-                        </AtlasButton>
-                      </li>
-                    );
-                  })}
-                </ul>
+                            <div className="flex items-center gap-1 shrink-0 ml-auto pr-1">
+                              <AtlasButton
+                                size="row"
+                                variant="ghost"
+                                icon={Plus}
+                                onClick={() => handleAddRange(day)}
+                                aria-label={`Add another unavailable time for ${day}`}
+                                className="!px-2 !gap-1.5"
+                              >
+                                Add
+                              </AtlasButton>
+                              <AtlasButton
+                                size="row"
+                                variant="ghost"
+                                icon={X}
+                                onClick={() => handleRemoveRange(day, range.id)}
+                                aria-label={`Remove unavailable time for ${day}`}
+                                className="!px-2 !gap-1.5 hover:!text-rose-600"
+                              >
+                                Remove
+                              </AtlasButton>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </fieldset>
@@ -1315,6 +1488,7 @@ export default function Teachers() {
       <AtlasDialog
         isOpen={isAvailabilityModalOpen}
         onClose={() => setIsAvailabilityModalOpen(false)}
+        icon={Clock}
         title={`Availability — ${selectedTeacher?.name || ''}`}
         description="Marked time is when this faculty member cannot teach. The scheduler will not place classes there."
         dismissible={!isSavingAvailability}
@@ -1345,6 +1519,7 @@ export default function Teachers() {
       <AtlasDialog
         isOpen={isSubjectModalOpen}
         onClose={() => { setIsSubjectModalOpen(false); fetchTeachers(); }}
+        icon={BookOpen}
         title={`Subjects — ${selectedTeacherForSubjects?.name || ''}`}
         description={
           subjectScope

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList } from 'lucide-react';
+import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList, FileText, FileSpreadsheet, Table as TableIcon } from 'lucide-react';
 import Modal from '../../components/Modal';
+import AtlasDialog from '../../components/ui/Dialog';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
@@ -158,22 +159,44 @@ const buildCsv = (rows) =>
  */
 const EXPORT_FORMATS = [
   {
-    id: 'csv',
-    ext: 'csv',
-    label: 'Spreadsheet',
-    sub: 'CSV — Excel, Numbers, Google Sheets',
+    id: 'pdf',
+    ext: 'pdf',
+    label: 'PDF Document',
+    tag: 'Official',
+    tagClass: 'bg-rose-50 text-rose-700 border-rose-200/80',
+    iconColor: 'bg-rose-100 text-rose-700 border-rose-200',
+    icon: FileText,
+    sub: 'Print-ready landscape layout with university letterhead & signature lines',
+  },
+  {
+    id: 'excel',
+    ext: 'xlsx',
+    label: 'Excel Workbook',
+    tag: 'Formatted',
+    tagClass: 'bg-emerald-50 text-emerald-800 border-emerald-200/80',
+    iconColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    icon: FileSpreadsheet,
+    sub: 'Styled .xlsx spreadsheet with green header, auto-fit columns & frozen panes',
   },
   {
     id: 'word',
     ext: 'doc',
-    label: 'Word document',
-    sub: 'Opens and edits in Word, Docs or LibreOffice',
+    label: 'Word Document',
+    tag: 'Editable',
+    tagClass: 'bg-blue-50 text-blue-700 border-blue-200/80',
+    iconColor: 'bg-blue-100 text-blue-700 border-blue-200',
+    icon: FileText,
+    sub: 'Editable .doc document with DLSAU branding & sign-off blocks',
   },
   {
-    id: 'pdf',
-    ext: 'pdf',
-    label: 'PDF',
-    sub: 'Fixed layout, for sending and posting',
+    id: 'csv',
+    ext: 'csv',
+    label: 'CSV Spreadsheet',
+    tag: 'Raw Data',
+    tagClass: 'bg-slate-50 text-slate-700 border-slate-200/80',
+    iconColor: 'bg-slate-100 text-slate-700 border-slate-200',
+    icon: TableIcon,
+    sub: 'Raw UTF-8 delimited table for custom data import or scripting',
   },
 ];
 
@@ -183,42 +206,118 @@ const htmlEscape = (v) =>
     .replace(/"/g, '&quot;');
 
 /**
- * A Word document, built as HTML.
- *
- * Word, LibreOffice and Google Docs all open an HTML file served as
- * `application/msword`, and the result is a real editable document with a
- * formatted table. A true binary .docx would mean adding a document library to
- * a project that has four frontend dependencies; this needs none and produces a
- * file people can actually edit, which is the point of asking for Word.
+ * A Word document, built as HTML with institutional DLSAU styling.
  */
-const buildWordHtml = (rows, { title, subtitle }) => `
+const buildWordHtml = (rows, opts = {}) => {
+  const dept = opts.dept || opts.title || (getDepartment() || 'All Departments');
+  const term = opts.term || 'Active Term';
+  const scope = opts.scope || 'All Faculty Members';
+  const dateStr = opts.dateStr || new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+
+  return `
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:w="urn:schemas-microsoft-com:office:word"
       xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8">
+<head>
+<meta charset="utf-8">
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
-  @page { size: 29.7cm 21cm; margin: 1.5cm; }
-  body { font-family: Calibri, Arial, sans-serif; font-size: 10pt; color: #16211c; }
-  h1 { font-size: 16pt; margin: 0 0 4pt; }
-  p.sub { font-size: 9pt; color: #5b6b63; margin: 0 0 14pt; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 0.5pt solid #c9d2cd; padding: 5pt 6pt; text-align: left; vertical-align: top; font-size: 9pt; }
-  th { background: #0d3b26; color: #ffffff; font-weight: bold; }
-  tr.alt td { background: #f4f6f5; }
-</style></head>
+  @page { size: 29.7cm 21cm; margin: 1.2cm 1.5cm; mso-page-orientation: landscape; }
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 9.5pt; color: #0f172a; margin: 0; padding: 0; }
+  
+  .banner { background-color: #05301F; color: #ffffff; padding: 14pt 18pt; border-bottom: 3.5pt solid #C8A227; margin-bottom: 12pt; }
+  .univ-title { font-size: 10pt; font-weight: bold; letter-spacing: 1.5pt; text-transform: uppercase; color: #C8A227; margin: 0 0 3pt; }
+  .doc-title { font-size: 16pt; font-weight: bold; color: #ffffff; margin: 0 0 3pt; }
+  .sub-title { font-size: 8.5pt; color: #D0DFD6; margin: 0; }
+
+  .summary-bar { width: 100%; border-collapse: collapse; margin-bottom: 12pt; background: #F2F7F4; border: 1pt solid #C8D9CF; }
+  .summary-bar td { padding: 6pt 10pt; font-size: 8.5pt; color: #1E293B; border-right: 1pt solid #DDE7E1; vertical-align: middle; }
+  .summary-bar td:last-child { border-right: none; }
+  .summary-label { font-weight: bold; color: #05301F; }
+
+  table.data-table { border-collapse: collapse; width: 100%; margin-bottom: 18pt; }
+  table.data-table th, table.data-table td { border: 0.5pt solid #D5DFD9; padding: 5.5pt 6.5pt; font-size: 8.5pt; vertical-align: top; }
+  table.data-table th { background: #05301F; color: #ffffff; font-weight: bold; font-size: 8pt; text-transform: uppercase; border-bottom: 2pt solid #C8A227; text-align: center; }
+  table.data-table th.left, table.data-table td.left { text-align: left; }
+  table.data-table th.center, table.data-table td.center { text-align: center; }
+  table.data-table tr.alt td { background: #F4F8F5; }
+  .prof-name { font-weight: bold; color: #0F172A; }
+  .subj-code { font-weight: bold; color: #05301F; }
+  
+  .signatures { width: 100%; border-collapse: collapse; margin-top: 24pt; page-break-inside: avoid; }
+  .signatures td { width: 50%; padding: 10pt 24pt; vertical-align: top; font-size: 9pt; color: #1E293B; }
+  .sig-line { border-bottom: 1pt solid #0F172A; width: 85%; margin-top: 36pt; margin-bottom: 4pt; }
+  .sig-title { font-weight: bold; color: #05301F; font-size: 9pt; }
+  .sig-meta { color: #64748B; font-size: 8pt; }
+</style>
+</head>
 <body>
-  <h1>${htmlEscape(title)}</h1>
-  <p class="sub">${htmlEscape(subtitle)}</p>
-  <table>
-    <thead><tr>${EXPORT_COLUMNS.map((c) => `<th>${htmlEscape(c.label)}</th>`).join('')}</tr></thead>
+  <div class="banner">
+    <div class="univ-title">De La Salle Araneta University</div>
+    <div class="doc-title">Official Class Timetable &amp; Faculty Load</div>
+    <div class="sub-title">Automated Timetable &amp; Load Allocation System (ATLAS)</div>
+  </div>
+
+  <table class="summary-bar">
+    <tr>
+      <td><span class="summary-label">Department:</span> ${htmlEscape(dept)}</td>
+      <td><span class="summary-label">Academic Term:</span> ${htmlEscape(term)}</td>
+      <td><span class="summary-label">Faculty Scope:</span> ${htmlEscape(scope)}</td>
+      <td><span class="summary-label">Total Classes:</span> ${rows.length} scheduled</td>
+      <td><span class="summary-label">Generated:</span> ${htmlEscape(dateStr)}</td>
+    </tr>
+  </table>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th class="left">Professor</th>
+        <th class="center">Subject Code</th>
+        <th class="left">Subject Name</th>
+        <th class="center">Section</th>
+        <th class="center">Day</th>
+        <th class="center">Start Time</th>
+        <th class="center">End Time</th>
+        <th class="left">Room</th>
+        <th class="left">Building</th>
+      </tr>
+    </thead>
     <tbody>
-      ${rows.map((s, i) =>
-        `<tr${i % 2 ? ' class="alt"' : ''}>${EXPORT_COLUMNS.map((c) => `<td>${htmlEscape(c.value(s))}</td>`).join('')}</tr>`
-      ).join('')}
+      ${rows.map((s, i) => `
+        <tr${i % 2 ? ' class="alt"' : ''}>
+          <td class="left prof-name">${htmlEscape(s.faculty_name || 'TBA')}</td>
+          <td class="center subj-code">${htmlEscape(formatSubjectCode(s))}</td>
+          <td class="left">${htmlEscape(s.subject_name || '')}</td>
+          <td class="center">${htmlEscape(s.section || '—')}</td>
+          <td class="center font-bold">${htmlEscape(DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '—')}</td>
+          <td class="center">${htmlEscape(to12h(s.start_time))}</td>
+          <td class="center">${htmlEscape(to12h(s.end_time))}</td>
+          <td class="left">${htmlEscape(s.room_name && s.room_name !== '—' ? s.room_name : 'No room assigned')}</td>
+          <td class="left">${htmlEscape(s.room_building || '—')}</td>
+        </tr>
+      `).join('')}
     </tbody>
   </table>
-</body></html>`.trim();
+
+  <table class="signatures">
+    <tr>
+      <td>
+        <div style="font-weight: bold; color: #05301F;">Certified Correct:</div>
+        <div class="sig-line"></div>
+        <div class="sig-title">Program Chair / Department Coordinator</div>
+        <div class="sig-meta">Date: ________________________</div>
+      </td>
+      <td>
+        <div style="font-weight: bold; color: #05301F;">Approved by:</div>
+        <div class="sig-line"></div>
+        <div class="sig-title">Dean / Vice Chancellor for Academic Affairs</div>
+        <div class="sig-meta">Date: ________________________</div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`.trim();
+};
 
 /** Professor, then the week in order, then time of day. How you would read it. */
 const sortForExport = (rows) =>
@@ -574,7 +673,7 @@ export default function Schedules() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   // 'all' or 'filtered'. Only meaningful while a professor filter is active.
   const [exportScope, setExportScope] = useState('all');
-  const [exportFormat, setExportFormat] = useState('csv');
+  const [exportFormat, setExportFormat] = useState('pdf');
   const [isExporting, setIsExporting] = useState(false);
 
   const openExport = () => {
@@ -604,7 +703,7 @@ export default function Schedules() {
     if (exportScope === 'filtered' && selectedProfessorFilter) parts.push(selectedProfessorFilter);
     parts.push(new Date().toISOString().slice(0, 10));
     const stem = parts.join('_').replace(/[^A-Za-z0-9_\-.]/g, '_');
-    return `${stem}.${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext || 'csv'}`;
+    return `${stem}.${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext || 'pdf'}`;
   })();
 
   const exportScopeName = exportScope === 'filtered' ? selectedProfessorFilter : null;
@@ -629,23 +728,22 @@ export default function Schedules() {
     setIsExporting(true);
     try {
       if (exportFormat === 'csv') {
-        // A Blob object URL, not a data: URI — see csvCell for what that fixed.
-        // The BOM makes Excel read UTF-8 subject names instead of mojibake.
         saveBlob(new Blob([CSV_BOM, buildCsv(exportRows)], { type: 'text/csv;charset=utf-8;' }), exportFileName);
       } else if (exportFormat === 'word') {
         const html = buildWordHtml(exportRows, {
-          title: `ATLAS Schedule — ${getDepartment() || 'Department'}`,
-          subtitle: [
-            exportTerm ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}` : 'No active term',
-            exportScopeName || 'All professors',
-            `${exportRows.length} ${exportRows.length === 1 ? 'class' : 'classes'}`,
-            `generated ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`,
-          ].join(' · '),
+          dept: getDepartment() || 'All Departments',
+          term: exportTerm ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}` : 'Active Term',
+          scope: exportScopeName || 'All Faculty Members',
+          dateStr: new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }),
         });
         saveBlob(new Blob([CSV_BOM, html], { type: 'application/msword;charset=utf-8;' }), exportFileName);
+      } else if (exportFormat === 'excel') {
+        const blob = await api.getBlob('/schedules/export/excel', {
+          params: { semester_id: activeSemesterId, faculty_name: exportScopeName || undefined },
+        });
+        saveBlob(blob, exportFileName);
       } else {
-        // The PDF is rendered by the server, which already has reportlab. It
-        // takes the same scope so the file matches the preview.
+        // The PDF is rendered by the server with DLSAU institutional branding
         const blob = await api.getBlob('/schedules/export/pdf', {
           params: { semester_id: activeSemesterId, faculty_name: exportScopeName || undefined },
         });
@@ -1832,86 +1930,163 @@ export default function Schedules() {
       </Modal>
       {/* Export preview. Everything the file will contain, before it is written:
           the same rows, the same columns, in the same order. */}
-      <Modal
+      <AtlasDialog
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         title="Export Schedule"
-        maxWidth="max-w-5xl"
+        description="Download an official timetable document formatted with DLSAU institutional styling."
+        size="wide"
+        icon={Download}
+        dismissible={!isExporting}
+        footer={
+          <>
+            <AtlasButton
+              variant="ghost"
+              onClick={() => setIsExportOpen(false)}
+              disabled={isExporting}
+            >
+              Cancel
+            </AtlasButton>
+            <AtlasButton
+              onClick={handleDownload}
+              disabled={exportRows.length === 0 || isExporting}
+              loading={isExporting}
+              icon={Download}
+            >
+              {`Download ${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext.toUpperCase() || 'File'}`}
+            </AtlasButton>
+          </>
+        }
       >
-        <div className="space-y-5">
-          <div className="flex flex-wrap items-start justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200/70">
+        <div className="space-y-6">
+          {/* File summary pill & info */}
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-white/70 border border-emerald-900/10 shadow-xs">
             <div className="min-w-0">
-              <p className="font-ui text-micro uppercase text-atlas-slate">File</p>
-              <p className="font-data text-table text-atlas-ink mt-1 break-all">{exportFileName}</p>
-              <p className="text-xs font-bold text-slate-500 mt-1">
+              <span className="font-ui text-caption font-bold text-slate-700 tracking-wider uppercase block">
+                Target File
+              </span>
+              <p className="font-data text-table font-bold text-emerald-950 mt-0.5 break-all">
+                {exportFileName}
+              </p>
+              <p className="font-ui text-caption text-slate-600 mt-0.5 font-medium">
                 {EXPORT_FORMATS.find((f) => f.id === exportFormat)?.sub}
               </p>
             </div>
-            <div className="text-right shrink-0">
-              <p className="font-ui text-micro uppercase text-atlas-slate">Rows</p>
-              <p className="font-display text-section text-atlas-ink tabular-nums">{exportRows.length}</p>
-              <p className="text-xs font-bold text-slate-500">
-                {exportTerm
-                  ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}`
-                  : 'No active term'}
-              </p>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="text-right px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/60">
+                <span className="font-ui text-micro font-bold uppercase text-emerald-800 tracking-wider block">
+                  Total Rows
+                </span>
+                <span className="font-display text-lead font-extrabold text-emerald-950 tabular-nums">
+                  {exportRows.length} {exportRows.length === 1 ? 'class' : 'classes'}
+                </span>
+              </div>
+              <div className="text-right px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                <span className="font-ui text-micro font-bold uppercase text-slate-600 tracking-wider block">
+                  Semester
+                </span>
+                <span className="font-ui text-body font-bold text-slate-800">
+                  {exportTerm
+                    ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}`
+                    : 'Active Term'}
+                </span>
+              </div>
             </div>
           </div>
 
+          {/* Format Selection Cards */}
           <fieldset>
-            <legend className="font-ui text-micro uppercase text-atlas-slate mb-2">
-              Save as
+            <legend className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase mb-2.5">
+              Choose Document Format
             </legend>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {EXPORT_FORMATS.map((f) => (
-                <label
-                  key={f.id}
-                  className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
-                    exportFormat === f.id
-                      ? 'bg-emerald-50/70 border-emerald-200'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="export-format"
-                    className="sr-only"
-                    checked={exportFormat === f.id}
-                    onChange={() => setExportFormat(f.id)}
-                  />
-                  <span
-                    aria-hidden="true"
-                    className={`mt-0.5 w-4 h-4 rounded-full border-4 shrink-0 transition-all ${
-                      exportFormat === f.id ? 'border-green-600 bg-white' : 'border-slate-200 bg-white'
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {EXPORT_FORMATS.map((f) => {
+                const Icon = f.icon;
+                const isSelected = exportFormat === f.id;
+                return (
+                  <label
+                    key={f.id}
+                    className={`relative flex flex-col justify-between p-4 rounded-2xl border cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-emerald-50/70 border-emerald-700/40 ring-2 ring-emerald-700/20 shadow-xs'
+                        : 'bg-white border-slate-200/90 hover:border-emerald-700/30 hover:bg-slate-50/50'
                     }`}
-                  />
-                  <span className="min-w-0">
-                    <span className="block font-ui text-body text-atlas-ink">{f.label}</span>
-                    <span className="block text-[11px] font-bold text-slate-500 leading-snug mt-0.5">{f.sub}</span>
-                  </span>
-                </label>
-              ))}
+                  >
+                    <input
+                      type="radio"
+                      name="export-format"
+                      className="sr-only"
+                      checked={isSelected}
+                      onChange={() => setExportFormat(f.id)}
+                    />
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${f.iconColor}`}
+                        >
+                          <Icon className="w-4 h-4 stroke-[2.2]" />
+                        </span>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${f.tagClass}`}
+                        >
+                          {f.tag}
+                        </span>
+                      </div>
+                      <span className="block font-ui text-body font-bold text-slate-900 leading-snug">
+                        {f.label}
+                      </span>
+                      <span className="block font-ui text-caption text-slate-600 mt-1 leading-relaxed font-medium">
+                        {f.sub}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="font-data text-micro font-bold text-slate-500 uppercase">
+                        .{f.ext}
+                      </span>
+                      <span
+                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                          isSelected
+                            ? 'border-emerald-700 bg-emerald-700'
+                            : 'border-slate-300 bg-white'
+                        }`}
+                      >
+                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </fieldset>
 
-          {/* Scope is only a question when a filter is already narrowing the
-              screen. Otherwise there is one honest answer and no control. */}
+          {/* Scope Selector */}
           {selectedProfessorFilter ? (
             <fieldset>
-              <legend className="font-ui text-micro uppercase text-atlas-slate mb-2">
-                What to include
+              <legend className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase mb-2">
+                Faculty Scope
               </legend>
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-col sm:flex-row gap-3">
                 {[
-                  { id: 'filtered', label: selectedProfessorFilter, count: globalSchedules.filter((s) => s.faculty_name === selectedProfessorFilter).length },
-                  { id: 'all', label: 'All professors', count: globalSchedules.length },
+                  {
+                    id: 'filtered',
+                    label: selectedProfessorFilter,
+                    count: globalSchedules.filter((s) => s.faculty_name === selectedProfessorFilter).length,
+                    desc: 'Export timetable for this faculty member only',
+                  },
+                  {
+                    id: 'all',
+                    label: 'All Professors',
+                    count: globalSchedules.length,
+                    desc: 'Export the complete departmental schedule',
+                  },
                 ].map((opt) => (
                   <label
                     key={opt.id}
-                    className={`flex-1 flex items-center gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                    className={`flex-1 flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${
                       exportScope === opt.id
-                        ? 'bg-emerald-50/70 border-emerald-200'
-                        : 'bg-white border-slate-200 hover:border-slate-300'
+                        ? 'bg-emerald-50/70 border-emerald-700/40 ring-1 ring-emerald-700/20'
+                        : 'bg-white border-slate-200/90 hover:border-slate-300'
                     }`}
                   >
                     <input
@@ -1923,14 +2098,20 @@ export default function Schedules() {
                     />
                     <span
                       aria-hidden="true"
-                      className={`w-4 h-4 rounded-full border-4 shrink-0 transition-all ${
-                        exportScope === opt.id ? 'border-green-600 bg-white' : 'border-slate-200 bg-white'
+                      className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        exportScope === opt.id
+                          ? 'border-emerald-700 bg-emerald-700'
+                          : 'border-slate-300 bg-white'
                       }`}
-                    />
+                    >
+                      {exportScope === opt.id && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </span>
                     <span className="min-w-0">
-                      <span className="block font-ui text-body text-atlas-ink truncate">{opt.label}</span>
-                      <span className="block text-[11px] font-bold text-slate-500 tabular-nums">
-                        {opt.count} {opt.count === 1 ? 'class' : 'classes'}
+                      <span className="block font-ui text-body font-bold text-slate-900 truncate">
+                        {opt.label}
+                      </span>
+                      <span className="block font-ui text-caption text-slate-600 font-medium">
+                        {opt.desc} ({opt.count} {opt.count === 1 ? 'class' : 'classes'})
                       </span>
                     </span>
                   </label>
@@ -1938,41 +2119,59 @@ export default function Schedules() {
               </div>
             </fieldset>
           ) : (
-            <p className="text-xs font-bold text-slate-500">
-              Every professor in your department is included.
-            </p>
+            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200/70 text-slate-700 font-ui text-caption font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-700" />
+              Including all scheduled faculty members and classes in your department.
+            </div>
           )}
 
+          {/* Preview Section */}
           <div>
-            <p className="font-ui text-micro uppercase text-atlas-slate mb-2">
-              Preview — {exportRows.length} {exportRows.length === 1 ? 'row' : 'rows'} in the file
-            </p>
-            <div className="border border-slate-200 rounded-2xl overflow-hidden">
-              <div className="max-h-[45vh] overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase">
+                Document Preview ({exportRows.length} {exportRows.length === 1 ? 'row' : 'rows'})
+              </span>
+              <span className="font-ui text-caption text-slate-500 font-medium">
+                Scroll to view complete dataset
+              </span>
+            </div>
+            <div className="border border-slate-200/90 rounded-2xl overflow-hidden bg-white shadow-2xs">
+              <div className="max-h-[38vh] overflow-auto">
                 <table className="w-full text-left border-collapse">
                   <caption className="sr-only">
                     Preview of the exported schedule, {exportRows.length} rows
                   </caption>
-                  <thead className="sticky top-0 bg-slate-50 z-10">
+                  <thead className="sticky top-0 bg-[#05301F] text-white z-10">
                     <tr>
                       {EXPORT_COLUMNS.map((col) => (
                         <th
                           key={col.key}
                           scope="col"
-                          className="px-4 py-3 font-ui text-micro uppercase text-atlas-slate whitespace-nowrap border-b border-atlas-line"
+                          className="px-3.5 py-3 font-ui text-caption font-bold tracking-wider uppercase whitespace-nowrap border-b-2 border-[#C8A227]"
                         >
                           {col.label}
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {exportRows.map((s) => (
-                      <tr key={s.id} className="hover:bg-slate-50/80">
+                  <tbody className="divide-y divide-slate-100 font-ui">
+                    {exportRows.map((s, idx) => (
+                      <tr
+                        key={s.id || idx}
+                        className={`hover:bg-emerald-50/40 transition-colors ${
+                          idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'
+                        }`}
+                      >
                         {EXPORT_COLUMNS.map((col) => (
                           <td
                             key={col.key}
-                            className="px-4 py-2.5 text-xs font-semibold text-slate-700 whitespace-nowrap"
+                            className={`px-3.5 py-2.5 text-caption whitespace-nowrap ${
+                              col.key === 'faculty'
+                                ? 'font-bold text-slate-900'
+                                : col.key === 'code'
+                                ? 'font-bold text-emerald-950 font-data'
+                                : 'text-slate-700 font-medium'
+                            }`}
                           >
                             {col.value(s) || <span className="text-slate-300">—</span>}
                           </td>
@@ -1983,33 +2182,19 @@ export default function Schedules() {
                 </table>
               </div>
               {exportRows.length === 0 && (
-                <p className="p-8 text-center text-sm font-bold text-slate-400">
-                  Nothing to export in this selection.
-                </p>
+                <div className="p-10 text-center text-slate-500">
+                  <p className="font-ui text-body font-bold text-slate-800">
+                    No classes match your selection
+                  </p>
+                  <p className="font-ui text-caption text-slate-500 mt-1">
+                    Try adjusting your filters or generating a schedule first.
+                  </p>
+                </div>
               )}
             </div>
           </div>
-
-          <div className="pt-4 flex justify-end items-center gap-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsExportOpen(false)}
-              className="h-10 px-4 rounded-control font-ui font-medium text-body text-atlas-slate hover:text-atlas-ink transition-colors duration-state ease-standard"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleDownload}
-              disabled={exportRows.length === 0 || isExporting}
-              className="h-10 px-5 rounded-control font-ui font-medium text-body text-white bg-atlas-700 hover:bg-atlas-800 transition-colors duration-state ease-standard disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              <Download className={`w-4 h-4 ${isExporting ? 'animate-pulse' : ''}`} />
-              {isExporting ? 'Preparing…' : `Download ${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext.toUpperCase()}`}
-            </button>
-          </div>
         </div>
-      </Modal>
+      </AtlasDialog>
 
       <Modal
         isOpen={isClearConfirmOpen}
