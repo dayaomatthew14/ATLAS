@@ -52,7 +52,7 @@ class NumberedCanvas(canvas.Canvas):
 
     def showPage(self):
         self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
+        self._startPage()  # type: ignore
 
     def save(self):
         num_pages = len(self._saved_page_states)
@@ -81,7 +81,7 @@ class NumberedCanvas(canvas.Canvas):
         self.setFont('Helvetica', 8)
         self.setFillColor(colors.HexColor('#64748B'))
         self.drawString(30, 14, 'De La Salle Araneta University · ATLAS Timetable & Allocation System · Official Document')
-        self.drawRightString(762, 14, f'Page {self._pageNumber} of {page_count}')
+        self.drawRightString(762, 14, f'Page {self._pageNumber} of {page_count}')  # type: ignore
         self.restoreState()
 
 
@@ -364,12 +364,11 @@ def build_schedule_excel(
     ]
 
     for r, (txt, sz, bold, color, h) in enumerate(banner_data, start=1):
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-        top_cell = ws.cell(row=r, column=1)
-        top_cell.value = txt
+        top_cell = ws.cell(row=r, column=1, value=txt)
         top_cell.font = Font(name='Segoe UI', size=sz, bold=bold, color=color)
         top_cell.fill = PatternFill(start_color='05301F', end_color='05301F', fill_type='solid')
         top_cell.alignment = Alignment(horizontal='center', vertical='center')
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
         ws.row_dimensions[r].height = h
         if r == 3:
             gold_border = Border(bottom=Side(style='medium', color='C8A227'))

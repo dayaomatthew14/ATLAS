@@ -1,6 +1,6 @@
 import re
 from datetime import time
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set, cast
 from sqlalchemy.orm import Session
 from .. import models
 from . import faculty_load
@@ -321,10 +321,10 @@ def _place_lab_slot(
 def get_base_code(code: Optional[str]) -> str:
     if not code:
         return ""
-    m = re.match(r"^(.*?)[_\-\s]*(?:A/B|[AB])$", str(code).strip(), re.IGNORECASE)
+    m = re.match(r"^(.*?)[_\-\s]*(?:A/B|[AB])$", code.strip(), re.IGNORECASE)
     if m:
         return m.group(1).strip().upper()
-    return str(code).strip().upper()
+    return code.strip().upper()
 
 
 def _place_consecutive_lec_lab_slot(
@@ -487,13 +487,14 @@ def generate_schedules(
 
     # 2. Load Faculty and initialize hours used from LOCKED/PUBLISHED schedules only
     faculties = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
-    faculty_objs = {f.id: f for f in faculties}
+    faculty_objs: Dict[int, models.Faculty] = {cast(int, f.id): f for f in faculties}
 
-    faculty_hours_used = {f.id: 0.0 for f in faculties}
+    faculty_hours_used: Dict[int, float] = {cast(int, f.id): 0.0 for f in faculties}
     all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id).all()
     for s in all_schedules:
-        if s.faculty_id in faculty_hours_used and s.start_time and s.end_time:
-            faculty_hours_used[s.faculty_id] += get_duration_hours(s.start_time, s.end_time) # type: ignore
+        s_fid = cast(Optional[int], s.faculty_id)
+        if s_fid is not None and s_fid in faculty_hours_used and s.start_time and s.end_time:
+            faculty_hours_used[s_fid] += get_duration_hours(s.start_time, s.end_time) # type: ignore
 
     # Load unavailabilities
     all_unavails = db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id.in_(faculty_ids)).all()
@@ -518,21 +519,23 @@ def generate_schedules(
     skipped_gened = 0
 
     # Track which (faculty_id, curriculum_id) pairings are already scheduled
-    scheduled_offerings = set()
+    scheduled_offerings: Set[Tuple[int, Any]] = set()
     for s in all_schedules:
         if s.faculty_id and s.curriculum_id:
-            scheduled_offerings.add((s.faculty_id, s.curriculum_id))
+            scheduled_offerings.add((cast(int, s.faculty_id), s.curriculum_id))
 
     # 4. Group and process subject offerings for each faculty member
     offerings_by_faculty: Dict[int, List[models.SubjectOffering]] = {}
     for off in subject_offerings:
-        pid = off.faculty_id
+        if off.faculty_id is None:
+            continue
+        pid = cast(int, off.faculty_id)
         if pid not in faculty_objs:
             continue
         c = db.query(models.Curriculum).filter(models.Curriculum.id == off.curriculum_id).first()
         if not c:
             continue
-        if c.code and c.code.startswith('GE'):
+        if c.code and str(c.code).startswith('GE'):
             skipped_gened += 1
             continue
         if (pid, c.id) in scheduled_offerings:

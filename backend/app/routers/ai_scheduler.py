@@ -337,14 +337,14 @@ def solve_conflict(
     fac_name = f"{f_obj.first_name} {f_obj.last_name}".strip() if f_obj else "Faculty member"
     subj_code = c_obj.code if c_obj else "Subject"
 
-    dept_id = f_obj.department_id if (f_obj and f_obj.department_id) else None
+    dept_id: Optional[int] = cast(Optional[int], f_obj.department_id) if f_obj else None
     if not dept_id and current_user.department:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
         ).first()
         if dept:
-            dept_id = dept.id
+            dept_id = cast(int, dept.id)
 
     # 1. Schedule-to-Schedule Overlap Conflict
     if conflict and conflict.schedule_id_1:
