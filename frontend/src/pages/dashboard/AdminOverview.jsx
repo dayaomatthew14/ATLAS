@@ -4,7 +4,6 @@ import {
   Users,
   UserCheck,
   GraduationCap,
-  Building2,
   RefreshCw,
   Layers,
   ChevronRight,
@@ -14,34 +13,65 @@ import Button from '../../components/ui/Button';
 import useCountUp from '../../components/ui/useCountUp';
 import { pluralize, focusRing } from '../../components/ui/tokens';
 
-/** Executive KPI stat card with DLSAU emerald styling and count-up display */
-function StatCard({ label, value, hint, icon: Icon, to }) {
+const STAT_VARIANTS = {
+  classes: {
+    card: 'stat-card-classes',
+    chip: 'bg-[#714E03]/12 border-[#714E03]/20',
+    hover: 'hover:border-[#CA8A04]/60',
+  },
+  faculty: {
+    card: 'stat-card-faculty',
+    chip: 'bg-[#476033]/12 border-[#476033]/20',
+    hover: 'hover:border-[#789A5B]/60',
+  },
+  rooms: {
+    card: 'stat-card-rooms',
+    chip: 'bg-[#304832]/12 border-[#304832]/20',
+    hover: 'hover:border-[#57775A]/60',
+  },
+  health: {
+    card: 'stat-card-health',
+    chip: 'bg-[#1D3220]/15 border-[#1D3220]/25',
+    hover: 'hover:border-[#36543A]/60',
+  },
+};
+
+/** Executive KPI stat card with ombre styling and count-up display */
+function StatCard({ label, value, hint, icon: Icon, to, variant }) {
   const shown = useCountUp(value);
+
+  const key = variant || (
+    label?.toLowerCase().includes('account') || label?.toLowerCase().includes('faculty') ? 'faculty' :
+    label?.toLowerCase().includes('curriculum') || label?.toLowerCase().includes('room') ? 'rooms' :
+    label?.toLowerCase().includes('facility') || label?.toLowerCase().includes('health') ? 'health' :
+    'classes'
+  );
+  const v = STAT_VARIANTS[key] || STAT_VARIANTS.classes;
 
   const content = (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <span className="block font-ui text-xs font-bold text-slate-600 tracking-wider uppercase truncate">
+        <span className="block font-ui text-xs font-bold text-[#0F2A1D] tracking-wider uppercase truncate">
           {label}
         </span>
-        <span className="block text-2xl lg:text-3xl font-extrabold mt-1 tabular-nums tracking-tight leading-none text-emerald-950">
+        <span className="block text-2xl lg:text-3xl font-extrabold mt-1 tabular-nums tracking-tight leading-none text-[#0F2A1D]">
           {shown}
         </span>
         {hint && (
-          <span className="block font-ui text-xs text-slate-600 mt-1.5 truncate font-medium">
+          <span className="block font-ui text-xs text-[#0F2A1D] mt-1.5 truncate font-semibold">
             {hint}
           </span>
         )}
       </div>
       {Icon && (
-        <span className="w-11 h-11 lg:w-12 lg:h-12 rounded-xl flex items-center justify-center shrink-0 shadow-xs border bg-emerald-800/10 text-emerald-800 border-emerald-800/15 transition-transform group-hover:scale-105 duration-overlay">
-          <Icon className="w-5 h-5 stroke-[2.2]" />
+        <span className={`w-11 h-11 lg:w-12 lg:h-12 rounded-xl flex items-center justify-center shrink-0 shadow-xs border ${v.chip} text-[#0F2A1D] transition-transform group-hover:scale-105 duration-overlay`}>
+          <Icon className="w-5 h-5 stroke-[2.2] text-[#0F2A1D]" />
         </span>
       )}
     </div>
   );
 
-  const base = "glass sheen rounded-panel p-4.5 lg:p-5 block border border-emerald-900/10 accent-edge transition-all hover:border-emerald-700/30 hover:shadow-md";
+  const base = `${v.card} rounded-panel p-4.5 lg:p-5 block transition-all ${v.hover} hover:shadow-md`;
   return to ? (
     <Link to={to} className={`group ${base} ${focusRing}`}>
       {content}
@@ -54,7 +84,6 @@ function StatCard({ label, value, hint, icon: Icon, to }) {
 export default function AdminOverview() {
   const [users, setUsers] = useState([]);
   const [colleges, setColleges] = useState([]);
-  const [rooms, setRooms] = useState([]);
   const [faculty, setFaculty] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -64,18 +93,15 @@ export default function AdminOverview() {
       const [
         userData,
         collegeData,
-        roomsData,
         facultyData,
       ] = await Promise.all([
         api.get('/users').catch(() => []),
         api.get('/colleges').catch(() => []),
-        api.get('/rooms').catch(() => []),
         api.get('/professors').catch(() => []),
       ]);
 
       setUsers(Array.isArray(userData) ? userData : []);
       setColleges(Array.isArray(collegeData) ? collegeData : []);
-      setRooms(Array.isArray(roomsData) ? roomsData : []);
       setFaculty(Array.isArray(facultyData) ? facultyData : []);
     } catch (err) {
       console.error('Failed to load administrator overview:', err);
@@ -97,16 +123,12 @@ export default function AdminOverview() {
   const programCount = allPrograms.length;
   const withCurriculum = allPrograms.filter((p) => (p.block_count || 0) > 0).length;
 
-  const totalRoomCapacity = rooms.reduce((acc, r) => acc + (Number(r.capacity) || 0), 0);
-  const labsCount = rooms.filter((r) => (r.type || '').toLowerCase().includes('lab')).length;
-  const lectureCount = Math.max(0, rooms.length - labsCount);
-
   if (isLoading && users.length === 0) {
     return (
       <div className="min-h-full flex flex-col justify-center p-6 lg:p-8 w-full gap-5 lg:gap-6" aria-busy="true">
         <div className="h-10 w-72 rounded-field bg-slate-200 animate-pulse" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-          {[0, 1, 2, 3].map((i) => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5">
+          {[0, 1, 2].map((i) => (
             <div key={i} className="h-24 glass rounded-panel animate-pulse" />
           ))}
         </div>
@@ -174,8 +196,8 @@ export default function AdminOverview() {
         </div>
       )}
 
-      {/* Top 4 KPI Metric Tiles — Unified DLSAU Emerald */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5 mb-5 lg:mb-6">
+      {/* Top 3 KPI Metric Tiles — Unified DLSAU Emerald */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5 mb-5 lg:mb-6">
         <StatCard
           label="Awaiting Verification"
           value={pending.length}
@@ -196,13 +218,6 @@ export default function AdminOverview() {
           hint={programCount - withCurriculum > 0 ? `${programCount - withCurriculum} programs missing curriculum` : 'All programs ready'}
           icon={GraduationCap}
           to="/dashboard/colleges"
-        />
-        <StatCard
-          label="Campus Facilities"
-          value={rooms.length}
-          hint={`${totalRoomCapacity} seats (${labsCount} labs · ${lectureCount} lecture)`}
-          icon={Building2}
-          to="/dashboard/rooms"
         />
       </div>
 

@@ -487,24 +487,22 @@ def get_schedule_suggestions(
     # Sort faculties by load percentage (lowest load first)
     valid_faculties.sort(key=lambda x: x["load_percentage"])
 
+    # Candidate rooms (include None for TBA slots)
+    candidate_rooms = (valid_rooms[:3] if valid_rooms else []) + [None]
+
     for f_data in valid_faculties[:3]:  # Try top 3 faculties with lowest load
         faculty = f_data["faculty"]
         
-        for room in valid_rooms[:3]:  # Try a few valid rooms
+        for room in candidate_rooms:
+            room_id = room.id if room else None
+            room_name = room.name if room else "TBA"
             for day in DAYS:
                 for start_t, end_t in TIMESLOTS:
-                    # In-memory checks against the rows loaded above. This loop
-                    # runs 3 faculty x 3 rooms x 6 days x 6 slots = 324 times,
-                    # and each iteration used to issue two queries -- up to 648
-                    # round-trips for one request. The early return at five
-                    # suggestions only helped when slots were free, so the full
-                    # cost landed on a full timetable, which is exactly when the
-                    # feature is used. Same comparisons, no round-trips.
                     overlap = any(
                         s.day_of_week == day
                         and s.start_time == start_t
                         and s.end_time == end_t
-                        and (s.room_id == room.id or s.faculty_id == faculty.id)
+                        and ((room_id and s.room_id == room_id) or s.faculty_id == faculty.id)
                         for s in semester_schedules
                     )
                     if overlap:
@@ -524,12 +522,14 @@ def get_schedule_suggestions(
                     # If we reach here, it's a valid slot
                     # Calculate confidence based on faculty load (lower load = higher confidence, min 70%)
                     confidence = int(100 - (f_data["load_percentage"] * 30))
+                    if not room_id:
+                        confidence = max(70, confidence - 5)
                     
                     suggestions.append({
                         "faculty_id": faculty.id,
                         "faculty_name": f"{faculty.first_name} {faculty.last_name}",
-                        "room_id": room.id,
-                        "room_name": room.name,
+                        "room_id": room_id,
+                        "room_name": room_name,
                         "day_of_week": day,
                         "start_time": start_t.strftime("%H:%M"),
                         "end_time": end_t.strftime("%H:%M"),

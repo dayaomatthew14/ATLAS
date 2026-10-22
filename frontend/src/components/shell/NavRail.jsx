@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Calendar, BookOpen, Users, MapPin, Activity, ShieldCheck,
+  LayoutDashboard, Calendar, BookOpen, Users, Activity, ShieldCheck,
   CalendarRange, Library,
 } from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';
@@ -37,7 +37,6 @@ const CHAIR_SECTIONS = [
     label: 'Reference',
     items: [
       { to: '/dashboard/curriculum', label: 'Curriculum', icon: BookOpen },
-      { to: '/dashboard/rooms', label: 'Rooms', icon: MapPin },
     ],
   },
   {
@@ -61,10 +60,6 @@ const ADMIN_SECTIONS = [
       { to: '/dashboard/curriculum', label: 'Curriculum', icon: BookOpen },
       { to: '/dashboard/semesters', label: 'Academic Terms', icon: CalendarRange },
     ],
-  },
-  {
-    label: 'Campus',
-    items: [{ to: '/dashboard/rooms', label: 'Rooms', icon: MapPin }],
   },
   {
     label: 'Oversight',

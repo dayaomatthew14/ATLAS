@@ -121,7 +121,7 @@ def build_schedule_pdf(
             "day": str(s.day_of_week or "—"),
             "start": s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else "—",
             "end": s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else "—",
-            "room": room.name if room else "No room assigned",
+            "room": room.name if room and room.name else "TBA",
             "building": room.building if room else "—",
             "section": s.section or "—",
             "_sort": (prof, day_order.get(str(s.day_of_week or "")[:3], 9),
@@ -240,27 +240,25 @@ def build_schedule_pdf(
     elements.append(Spacer(1, 8))
 
     # Main Data Table
-    header = ["Professor", "Subject Code", "Subject Name", "Section", "Day",
-              "Start Time", "End Time", "Room", "Building"]
+    header = ["Professor", "Subject Code", "Subject Name", "Day",
+              "Start Time", "End Time", "Room"]
     data: list[Any] = [header]
     for r in rows:
         data.append([
             Paragraph(cell_text(r["professor"]), cell_bold),
             Paragraph(cell_text(r["code"]), cell_center_bold),
             Paragraph(cell_text(r["name"]), cell_style),
-            Paragraph(cell_text(r["section"]), cell_center),
             Paragraph(cell_text(r["day"]), cell_center_bold),
             Paragraph(cell_text(r["start"]), cell_center),
             Paragraph(cell_text(r["end"]), cell_center),
             Paragraph(cell_text(r["room"]), cell_style),
-            Paragraph(cell_text(r["building"]), cell_style),
         ])
 
     if not rows:
         elements.append(Paragraph("No classes are scheduled for this selection.", styles['Normal']))
     else:
         t = Table(data, repeatRows=1,
-                  colWidths=[105, 62, 180, 45, 45, 58, 58, 94, 85])
+                  colWidths=[120, 75, 230, 55, 70, 70, 112])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#05301F')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -339,12 +337,10 @@ def build_schedule_excel(
             "professor": prof,
             "code": curriculum_item.code if curriculum_item else "N/A",
             "name": curriculum_item.name if curriculum_item else "N/A",
-            "section": s.section or "—",
             "day": str(s.day_of_week or "—"),
             "start": s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else "—",
             "end": s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else "—",
-            "room": room.name if room else "No room assigned",
-            "building": room.building if room else "—",
+            "room": room.name if room and room.name else "TBA",
             "_sort": (prof, day_order.get(str(s.day_of_week or "")[:3], 9),
                       s.start_time.strftime('%H:%M') if s.start_time else ""),
         })
@@ -368,7 +364,7 @@ def build_schedule_excel(
     ]
 
     for r, (txt, sz, bold, color, h) in enumerate(banner_data, start=1):
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
         top_cell = ws.cell(row=r, column=1)
         top_cell.value = txt
         top_cell.font = Font(name='Segoe UI', size=sz, bold=bold, color=color)
@@ -377,12 +373,12 @@ def build_schedule_excel(
         ws.row_dimensions[r].height = h
         if r == 3:
             gold_border = Border(bottom=Side(style='medium', color='C8A227'))
-            for col in range(1, 10):
+            for col in range(1, 8):
                 ws.cell(row=r, column=col).border = gold_border
 
     ws.row_dimensions[4].height = 8
 
-    # KPI summary bar (Row 5)
+    # KPI summary bar (Row 5) - spans 7 columns
     kpi_fill = PatternFill(start_color='E6F0EA', end_color='E6F0EA', fill_type='solid')
     kpi_border = Border(
         left=Side(style='thin', color='C8D9CF'),
@@ -394,12 +390,11 @@ def build_schedule_excel(
     ws['A5'] = f"TOTAL CLASSES: {len(rows)}"
     ws.merge_cells('C5:D5')
     ws['C5'] = f"FACULTY ASSIGNED: {len(unique_profs)}"
-    ws.merge_cells('E5:F5')
     ws['E5'] = f"ROOMS UTILIZED: {len(unique_rooms)}"
-    ws.merge_cells('G5:I5')
-    ws['G5'] = f"TERM: {term_label or 'Active Term'}"
+    ws.merge_cells('F5:G5')
+    ws['F5'] = f"TERM: {term_label or 'Active Term'}"
 
-    for col in range(1, 10):
+    for col in range(1, 8):
         c = ws.cell(row=5, column=col)
         c.fill = kpi_fill
         c.border = kpi_border
@@ -410,7 +405,7 @@ def build_schedule_excel(
     ws.row_dimensions[6].height = 8
 
     # Table Header (Row 7)
-    headers = ["Professor", "Subject Code", "Subject Name", "Section", "Day", "Start Time", "End Time", "Room", "Building"]
+    headers = ["Professor", "Subject Code", "Subject Name", "Day", "Start Time", "End Time", "Room"]
     header_fill = PatternFill(start_color='05301F', end_color='05301F', fill_type='solid')
     header_font = Font(name='Segoe UI', size=10, bold=True, color='FFFFFF')
     header_border = Border(
@@ -423,7 +418,7 @@ def build_schedule_excel(
         c.fill = header_fill
         c.font = header_font
         c.border = header_border
-        c.alignment = Alignment(horizontal='center' if col_idx not in (1, 3) else 'left', vertical='center')
+        c.alignment = Alignment(horizontal='center' if col_idx not in (1, 3, 7) else 'left', vertical='center')
     ws.row_dimensions[7].height = 26
 
     # Table Rows (Row 8+)
@@ -435,7 +430,7 @@ def build_schedule_excel(
         bottom=Side(style='thin', color='D5DFD9'),
     )
 
-    data_keys = ["professor", "code", "name", "section", "day", "start", "end", "room", "building"]
+    data_keys = ["professor", "code", "name", "day", "start", "end", "room"]
     for row_idx, r in enumerate(rows, start=8):
         is_alt = (row_idx % 2 == 1)
         ws.row_dimensions[row_idx].height = 21
@@ -453,7 +448,7 @@ def build_schedule_excel(
             elif key == "code":
                 c.font = Font(name='Segoe UI', size=9.5, bold=True, color='05301F')
                 c.alignment = Alignment(horizontal='center', vertical='center')
-            elif key in ("section", "day", "start", "end"):
+            elif key in ("day", "start", "end"):
                 c.font = Font(name='Segoe UI', size=9.5, color='1E293B')
                 c.alignment = Alignment(horizontal='center', vertical='center')
             else:
@@ -461,8 +456,8 @@ def build_schedule_excel(
                 c.alignment = Alignment(horizontal='left', vertical='center')
 
     # Auto-adjust column widths
-    min_widths = {1: 24, 2: 15, 3: 38, 4: 12, 5: 12, 6: 14, 7: 14, 8: 18, 9: 18}
-    for col_idx in range(1, 10):
+    min_widths = {1: 24, 2: 15, 3: 38, 4: 12, 5: 14, 6: 14, 7: 20}
+    for col_idx in range(1, 8):
         col_letter = get_column_letter(col_idx)
         max_len = min_widths.get(col_idx, 15)
         for row in range(7, len(rows) + 8):

@@ -518,6 +518,7 @@ class ConflictValidate(BaseModel):
     day_of_week: str
     start_time: time
     end_time: time
+    curriculum_id: Optional[int] = None
     room_id: Optional[int] = None
     faculty_id: Optional[int] = None
     section: Optional[str] = None

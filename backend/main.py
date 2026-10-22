@@ -5,6 +5,7 @@ import os
 import secrets
 from fastapi.staticfiles import StaticFiles
 
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 
 from contextlib import asynccontextmanager

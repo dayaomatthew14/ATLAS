@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList, FileText, FileSpreadsheet, Table as TableIcon } from 'lucide-react';
+import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList, FileText, FileSpreadsheet, Table as TableIcon, Clock, Calendar, ChevronDown, Check } from 'lucide-react';
 import Modal from '../../components/Modal';
 import AtlasDialog from '../../components/ui/Dialog';
 import { api } from '../../utils/api';
@@ -23,36 +23,118 @@ const formatSemesterTerm = (term) => {
 };
 
 /**
- * Faculty identity colours.
+ * Faculty identity colours — Uxintace Palette Design System
+ * (#0F2A1D, #375534, #6B9071, #AEC3B0, #E3EED4).
  *
- * These say "these classes belong to the same person". They must not also say
- * anything about status, and that is what the previous set got wrong: it
- * included rose, orange and amber, so a faculty member whose name happened to
- * hash to `rose` had every one of their blocks rendered in the same red the
- * conflict lens uses. Their timetable looked like an alarm going off, and the
- * one place the system is allowed to be loud stopped being distinguishable
- * from an ordinary Tuesday.
- *
- * So the range runs green through blue to purple and stops there. Red, orange
- * and amber are spoken for by --sem-conflict and --sem-warning; grey is spoken
- * for by --atlas-disabled, which is why there are no neutrals here either — a
- * grey block would read as switched off rather than as somebody's teaching.
- *
- * Everything sits at the -50/-200 tint on a light surface, which keeps them
- * quiet enough to read a subject name against. Colour is the secondary cue in
- * any case: every block carries the faculty name, and the legend above the
- * boards states the mapping.
+ * Each variant provides a harmonious palette configuration matching the modern
+ * timetable card UI (solid left accent strip, pastel background fill, dark header text,
+ * and accent-tinted time label).
  */
 const FACULTY_COLOR_PALETTES = [
-  { name: 'teal', bg: 'bg-teal-50 border-teal-200', text: 'text-teal-950', badge: 'bg-teal-700 text-white', accent: 'border-l-teal-600', dot: 'bg-teal-500' },
-  { name: 'indigo', bg: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-950', badge: 'bg-indigo-700 text-white', accent: 'border-l-indigo-600', dot: 'bg-indigo-500' },
-  { name: 'emerald', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-950', badge: 'bg-emerald-700 text-white', accent: 'border-l-emerald-600', dot: 'bg-emerald-500' },
-  { name: 'violet', bg: 'bg-violet-50 border-violet-200', text: 'text-violet-950', badge: 'bg-violet-700 text-white', accent: 'border-l-violet-600', dot: 'bg-violet-500' },
-  { name: 'sky', bg: 'bg-sky-50 border-sky-200', text: 'text-sky-950', badge: 'bg-sky-700 text-white', accent: 'border-l-sky-600', dot: 'bg-sky-500' },
-  { name: 'purple', bg: 'bg-purple-50 border-purple-200', text: 'text-purple-950', badge: 'bg-purple-700 text-white', accent: 'border-l-purple-600', dot: 'bg-purple-500' },
-  { name: 'cyan', bg: 'bg-cyan-50 border-cyan-200', text: 'text-cyan-950', badge: 'bg-cyan-700 text-white', accent: 'border-l-cyan-600', dot: 'bg-cyan-500' },
-  { name: 'blue', bg: 'bg-blue-50 border-blue-200', text: 'text-blue-950', badge: 'bg-blue-700 text-white', accent: 'border-l-blue-600', dot: 'bg-blue-500' },
-  { name: 'lime', bg: 'bg-lime-50 border-lime-200', text: 'text-lime-950', badge: 'bg-lime-700 text-white', accent: 'border-l-lime-600', dot: 'bg-lime-500' },
+  {
+    name: 'deep-pine',
+    accent: '#0F2A1D',
+    bg: '#EAF0EB',
+    border: 'rgba(15, 42, 29, 0.22)',
+    title: '#0F2A1D',
+    time: '#2B4D39',
+    meta: '#446450',
+    dot: 'bg-[#0F2A1D]',
+    badgeBg: '#DCE8DE',
+    badgeText: '#0F2A1D',
+    text: 'text-[#0F2A1D]',
+  },
+  {
+    name: 'hunter-green',
+    accent: '#375534',
+    bg: '#E7EFE5',
+    border: 'rgba(55, 85, 52, 0.22)',
+    title: '#1B3618',
+    time: '#375534',
+    meta: '#4D6B4A',
+    dot: 'bg-[#375534]',
+    badgeBg: '#D9E8D6',
+    badgeText: '#1B3618',
+    text: 'text-[#1B3618]',
+  },
+  {
+    name: 'sage-green',
+    accent: '#6B9071',
+    bg: '#EFF5EE',
+    border: 'rgba(107, 144, 113, 0.25)',
+    title: '#1D3B24',
+    time: '#4F7556',
+    meta: '#5A8062',
+    dot: 'bg-[#6B9071]',
+    badgeBg: '#E0EDE0',
+    badgeText: '#1D3B24',
+    text: 'text-[#1D3B24]',
+  },
+  {
+    name: 'soft-pistachio',
+    accent: '#476949',
+    bg: '#E3EED4',
+    border: 'rgba(71, 105, 73, 0.22)',
+    title: '#1A331C',
+    time: '#375534',
+    meta: '#4E6C4F',
+    dot: 'bg-[#476949]',
+    badgeBg: '#D5E4C3',
+    badgeText: '#1A331C',
+    text: 'text-[#1A331C]',
+  },
+  {
+    name: 'light-celadon',
+    accent: '#527A5F',
+    bg: '#E8F2EC',
+    border: 'rgba(82, 122, 95, 0.22)',
+    title: '#133521',
+    time: '#3D654D',
+    meta: '#4F775F',
+    dot: 'bg-[#527A5F]',
+    badgeBg: '#DAEAE0',
+    badgeText: '#133521',
+    text: 'text-[#133521]',
+  },
+  {
+    name: 'olive-moss',
+    accent: '#4A5E33',
+    bg: '#EFF3E8',
+    border: 'rgba(74, 94, 51, 0.22)',
+    title: '#1E2C11',
+    time: '#4A5E33',
+    meta: '#5E7245',
+    dot: 'bg-[#4A5E33]',
+    badgeBg: '#E2EAC7',
+    badgeText: '#1E2C11',
+    text: 'text-[#1E2C11]',
+  },
+  {
+    name: 'dark-spruce',
+    accent: '#1F4332',
+    bg: '#E5ECE7',
+    border: 'rgba(31, 67, 50, 0.22)',
+    title: '#0E271C',
+    time: '#2B5541',
+    meta: '#426B57',
+    dot: 'bg-[#1F4332]',
+    badgeBg: '#D4E2D8',
+    badgeText: '#0E271C',
+    text: 'text-[#0E271C]',
+  },
+  {
+    name: 'eucalyptus',
+    accent: '#3E6652',
+    bg: '#E9F2ED',
+    border: 'rgba(62, 102, 82, 0.22)',
+    title: '#163828',
+    time: '#3E6652',
+    meta: '#527A66',
+    dot: 'bg-[#3E6652]',
+    badgeBg: '#DAE9E0',
+    badgeText: '#163828',
+    text: 'text-[#163828]',
+  },
 ];
 
 const getFacultyColor = (profName) => {
@@ -70,6 +152,21 @@ const DAY_LABEL = {
   Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday',
   Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday',
 };
+
+/**
+ * Standard Academic Periods for the Structured Timetable Matrix.
+ * Covers 7:30 AM to 7:30 PM with clean institutional slot thresholds.
+ */
+const ACADEMIC_PERIODS = [
+  { id: 'p1', num: '1', title: 'Period 1', time: '07:30 – 09:00', thresholdStart: 0, thresholdEnd: 525 },
+  { id: 'p2', num: '2', title: 'Period 2', time: '09:00 – 10:30', thresholdStart: 525, thresholdEnd: 605 },
+  { id: 'p3', num: '3', title: 'Period 3', time: '10:30 – 12:00', thresholdStart: 605, thresholdEnd: 685 },
+  { id: 'p4', num: '4', title: 'Midday', time: '12:00 – 01:30', thresholdStart: 685, thresholdEnd: 795, isMidday: true },
+  { id: 'p5', num: '5', title: 'Period 5', time: '01:30 – 03:00', thresholdStart: 795, thresholdEnd: 885 },
+  { id: 'p6', num: '6', title: 'Period 6', time: '03:00 – 04:30', thresholdStart: 885, thresholdEnd: 975 },
+  { id: 'p7', num: '7', title: 'Period 7', time: '04:30 – 06:00', thresholdStart: 975, thresholdEnd: 1055 },
+  { id: 'p8', num: '8', title: 'Period 8', time: '06:00 – 07:30', thresholdStart: 1055, thresholdEnd: 1440 },
+];
 
 /** "13:30" -> "1:30 PM". The grid had this inline three times over. */
 const to12h = (t) => {
@@ -105,6 +202,83 @@ const formatSubjectCode = (sched) => {
   return rawCode;
 };
 
+const isLabSession = (sched) => {
+  if (!sched) return false;
+  if (sched.part_type === 'lab') return true;
+  if (sched.curriculum?.type === 'lab') return true;
+  const rawCode = sched.subject_code || sched.code || sched.curriculum?.code || '';
+  if (rawCode.toUpperCase().endsWith('B')) return true;
+  const roomName = (sched.room_name || sched.room?.name || '').toLowerCase();
+  const roomType = (sched.room_type || sched.room?.type || '').toLowerCase();
+  if (roomType === 'lab' || roomType === 'computer_lab' || roomName.includes('lab')) return true;
+  const dur = durationHours(sched);
+  if (dur >= 2.0 && (sched.room_id || sched.curriculum?.lab_units > 0)) return true;
+  return false;
+};
+
+
+/**
+ * Calculates column positions and widths for overlapping timetable events
+ * so simultaneous classes sit side-by-side cleanly without obscuring each other.
+ */
+const computeEventLayout = (scheds) => {
+  if (!scheds || scheds.length === 0) return new Map();
+
+  const sorted = [...scheds].sort((a, b) => {
+    const startA = minutesOf(a.start_time);
+    const startB = minutesOf(b.start_time);
+    if (startA !== startB) return startA - startB;
+    return (minutesOf(b.end_time) - startB) - (minutesOf(a.end_time) - startA);
+  });
+
+  const layout = new Map();
+  const clusters = [];
+  let currentCluster = [];
+  let clusterEnd = -1;
+
+  for (const item of sorted) {
+    const start = minutesOf(item.start_time);
+    const end = minutesOf(item.end_time);
+
+    if (start < clusterEnd) {
+      currentCluster.push(item);
+      clusterEnd = Math.max(clusterEnd, end);
+    } else {
+      if (currentCluster.length > 0) clusters.push(currentCluster);
+      currentCluster = [item];
+      clusterEnd = end;
+    }
+  }
+  if (currentCluster.length > 0) clusters.push(currentCluster);
+
+  for (const cluster of clusters) {
+    const cols = [];
+    for (const item of cluster) {
+      const start = minutesOf(item.start_time);
+      let placed = false;
+      for (let c = 0; c < cols.length; c++) {
+        if (cols[c] <= start) {
+          cols[c] = minutesOf(item.end_time);
+          layout.set(item.id, { colIndex: c, totalCols: 1 });
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        layout.set(item.id, { colIndex: cols.length, totalCols: 1 });
+        cols.push(minutesOf(item.end_time));
+      }
+    }
+    const totalCols = Math.max(1, cols.length);
+    for (const item of cluster) {
+      const curr = layout.get(item.id);
+      if (curr) curr.totalCols = totalCols;
+    }
+  }
+
+  return layout;
+};
+
 /**
  * The exported file's columns, in order.
  *
@@ -119,84 +293,22 @@ const EXPORT_COLUMNS = [
   { key: 'day', label: 'Day', value: (s) => DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '' },
   { key: 'start', label: 'Start Time', value: (s) => to12h(s.start_time) },
   { key: 'end', label: 'End Time', value: (s) => to12h(s.end_time) },
-  { key: 'room', label: 'Room', value: (s) => (s.room_name && s.room_name !== '—' ? s.room_name : 'No room assigned') },
-  { key: 'building', label: 'Building', value: (s) => s.room_building || '' },
-  { key: 'section', label: 'Section', value: (s) => s.section || '' },
+  { key: 'room', label: 'Room', value: (s) => (s.room_name && s.room_name !== '—' && s.room_name !== 'No room assigned' ? s.room_name : 'TBA') },
 ];
 
 /**
- * RFC 4180 quoting.
- *
- * The previous export built a `data:` URI and ran it through `encodeURI`, which
- * does not escape `#`. A subject name containing one — and curriculum sheets do
- * carry them — ended the URI there, so the file downloaded silently truncated
- * at that row, with nothing to say it had. Quoting here and writing a Blob
- * below removes both hazards.
- */
-const csvCell = (value) => {
-  const s = String(value ?? '');
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
-/**
- * Byte-order mark, written as an escape rather than the invisible character
- * itself so a formatter cannot strip it without anyone noticing. Excel reads
- * a BOM-less CSV as the system codepage, which turns any non-ASCII subject
- * name into mojibake.
- */
-const CSV_BOM = '\uFEFF';
-
-const buildCsv = (rows) =>
-  [
-    EXPORT_COLUMNS.map((c) => csvCell(c.label)).join(','),
-    ...rows.map((s) => EXPORT_COLUMNS.map((c) => csvCell(c.value(s))).join(',')),
-  ].join('\r\n');
-
-/**
- * The three things Export can produce. Printing is not one of them: the browser
- * print dialog produced no file, only a page someone still had to save by hand,
- * and half the time it landed as a screenshot of the app rather than a document.
+ * Official Excel export format.
  */
 const EXPORT_FORMATS = [
-  {
-    id: 'pdf',
-    ext: 'pdf',
-    label: 'PDF Document',
-    tag: 'Official',
-    tagClass: 'bg-rose-50 text-rose-700 border-rose-200/80',
-    iconColor: 'bg-rose-100 text-rose-700 border-rose-200',
-    icon: FileText,
-    sub: 'Print-ready landscape layout with university letterhead & signature lines',
-  },
   {
     id: 'excel',
     ext: 'xlsx',
     label: 'Excel Workbook',
-    tag: 'Formatted',
+    tag: 'Official Format',
     tagClass: 'bg-emerald-50 text-emerald-800 border-emerald-200/80',
     iconColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     icon: FileSpreadsheet,
     sub: 'Styled .xlsx spreadsheet with green header, auto-fit columns & frozen panes',
-  },
-  {
-    id: 'word',
-    ext: 'doc',
-    label: 'Word Document',
-    tag: 'Editable',
-    tagClass: 'bg-blue-50 text-blue-700 border-blue-200/80',
-    iconColor: 'bg-blue-100 text-blue-700 border-blue-200',
-    icon: FileText,
-    sub: 'Editable .doc document with DLSAU branding & sign-off blocks',
-  },
-  {
-    id: 'csv',
-    ext: 'csv',
-    label: 'CSV Spreadsheet',
-    tag: 'Raw Data',
-    tagClass: 'bg-slate-50 text-slate-700 border-slate-200/80',
-    iconColor: 'bg-slate-100 text-slate-700 border-slate-200',
-    icon: TableIcon,
-    sub: 'Raw UTF-8 delimited table for custom data import or scripting',
   },
 ];
 
@@ -357,24 +469,58 @@ function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDele
           onDelete(sched);
         }
       }}
-      className={`print-block group relative rounded-panel border border-l-[6px] p-4 lift
+      style={{
+        backgroundColor: color.bg,
+        borderColor: color.border,
+      }}
+      className={`print-block group relative rounded-2xl border p-4 shadow-xs hover:shadow-lg transition-all duration-200 overflow-hidden
                   focus-visible:outline-none
-                  focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-offset-2
-                  ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''}
-                  ${color.bg} ${color.border} ${color.accent}`}
+                  focus-visible:ring-2 focus-visible:ring-[#375534] focus-visible:ring-offset-2
+                  ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''}`}
     >
+      {/* The solid left accent bar from Image 1 */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[5px] rounded-l-md pointer-events-none transition-all group-hover:w-[6px]"
+        style={{ backgroundColor: color.accent }}
+      />
+
       {lensLit && (
-        <span className="absolute top-2 right-2 text-sem-conflict font-bold" aria-hidden="true">▲</span>
+        <span className="absolute top-2 right-2 text-rose-600 font-extrabold text-sm z-10" aria-hidden="true">▲</span>
       )}
 
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-data text-table text-atlas-ink min-w-0 break-words">{code}</span>
+      {/* Header: Code badge, Section & Delete action */}
+      <div className="flex items-start justify-between gap-2 pl-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span
+            className="font-mono text-caption font-bold px-2 py-0.5 rounded shadow-2xs"
+            style={{ backgroundColor: color.badgeBg, color: color.badgeText }}
+          >
+            {code}
+          </span>
+          <span
+            className={`font-mono text-[9.5px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs ${
+              isLabSession(sched)
+                ? 'bg-amber-100 text-amber-900 border border-amber-300/80'
+                : 'bg-emerald-100 text-emerald-900 border border-emerald-300/80'
+            }`}
+          >
+            {isLabSession(sched) ? 'LAB' : 'LEC'}
+          </span>
+          {sched.section && (
+            <span className="font-mono text-caption font-semibold text-[#375534]">
+              Sec {sched.section}
+            </span>
+          )}
+        </div>
         {canManage && (
           <button
             type="button"
-            onClick={() => onDelete(sched)}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 -m-1 shrink-0 text-rose-600
-                       hover:bg-rose-100 rounded-lg transition-all no-print"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(sched);
+            }}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 -m-1 shrink-0 text-slate-400
+                       hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all no-print"
             aria-label={`Delete ${code} on ${dayLabel}`}
             title="Delete this class"
           >
@@ -383,27 +529,33 @@ function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDele
         )}
       </div>
 
-      {/* Full name, wrapped. Truncating this is what made the grid unreadable. */}
-      <p className="mt-1.5 font-ui text-body leading-snug text-atlas-ink break-words">{sched.subject_name}</p>
+      {/* Subject Title */}
+      <h4
+        className="mt-2 pl-1.5 font-ui text-body font-bold leading-snug break-words"
+        style={{ color: color.title }}
+      >
+        {sched.subject_name}
+      </h4>
 
-      <p className="mt-2.5 font-data text-table tabular-nums text-atlas-ink">
-        {to12h(sched.start_time)} – {to12h(sched.end_time)}
-      </p>
-
-      <div className="mt-2.5 pt-2.5 border-t border-black/10 flex flex-col gap-1.5 text-xs font-bold text-slate-700">
+      {/* Metadata: Room & Building */}
+      <div className="mt-3 pl-1.5 flex flex-col gap-1 text-caption font-medium" style={{ color: color.meta }}>
         <span className="flex items-center gap-1.5">
-          <MapPin className="w-3.5 h-3.5 text-emerald-700 shrink-0" aria-hidden="true" />
-          <span>
-            {sched.room_name && sched.room_name !== '—' ? sched.room_name : 'No room assigned'}
+          <MapPin className="w-3.5 h-3.5 text-[#6B9071] shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            {sched.room_name && sched.room_name !== '—' && sched.room_name !== 'No room assigned' ? sched.room_name : 'TBA'}
             {sched.room_building ? ` · ${sched.room_building}` : ''}
           </span>
         </span>
-        {sched.section && (
-          <span className="flex items-center gap-1.5 text-slate-600">
-            <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" aria-hidden="true" />
-            <span>Section {sched.section}</span>
-          </span>
-        )}
+      </div>
+
+      {/* Footer: Time range */}
+      <div className="mt-3 pt-2.5 border-t border-[#AEC3B0]/30 pl-1.5 flex items-center">
+        <span
+          className="font-data text-caption font-bold tabular-nums whitespace-nowrap"
+          style={{ color: color.time }}
+        >
+          {to12h(sched.start_time)} – {to12h(sched.end_time)}
+        </span>
       </div>
     </div>
   );
@@ -418,6 +570,13 @@ export default function Schedules() {
   const advisoryFormConflicts = formConflicts.filter((c) => c.severity === 'advisory');
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
+
+  // Live timer for current time indicator line on the calendar grid
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   // Whether the generator should put laboratory subjects in a room. Lecture
@@ -453,6 +612,7 @@ export default function Schedules() {
   const [isLensOpen, setIsLensOpen] = useState(false);
   const [lensCauseFilter, setLensCauseFilter] = useState(null);
   const [resolvingId, setResolvingId] = useState(null);
+  const [resolutionModalData, setResolutionModalData] = useState(null);
 
   // Curriculum ids that are in conflict, so the grid knows which blocks stay lit.
   const conflictedCurriculumIds = React.useMemo(
@@ -481,6 +641,100 @@ export default function Schedules() {
    * and lights blocks in it, and that is a different job from reading a load.
    * ----------------------------------------------------------------------- */
   const [scheduleView, setScheduleView] = useState('faculty');
+
+  // Hover state for Week Grid class cards
+  const [hoveredSchedule, setHoveredSchedule] = useState(null);
+  const hoverTimerRef = React.useRef(null);
+
+  const handleCardMouseEnter = (sched, color, day, inConflict, event) => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoveredSchedule({ sched, color, day, rect, inConflict });
+  };
+
+  const handleCardMouseLeave = () => {
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredSchedule(null);
+    }, 180);
+  };
+
+  const handlePopoverMouseEnter = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+
+  const handlePopoverMouseLeave = () => {
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredSchedule(null);
+    }, 180);
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (hoveredSchedule) {
+        setHoveredSchedule(null);
+      }
+    };
+    window.addEventListener('scroll', handleScroll, true);
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true);
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, [hoveredSchedule]);
+
+  const getPopoverStyle = (rect) => {
+    if (!rect) return { display: 'none' };
+    const popoverWidth = 300;
+    const popoverHeight = 250;
+    const padding = 12;
+
+    // Prefer placing popover to the right of the card
+    let left = rect.right + 12;
+    if (left + popoverWidth > window.innerWidth - padding) {
+      // If overflowing right viewport edge, flip to the left of the card
+      left = rect.left - popoverWidth - 12;
+    }
+    // If still offscreen on the left, clamp to padding
+    if (left < padding) {
+      left = Math.max(padding, window.innerWidth - popoverWidth - padding);
+    }
+
+    // Align vertically with card top, clamped within viewport
+    let top = rect.top;
+    if (top + popoverHeight > window.innerHeight - padding) {
+      top = Math.max(padding, window.innerHeight - popoverHeight - padding);
+    }
+    if (top < padding) {
+      top = padding;
+    }
+
+    return {
+      position: 'fixed',
+      top: `${top}px`,
+      left: `${left}px`,
+      width: `${popoverWidth}px`,
+      zIndex: 60,
+    };
+  };
+
+  // Custom Faculty Filter Dropdown state
+  const [isFacultyDropdownOpen, setIsFacultyDropdownOpen] = useState(false);
+  const facultyDropdownRef = React.useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (facultyDropdownRef.current && !facultyDropdownRef.current.contains(e.target)) {
+        setIsFacultyDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const fetchPublishState = async (semesterId) => {
     if (!semesterId) return;
@@ -522,6 +776,13 @@ export default function Schedules() {
         part_type: item.part_type || 'lecture'
       });
       addToast(res.message || 'Conflict resolved successfully', 'success');
+
+      setResolutionModalData({
+        title: res.title || 'Conflict Resolved',
+        message: res.message || 'Conflict resolved successfully.',
+        details: res.details || res.message || 'The resolution has been applied.',
+        action_taken: res.action_taken || 'resolved'
+      });
 
       if (generationResults) {
         setGenerationResults(prev => {
@@ -673,7 +934,7 @@ export default function Schedules() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   // 'all' or 'filtered'. Only meaningful while a professor filter is active.
   const [exportScope, setExportScope] = useState('all');
-  const [exportFormat, setExportFormat] = useState('pdf');
+  const [exportFormat] = useState('excel');
   const [isExporting, setIsExporting] = useState(false);
 
   const openExport = () => {
@@ -697,13 +958,40 @@ export default function Schedules() {
 
   const exportTerm = semesters.find((s) => s.id === activeSemesterId);
 
+  const filteredMatrixSchedules = React.useMemo(() => {
+    if (selectedProfessorFilter) {
+      return globalSchedules.filter((s) => s.faculty_name === selectedProfessorFilter);
+    }
+    return globalSchedules;
+  }, [globalSchedules, selectedProfessorFilter]);
+
+  const facultyOptions = React.useMemo(() => {
+    const profMap = new Map();
+    allTeachers.forEach((t) => {
+      if (t.name && t.name.trim()) {
+        profMap.set(t.name, { name: t.name, count: 0 });
+      }
+    });
+    globalSchedules.forEach((s) => {
+      if (s.faculty_name) {
+        const entry = profMap.get(s.faculty_name) || { name: s.faculty_name, count: 0 };
+        entry.count += 1;
+        profMap.set(s.faculty_name, entry);
+      }
+    });
+    return Array.from(profMap.values()).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+  }, [globalSchedules, allTeachers]);
+
   const exportFileName = (() => {
     const parts = ['ATLAS_Schedule'];
     if (exportTerm) parts.push(`${exportTerm.academic_year}_${exportTerm.term}`);
     if (exportScope === 'filtered' && selectedProfessorFilter) parts.push(selectedProfessorFilter);
     parts.push(new Date().toISOString().slice(0, 10));
     const stem = parts.join('_').replace(/[^A-Za-z0-9_\-.]/g, '_');
-    return `${stem}.${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext || 'pdf'}`;
+    return `${stem}.xlsx`;
   })();
 
   const exportScopeName = exportScope === 'filtered' ? selectedProfessorFilter : null;
@@ -727,28 +1015,10 @@ export default function Schedules() {
     }
     setIsExporting(true);
     try {
-      if (exportFormat === 'csv') {
-        saveBlob(new Blob([CSV_BOM, buildCsv(exportRows)], { type: 'text/csv;charset=utf-8;' }), exportFileName);
-      } else if (exportFormat === 'word') {
-        const html = buildWordHtml(exportRows, {
-          dept: getDepartment() || 'All Departments',
-          term: exportTerm ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}` : 'Active Term',
-          scope: exportScopeName || 'All Faculty Members',
-          dateStr: new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }),
-        });
-        saveBlob(new Blob([CSV_BOM, html], { type: 'application/msword;charset=utf-8;' }), exportFileName);
-      } else if (exportFormat === 'excel') {
-        const blob = await api.getBlob('/schedules/export/excel', {
-          params: { semester_id: activeSemesterId, faculty_name: exportScopeName || undefined },
-        });
-        saveBlob(blob, exportFileName);
-      } else {
-        // The PDF is rendered by the server with DLSAU institutional branding
-        const blob = await api.getBlob('/schedules/export/pdf', {
-          params: { semester_id: activeSemesterId, faculty_name: exportScopeName || undefined },
-        });
-        saveBlob(blob, exportFileName);
-      }
+      const blob = await api.getBlob('/schedules/export/excel', {
+        params: { semester_id: activeSemesterId, faculty_name: exportScopeName || undefined },
+      });
+      saveBlob(blob, exportFileName);
       setIsExportOpen(false);
       addToast(`Exported ${exportRows.length} ${exportRows.length === 1 ? 'class' : 'classes'} to ${exportFileName}`, 'success');
     } catch (err) {
@@ -925,7 +1195,8 @@ export default function Schedules() {
     if (formData.subject_id && formData.start_time) {
       const conflicts = detectConflicts({
         ...formData,
-        room_name: rooms.find(r => r.id === parseInt(formData.room_id))?.name,
+        room_id: formData.room_id ? parseInt(formData.room_id) : null,
+        room_name: formData.room_id ? rooms.find(r => r.id === parseInt(formData.room_id))?.name : undefined,
         teacher: teachers.find(t => t.id === parseInt(formData.faculty_id))?.name
       }, schedules);
       setFormConflicts(conflicts);
@@ -942,7 +1213,7 @@ export default function Schedules() {
       const submissionData = {
         semester_id: activeSemesterId,
         curriculum_id: parseInt(formData.subject_id),
-        room_id: parseInt(formData.room_id),
+        room_id: formData.room_id ? parseInt(formData.room_id) : null,
         faculty_id: parseInt(formData.faculty_id),
         day_of_week: formData.day_of_week,
         start_time: formData.start_time,
@@ -1145,7 +1416,7 @@ export default function Schedules() {
               one of the two that can show every professor's classes at once. */}
           {globalSchedules.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 no-print mb-4">
-              <div className="inline-flex rounded-control glass p-1">
+              <div className="inline-flex rounded-2xl bg-[#E3EED4]/50 border border-[#AEC3B0]/40 p-1 shadow-2xs">
                 {[
                   { id: 'faculty', label: 'By professor', icon: LayoutList },
                   { id: 'grid', label: 'Week grid', icon: LayoutGrid },
@@ -1158,11 +1429,10 @@ export default function Schedules() {
                       type="button"
                       onClick={() => setScheduleView(v.id)}
                       aria-pressed={isActive}
-                      className={`h-9 px-4 rounded-field font-ui text-body flex items-center gap-2
-                                  transition-colors duration-state ease-standard ${focusRing} ${
+                      className={`h-9 px-4 rounded-xl font-ui text-caption font-bold flex items-center gap-2 transition-all duration-200 ${
                         isActive
-                          ? 'bg-white text-atlas-ink font-medium shadow-[0_1px_2px_rgb(5_48_31/0.10)]'
-                          : 'text-atlas-slate hover:text-atlas-ink'
+                          ? 'bg-[#0F2A1D] text-[#E3EED4] shadow-xs'
+                          : 'text-[#375534] hover:text-[#0F2A1D] hover:bg-[#E3EED4]/60'
                       }`}
                     >
                       <Icon className="w-4 h-4" aria-hidden="true" />
@@ -1172,70 +1442,172 @@ export default function Schedules() {
                 })}
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                {/* A filter, not an action. It used to sit in the header's
-                    button cluster, where its stacked label made the row two
-                    lines tall and its 224px pushed the page title into an 88px
-                    column. The colour chips below filter too, but they do not
-                    scale past a handful of faculty — this does. */}
-                <label className="inline-flex items-center gap-2 font-ui text-caption text-atlas-slate">
-                  <span className="shrink-0">Showing</span>
-                  <select
-                    value={selectedProfessorFilter}
-                    onChange={(e) => setSelectedProfessorFilter(e.target.value)}
-                    aria-label="Filter the schedule by faculty member"
-                    className={`h-9 w-48 max-w-full rounded-field border border-atlas-control bg-white
-                                px-3 pr-8 font-ui text-body text-atlas-ink cursor-pointer
-                                transition-colors duration-state ease-standard hover:border-atlas-700/60
-                                ${focusRing}`}
-                  >
-                    <option value="">All faculty</option>
-                    {allTeachers.map((t) => (
-                      <option key={t.name} value={t.name}>{t.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <p className="font-ui text-caption text-atlas-slate tabular-nums">
-                  {pluralize(globalSchedules.length, 'class', 'classes')} ·{' '}
-                  {facultyBoards.filter((b) => b.classes.length > 0).length} of {facultyBoards.length} professors scheduled
-                </p>
-              </div>
-            </div>
-          )}
+                <span className="font-ui text-caption font-semibold text-[#375534] shrink-0">Showing</span>
 
-          {/* Faculty colour legend, which doubles as the filter. */}
-          {globalSchedules.length > 0 && (
-            <div className="glass sheen rounded-panel surface p-4 mb-5 no-print">
-              <p className="font-ui text-micro uppercase text-atlas-slate mb-2.5 flex items-center gap-2">
-                <User className="w-3.5 h-3.5 text-atlas-700" aria-hidden="true" />
-                Faculty — select one to filter
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {Array.from(new Set(globalSchedules.map(s => s.faculty_name).filter(Boolean))).map(prof => {
-                  const color = getFacultyColor(prof);
-                  const isSelected = selectedProfessorFilter === prof;
-                  return (
-                    <button
-                      key={prof}
-                      type="button"
-                      aria-pressed={isSelected}
-                      onClick={() => setSelectedProfessorFilter(isSelected ? '' : prof)}
-                      className={`h-8 px-3 rounded-control font-ui text-table flex items-center gap-2 border
-                                  transition-all duration-state ease-standard ${focusRing} ${
-                        isSelected
-                          ? 'bg-atlas-900 text-white border-atlas-900 font-medium'
-                          : `${color.bg} ${color.border} ${color.text} hover:-translate-y-px`
-                      }`}
+                {/* Custom Faculty Filter Dropdown */}
+                <div className="relative" ref={facultyDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsFacultyDropdownOpen(!isFacultyDropdownOpen)}
+                    aria-haspopup="listbox"
+                    aria-expanded={isFacultyDropdownOpen}
+                    className={`h-9 min-w-[210px] max-w-full rounded-xl border bg-white px-3 py-1.5 font-ui text-caption font-bold text-[#0F2A1D] flex items-center justify-between gap-2 shadow-2xs transition-all duration-150 cursor-pointer ${
+                      isFacultyDropdownOpen
+                        ? 'border-[#046A38] ring-2 ring-[#046A38]/20'
+                        : 'border-[#AEC3B0]/60 hover:border-[#375534]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      {selectedProfessorFilter ? (
+                        <>
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs"
+                            style={{ backgroundColor: getFacultyColor(selectedProfessorFilter).accent }}
+                          />
+                          <span className="truncate">{selectedProfessorFilter}</span>
+                        </>
+                      ) : (
+                        <>
+                          <User className="w-3.5 h-3.5 text-[#375534] shrink-0" />
+                          <span>All faculty</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {selectedProfessorFilter && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedProfessorFilter('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              setSelectedProfessorFilter('');
+                            }
+                          }}
+                          className="p-0.5 text-slate-400 hover:text-rose-600 rounded-md transition-colors"
+                          title="Clear filter"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                      <ChevronDown
+                        className={`w-4 h-4 text-[#6B9071] transition-transform duration-200 ${
+                          isFacultyDropdownOpen ? 'rotate-180 text-[#0F2A1D]' : ''
+                        }`}
+                      />
+                    </div>
+                  </button>
+
+                  {/* Dropdown Menu Popover */}
+                  {isFacultyDropdownOpen && (
+                    <div
+                      role="listbox"
+                      className="absolute right-0 sm:left-0 top-full mt-1.5 w-64 max-h-72 overflow-y-auto rounded-2xl border border-[#D5DFD9] bg-white shadow-xl py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100"
                     >
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isSelected ? 'bg-white' : color.dot}`} />
-                      <span>{prof}</span>
-                    </button>
-                  );
-                })}
-                {selectedProfessorFilter && (
-                  <AtlasButton size="row" variant="ghost" onClick={() => setSelectedProfessorFilter('')}>
-                    Clear filter
-                  </AtlasButton>
-                )}
+                      {/* All Faculty Option */}
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={!selectedProfessorFilter}
+                        onClick={() => {
+                          setSelectedProfessorFilter('');
+                          setIsFacultyDropdownOpen(false);
+                        }}
+                        className={`w-full px-3.5 py-2 text-left font-ui text-caption flex items-center justify-between gap-2 transition-colors ${
+                          !selectedProfessorFilter
+                            ? 'bg-[#E6F0EA] font-bold text-[#05301F]'
+                            : 'hover:bg-[#FAFBF9] text-[#141414] font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <User className="w-3.5 h-3.5 text-[#375534]" />
+                          <span>All faculty</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-semibold font-data px-1.5 py-0.5 rounded-full bg-[#E3EED4] text-[#0F2A1D]">
+                            {globalSchedules.length}
+                          </span>
+                          {!selectedProfessorFilter && <Check className="w-3.5 h-3.5 text-[#046A38]" />}
+                        </div>
+                      </button>
+
+                      <div className="my-1 border-t border-[#E1E5E2]" />
+
+                      {/* Individual Faculty Options */}
+                      {facultyOptions.map((prof) => {
+                        const isSelected = selectedProfessorFilter === prof.name;
+                        const color = getFacultyColor(prof.name);
+                        return (
+                          <button
+                            key={prof.name}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setSelectedProfessorFilter(prof.name);
+                              setIsFacultyDropdownOpen(false);
+                            }}
+                            className={`w-full px-3.5 py-2 text-left font-ui text-caption flex items-center justify-between gap-2 transition-colors ${
+                              isSelected
+                                ? 'bg-[#E6F0EA] font-bold text-[#05301F]'
+                                : 'hover:bg-[#FAFBF9] text-[#141414] font-medium'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs"
+                                style={{ backgroundColor: color.accent }}
+                              />
+                              <span className="truncate">{prof.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] font-semibold font-data px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                                {pluralize(prof.count, 'class')}
+                              </span>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-[#046A38]" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Summary text that dynamically reflects filter state */}
+                <div className="flex items-center gap-2 font-ui text-caption text-[#375534] font-medium tabular-nums">
+                  {selectedProfessorFilter ? (
+                    <>
+                      <span className="font-bold text-[#0F2A1D]">
+                        {pluralize(filteredMatrixSchedules.length, 'class', 'classes')}
+                      </span>
+                      <span>for <strong className="text-[#0F2A1D]">{selectedProfessorFilter}</strong></span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProfessorFilter('')}
+                        className="ml-1 text-[11px] font-bold text-[#046A38] hover:text-[#05301F] hover:underline cursor-pointer"
+                      >
+                        (Clear)
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-bold text-[#0F2A1D]">
+                        {pluralize(globalSchedules.length, 'class', 'classes')}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        <strong className="text-[#0F2A1D]">
+                          {facultyBoards.filter((b) => b.classes.length > 0).length}
+                        </strong>{' '}
+                        of {facultyBoards.length} professors scheduled
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1261,43 +1633,36 @@ export default function Schedules() {
                   <section
                     key={board.name}
                     aria-label={`Schedule for ${board.name}`}
-                    className="glass sheen rounded-panel surface overflow-hidden break-inside-avoid rise"
+                    className="rounded-3xl border border-[#AEC3B0]/35 bg-white/95 overflow-hidden break-inside-avoid shadow-xs hover:shadow-sm transition-all"
                   >
-                    <header className="flex flex-wrap items-center justify-between gap-3 px-7 py-5 border-b border-slate-100 bg-slate-50/60">
+                    <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-[#AEC3B0]/30 bg-gradient-to-r from-[#E3EED4]/35 via-white/80 to-transparent">
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${color.dot}`} aria-hidden="true" />
-                        <h3 className="font-ui text-lead text-atlas-ink truncate">
+                        <span
+                          className="w-3.5 h-3.5 rounded-full shrink-0 shadow-2xs"
+                          style={{ backgroundColor: color.accent }}
+                          aria-hidden="true"
+                        />
+                        <h3 className="font-ui text-lead font-bold text-[#0F2A1D] truncate tracking-tight">
                           {board.name}
                         </h3>
                       </div>
-                      <p className="font-ui text-caption text-atlas-slate tabular-nums">
+                      <span className="font-ui text-caption font-bold px-3.5 py-1.5 rounded-full bg-[#E3EED4]/80 border border-[#AEC3B0]/50 text-[#0F2A1D] tabular-nums shadow-2xs">
                         {hasClasses
-                          ? `${board.classes.length} ${board.classes.length === 1 ? 'class' : 'classes'} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
+                          ? `${pluralize(board.classes.length, 'class', 'classes')} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
                           : 'No classes scheduled'}
-                      </p>
+                      </span>
                     </header>
 
                     {hasClasses ? (
-                      /* Six day columns that reflow rather than scroll sideways.
-                         Classes stack in time order, so two at the same hour sit
-                         one below the other instead of one behind the other.
-
-                         Six only at `wide`. tailwind.config.js derives that
-                         breakpoint from this exact grid: six 140px columns need
-                         904px, which with the 240px rail and page padding is
-                         1208px before it has to scroll. At `xl` the content area
-                         is about 1025px, so six columns left each card with 83px
-                         of usable width — the subject name overflowed it and the
-                         delete button was clipped off the card's right edge. */
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 wide:grid-cols-6 gap-px bg-slate-100">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 wide:grid-cols-6 gap-3 p-5 bg-[#FAFBF9]">
                         {board.days.map(({ day, classes }) => (
-                          <div key={day} className="bg-white/60 p-4 flex flex-col gap-3 min-h-[7rem]">
-                            <h4 className="font-ui text-micro uppercase text-atlas-slate text-center py-2 bg-atlas-canvas rounded-field">
+                          <div key={day} className="bg-white rounded-2xl p-3.5 border border-[#AEC3B0]/30 flex flex-col gap-3 min-h-[8rem] shadow-2xs">
+                            <h4 className="font-ui text-xs font-bold uppercase text-[#0F2A1D] text-center py-1.5 bg-[#E3EED4]/50 border border-[#AEC3B0]/30 rounded-xl">
                               <abbr title={DAY_LABEL[day]} className="no-underline">{day}</abbr>
                             </h4>
 
                             {classes.length === 0 ? (
-                              <p className="font-ui text-caption text-atlas-disabled text-center py-4">No classes</p>
+                              <p className="font-ui text-caption text-[#6B9071] text-center py-4">No classes</p>
                             ) : (
                               classes.map((sched) => {
                                 const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
@@ -1319,7 +1684,7 @@ export default function Schedules() {
                         ))}
                       </div>
                     ) : (
-                      <p className="px-7 py-10 text-center text-sm font-semibold text-slate-400">
+                      <p className="px-7 py-10 text-center text-sm font-semibold text-[#6B9071]">
                         The generator placed no classes for {board.name} this term.
                       </p>
                     )}
@@ -1328,190 +1693,351 @@ export default function Schedules() {
               })}
             </div>
           ) : (
-            /* The scroll container and the wide content must be separate elements:
-               `overflow-x-auto` and `min-w-[900px]` on the same div meant the div
-               grew to 900px and overflowed its parent instead of scrolling. */
-            <div className="print-grid relative mt-6 overflow-x-auto pb-8">
-              <div className="min-w-[900px]">
-                {/* Day Headers Row */}
-                <div className="flex items-center mb-3">
-                  {/* Spacer for time column */}
-                  <div className="w-20 shrink-0 pr-4" />
-                  {/* Day column headers */}
-                  <div className="flex-1 flex">
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                      <div key={day} className="flex-1 px-1.5 min-w-[140px]">
-                        <div className="w-full text-center font-ui text-micro uppercase text-atlas-slate bg-atlas-canvas py-1.5 rounded-field border border-atlas-line">
-                          {day}
-                        </div>
-                      </div>
-                    ))}
+            /* Structured Academic Period Matrix View — Institutional DLSAU / ATLAS Style */
+            <div className="print-grid relative mt-6 bg-white rounded-3xl border border-[#D5DFD9] shadow-xs overflow-hidden">
+              {/* Matrix Institutional Header Bar - Clean light aesthetic */}
+              <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-white border-b border-[#E1E5E2]">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-2xl bg-[#E6F0EA] border border-[#8FBFA6]/40 flex items-center justify-center shrink-0 shadow-2xs">
+                    <Calendar className="w-5 h-5 text-[#05301F]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-ui text-base font-bold text-[#05301F] tracking-tight">
+                        Weekly Timetable Matrix
+                      </h3>
+                      <span className="font-data text-[11px] font-semibold text-[#03502A] uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#E6F0EA] border border-[#8FBFA6]/40">
+                        {DAY_ORDER.length} Days
+                      </span>
+                      {selectedProfessorFilter && (
+                        <span className="font-ui text-xs font-semibold text-[#05301F] bg-[#E6F0EA] px-2.5 py-0.5 rounded-full border border-[#046A38]/30">
+                          {selectedProfessorFilter}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#527A66] mt-0.5 font-medium">
+                      Structured academic period schedule · {exportTerm ? `A.Y. ${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}` : 'Current Term'}
+                    </p>
                   </div>
                 </div>
 
-                {/* Timetable Body (Time column + Day grid) */}
-                <div className="flex relative pt-3">
-                  {/* Time column (7:30 AM to 7:30 PM - 12 hours) */}
-                  <div className="w-20 flex flex-col relative border-r border-slate-200 pr-4 shrink-0" style={{ height: '1400px' }}>
-                    {Array.from({length: 13}).map((_, i) => (
-                      <div key={i} className="absolute w-full text-right font-data text-caption text-atlas-slate" style={{ top: `${(i/12)*100}%`, transform: 'translateY(-50%)' }}>
-                        {(() => {
-                          /* The grid body runs 7:30 to 19:30 — `top: 0%` is 7:30,
-                             matching the generator's first slot — so the axis is
-                             7:30, 8:30, ... 19:30.
+                <div className="flex items-center gap-2">
+                  <span className="font-data text-xs font-bold px-3.5 py-1.5 rounded-full bg-[#E6F0EA] text-[#05301F] border border-[#8FBFA6]/40 shadow-2xs">
+                    {pluralize(filteredMatrixSchedules.length, 'class', 'classes')} scheduled
+                  </span>
+                </div>
+              </div>
 
-                             The test used to read `% 1 === 0 ? '30' : '00'`, which
-                             is inverted: a whole number of hours is the :00 case,
-                             not the :30 one. With a 7.5 base `% 1` is 0.5 for every
-                             label, so it never matched and every reading rendered
-                             as ':00' — the whole axis was labelled half an hour
-                             early against the blocks it measures, which on a
-                             timetable is the one thing it must not get wrong. */
-                          const t = 7.5 + i;
-                          const hr = Math.floor(t);
-                          const min = t % 1 === 0 ? '00' : '30';
-                          return `${hr % 12 || 12}:${min} ${hr >= 12 ? 'PM' : 'AM'}`;
-                        })()}
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Days columns */}
-                  <div className="flex-1 flex relative" style={{ height: '1400px' }}>
-                    {/* Grid lines */}
-                    {Array.from({length: 13}).map((_, i) => (
-                      <div key={`line-${i}`} className="absolute w-full border-t border-slate-200/80 border-dashed" style={{ top: `${(i/12)*100}%` }} />
-                    ))}
-                    
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => {
-                      let dayScheds = globalSchedules.filter(s => s.day_of_week === day || s.day_of_week === day.substring(0,3));
-                      if (selectedProfessorFilter) {
-                          dayScheds = dayScheds.filter(s => s.faculty_name === selectedProfessorFilter);
-                      }
-
-                      return (
-                        <div key={day} className="flex-1 relative border-r border-slate-200 last:border-r-0 min-w-[140px]">
-                      {dayScheds.map(sched => {
-                        const [h, m] = sched.start_time.split(':').map(Number);
-                        const [eh, em] = sched.end_time.split(':').map(Number);
-                        const start = h + m / 60;
-                        const end = eh + em / 60;
-                        if (start < 7.5 || start > 19.5) return null;
-                        const top = ((start - 7.5) / 12) * 100;
-                        const height = Math.max(((end - start) / 12) * 100, 6.5);
-                        
-                        const color = getFacultyColor(sched.faculty_name);
-
-                        // While the lens is active only conflicting blocks stay
-                        // lit and reachable. Dimmed blocks leave the tab order
-                        // and the accessibility tree so AT users are not walked
-                        // through 60 irrelevant classes to find 7.
-                        const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
-                        const lensDim = isLensOpen && !inConflict;
-                        const lensLit = isLensOpen && inConflict;
-
-                        const blockLabel =
-                          `${formatSubjectCode(sched)}, ${sched.subject_name}, ` +
-                          `${sched.faculty_name}, ${sched.room_name || 'no room'}, ` +
-                          `${day} ${sched.start_time} to ${sched.end_time}` +
-                          (canManageSchedules ? '. Press Delete to remove this class.' : '');
+              {/* Matrix Table with overflow scroll for small viewports */}
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left min-w-[1020px]">
+                  <thead>
+                    <tr className="border-b-2 border-[#8FBFA6]/60 bg-[#F4F8F5] text-[#05301F]">
+                      <th className="w-28 px-3 py-3.5 text-center bg-[#F4F8F5] border-r border-[#E1E5E2] font-ui text-xs font-extrabold uppercase tracking-wider text-[#05301F]">
+                        Period / Time
+                      </th>
+                      {/* Day Column Headers */}
+                      {DAY_ORDER.map((day, dIdx) => {
+                        const todayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][currentTime.getDay()];
+                        const isToday = day === todayKey;
+                        const dayCount = filteredMatrixSchedules.filter(s => s.day_of_week === day || s.day_of_week === day.substring(0, 3)).length;
 
                         return (
-                          // A11Y-02: these were plain divs with cursor-default.
-                          // tabIndex in this file was 0 and onKeyDown was 0
-                          // app-wide, so the product's primary work surface
-                          // could not be reached, read or edited without a
-                          // mouse. Now each class is a real control with a
-                          // spoken name and a keyboard action.
-                          <div
-                            key={sched.id}
-                            role="button"
-                            tabIndex={lensDim ? -1 : 0}
-                            aria-hidden={lensDim || undefined}
-                            aria-label={blockLabel}
-                            onKeyDown={(e) => {
-                              if ((e.key === 'Delete' || e.key === 'Backspace') && canManageSchedules) {
-                                e.preventDefault();
-                                handleDeleteSchedule(sched);
-                              }
-                            }}
-                            className={`print-block absolute w-[calc(100%-10px)] mx-[5px] rounded-2xl border shadow-xs flex flex-col overflow-hidden transition-all hover:scale-[1.02] hover:z-30 hover:shadow-2xl group border-l-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-atlas-700 focus-visible:ring-offset-2 focus-visible:z-30 ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''} ${color.bg} ${color.border} ${color.accent}`}
-                            style={{ top: `${top}%`, height: `${height}%` }}
+                          <th
+                            key={day}
+                            className={`w-1/6 px-4 py-3.5 text-center transition-colors ${
+                              dIdx > 0 ? 'border-l border-[#E1E5E2]' : ''
+                            } ${isToday ? 'bg-[#E3EED4]' : 'bg-[#F4F8F5]'}`}
                           >
-                            {lensLit && (
-                              <span
-                                className="absolute top-1 right-1 z-10 text-sem-conflict font-bold text-sm leading-none"
-                                aria-hidden="true"
-                              >
-                                ▲
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span className="font-ui text-xs font-extrabold uppercase tracking-wider text-[#05301F]">
+                                {DAY_LABEL[day] || day}
                               </span>
-                            )}
-                            {/* Code over time, not code beside time beside a
-                                button. All three sharing one row needed about
-                                130px and a day column is 124px, so the row
-                                overflowed and the delete control — the last
-                                thing in it — was clipped off the block's right
-                                edge. Stacked, the row cannot overflow at any
-                                column width, and the button keeps `shrink-0`
-                                so it is never the thing that gives way. */}
-                            <div className="px-2.5 py-1.5 bg-white/70 backdrop-blur-xs border-b border-black/5 flex items-start justify-between gap-1 shrink-0">
-                              <span className="min-w-0 flex-1">
-                                <span className="block font-data text-caption text-atlas-ink truncate">
-                                  {formatSubjectCode(sched)}
+                              {isToday && (
+                                <span className="font-ui text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-[#05301F] text-[#E3EED4] uppercase tracking-wider shadow-2xs">
+                                  Today
                                 </span>
-                                <span className="block font-data text-[11px] text-atlas-slate tabular-nums truncate">{(() => {
-                                  const formatT = (t) => {
-                                    if (!t) return '';
-                                    const [h,m] = t.split(':');
-                                    const hr = parseInt(h);
-                                    return `${hr%12||12}:${m}${hr>=12?'PM':'AM'}`;
-                                  };
-                                  return `${formatT(sched.start_time)}-${formatT(sched.end_time)}`;
-                                })()}</span>
-                              </span>
-                              <span className="flex items-center shrink-0">
-                                {canManageSchedules && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDeleteSchedule(sched);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 shrink-0 text-rose-600 hover:bg-rose-100 rounded transition-all"
-                                    title="Delete this schedule"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </span>
+                              )}
                             </div>
-                            <div className="p-3 flex flex-col flex-1 justify-between gap-1 overflow-y-auto">
-                              <div className="font-ui text-table leading-snug text-atlas-ink break-words" title={sched.subject_name}>
-                                {sched.subject_name}
-                              </div>
-                              <div className="pt-1 border-t border-black/5 space-y-1">
-                                <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                                  <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                  <span className="truncate">{sched.faculty_name}</span>
-                                </div>
-                                <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                                  <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span className="truncate">{sched.room_name || '—'}</span>
-                                </div>
-                              </div>
+                            <div className="text-[10px] font-semibold text-[#4D6B4A] mt-0.5">
+                              {dayCount > 0 ? pluralize(dayCount, 'class', 'classes') : 'No classes'}
                             </div>
-                          </div>
+                          </th>
                         );
                       })}
-                    </div>
-                  );
-                })}
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {ACADEMIC_PERIODS.map((period, pIdx) => {
+                      const isAlt = pIdx % 2 === 1;
+
+                      return (
+                        <tr
+                          key={period.id}
+                          className={`border-b border-[#E1E5E2] last:border-b-0 transition-colors ${
+                            period.isMidday
+                              ? 'bg-[#F2F7F4]/70'
+                              : isAlt
+                              ? 'bg-[#FAFBF9]'
+                              : 'bg-white'
+                          }`}
+                        >
+                          <td className="w-28 px-3 py-3 align-top border-r border-[#E1E5E2] bg-[#FAFBF9]/80 text-center select-none">
+                            <div className="font-ui text-xs font-extrabold text-[#05301F] tracking-tight">{period.title}</div>
+                            <div className="font-data text-[10.5px] font-semibold text-[#4D6B4A] mt-0.5">{period.time}</div>
+                          </td>
+                          {/* 6 Day Matrix Cells */}
+                          {DAY_ORDER.map((day, dIdx) => {
+                            const todayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][currentTime.getDay()];
+                            const isToday = day === todayKey;
+
+                            // Filter classes falling into this period on this day
+                            const cellClasses = filteredMatrixSchedules.filter((s) => {
+                              const matchesDay = s.day_of_week === day || s.day_of_week === day.substring(0, 3);
+                              if (!matchesDay) return false;
+                              const sMin = minutesOf(s.start_time);
+                              return sMin >= period.thresholdStart && sMin < period.thresholdEnd;
+                            });
+
+                            return (
+                              <td
+                                key={day}
+                                className={`w-1/6 p-2.5 align-top ${
+                                  dIdx > 0 ? 'border-l border-[#E1E5E2]' : ''
+                                } ${isToday ? 'bg-[#E3EED4]/15' : ''}`}
+                              >
+                                {cellClasses.length > 0 ? (
+                                  <div className="flex flex-col gap-2">
+                                    {cellClasses.map((sched) => {
+                                      const color = getFacultyColor(sched.faculty_name);
+                                      const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
+                                      const lensDim = isLensOpen && !inConflict;
+                                      const lensLit = isLensOpen && inConflict;
+                                      const isLab = isLabSession(sched);
+
+                                      const blockLabel =
+                                        `${formatSubjectCode(sched)} (${isLab ? 'LAB' : 'LEC'}), ${sched.subject_name}, ` +
+                                        `${sched.faculty_name}, ${sched.room_name || 'TBA'}, ` +
+                                        `${day} ${sched.start_time} to ${sched.end_time}` +
+                                        (canManageSchedules ? '. Press Delete to remove this class.' : '');
+
+                                      return (
+                                        <div
+                                          key={sched.id}
+                                          role="button"
+                                          tabIndex={lensDim ? -1 : 0}
+                                          aria-hidden={lensDim || undefined}
+                                          aria-label={blockLabel}
+                                          onKeyDown={(e) => {
+                                            if ((e.key === 'Delete' || e.key === 'Backspace') && canManageSchedules) {
+                                              e.preventDefault();
+                                              handleDeleteSchedule(sched);
+                                              if (hoveredSchedule?.sched?.id === sched.id) {
+                                                setHoveredSchedule(null);
+                                              }
+                                            }
+                                          }}
+                                          onMouseEnter={(e) => handleCardMouseEnter(sched, color, day, inConflict, e)}
+                                          onMouseLeave={handleCardMouseLeave}
+                                          onFocus={(e) => handleCardMouseEnter(sched, color, day, inConflict, e)}
+                                          onBlur={handleCardMouseLeave}
+                                          style={{
+                                            backgroundColor: color.bg,
+                                            borderColor: color.border,
+                                          }}
+                                          className={`group relative rounded-xl border p-2.5 shadow-2xs hover:shadow-md transition-all duration-150 cursor-pointer overflow-hidden ${focusRing} ${
+                                            lensDim ? 'lens-dimmed' : ''
+                                          } ${lensLit ? 'lens-conflict' : ''}`}
+                                        >
+                                          {/* Accent left indicator stripe */}
+                                          <div
+                                            className="absolute left-0 top-0 bottom-0 w-1 rounded-l-md pointer-events-none transition-all group-hover:w-1.5"
+                                            style={{ backgroundColor: color.accent }}
+                                          />
+
+                                          {lensLit && (
+                                            <span
+                                              className="absolute top-1.5 right-1.5 text-rose-600 font-extrabold text-xs"
+                                              aria-hidden="true"
+                                              title="Conflict detected"
+                                            >
+                                              ▲
+                                            </span>
+                                          )}
+
+                                          <div className="pl-1.5 flex flex-col gap-1">
+                                            {/* Badges: Subject code + Session (LEC/LAB) + Section */}
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span
+                                                className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-2xs"
+                                                style={{ backgroundColor: color.badgeBg, color: color.badgeText }}
+                                              >
+                                                {formatSubjectCode(sched)}
+                                              </span>
+                                              <span
+                                                className={`font-mono text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs ${
+                                                  isLab
+                                                    ? 'bg-amber-100 text-amber-900 border border-amber-300/80'
+                                                    : 'bg-emerald-100 text-emerald-900 border border-emerald-300/80'
+                                                }`}
+                                              >
+                                                {isLab ? 'LAB' : 'LEC'}
+                                              </span>
+                                              {sched.section && (
+                                                <span className="font-mono text-[9.5px] font-semibold text-[#03502A]">
+                                                  Sec {sched.section}
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            {/* Subject Title */}
+                                            <h4
+                                              className="font-ui text-xs font-bold leading-snug line-clamp-2 text-[#05301F]"
+                                              title={sched.subject_name}
+                                            >
+                                              {sched.subject_name}
+                                            </h4>
+
+                                            {/* Time range & Room */}
+                                            <div className="mt-0.5 flex items-center justify-between gap-1 text-[10.5px]">
+                                              <span
+                                                className="font-data font-bold tabular-nums whitespace-nowrap"
+                                                style={{ color: color.time }}
+                                              >
+                                                {to12h(sched.start_time)} – {to12h(sched.end_time)}
+                                              </span>
+                                              <span className="font-ui text-[10px] font-semibold text-[#4D6B4A] truncate">
+                                                {sched.room_name && sched.room_name !== '—' ? sched.room_name : 'TBA'}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="h-full min-h-[44px]" />
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </div>
-            </div>
             </div>
           )}
         </div>
+
+        {/* Floating Hover Preview Popover for Week Grid Class */}
+        {hoveredSchedule && (
+          <div
+            style={getPopoverStyle(hoveredSchedule.rect)}
+            onMouseEnter={handlePopoverMouseEnter}
+            onMouseLeave={handlePopoverMouseLeave}
+            className="no-print pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-[#AEC3B0]/60 overflow-hidden transition-all duration-150 animate-in fade-in zoom-in-95 z-50"
+          >
+            {/* Top Accent Stripe */}
+            <div
+              className="h-1.5 w-full shrink-0"
+              style={{ backgroundColor: hoveredSchedule.color.accent }}
+            />
+
+            <div className="p-4 space-y-3">
+              {/* Badges & Conflict Row */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span
+                  className="text-[11px] font-mono font-bold px-2 py-0.5 rounded shadow-2xs"
+                  style={{
+                    backgroundColor: hoveredSchedule.color.badgeBg,
+                    color: hoveredSchedule.color.badgeText,
+                  }}
+                >
+                  {formatSubjectCode(hoveredSchedule.sched)}
+                </span>
+                {hoveredSchedule.sched.section && (
+                  <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[#E3EED4] text-[#0F2A1D]">
+                    Sec {hoveredSchedule.sched.section}
+                  </span>
+                )}
+                {hoveredSchedule.inConflict && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-700 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                    Conflict
+                  </span>
+                )}
+              </div>
+
+              {/* Subject Title */}
+              <h4 className="font-ui text-xs font-bold text-[#0F2A1D] leading-snug break-words">
+                {hoveredSchedule.sched.subject_name}
+              </h4>
+
+              {/* Metadata details */}
+              <div className="border-t border-[#E8EFE8] pt-2.5 space-y-2 text-xs">
+                {/* Day & Time & Duration */}
+                <div className="flex items-start gap-2 text-[#0F2A1D]">
+                  <Clock className="w-3.5 h-3.5 text-[#375534] shrink-0 mt-0.5" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-[#0F2A1D]">
+                      {DAY_LABEL[hoveredSchedule.day] || hoveredSchedule.day}
+                    </span>
+                    <span className="font-data font-medium text-[#375534] tabular-nums">
+                      {to12h(hoveredSchedule.sched.start_time)} – {to12h(hoveredSchedule.sched.end_time)}
+                      {(() => {
+                        const d = durationHours(hoveredSchedule.sched);
+                        return d > 0 ? (
+                          <span className="ml-1 text-[11px] font-semibold text-[#6B9071]">
+                            ({d === 1 ? '1 hr' : `${d} hrs`})
+                          </span>
+                        ) : null;
+                      })()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Faculty */}
+                <div className="flex items-center gap-2 text-[#0F2A1D]">
+                  <User className="w-3.5 h-3.5 text-[#375534] shrink-0" />
+                  <span className="font-medium truncate">
+                    {hoveredSchedule.sched.faculty_name || 'Unassigned Professor'}
+                  </span>
+                </div>
+
+                {/* Room */}
+                <div className="flex items-center gap-2 text-[#0F2A1D]">
+                  <MapPin className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
+                  <span className="font-medium truncate">
+                    {hoveredSchedule.sched.room_name && hoveredSchedule.sched.room_name !== '—' && hoveredSchedule.sched.room_name !== 'No room assigned'
+                      ? hoveredSchedule.sched.room_name
+                      : 'TBA (No Room Assigned)'}
+                    {hoveredSchedule.sched.room_building ? ` (${hoveredSchedule.sched.room_building})` : ''}
+                  </span>
+                </div>
+              </div>
+
+              {/* Delete button (if can manage) */}
+              {canManageSchedules && (
+                <div className="pt-2 border-t border-[#E8EFE8]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteSchedule(hoveredSchedule.sched);
+                      setHoveredSchedule(null);
+                    }}
+                    className="w-full py-1.5 px-3 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Schedule</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <div className="print-footer mt-4 pt-2 font-ui text-caption">
           Generated {new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
           {' · '}
@@ -1538,6 +2064,41 @@ export default function Schedules() {
         causeFilter={lensCauseFilter}
         onFilterCause={setLensCauseFilter}
       />
+
+      {/* Conflict Resolution Summary Dialog */}
+      <AtlasDialog
+        isOpen={Boolean(resolutionModalData)}
+        onClose={() => setResolutionModalData(null)}
+        title={resolutionModalData?.title || 'Conflict Resolved'}
+        description={resolutionModalData?.message || 'The conflict has been resolved successfully.'}
+        size="confirm"
+        icon={Check}
+        dismissible={true}
+        footer={
+          <AtlasButton
+            onClick={() => setResolutionModalData(null)}
+          >
+            Done
+          </AtlasButton>
+        }
+      >
+        <div className="space-y-4 font-ui">
+          <div className="p-4 rounded-panel bg-emerald-50 border border-emerald-200/70 text-emerald-950 text-sm">
+            <p className="font-semibold text-emerald-950 mb-1.5 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />
+              What was done
+            </p>
+            <p className="text-emerald-900/90 leading-relaxed text-caption sm:text-body">
+              {resolutionModalData?.details || resolutionModalData?.message}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-panel bg-slate-50 border border-slate-200 text-xs text-slate-600">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <span>This resolution has been recorded in the system <strong>Activity Log</strong>.</span>
+          </div>
+        </div>
+      </AtlasDialog>
 
       <Modal
         isOpen={isModalOpen}
@@ -1606,13 +2167,13 @@ export default function Schedules() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Room (Optional for Lectures)</label>
+              <label className="block text-sm font-medium text-gray-700">Room (Optional)</label>
               <select
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
                 value={formData.room_id}
                 onChange={(e) => setFormData({ ...formData, room_id: e.target.value })}
               >
-                <option value="">No Room (Lecture / N/A)</option>
+                <option value="">Unassigned (TBA)</option>
                 {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.building}) - {r.type}</option>)}
               </select>
             </div>
@@ -1933,10 +2494,10 @@ export default function Schedules() {
       <AtlasDialog
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
-        title="Export Schedule"
-        description="Download an official timetable document formatted with DLSAU institutional styling."
+        title="Export Schedule to Excel"
+        description="Download an official Excel workbook (.xlsx) formatted with DLSAU institutional styling."
         size="wide"
-        icon={Download}
+        icon={FileSpreadsheet}
         dismissible={!isExporting}
         footer={
           <>
@@ -1951,9 +2512,9 @@ export default function Schedules() {
               onClick={handleDownload}
               disabled={exportRows.length === 0 || isExporting}
               loading={isExporting}
-              icon={Download}
+              icon={FileSpreadsheet}
             >
-              {`Download ${EXPORT_FORMATS.find((f) => f.id === exportFormat)?.ext.toUpperCase() || 'File'}`}
+              Download Excel (.xlsx)
             </AtlasButton>
           </>
         }
@@ -1969,7 +2530,7 @@ export default function Schedules() {
                 {exportFileName}
               </p>
               <p className="font-ui text-caption text-slate-600 mt-0.5 font-medium">
-                {EXPORT_FORMATS.find((f) => f.id === exportFormat)?.sub}
+                Official DLSAU Excel spreadsheet with green header &amp; auto-fit columns
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -1994,71 +2555,36 @@ export default function Schedules() {
             </div>
           </div>
 
-          {/* Format Selection Cards */}
-          <fieldset>
-            <legend className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase mb-2.5">
-              Choose Document Format
-            </legend>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {EXPORT_FORMATS.map((f) => {
-                const Icon = f.icon;
-                const isSelected = exportFormat === f.id;
-                return (
-                  <label
-                    key={f.id}
-                    className={`relative flex flex-col justify-between p-4 rounded-2xl border cursor-pointer transition-all ${
-                      isSelected
-                        ? 'bg-emerald-50/70 border-emerald-700/40 ring-2 ring-emerald-700/20 shadow-xs'
-                        : 'bg-white border-slate-200/90 hover:border-emerald-700/30 hover:bg-slate-50/50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="export-format"
-                      className="sr-only"
-                      checked={isSelected}
-                      onChange={() => setExportFormat(f.id)}
-                    />
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${f.iconColor}`}
-                        >
-                          <Icon className="w-4 h-4 stroke-[2.2]" />
-                        </span>
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${f.tagClass}`}
-                        >
-                          {f.tag}
-                        </span>
-                      </div>
-                      <span className="block font-ui text-body font-bold text-slate-900 leading-snug">
-                        {f.label}
-                      </span>
-                      <span className="block font-ui text-caption text-slate-600 mt-1 leading-relaxed font-medium">
-                        {f.sub}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="font-data text-micro font-bold text-slate-500 uppercase">
-                        .{f.ext}
-                      </span>
-                      <span
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
-                          isSelected
-                            ? 'border-emerald-700 bg-emerald-700'
-                            : 'border-slate-300 bg-white'
-                        }`}
-                      >
-                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                      </span>
-                    </div>
-                  </label>
-                );
-              })}
+          {/* Document Format Display */}
+          <div>
+            <span className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase block mb-2.5">
+              Document Format
+            </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-emerald-700/30 bg-emerald-50/60 shadow-xs">
+              <div className="flex items-center gap-3.5">
+                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border bg-emerald-100 text-emerald-800 border-emerald-200 shadow-2xs">
+                  <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-ui text-body font-bold text-slate-900">
+                      Excel Workbook (.xlsx)
+                    </span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-100 text-emerald-800 border-emerald-300">
+                      Official Export
+                    </span>
+                  </div>
+                  <p className="font-ui text-caption text-slate-600 mt-0.5 font-medium">
+                    Institutional spreadsheet layout with DLSAU forest-green header, auto-fit columns &amp; frozen panes
+                  </p>
+                </div>
+              </div>
+              <div className="self-end sm:self-auto flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/80 border border-emerald-200 text-emerald-800 font-ui text-caption font-bold">
+                <Check className="w-3.5 h-3.5 text-emerald-700 stroke-[3]" />
+                <span>Selected</span>
+              </div>
             </div>
-          </fieldset>
+          </div>
 
           {/* Scope Selector */}
           {selectedProfessorFilter ? (

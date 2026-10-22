@@ -2,8 +2,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 import os
+from pathlib import Path
+# Canonical SQLite path located in backend directory
+_DEFAULT_DB_FILE = (Path(__file__).resolve().parent.parent / "atlas_v3.db").as_posix()
 # Use SQLite for local development
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./atlas_v3.db")
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_DEFAULT_DB_FILE}")
 
 # Railway hands out `postgres://` URLs, which SQLAlchemy 1.4+ no longer accepts
 # as a dialect name. Normalising here means the value can be pasted straight

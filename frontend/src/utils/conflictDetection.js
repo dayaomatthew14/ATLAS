@@ -1,4 +1,12 @@
 /**
+ * Normalizes subject codes by stripping A, B, or A/B suffixes to compare base subjects.
+ */
+export const getBaseSubjectCode = (code) => {
+  if (!code) return '';
+  return String(code).replace(/[_\-\s]*(?:A\/B|[AB])$/i, '').trim().toUpperCase();
+};
+
+/**
  * Utility to parse time strings (e.g. "08:00", "8:00", "13:30:00", "01:30 PM") into minutes from midnight.
  */
 export const parseTimeToMinutes = (timeStr) => {
@@ -100,6 +108,44 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
       // Section Conflict
       if (newSchedule.section && existing.section && newSchedule.section === existing.section) {
         conflicts.push({ type: 'Section', severity: 'blocking', with: existing });
+      }
+    }
+
+    // Session Order Conflict (Lecture must precede Laboratory on the same day)
+    const newCode = newSchedule.subject_code || newSchedule.code || newSchedule.subject || '';
+    const existingCode = existing.subject_code || existing.code || existing.subject || '';
+    const newBase = getBaseSubjectCode(newCode);
+    const existingBase = getBaseSubjectCode(existingCode);
+
+    const isSameSubject = (newBase && newBase === existingBase) ||
+      (newSchedule.curriculum_id && existing.curriculum_id && newSchedule.curriculum_id === existing.curriculum_id);
+
+    if (isSameSubject) {
+      const isNewLab = newSchedule.part_type === 'lab' || newSchedule.type === 'lab' || String(newCode).toUpperCase().endsWith('B') || Boolean(newSchedule.room_id);
+      const isExistingLec = existing.part_type === 'lecture' || existing.type === 'lecture' || String(existingCode).toUpperCase().endsWith('A') || !existing.room_id;
+
+      const isNewLec = newSchedule.part_type === 'lecture' || newSchedule.type === 'lecture' || String(newCode).toUpperCase().endsWith('A') || !newSchedule.room_id;
+      const isExistingLab = existing.part_type === 'lab' || existing.type === 'lab' || String(existingCode).toUpperCase().endsWith('B') || Boolean(existing.room_id);
+
+      const s1 = parseTimeToMinutes(start1);
+      const e1 = parseTimeToMinutes(end1);
+      const s2 = parseTimeToMinutes(start2);
+      const e2 = parseTimeToMinutes(end2);
+
+      if (isNewLab && isExistingLec && s1 !== null && e2 !== null && s1 < e2) {
+        conflicts.push({
+          type: 'SessionOrder',
+          severity: 'blocking',
+          with: existing,
+          message: `Laboratory session must be scheduled after Lecture session on ${newDay}.`
+        });
+      } else if (isNewLec && isExistingLab && e1 !== null && s2 !== null && e1 > s2) {
+        conflicts.push({
+          type: 'SessionOrder',
+          severity: 'blocking',
+          with: existing,
+          message: `Lecture session must be scheduled before Laboratory session on ${newDay}.`
+        });
       }
     }
   });

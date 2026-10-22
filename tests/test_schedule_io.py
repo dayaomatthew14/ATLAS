@@ -92,7 +92,7 @@ class ScheduleIOTest(unittest.TestCase):
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
 
     def test_build_schedule_excel_with_data(self):
-        buffer = build_schedule_excel([self.sched])
+        buffer, count = build_schedule_excel([self.sched])
         excel_bytes = buffer.getvalue()
         self.assertTrue(excel_bytes.startswith(b"PK"), "Excel files are zip archives starting with PK")
 
@@ -101,10 +101,11 @@ class ScheduleIOTest(unittest.TestCase):
         ws = wb.active
         self.assertIsNotNone(ws)
         rows = list(ws.iter_rows(values_only=True))
-        self.assertEqual(len(rows), 2)  # Header + 1 row
-        self.assertEqual(rows[0][0], "Curriculum Code")
-        self.assertEqual(rows[1][0], "CS101")
-        self.assertEqual(rows[1][3], "Grace Hopper")
+        self.assertGreaterEqual(len(rows), 8)
+        self.assertEqual(rows[6][0], "Professor")
+        self.assertEqual(rows[6][1], "Subject Code")
+        self.assertEqual(rows[7][0], "Grace Hopper")
+        self.assertEqual(rows[7][1], "CS101")
 
     def test_import_schedules_from_excel_valid(self):
         # Create an Excel workbook in memory with required columns

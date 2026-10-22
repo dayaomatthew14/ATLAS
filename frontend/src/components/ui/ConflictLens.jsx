@@ -184,11 +184,7 @@ export default function ConflictLens({
                 </button>
               </div>
 
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <p className="font-ui text-caption text-atlas-slate">
-                  <kbd className="font-data">J</kbd> next · <kbd className="font-data">K</kbd> previous ·{' '}
-                  <kbd className="font-data">Esc</kbd> dismiss
-                </p>
+              <div className="mt-3 flex items-center justify-end gap-2">
                 <div className="flex gap-2">
                   {causeFilter && (
                     <Button variant="ghost" onClick={() => onFilterCause(null)}>All causes</Button>

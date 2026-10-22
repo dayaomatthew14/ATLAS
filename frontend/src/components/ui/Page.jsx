@@ -74,24 +74,24 @@ export function Panel({
   return (
     <section
       style={style}
-      className={`glass sheen rounded-panel overflow-hidden border border-emerald-900/10 ${accentClass}
+      className={`glass sheen rounded-panel overflow-hidden border border-[#AEC3B0]/40 ${accentClass}
                   ${interactive ? 'lift' : 'surface'} ${className}`}
     >
       {(title || action) && (
-        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-emerald-900/10">
+        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-[#AEC3B0]/30">
           <div className="flex items-start gap-3.5 min-w-0">
             {Icon && (
               <span
                 aria-hidden="true"
-                className="w-10 h-10 rounded-xl bg-emerald-800/10 text-emerald-800 border border-emerald-800/15 flex items-center justify-center shrink-0 shadow-xs"
+                className="w-10 h-10 rounded-xl bg-[#E3EED4] text-[#0F2A1D] border border-[#AEC3B0]/50 flex items-center justify-center shrink-0 shadow-xs"
               >
-                <Icon className="w-5 h-5 stroke-[2.2]" />
+                <Icon className="w-5 h-5 stroke-[2.2] text-[#0F2A1D]" />
               </span>
             )}
             <div className="min-w-0">
-              {title && <h2 className="text-lg sm:text-xl font-bold text-emerald-950 leading-snug tracking-tight">{title}</h2>}
+              {title && <h2 className="text-lg sm:text-xl font-extrabold text-[#0F2A1D] leading-snug tracking-tight">{title}</h2>}
               {description && (
-                <p className="font-ui text-caption sm:text-body text-slate-700 mt-1 leading-relaxed font-medium">{description}</p>
+                <p className="font-ui text-caption sm:text-body text-[#375534]/85 mt-1 leading-relaxed font-medium">{description}</p>
               )}
             </div>
           </div>
@@ -108,50 +108,73 @@ export function Panel({
  *
  * Tabular display numbers on linen porcelain surfaces with medallion chips.
  */
-export function StatTile({ label, value, hint, tone = 'default', icon: Icon, to }) {
-  const tones = {
-    default: { value: 'text-emerald-950', chip: 'bg-emerald-800/10 text-emerald-800 border border-emerald-800/15', edge: 'accent-edge' },
-    good: { value: 'text-emerald-800', chip: 'bg-emerald-800/15 text-emerald-800 border border-emerald-800/20', edge: 'accent-edge' },
-    warning: { value: 'text-amber-800', chip: 'bg-amber-500/15 text-amber-800 border border-amber-500/25', edge: 'accent-edge-warning' },
-    conflict: { value: 'text-rose-800', chip: 'bg-rose-500/15 text-rose-800 border border-rose-500/25', edge: 'accent-edge-conflict' },
-  };
-  const t = tones[tone] || tones.default;
+const STAT_VARIANTS = {
+  classes: {
+    card: 'stat-card-classes',
+    chip: 'bg-[#714E03]/12 border-[#714E03]/20',
+    hover: 'hover:border-[#CA8A04]/60',
+  },
+  faculty: {
+    card: 'stat-card-faculty',
+    chip: 'bg-[#476033]/12 border-[#476033]/20',
+    hover: 'hover:border-[#789A5B]/60',
+  },
+  rooms: {
+    card: 'stat-card-rooms',
+    chip: 'bg-[#304832]/12 border-[#304832]/20',
+    hover: 'hover:border-[#57775A]/60',
+  },
+  health: {
+    card: 'stat-card-health',
+    chip: 'bg-[#1D3220]/15 border-[#1D3220]/25',
+    hover: 'hover:border-[#36543A]/60',
+  },
+};
 
+export function StatTile({ label, value, hint, icon: Icon, to, variant }) {
   const shown = useCountUp(value);
+
+  const key = variant || (
+    label?.toLowerCase().includes('faculty') ? 'faculty' :
+    label?.toLowerCase().includes('room') ? 'rooms' :
+    label?.toLowerCase().includes('health') ? 'health' :
+    'classes'
+  );
+  const v = STAT_VARIANTS[key] || STAT_VARIANTS.classes;
 
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <span className="font-ui text-caption font-bold text-slate-700 tracking-wider uppercase">{label}</span>
+        <span className="font-ui text-caption font-bold text-[#0F2A1D] tracking-wider uppercase">{label}</span>
         {Icon && (
           <span
             aria-hidden="true"
-            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-xs transition-transform group-hover:scale-105 duration-overlay ${t.chip}`}
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-xs transition-transform group-hover:scale-105 duration-overlay ${v.chip} text-[#0F2A1D] border`}
           >
-            <Icon className="w-5 h-5 stroke-[2.2]" />
+            <Icon className="w-5 h-5 stroke-[2.2] text-[#0F2A1D]" />
           </span>
         )}
       </div>
-      <span className={`block text-3xl sm:text-4xl font-extrabold mt-4 tabular-nums tracking-tight leading-none ${t.value}`}>
+      <span className="block text-3xl sm:text-4xl font-extrabold mt-4 tabular-nums tracking-tight leading-none text-[#0F2A1D]">
         {shown}
       </span>
-      {hint && <span className="block font-ui text-caption text-slate-700 mt-2 leading-relaxed font-medium">{hint}</span>}
+      {hint && <span className="block font-ui text-caption text-[#0F2A1D] mt-2 leading-relaxed font-semibold">{hint}</span>}
       {to && (
-        <span className="mt-3.5 inline-flex items-center gap-1 font-ui text-caption font-bold text-emerald-800 group-hover:text-emerald-950 transition-colors">
+        <span className="mt-3.5 inline-flex items-center gap-1 font-ui text-caption font-bold text-[#0F2A1D] group-hover:text-[#062015] transition-colors">
           View details
-          <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+          <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 text-[#0F2A1D]" aria-hidden="true" />
         </span>
       )}
     </>
   );
 
-  const base = `glass sheen rounded-panel px-6 py-6 block border border-emerald-900/10 ${t.edge}`;
+  const base = `${v.card} rounded-panel px-6 py-6 block`;
   return to ? (
-    <Link to={to} className={`group ${base} lift hover:border-emerald-700/30 transition-all ${focusRing}`}>
+    <Link to={to} className={`group ${base} lift ${v.hover} transition-all ${focusRing}`}>
       {body}
     </Link>
   ) : (
-    <div className={`${base} surface`}>{body}</div>
+    <div className={base}>{body}</div>
   );
 }
 

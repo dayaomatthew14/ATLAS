@@ -300,7 +300,7 @@ def get_global_schedule(
             "subject_code": display_code,
             "subject_name": s.subject_name,
             "faculty_name": f"{s.first_name} {s.last_name}",
-            "room_name": s.room_name if s.room_name else "—",
+            "room_name": s.room_name if s.room_name and s.room_name != "—" else "TBA",
             "room_building": s.room_building if s.room_building else "",
             "day_of_week": s.day_of_week,
             "start_time": s.start_time.strftime("%H:%M") if s.start_time else "00:00",
@@ -318,8 +318,11 @@ def solve_conflict(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not resolve conflicts. This is done by the program chair or coordinator.")
+    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrators do not resolve conflicts. This is done by the program chair or coordinator."
+        )
 
     conflict = None
     if req.conflict_id:
@@ -327,6 +330,21 @@ def solve_conflict(
 
     faculty_id = req.faculty_id or (conflict.faculty_id if conflict else None)
     curriculum_id = req.curriculum_id or (conflict.curriculum_id if conflict else None)
+
+    f_obj = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first() if faculty_id else None
+    c_obj = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first() if curriculum_id else None
+
+    fac_name = f"{f_obj.first_name} {f_obj.last_name}".strip() if f_obj else "Faculty member"
+    subj_code = c_obj.code if c_obj else "Subject"
+
+    dept_id = f_obj.department_id if (f_obj and f_obj.department_id) else None
+    if not dept_id and current_user.department:
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        if dept:
+            dept_id = dept.id
 
     # 1. Schedule-to-Schedule Overlap Conflict
     if conflict and conflict.schedule_id_1:
@@ -342,6 +360,7 @@ def solve_conflict(
             all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == target_sched.semester_id).all()
 
             placed = False
+            item_code = curr_item.code if curr_item else subj_code
             if is_lec:
                 for day in DAYS:
                     if placed: break
@@ -352,9 +371,23 @@ def solve_conflict(
                             target_sched.start_time = start_t # type: ignore
                             target_sched.end_time = end_t # type: ignore
                             conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                            log_activity(
+                                db,
+                                current_user.id,
+                                "Resolve Conflict",
+                                f"Relocated lecture schedule for {item_code} ({fac_name}) to {day} {start_t.strftime('%H:%M')}",
+                                "success",
+                                dept_id
+                            )
                             db.commit()
                             placed = True
-                            return {"status": "success", "message": f"Relocated lecture schedule to {day} {start_t.strftime('%H:%M')}"}
+                            return {
+                                "status": "success",
+                                "action_taken": "schedule_relocated",
+                                "title": "Schedule Relocated",
+                                "message": f"Relocated lecture schedule to {day} {start_t.strftime('%H:%M')}.",
+                                "details": f"Schedule for {item_code} was moved to {day} {start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')} to resolve the overlap. Recorded in the Activity Log."
+                            }
             else:
                 all_rooms = db.query(models.Room).filter(models.Room.type.in_(['lab', 'computer_lab'])).all()
                 for r in all_rooms:
@@ -368,30 +401,120 @@ def solve_conflict(
                                 target_sched.start_time = start_t # type: ignore
                                 target_sched.end_time = end_t # type: ignore
                                 conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                                log_activity(
+                                    db,
+                                    current_user.id,
+                                    "Resolve Conflict",
+                                    f"Relocated lab schedule for {item_code} ({fac_name}) to {r.name} on {day} {start_t.strftime('%H:%M')}",
+                                    "success",
+                                    dept_id
+                                )
                                 db.commit()
                                 placed = True
-                                return {"status": "success", "message": f"Relocated schedule to {r.name} on {day} {start_t.strftime('%H:%M')}"}
+                                return {
+                                    "status": "success",
+                                    "action_taken": "schedule_relocated",
+                                    "title": "Schedule Relocated",
+                                    "message": f"Relocated schedule to {r.name} on {day} {start_t.strftime('%H:%M')}.",
+                                    "details": f"Schedule for {item_code} was moved to {r.name} on {day} {start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')} to resolve the room/faculty clash. Recorded in the Activity Log."
+                                }
 
             if not placed:
                 conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                log_activity(
+                    db,
+                    current_user.id,
+                    "Resolve Conflict",
+                    f"Overlap conflict #{conflict.id} ({conflict.reason or 'overlap'}) resolved via administrative override",
+                    "warning",
+                    dept_id
+                )
                 db.commit()
-                return {"status": "success", "message": "Conflict resolved via administrative override."}
+                return {
+                    "status": "success",
+                    "action_taken": "admin_override",
+                    "title": "Administrative Override",
+                    "message": "Conflict resolved via administrative override.",
+                    "details": "The schedule conflict was marked as resolved under administrative exception. Recorded in the Activity Log."
+                }
 
-    # 2. Unplaced Subject / Max Units Limit Exceeded
+    # 2. Overload or Part-Time Ceiling Conflict
+    if conflict and (
+        conflict.conflict_type in ['overload', 'part_time_ceiling'] or 
+        (conflict.reason and 'overload' in conflict.reason.lower())
+    ):
+        conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+        
+        # Mark all pending overload / part_time_ceiling conflicts for this faculty & curriculum as resolved
+        if faculty_id and curriculum_id:
+            pending_overloads = db.query(models.Conflict).filter(
+                models.Conflict.faculty_id == faculty_id,
+                models.Conflict.curriculum_id == curriculum_id,
+                models.Conflict.conflict_type.in_(['overload', 'part_time_ceiling']),
+                models.Conflict.resolved_at == None
+            ).all()
+            for oc in pending_overloads:
+                oc.resolved_at = datetime.now(timezone.utc) # type: ignore
+
+        is_overload = conflict.conflict_type == 'overload' or (conflict.reason and 'overload' in conflict.reason.lower())
+        action_title = "Overload Authorized" if is_overload else "Load Exception Authorized"
+        reason_desc = conflict.reason or "Overload condition approved by department head"
+        log_msg = f"Authorized {('overload' if is_overload else 'part-time ceiling exception')} for {fac_name} on {subj_code}: {reason_desc}"
+        
+        log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
+        db.commit()
+
+        return {
+            "status": "success",
+            "action_taken": "overload_approved",
+            "title": action_title,
+            "message": f"Overload for {fac_name} on {subj_code} has been authorized.",
+            "details": f"{reason_desc}. The assigned teaching load has been approved and confirmed in the timetable. Recorded in the Activity Log."
+        }
+
+    # 3. Subject Assignment / Unplaced Subject
     if faculty_id and curriculum_id:
-        f_obj = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
-        c_obj = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
-
         if not f_obj or not c_obj:
             raise HTTPException(status_code=404, detail="Faculty or Curriculum item not found")
-
-        # Automatically bump faculty max units cap to accommodate the unplaced subject
-        f_obj.max_units = int((f_obj.max_units or 18) + 12) # type: ignore
 
         sem_id = req.semester_id
         if not sem_id:
             active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
             sem_id = active_sem.id if active_sem else 1
+
+        # Check if subject is ALREADY scheduled in this semester for this faculty
+        existing_schedules = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == sem_id,
+            models.Schedule.curriculum_id == c_obj.id,
+            models.Schedule.faculty_id == faculty_id
+        ).all()
+
+        if existing_schedules:
+            if conflict:
+                conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+            # Mark all pending conflicts for this faculty + subject resolved
+            unresolved = db.query(models.Conflict).filter(
+                models.Conflict.faculty_id == faculty_id,
+                models.Conflict.curriculum_id == curriculum_id,
+                models.Conflict.resolved_at == None
+            ).all()
+            for uc in unresolved:
+                uc.resolved_at = datetime.now(timezone.utc) # type: ignore
+
+            log_msg = f"Confirmed schedule placement for {c_obj.code} ({fac_name}): {conflict.reason if conflict else 'Existing timetable entry validated'}"
+            log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
+            db.commit()
+
+            return {
+                "status": "success",
+                "action_taken": "already_scheduled",
+                "title": "Schedule Confirmed",
+                "message": f"{c_obj.code} is already scheduled for {fac_name}.",
+                "details": f"Schedule placement for {c_obj.code} ({c_obj.name}) was confirmed. Conflict marked resolved and recorded in the Activity Log."
+            }
+
+        # Automatically bump faculty max units cap to accommodate the unplaced subject
+        f_obj.max_units = int((f_obj.max_units or 18) + 12) # type: ignore
 
         all_rooms = db.query(models.Room).all()
         if not all_rooms:
@@ -408,6 +531,9 @@ def solve_conflict(
         day_pairs = [MW_PAIR, TTH_PAIR, FS_PAIR]
 
         placed = False
+        placed_room_name = ""
+        placed_days_str = ""
+        placed_times_str = ""
         for days in day_pairs:
             if placed: break
             d1, d2 = days[0], days[1]
@@ -439,6 +565,9 @@ def solve_conflict(
                         )
                         db.add_all([s1, s2])
                         placed = True
+                        placed_room_name = r.name
+                        placed_days_str = f"{d1}/{d2}"
+                        placed_times_str = f"{start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')}"
                         break
 
         # DEP-6. There used to be a "fallback placement" here: when no
@@ -472,19 +601,31 @@ def solve_conflict(
         for uc in unresolved:
             uc.resolved_at = datetime.now(timezone.utc) # type: ignore
 
+        log_msg = f"Scheduled unplaced subject {c_obj.code} for {fac_name} on {placed_days_str} {placed_times_str} in Room {placed_room_name}"
+        log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
         db.commit()
-
-        log_activity(db, current_user.id, "Solve Conflict", f"Auto-solved conflict for {c_obj.code} ({f_obj.first_name} {f_obj.last_name})", "success")
 
         return {
             "status": "success",
-            "message": f"Successfully resolved conflict and scheduled {c_obj.code} for {f_obj.first_name} {f_obj.last_name}."
+            "action_taken": "subject_scheduled",
+            "title": "Subject Scheduled",
+            "message": f"Successfully resolved conflict and scheduled {c_obj.code} for {fac_name}.",
+            "details": f"Assigned time slot {placed_days_str} {placed_times_str} in Room {placed_room_name}. Teaching capacity was adjusted and recorded in the Activity Log."
         }
 
+    # 4. Fallback: Any other conflict marked resolved by administrative decision
     if conflict:
         conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+        log_msg = f"Conflict #{conflict.id} resolved via administrative override: {conflict.reason or 'Exception approved'}"
+        log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
         db.commit()
-        return {"status": "success", "message": "Conflict resolved via administrative override."}
+        return {
+            "status": "success",
+            "action_taken": "admin_override",
+            "title": "Conflict Resolved",
+            "message": "Conflict resolved via administrative override.",
+            "details": f"Conflict #{conflict.id} ({conflict.reason or 'Overridden'}) was resolved under administrative exception. Recorded in the Activity Log."
+        }
 
     raise HTTPException(status_code=400, detail="Could not solve conflict with provided details.")
 

@@ -205,7 +205,7 @@ class Schedule(Base):
     semester_id = Column(Integer, ForeignKey("semesters.id"), index=True)
     curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"))
     faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), index=True)
-    room_id = Column(Integer, ForeignKey("rooms.id"), index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, index=True)
     day_of_week = Column(Enum('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', name='days'), index=True)
     start_time = Column(Time, index=True)
     end_time = Column(Time, index=True)

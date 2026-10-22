@@ -1,3 +1,4 @@
+import re
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -160,5 +161,52 @@ def validate_schedule_conflict(
                 existing_schedule=schemas.ScheduleResponse.model_validate(section_overlap),
                 message=f"Section {section_overlap.section} already has a class: {section_overlap.curriculum_id}"
             ))
+
+
+    # D. Session Order Conflict (Lecture must precede Laboratory on the same day)
+    if getattr(validation_data, 'curriculum_id', None) and validation_data.faculty_id:
+        target_curr = db.query(models.Curriculum).filter(models.Curriculum.id == validation_data.curriculum_id).first()
+        if target_curr:
+            target_code = target_curr.code or ""
+            target_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", target_code, flags=re.IGNORECASE).strip().upper()
+            is_target_lab = (target_curr.type == 'lab' or (target_curr.lab_units or 0) > 0 or target_code.upper().endswith('B'))
+            is_target_lec = (target_curr.type == 'lecture' or (target_curr.lec_units or 0) > 0 or target_code.upper().endswith('A'))
+
+            same_day_scheds = base_query.filter(
+                models.Schedule.faculty_id == validation_data.faculty_id
+            ).all()
+
+            for s in same_day_scheds:
+                if validation_data.ignore_schedule_id and s.id == validation_data.ignore_schedule_id:
+                    continue
+                other_curr = s.curriculum
+                if not other_curr:
+                    continue
+                other_code = other_curr.code or ""
+                other_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", other_code, flags=re.IGNORECASE).strip().upper()
+
+                is_same_subject = (target_base and target_base == other_base) or (
+                    target_curr.id == other_curr.id and (target_curr.lec_units or 0) > 0 and (target_curr.lab_units or 0) > 0
+                )
+                if not is_same_subject:
+                    continue
+
+                is_other_lab = (other_curr.type == 'lab' or (other_curr.lab_units or 0) > 0 or other_code.upper().endswith('B') or (s.room_id is not None))
+                is_other_lec = (other_curr.type == 'lecture' or (other_curr.lec_units or 0) > 0 or other_code.upper().endswith('A') or (s.room_id is None))
+
+                if is_target_lab and is_other_lec:
+                    if validation_data.start_time < s.end_time:
+                        conflicts.append(schemas.ConflictDetail(
+                            type="session_order",
+                            existing_schedule=schemas.ScheduleResponse.model_validate(s),
+                            message=f"Session order violation: Laboratory ({target_code}) must be scheduled after its Lecture ({other_code}, ending at {s.end_time.strftime('%I:%M %p')}) on {validation_data.day_of_week}."
+                        ))
+                elif is_target_lec and is_other_lab:
+                    if validation_data.end_time > s.start_time:
+                        conflicts.append(schemas.ConflictDetail(
+                            type="session_order",
+                            existing_schedule=schemas.ScheduleResponse.model_validate(s),
+                            message=f"Session order violation: Lecture ({target_code}) must be scheduled before its Laboratory ({other_code}, starting at {s.start_time.strftime('%I:%M %p')}) on {validation_data.day_of_week}."
+                        ))
 
     return conflicts

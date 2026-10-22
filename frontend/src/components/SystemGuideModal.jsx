@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight, BookOpen, CalendarRange, Clock, Compass, Download,
-  HelpCircle, MapPin, ShieldCheck, Sparkles, Users,
+  HelpCircle, ShieldCheck, Sparkles, Users,
 } from 'lucide-react';
 import Dialog from './ui/Dialog';
 import Button from './ui/Button';
@@ -80,17 +80,6 @@ const buildSteps = (subjectScope) => [
   },
   {
     n: 4,
-    title: 'Check the rooms you need',
-    desc:
-      'Lecture halls and centrally assigned rooms belong to the whole campus and only an administrator ' +
-      'may alter them. If your college runs laboratories of its own, add them here. Many colleges run ' +
-      'none, and that is not a gap.',
-    to: '/dashboard/rooms',
-    linkText: 'Rooms',
-    icon: MapPin,
-  },
-  {
-    n: 5,
     title: 'Generate, then resolve',
     desc:
       'Generate the timetable for the active term, then work through anything it could not place, ' +
@@ -142,11 +131,11 @@ const RULES = [
       'change to a timetable is a decision somebody made.',
   },
   {
-    name: 'Export writes a real file',
+    name: 'Export writes an official Excel file',
     icon: Download,
     text:
-      'Choose a spreadsheet, a Word document or a PDF. The exact rows the file will contain are ' +
-      'shown before anything downloads.',
+      'Exports directly to an official Excel spreadsheet (.xlsx). The exact rows and columns the ' +
+      'file will contain are previewed before anything downloads.',
   },
 ];
 

@@ -1,3 +1,4 @@
+import { AlertTriangle, TrendingDown, Check, Clock } from 'lucide-react';
 import { resolveDepartment } from './tokens';
 import { formatHours } from '../../utils/load';
 
@@ -90,12 +91,6 @@ export function DepartmentMark({ code, showName = false, className = '' }) {
  * not subject units — a bare number means nothing without the required figure,
  * which comes from the term (1st = 24 hrs/week, 2nd and 3rd = 20) and not from
  * a per-faculty setting.
- *
- * `required` is null for a Part-Time member: the institution has not confirmed
- * their figures, so there is nothing to be under. They get the actual hours and
- * a warning only once they reach the 20 hrs/week they must stay below. A null
- * required is never rendered as 0, which would report every part-timer as
- * overloaded. Status is carried by text and glyph, never colour alone.
  */
 export function LoadMeter({
   used = 0,
@@ -104,13 +99,13 @@ export function LoadMeter({
   ceiling = null,
   overCeiling = false,
   className = '',
+  barWidth = 'w-24',
+  height = 'h-2',
+  showValues = true,
 }) {
-  // Without an active term there is no schedule to measure and no required
-  // figure to measure it against, so a "0.00 hrs" reading would be a fact about
-  // ATLAS's configuration dressed up as a fact about the faculty member.
   if (status === 'NO_ACTIVE_TERM') {
     return (
-      <span className={`font-data text-table tabular-nums text-atlas-slate ${className}`}>
+      <span className={`font-data text-table tabular-nums text-slate-400 ${className}`}>
         —<span className="sr-only">no active term, teaching load unavailable</span>
       </span>
     );
@@ -121,22 +116,22 @@ export function LoadMeter({
   const under = status === 'UNDERLOAD';
   const notPlotted = status === 'NOT_PLOTTED';
 
-  // With no target, the bar is measured against the Part-Time ceiling so it
-  // still means something; with neither, there is nothing to fill against.
   const scale = hasTarget ? required : ceiling;
   const pct = scale > 0 ? Math.min(100, (used / scale) * 100) : 0;
 
-  const barColour = over
-    ? 'var(--sem-warning)'
-    : under || notPlotted
-      ? 'var(--atlas-slate)'
-      : 'var(--atlas-green-700)';
-
-  const textClass = over
-    ? 'text-sem-warning'
-    : under || notPlotted
-      ? 'text-atlas-slate'
-      : 'text-atlas-ink';
+  // Modern gradient and tone based on status
+  let barGradient = 'from-emerald-500 to-teal-600';
+  let numberColor = 'text-slate-900';
+  if (over) {
+    barGradient = 'from-rose-500 to-red-600';
+    numberColor = 'text-rose-700';
+  } else if (under) {
+    barGradient = 'from-amber-400 to-amber-500';
+    numberColor = 'text-amber-800';
+  } else if (notPlotted) {
+    barGradient = 'from-slate-300 to-slate-400';
+    numberColor = 'text-slate-600';
+  }
 
   const spoken = notPlotted
     ? 'subjects assigned but the timetable has not been generated yet'
@@ -145,21 +140,22 @@ export function LoadMeter({
       : `${formatHours(used)} hours per week, no required load set`;
 
   return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
+    <span className={`inline-flex items-center gap-2.5 ${className}`}>
       <span
-        className="inline-block w-20 h-1.5 rounded-full bg-atlas-line overflow-hidden shrink-0"
+        className={`inline-block ${barWidth} ${height} rounded-full bg-slate-100 border border-slate-200/80 shadow-inner overflow-hidden shrink-0 relative`}
         aria-hidden="true"
       >
         <span
-          className="block h-full rounded-full"
-          style={{ width: `${pct}%`, backgroundColor: barColour }}
+          className={`block h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-300`}
+          style={{ width: `${Math.max(pct > 0 ? 4 : 0, pct)}%` }}
         />
       </span>
-      <span className={`font-data text-table tabular-nums ${textClass}`}>
-        {formatHours(used)}
-        {hasTarget ? ` / ${formatHours(required)}` : ''} hrs
-      </span>
-      {over && <span className="text-sem-warning" aria-hidden="true">▲</span>}
+      {showValues && (
+        <span className="font-ui text-sm tabular-nums whitespace-nowrap">
+          <span className={`font-extrabold ${numberColor}`}>{formatHours(used)}</span>
+          <span className="text-slate-500 font-semibold"> / {hasTarget ? formatHours(required) : formatHours(scale || 0)} hrs</span>
+        </span>
+      )}
       <span className="sr-only">
         {spoken}
         {status && !notPlotted ? `, ${status.toLowerCase()}` : ''}
@@ -170,56 +166,65 @@ export function LoadMeter({
 }
 
 /**
- * The load verdict as a word. Kept separate from the meter so a table can show
- * the figure in one column and the standing in another.
+ * The load verdict as a styled badge chip.
  */
 export function LoadStatusBadge({ status = null, overCeiling = false, className = '' }) {
-  // NOT_PLOTTED and NO_ACTIVE_TERM describe how far the term's planning has
-  // got, not the faculty member, so they are worded as instructions to the
-  // chair rather than as verdicts. They are checked before the ceiling because
-  // a part-timer with nothing plotted cannot be at any ceiling.
   if (status === 'NO_ACTIVE_TERM') {
     return (
-      <span className={`font-ui text-caption text-atlas-slate ${className}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-slate-100 text-slate-500 border border-slate-200/80 shadow-2xs ${className}`}>
         NO ACTIVE TERM
       </span>
     );
   }
   if (status === 'NOT_PLOTTED') {
     return (
-      <span className={`font-ui text-caption text-atlas-slate ${className}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-slate-100 text-slate-600 border border-slate-200/80 shadow-2xs ${className}`}>
         NOT YET PLOTTED
       </span>
     );
   }
   if (overCeiling) {
     return (
-      <span className={`inline-flex items-center gap-1 font-ui text-caption text-sem-warning ${className}`}>
-        <span aria-hidden="true">▲</span> AT PART-TIME CEILING
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200/80 shadow-2xs ${className}`}>
+        AT PART-TIME CEILING
       </span>
     );
   }
   if (!status) {
-    // A part-timer under the ceiling has no verdict to give, and inventing one
-    // would put a figure the institution has not confirmed on screen.
     return (
-      <span className={`font-ui text-caption text-atlas-slate ${className}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-semibold bg-slate-50 text-slate-500 border border-slate-200/60 shadow-2xs ${className}`}>
         NO REQUIRED LOAD
       </span>
     );
   }
 
-  const tone = {
-    OVERLOAD: 'text-sem-warning',
-    UNDERLOAD: 'text-atlas-slate',
-    REGULAR: 'text-atlas-green-700',
-  }[status] || 'text-atlas-ink';
+  if (status === 'OVERLOAD') {
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs ${className}`}>
+        OVERLOAD
+      </span>
+    );
+  }
 
-  const glyph = { OVERLOAD: '▲', UNDERLOAD: '▽', REGULAR: '✓' }[status] || '';
+  if (status === 'UNDERLOAD') {
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200/90 shadow-2xs ${className}`}>
+        UNDERLOAD
+      </span>
+    );
+  }
+
+  if (status === 'REGULAR') {
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-emerald-50 text-emerald-800 border border-emerald-200/90 shadow-2xs ${className}`}>
+        REGULAR LOAD
+      </span>
+    );
+  }
 
   return (
-    <span className={`inline-flex items-center gap-1 font-ui text-caption ${tone} ${className}`}>
-      <span aria-hidden="true">{glyph}</span> {status}
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 ${className}`}>
+      {status}
     </span>
   );
 }

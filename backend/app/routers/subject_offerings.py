@@ -158,7 +158,7 @@ def create_subject_offering(
     ).first()
 
     if existing:
-        raise HTTPException(status_code=400, detail="Subject offering already exists")
+        return existing
 
     if faculty_mem.department_id != curriculum.department_id:
         raise HTTPException(
@@ -173,42 +173,6 @@ def create_subject_offering(
         assigned_by=current_user.id
     )
     db.add(new_offering)
-
-    # Check for companion A/B component
-    cur_code = curriculum.code.upper().strip()
-    companion_code = None
-    if cur_code.endswith('A'):
-        companion_code = cur_code[:-1] + 'B'
-    elif cur_code.endswith('B'):
-        companion_code = cur_code[:-1] + 'A'
-
-    if companion_code:
-        # Scoped to the same curriculum block, not just the same college. The
-        # halves of an A/B subject are written on one row of one curriculum
-        # sheet, and matching campus-wide could pull the companion out of a
-        # draft or superseded curriculum -- assigning, by side effect, a subject
-        # the rule above would have refused outright.
-        companion_curr = db.query(models.Curriculum).filter(
-            models.Curriculum.code == companion_code,
-            models.Curriculum.department_id == curriculum.department_id,
-            models.Curriculum.block_id == curriculum.block_id
-        ).first()
-
-        if companion_curr:
-            companion_existing = db.query(models.SubjectOffering).filter(
-                models.SubjectOffering.faculty_id == offering.faculty_id,
-                models.SubjectOffering.curriculum_id == companion_curr.id,
-                models.SubjectOffering.semester_id == offering.semester_id
-            ).first()
-            if not companion_existing:
-                companion_offering = models.SubjectOffering(
-                    faculty_id=offering.faculty_id,
-                    curriculum_id=companion_curr.id,
-                    semester_id=offering.semester_id,
-                    assigned_by=current_user.id
-                )
-                db.add(companion_offering)
-
     db.commit()
     db.refresh(new_offering)
     return new_offering

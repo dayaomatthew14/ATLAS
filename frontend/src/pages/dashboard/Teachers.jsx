@@ -28,6 +28,30 @@ import { canManageFaculty as canManageFacultyRole, getRole, ROLES } from '../../
  * 3:1 for an edge that identifies a component. --atlas-line-input (3.68:1) is
  * the token that exists for exactly this, which is why form fields use it.
  */
+/**
+ * Teaching load hours for a subject.
+ * Derived from institutional lecture/lab patterns:
+ * - Laboratory: 4.00 hrs/wk (2 hrs x 2 sessions)
+ * - Engineering Lecture (BSCPE): 4.00 hrs/wk (2 hrs x 2 sessions)
+ * - Standard Lecture: 2.67 hrs/wk (1h 20m x 2 sessions)
+ */
+export const computeSubjectHours = (sub) => {
+  if (!sub) return 0;
+  const isEng = String(sub.program_code || '').toUpperCase() === 'BSCPE';
+  const isLab = sub.type === 'lab' || (sub.lab_units > 0 && sub.lec_units === 0) || String(sub.code || '').toUpperCase().endsWith('B');
+  const isLec = sub.type === 'lecture' || (sub.lec_units > 0 && sub.lab_units === 0) || String(sub.code || '').toUpperCase().endsWith('A');
+
+  if (isLab) return 4.00;
+  if (isLec) return isEng ? 4.00 : 2.67;
+
+  let hours = 0;
+  if (sub.lec_units > 0) hours += isEng ? 4.00 : 2.67;
+  if (sub.lab_units > 0) hours += 4.00;
+  if (hours > 0) return hours;
+
+  return Number(sub.units) || 0;
+};
+
 const ROW_CONTROL = '!bg-white !border-atlas-control hover:!bg-atlas-50';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -122,7 +146,7 @@ export default function Teachers() {
     const blockedList = DAYS.filter((d) => blocked.has(d));
     return (
       <span
-        className="inline-flex gap-1"
+        className="inline-flex items-center gap-1"
         role="img"
         aria-label={
           blockedList.length === 0
@@ -136,16 +160,10 @@ export default function Teachers() {
             <span
               key={day}
               aria-hidden="true"
-              /* Green for free, red for blocked.
-                 The strikethrough stays on top of the colour rather than being
-                 replaced by it: roughly 8% of men cannot separate these two
-                 hues, and a row of six squares that differ only in colour would
-                 tell them nothing. Colour is the fast read; the strike is the
-                 one that always works. */
-              className={`w-7 h-7 rounded-field inline-flex items-center justify-center font-data text-caption
+              className={`w-7 h-7 rounded-lg inline-flex items-center justify-center font-data text-xs font-bold shadow-2xs transition-all
                           ${isBlocked
-                            ? 'bg-sem-conflict-bg text-sem-conflict border border-sem-conflict/40 line-through decoration-sem-conflict/70'
-                            : 'bg-atlas-100 text-atlas-800 border border-atlas-700/30'}`}
+                            ? 'bg-rose-50 text-rose-600 border border-rose-200/80 line-through decoration-rose-400 opacity-75'
+                            : 'bg-emerald-50 text-emerald-900 border border-emerald-200/80'}`}
             >
               {day[0]}
             </span>
@@ -170,45 +188,42 @@ export default function Teachers() {
       key: 'name',
       label: 'Faculty',
       width: '280px',
-      /*
-       * Identity, in one cell: mark, name, and employment beneath it.
-       *
-       * Employment had a column of its own saying "Full-time" and nothing
-       * else, which cost a sixth of the table's width to carry one word per
-       * row. It belongs under the name it describes. The initials give the
-       * row something to aim at when scanning a list of people, which a line
-       * of same-weight text does not.
-       */
       render: (item) => {
         const isPartTime = item.type === 'part_time' || item.type === 'Part-Time';
         return (
           <button
             type="button"
             onClick={() => setPreviewTeacher(item)}
-            className={`group flex items-center gap-3 text-left w-full rounded-field py-1 ${focusRing}`}
+            className="group flex items-center gap-3 text-left w-full px-2.5 py-1.5 -mx-1 rounded-xl transition-all duration-150 hover:bg-emerald-50/70 border border-transparent hover:border-emerald-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700/50"
           >
             <span
               aria-hidden="true"
-              className="w-9 h-9 rounded-full bg-atlas-100 text-atlas-800 shrink-0 flex items-center justify-center
-                         font-ui text-caption font-semibold transition-transform duration-overlay ease-emphasis
-                         group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+              className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white shrink-0 flex items-center justify-center
+                         font-ui text-caption font-bold shadow-xs ring-2 ring-emerald-100/90
+                         group-hover:scale-105 group-hover:shadow-sm transition-transform duration-150"
             >
               {initialsOf(item.name)}
             </span>
-            <span className="min-w-0">
+            <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
-                <span className="font-ui text-body font-medium text-atlas-ink truncate
-                                 group-hover:text-atlas-700 transition-colors duration-state ease-standard">
+                <span className="font-ui text-sm font-bold text-slate-900 truncate group-hover:text-emerald-800 transition-colors">
                   {item.name}
                 </span>
                 <ChevronRight
-                  className="w-4 h-4 shrink-0 text-atlas-disabled transition-transform duration-overlay ease-emphasis
-                             group-hover:translate-x-0.5 group-hover:text-atlas-700 motion-reduce:transition-none"
+                  className="w-3.5 h-3.5 shrink-0 text-slate-400 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-emerald-700"
                   aria-hidden="true"
                 />
               </span>
-              <span className="block font-ui text-caption text-atlas-slate">
-                {isPartTime ? 'Part-time' : 'Full-time'}
+              <span className="inline-flex items-center mt-0.5">
+                {isPartTime ? (
+                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/70 shadow-2xs">
+                    Part-time
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/70 shadow-2xs">
+                    Full-time
+                  </span>
+                )}
               </span>
             </span>
             <span className="sr-only">— open preview</span>
@@ -220,13 +235,7 @@ export default function Teachers() {
       key: 'load',
       label: 'Teaching load',
       width: '230px',
-      // No separate figure line: LoadMeter already renders "6.00 / 20.00 hrs"
-      // beside its bar. Adding one above it printed the same number twice and
-      // squeezed the meter into wrapping at 1024.
       render: (item) => (
-        // nowrap: the declared column width is only a suggestion under
-        // `table-layout: auto`, so when the table compresses, "6.00 hrs" broke
-        // to a second line beside its own bar. The table scrolls instead.
         <span className="flex flex-col gap-1.5 py-1 whitespace-nowrap">
           <LoadMeter
             used={item.reg_hours || 0}
@@ -251,11 +260,13 @@ export default function Teachers() {
         return (
           <span className="flex items-center gap-2.5">
             <span
-              className={`inline-flex items-center justify-center min-w-7 h-7 px-2 rounded-full font-data text-caption
-                          tabular-nums ${n === 0
-                            ? 'bg-sem-warning-bg text-sem-warning'
-                            : 'bg-atlas-100 text-atlas-800'}`}
-              title={n === 0 ? 'Nothing assigned — this professor cannot be scheduled' : undefined}
+              className={`inline-flex items-center justify-center min-w-[30px] h-6.5 px-2.5 rounded-full font-ui text-sm font-bold
+                          tabular-nums shadow-2xs border ${
+                            n === 0
+                              ? 'bg-amber-50 text-amber-900 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-950 border-emerald-300'
+                          }`}
+              title={n === 0 ? 'Nothing assigned — this professor cannot be scheduled' : `${n} subjects assigned`}
             >
               {n}
             </span>
@@ -347,6 +358,20 @@ export default function Teachers() {
         return String(a.code || '').localeCompare(String(b.code || ''));
       });
   }, [curriculumSubjects, teacherSubjects, semesterFilter, courseCodeFilter, subjectSearchQuery, subjectScope]);
+
+  const assignedSubjectsList = useMemo(() => {
+    if (!teacherSubjects || !curriculumSubjects) return [];
+    const assignedIds = new Set(teacherSubjects.map(ts => ts.curriculum_id));
+    return curriculumSubjects.filter(sub => assignedIds.has(sub.id));
+  }, [teacherSubjects, curriculumSubjects]);
+
+  const totalAssignedUnits = useMemo(() => {
+    return assignedSubjectsList.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+  }, [assignedSubjectsList]);
+
+  const totalAssignedHours = useMemo(() => {
+    return assignedSubjectsList.reduce((sum, s) => sum + computeSubjectHours(s), 0);
+  }, [assignedSubjectsList]);
 
   const handleOpenAvailability = async (teacher) => {
     setSelectedTeacher(teacher);
@@ -440,49 +465,43 @@ export default function Teachers() {
         const offering = teacherSubjects.find(ts => ts.curriculum_id === subject.id);
         if (offering) {
           await api.delete(`/subject-offerings/${offering.id}`);
-          setTeacherSubjects(teacherSubjects.filter(ts => ts.id !== offering.id));
+          setTeacherSubjects(prev => prev.filter(ts => ts.id !== offering.id && ts.curriculum_id !== subject.id));
 
-          setTeachers(teachers.map(t => {
+          setTeachers(prev => prev.map(t => {
             if (t.id === selectedTeacherForSubjects.id) {
-              const newOfferings = (t.subject_offerings || []).filter(o => o.id !== offering.id);
-              const updatedUnits = Math.max(0, (t.current_units || 0) - subject.units);
+              const newOfferings = (t.subject_offerings || []).filter(o => o.id !== offering.id && o.curriculum_id !== subject.id);
+              const updatedUnits = Math.max(0, (t.current_units || 0) - (subject.units || 0));
               return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
             }
             return t;
           }));
           setSelectedTeacherForSubjects(prev => ({
             ...prev,
-            subject_offerings: (prev.subject_offerings || []).filter(o => o.id !== offering.id),
-            current_units: Math.max(0, (prev.current_units || 0) - subject.units)
+            subject_offerings: (prev.subject_offerings || []).filter(o => o.id !== offering.id && o.curriculum_id !== subject.id),
+            current_units: Math.max(0, (prev.current_units || 0) - (subject.units || 0))
           }));
           addToast('Subject removed', 'success');
         }
       } else {
-        // Assigning a subject is not itself a teaching load: load is REG. HOURS
-        // off the plotted schedule, and an unplotted subject contributes none.
-        // This used to refuse the assignment outright when subject *units*
-        // passed `max_units`, blocking a chair on a rule the institution does
-        // not have. Overload is now surfaced where it is real -- at plotting
-        // time, by the generator, and on the load meter above.
-        const updatedUnits = (selectedTeacherForSubjects.current_units || 0) + subject.units;
+        const updatedUnits = (selectedTeacherForSubjects.current_units || 0) + (subject.units || 0);
 
         const res = await api.post('/subject-offerings', {
           faculty_id: selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id,
           curriculum_id: subject.id,
           semester_id: activeSemester.id
         });
-        setTeacherSubjects([...teacherSubjects, res]);
+        setTeacherSubjects(prev => [...prev.filter(ts => ts.curriculum_id !== subject.id), res]);
 
-        setTeachers(teachers.map(t => {
+        setTeachers(prev => prev.map(t => {
           if (t.id === selectedTeacherForSubjects.id) {
-            const newOfferings = [...(t.subject_offerings || []), res];
+            const newOfferings = [...(t.subject_offerings || []).filter(o => o.curriculum_id !== subject.id), res];
             return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
           }
           return t;
         }));
         setSelectedTeacherForSubjects(prev => ({
           ...prev,
-          subject_offerings: [...(prev.subject_offerings || []), res],
+          subject_offerings: [...(prev.subject_offerings || []).filter(o => o.curriculum_id !== subject.id), res],
           current_units: updatedUnits
         }));
         addToast('Subject added', 'success');
@@ -1035,7 +1054,6 @@ export default function Teachers() {
         canManage={canManageFaculty}
         onClose={() => setPreviewTeacher(null)}
         onManageSubjects={(t) => { setPreviewTeacher(null); handleOpenSubjectModal(t); }}
-        onEditAvailability={(t) => { setPreviewTeacher(null); handleOpenAvailability(t); }}
       />
 
       {/* Table from 1024 up. */}
@@ -1073,23 +1091,39 @@ export default function Teachers() {
         {!isLoading && teachers.map((t) => {
           const isFullTime = t.type === 'full_time' || t.type === 'Full-Time';
           return (
-            <div key={t.id} className="glass rounded-panel p-4">
+            <div key={t.id} className="glass rounded-panel p-4 border border-emerald-900/10 shadow-xs">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTeacher(t)}
-                    className={`font-ui text-body text-atlas-ink text-left underline decoration-atlas-line
-                                underline-offset-4 rounded-field ${focusRing}`}
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    aria-hidden="true"
+                    className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white shrink-0 flex items-center justify-center font-ui text-caption font-bold shadow-xs ring-2 ring-emerald-100"
                   >
-                    {t.name}
-                    <span className="sr-only"> — open preview</span>
-                  </button>
-                  <p className="font-ui text-caption text-atlas-slate mt-0.5">
-                    {isFullTime ? 'Full-time' : 'Part-time'} · {pluralize(t.subject_offerings?.length || 0, 'subject')}
-                  </p>
+                    {initialsOf(t.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTeacher(t)}
+                      className="font-ui text-sm font-bold text-slate-900 hover:text-emerald-800 text-left transition-colors flex items-center gap-1.5"
+                    >
+                      <span className="truncate">{t.name}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    </button>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold border shadow-2xs ${
+                        isFullTime
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {isFullTime ? 'Full-time' : 'Part-time'}
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        {pluralize(t.subject_offerings?.length || 0, 'subject')}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <span className="flex flex-col items-end gap-1 shrink-0">
+                <span className="flex flex-col items-end gap-1.5 shrink-0">
                   <LoadMeter
                     used={t.reg_hours || 0}
                     required={t.required_hours}
@@ -1100,19 +1134,15 @@ export default function Teachers() {
                   <LoadStatusBadge status={t.load_status} overCeiling={t.exceeds_part_time_ceiling} />
                 </span>
               </div>
-              {/* Wraps. A third control (Preview) joined this row and pushed the
-                  other two off the right edge of a 375px card, where they could
-                  not be reached at all. */}
-              <div className="mt-3 pt-3 border-t border-white/45 flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
+              <div className="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                 <AvailabilityMarks unavailability={t.unavailability} />
-                <span className="flex flex-wrap gap-1">
+                <span className="flex flex-wrap gap-1.5">
                   <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} icon={Eye} onClick={() => setPreviewTeacher(t)}>Preview</AtlasButton>
                   <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenSubjectModal(t)}>Subjects</AtlasButton>
-                  <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenAvailability(t)}>Hours</AtlasButton>
                 </span>
               </div>
               {canManageFaculty && (
-                <div className="mt-2 flex flex-wrap justify-end gap-2">
+                <div className="mt-2.5 flex flex-wrap justify-end gap-2">
                   <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenModal(t)}>Edit</AtlasButton>
                   <AtlasButton
                     size="row"
@@ -1182,12 +1212,12 @@ export default function Teachers() {
                 {
                   value: 'full_time',
                   label: 'Full-time',
-                  hint: 'Required load set by the term: 24 hrs 1st, 20 hrs 2nd and 3rd',
+                  hint: '20–24 hrs/week required',
                 },
                 {
                   value: 'part_time',
                   label: 'Part-time',
-                  hint: 'No required load; teaches under 20 hrs/week',
+                  hint: 'Under 20 hrs/week',
                 },
               ]}
             />
@@ -1251,11 +1281,6 @@ export default function Teachers() {
               <NumberInput
                 id="faculty-load-limit"
                 suffix={formData.load_unit === 'hrs' ? 'hrs' : 'units'}
-                hint={
-                  formData.load_unit === 'hrs'
-                    ? (formData.type === 'part_time' ? 'Optional, 1–20 hrs.' : 'Optional, 1–30 hrs.')
-                    : (formData.type === 'part_time' ? 'Optional, 1–12 units.' : 'Optional, 1–18 units.')
-                }
                 min={1}
                 max={
                   formData.load_unit === 'hrs'
@@ -1527,9 +1552,24 @@ export default function Teachers() {
             : 'Changes save as you tick.'
         }
         footer={
-          <AtlasButton onClick={() => { setIsSubjectModalOpen(false); fetchTeachers(); }}>
-            Done
-          </AtlasButton>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-3">
+            <div className="flex items-center gap-2.5 text-xs text-atlas-slate font-ui">
+              <span>
+                Assigned: <strong className="text-atlas-ink font-data font-semibold">{assignedSubjectsList.length}</strong> {pluralize(assignedSubjectsList.length, 'subject')}
+              </span>
+              <span>·</span>
+              <span>
+                Units: <strong className="text-emerald-800 font-data font-semibold">{totalAssignedUnits}</strong>
+              </span>
+              <span>·</span>
+              <span>
+                Load: <strong className="text-teal-950 font-data font-semibold">{formatHours(totalAssignedHours)}</strong> hrs/wk
+              </span>
+            </div>
+            <AtlasButton onClick={() => { setIsSubjectModalOpen(false); fetchTeachers(); }}>
+              Done
+            </AtlasButton>
+          </div>
         }
       >
         <div className="flex flex-col gap-5">
@@ -1552,6 +1592,88 @@ export default function Teachers() {
 
           {!isLoadingSubjects && hasPublishedCurriculum && (
             <>
+              {/* Live Units and Hours Tracking Summary Bar */}
+              <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/80 to-slate-50 border border-emerald-200/80 rounded-panel p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-4 sm:divide-x sm:divide-emerald-200/70">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-600/10 text-emerald-800 flex items-center justify-center shrink-0">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 font-ui">
+                        Assigned
+                      </div>
+                      <div className="text-sm font-bold text-slate-900 font-data">
+                        {assignedSubjectsList.length} <span className="text-xs font-normal text-slate-500">{pluralize(assignedSubjectsList.length, 'subject')}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="sm:pl-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 font-ui">
+                      Total Units
+                    </div>
+                    <div className="text-sm font-bold text-emerald-900 font-data tabular-nums">
+                      {totalAssignedUnits} <span className="text-xs font-normal text-slate-500">units</span>
+                    </div>
+                  </div>
+
+                  <div className="sm:pl-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 font-ui">
+                      Total Teaching Load
+                    </div>
+                    <div className="text-sm font-bold text-teal-950 font-data tabular-nums flex items-baseline gap-1">
+                      <span>{formatHours(totalAssignedHours)}</span>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {selectedTeacherForSubjects?.required_hours
+                          ? `/ ${formatHours(selectedTeacherForSubjects.required_hours)} hrs target`
+                          : selectedTeacherForSubjects?.type === 'part_time'
+                          ? `/ < ${formatHours(PART_TIME_CEILING_HOURS)} hrs cap`
+                          : 'hrs/wk'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real-time Status Badge */}
+                <div className="shrink-0 flex items-center">
+                  {selectedTeacherForSubjects?.type === 'part_time' ? (
+                    totalAssignedHours >= PART_TIME_CEILING_HOURS ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" />
+                        Exceeds Part-Time Cap (+{formatHours(totalAssignedHours - PART_TIME_CEILING_HOURS)} hrs)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                        Part-Time Load ({formatHours(PART_TIME_CEILING_HOURS - totalAssignedHours)} hrs room)
+                      </span>
+                    )
+                  ) : selectedTeacherForSubjects?.required_hours ? (
+                    totalAssignedHours > selectedTeacherForSubjects.required_hours + 0.005 ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" />
+                        Overload (+{formatHours(totalAssignedHours - selectedTeacherForSubjects.required_hours)} hrs)
+                      </span>
+                    ) : totalAssignedHours >= selectedTeacherForSubjects.required_hours - 0.005 ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                        Full Load Target Reached
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        Underload ({formatHours(selectedTeacherForSubjects.required_hours - totalAssignedHours)} hrs to target)
+                      </span>
+                    )
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
+                      {assignedSubjectsList.length > 0 ? 'Load active' : 'No subjects assigned'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* md:items-end, not the default stretch.
                   Term and Type each carry a visible label, so their controls
                   start ~22px lower than the search box, which has none — the
@@ -1622,12 +1744,12 @@ export default function Teachers() {
                         <th scope="col" className="w-12 px-4 py-3 font-ui text-micro uppercase text-atlas-slate">
                           <span className="sr-only">Assigned</span>
                         </th>
-                        {['Code', 'Subject', 'Type', 'Units'].map((h, i) => (
+                        {['Code', 'Subject', 'Type', 'Units', 'Hours / Wk'].map((h, i) => (
                           <th
                             key={h}
                             scope="col"
                             className={`px-4 py-3 font-ui text-micro uppercase text-atlas-slate whitespace-nowrap
-                                        ${i === 3 ? 'text-right' : 'text-left'}`}
+                                        ${i >= 3 ? 'text-right' : 'text-left'}`}
                           >
                             {h}
                           </th>
@@ -1661,6 +1783,9 @@ export default function Teachers() {
                             </td>
                             <td className="px-4 py-2.5 text-right font-data text-table tabular-nums text-atlas-ink">
                               {sub.units}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-data text-table tabular-nums font-semibold text-slate-700 whitespace-nowrap">
+                              {formatHours(computeSubjectHours(sub))} hrs
                             </td>
                           </tr>
                         );

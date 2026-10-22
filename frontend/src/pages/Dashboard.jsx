@@ -45,12 +45,6 @@ const CHAIR_TOUR_STEPS = [
     title: 'Overview',
     desc: 'Check the active academic term and what still needs attention before you generate.',
     path: '/dashboard',
-    nextLabel: 'Next: Rooms',
-  },
-  {
-    title: 'Rooms',
-    desc: 'Register lecture halls and laboratories with their student capacity.',
-    path: '/dashboard/rooms',
     nextLabel: 'Next: Curriculum',
   },
   {

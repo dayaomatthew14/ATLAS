@@ -263,6 +263,73 @@ body {
   backdrop-filter: blur(16px) saturate(140%);
 }
 
+/* Classes: #FBBF24 with authentic ombre gradient effect (aligned with other boxes, pure yellow) */
+.stat-card-ombre,
+.stat-card-classes {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.42) 0%, rgba(251, 191, 36, 0.72) 48%, rgba(251, 191, 36, 0.92) 100%);
+  border: 1px solid rgba(202, 138, 4, 0.32);
+  border-top: 2.5px solid #CA8A04;
+  box-shadow:
+    0 2px 8px -2px rgba(202, 138, 4, 0.12),
+    0 8px 24px -6px rgba(202, 138, 4, 0.16),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Faculty: #E3EED4 with ombre gradient effect */
+.stat-card-faculty {
+  background: linear-gradient(135deg, rgba(227, 238, 212, 0.45) 0%, rgba(227, 238, 212, 0.85) 48%, rgba(191, 211, 170, 0.95) 100%);
+  border: 1px solid rgba(120, 154, 91, 0.32);
+  border-top: 2.5px solid #789A5B;
+  box-shadow:
+    0 2px 8px -2px rgba(120, 154, 91, 0.12),
+    0 8px 24px -6px rgba(120, 154, 91, 0.16),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Rooms: #AEC3B0 with ombre gradient effect */
+.stat-card-rooms {
+  background: linear-gradient(135deg, rgba(174, 195, 176, 0.40) 0%, rgba(174, 195, 176, 0.72) 48%, rgba(136, 163, 139, 0.90) 100%);
+  border: 1px solid rgba(87, 119, 90, 0.32);
+  border-top: 2.5px solid #57775A;
+  box-shadow:
+    0 2px 8px -2px rgba(87, 119, 90, 0.12),
+    0 8px 24px -6px rgba(87, 119, 90, 0.16),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Schedule Health: #6B9071 with ombre gradient effect */
+.stat-card-health {
+  background: linear-gradient(135deg, rgba(107, 144, 113, 0.38) 0%, rgba(107, 144, 113, 0.68) 48%, rgba(72, 110, 78, 0.88) 100%);
+  border: 1px solid rgba(54, 84, 58, 0.35);
+  border-top: 2.5px solid #36543A;
+  box-shadow:
+    0 2px 8px -2px rgba(54, 84, 58, 0.14),
+    0 8px 24px -6px rgba(54, 84, 58, 0.18),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* Weekly Schedule Overview — Uxintace Palette Design System (#0F2A1D, #375534, #6B9071, #AEC3B0, #E3EED4) */
+.schedule-card-ux {
+  background: linear-gradient(165deg, #FFFFFF 0%, #F9FBF8 100%);
+  border: 1px solid rgba(174, 195, 176, 0.45);
+  box-shadow: 0 2px 8px -2px rgba(15, 42, 29, 0.05);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.schedule-card-ux:hover {
+  border-color: #6B9071;
+  background: linear-gradient(165deg, #FFFFFF 0%, #F4F7F2 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -6px rgba(15, 42, 29, 0.10);
+}
+
 /*
   The ambient wash and authentic academic blueprint grid.
   Inspired by the Landing & Login pages: soft ambient pools plus faint
