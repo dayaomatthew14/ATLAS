@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Any
 from .. import models, schemas
 from ..database import get_db
 from ..auth import get_current_user
@@ -70,12 +70,222 @@ def _assert_assignable(curriculum: models.Curriculum, current_user: models.User)
 
 from pydantic import ConfigDict
 
+
+GEN_ED_PREFIXES = ('GE', 'CORE', 'PEED', 'NSTP', 'LSVI', 'RZAL', 'RIZAL', 'GEC')
+
+
+def is_major_subject(curriculum: models.Curriculum) -> bool:
+    """Return True if curriculum subject is a major subject (excludes General Education)."""
+    if not bool(getattr(curriculum, 'is_major', True)):
+        return False
+    code = (getattr(curriculum, 'code', '') or '').strip().upper()
+    if any(code.startswith(prefix) for prefix in GEN_ED_PREFIXES):
+        return False
+    return True
+
+
+def normalize_term(term_str: Any = None) -> str:
+    if not term_str:
+        return ""
+    s = str(term_str).strip().lower()
+    if s.startswith("1"):
+        return "1st"
+    if s.startswith("2"):
+        return "2nd"
+    if s.startswith("3"):
+        return "3rd"
+    return s
+
+
+def get_active_term_assigned_subjects(
+    db: Session,
+    current_user: models.User,
+    semester_id: Optional[int] = None,
+    department_id: Optional[int] = None
+) -> dict:
+    # 1. Resolve target semester (defaults to currently active term)
+    if semester_id:
+        semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    else:
+        semester = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+
+    if not semester:
+        return {
+            "active_semester": None,
+            "department": None,
+            "summary": {"total": 0, "assigned": 0, "unassigned": 0, "all_assigned": True},
+            "subjects": []
+        }
+
+    # 2. Resolve target department
+    dept = None
+    if current_user.role in ['program_chair', 'coordinator']:
+        if current_user.department:
+            dept = db.query(models.Department).filter(
+                (models.Department.code == current_user.department) |
+                (models.Department.name == current_user.department)
+            ).first()
+    elif department_id:
+        dept = db.query(models.Department).filter(models.Department.id == department_id).first()
+    else:
+        dept = db.query(models.Department).first()
+
+    if not dept:
+        return {
+            "active_semester": {
+                "id": semester.id,
+                "academic_year": semester.academic_year,
+                "term": semester.term
+            },
+            "department": None,
+            "curriculum_courses": [],
+            "summary": {"total": 0, "assigned": 0, "unassigned": 0, "all_assigned": True},
+            "subjects": []
+        }
+
+    # 3. Retrieve all PUBLISHED curriculum blocks for this department
+    published_blocks = db.query(models.CurriculumBlock).filter(
+        models.CurriculumBlock.department_id == dept.id,
+        models.CurriculumBlock.status == 'PUBLISHED'
+    ).all()
+
+    block_map = {b.id: b for b in published_blocks}
+    block_ids = list(block_map.keys())
+
+    if not block_ids:
+        return {
+            "active_semester": {
+                "id": semester.id,
+                "academic_year": semester.academic_year,
+                "term": semester.term
+            },
+            "department": {"id": dept.id, "name": dept.name, "code": dept.code},
+            "curriculum_courses": [],
+            "summary": {"total": 0, "assigned": 0, "unassigned": 0, "all_assigned": True},
+            "subjects": []
+        }
+
+    # 4. Fetch all subjects belonging to published blocks
+    all_block_subjects = db.query(models.Curriculum).filter(
+        models.Curriculum.block_id.in_(block_ids)
+    ).all()
+
+    # 5. Filter subjects matching the active semester term and major subjects only (no GenEd)
+    sem_term_norm = normalize_term(semester.term)
+    term_subjects = [
+        c for c in all_block_subjects
+        if normalize_term(c.semester_term) == sem_term_norm and is_major_subject(c)
+    ]
+
+    # 6. Retrieve subject offerings for these curriculum items in the target semester
+    term_curr_ids = [c.id for c in term_subjects]
+    offerings_by_curr = {}
+    if term_curr_ids:
+        raw_offerings = db.query(
+            models.SubjectOffering,
+            models.Faculty
+        ).join(
+            models.Faculty, models.SubjectOffering.faculty_id == models.Faculty.id
+        ).filter(
+            models.SubjectOffering.semester_id == semester.id,
+            models.SubjectOffering.curriculum_id.in_(term_curr_ids)
+        ).all()
+
+        for off, fac in raw_offerings:
+            offerings_by_curr.setdefault(off.curriculum_id, []).append((off, fac))
+
+    # 7. Build subject list
+    subject_list = []
+    for c in term_subjects:
+        assigned_list = offerings_by_curr.get(c.id, [])
+        block = block_map.get(c.block_id)
+        is_assigned = len(assigned_list) > 0
+
+        profs = [
+            {
+                "offering_id": off.id,
+                "faculty_id": fac.id,
+                "faculty_name": f"{fac.first_name} {fac.last_name}".strip(),
+                "faculty_email": fac.email,
+                "faculty_type": fac.type,
+            }
+            for off, fac in assigned_list
+        ]
+        prog_name = block.program_name if block else (c.program_code or "")
+        prog_code = (block.program.code if (block and block.program) else None) or prog_name
+
+        subject_list.append({
+            "curriculum_id": c.id,
+            "code": c.code,
+            "name": c.name,
+            "units": c.units,
+            "lec_units": c.lec_units,
+            "lab_units": c.lab_units,
+            "type": c.type,
+            "is_major": bool(c.is_major),
+            "year_level": c.year_level or "",
+            "semester_term": c.semester_term or "",
+            "program_code": prog_code,
+            "program_name": prog_name,
+            "status": "assigned" if is_assigned else "unassigned",
+            "assigned_professors": profs,
+            "professor_name": profs[0]["faculty_name"] if profs else "Unassigned",
+        })
+
+    # Sort: unassigned first, then by code
+    subject_list.sort(key=lambda s: (0 if s["status"] == "unassigned" else 1, s["code"]))
+
+    total = len(subject_list)
+    assigned_count = len([s for s in subject_list if s["status"] == "assigned"])
+    unassigned_count = total - assigned_count
+
+    curriculum_courses = [
+        {
+            "id": b.id,
+            "name": b.program_name,
+            "code": (b.program.code if b.program else b.program_name),
+            "academic_year": b.academic_year
+        }
+        for b in published_blocks
+    ]
+
+    return {
+        "active_semester": {
+            "id": semester.id,
+            "academic_year": semester.academic_year,
+            "term": semester.term
+        },
+        "department": {"id": dept.id, "name": dept.name, "code": dept.code},
+        "curriculum_courses": curriculum_courses,
+        "summary": {
+            "total": total,
+            "assigned": assigned_count,
+            "unassigned": unassigned_count,
+            "all_assigned": (unassigned_count == 0)
+        },
+        "subjects": subject_list
+    }
+
+
+@router.get("/assigned-subjects")
+def get_assigned_subjects(
+    semester_id: Optional[int] = Query(None),
+    department_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return get_active_term_assigned_subjects(db, current_user, semester_id, department_id)
+
+
 class SubjectOfferingExtendedResponse(schemas.SubjectOfferingResponse):
     faculty_name: str
     subject_code: str
     subject_name: str
 
     model_config = ConfigDict(from_attributes=True)
+
 
 @router.get("", response_model=List[SubjectOfferingExtendedResponse])
 def get_subject_offerings(

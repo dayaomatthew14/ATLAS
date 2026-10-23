@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Users, AlertTriangle, Sparkles,
-  FileSpreadsheet, Send, Calendar, RefreshCw, ChevronRight,
+  FileSpreadsheet, Calendar, RefreshCw, ChevronRight,
   CheckCircle2, BookOpen, Clock, Check, ArrowRight,
 } from 'lucide-react';
 import { api, API_BASE } from '../../utils/api';
@@ -114,30 +114,6 @@ export default function DashboardHome() {
         await api.post('/ai-scheduler/resolve-conflicts', []);
         addToast('Conflict resolution completed.', 'success');
         fetchStats();
-      } else if (action === 'notify') {
-        if (activeSemester) {
-          const res = await api.post(`/notifications/notify-faculty?semester_id=${activeSemester.id}`);
-          const sent = Number(res?.sent_count) || 0;
-          const skipped = Number(res?.skipped_no_contact) || 0;
-
-          if (sent === 0) {
-            addToast(
-              skipped > 0
-                ? `No one was notified. ${pluralize(skipped, 'faculty member')} has no email address on file.`
-                : 'No one was notified. Check that email delivery is set up.',
-              'warning',
-            );
-          } else {
-            addToast(
-              skipped > 0
-                ? `Notified ${pluralize(sent, 'faculty member')}. ${skipped} skipped with no email address.`
-                : `Notified ${pluralize(sent, 'faculty member')}.`,
-              'success',
-            );
-          }
-        } else {
-          addToast('No active semester found.', 'error');
-        }
       }
     } catch {
       addToast('Action failed: the service is unavailable.', 'error');
@@ -453,18 +429,6 @@ export default function DashboardHome() {
                 <ChevronRight className="w-4 h-4 text-[#6B9071]" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleQuickAction('notify')}
-                disabled={isProcessing === 'notify'}
-                className="w-full flex items-center justify-between px-5 py-3 rounded-xl font-ui text-caption font-bold bg-white/95 hover:bg-[#E3EED4]/60 text-[#1E3A2B] border border-[#AEC3B0]/60 hover:border-[#6B9071] transition-all shadow-2xs hover:shadow-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <Send className="w-4.5 h-4.5 text-emerald-700" />
-                  <span className="text-sm">Notify Faculty via Email</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-[#6B9071]" />
-              </button>
 
               {conflictsCount > 0 && (
                 <button

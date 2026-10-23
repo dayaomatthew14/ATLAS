@@ -101,6 +101,30 @@ def create_schedule(
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create schedules for your department's curriculum")
+
+    # Enforce that major subjects have an assigned professor before scheduling
+    from .subject_offerings import is_major_subject
+    if is_major_subject(curriculum_item):
+        offering = db.query(models.SubjectOffering).filter(
+            models.SubjectOffering.curriculum_id == schedule.curriculum_id,
+            models.SubjectOffering.semester_id == schedule.semester_id
+        ).first()
+        if not offering:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot schedule {curriculum_item.code}: This major subject is unassigned for this semester. Assign a professor first under Assigned Subjects."
+            )
+        if schedule.faculty_id:
+            fac_offering = db.query(models.SubjectOffering).filter(
+                models.SubjectOffering.curriculum_id == schedule.curriculum_id,
+                models.SubjectOffering.semester_id == schedule.semester_id,
+                models.SubjectOffering.faculty_id == schedule.faculty_id
+            ).first()
+            if not fac_offering:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot schedule {curriculum_item.code}: The selected professor is not assigned to this subject for this semester."
+                )
              
     new_schedule = models.Schedule(**schedule.model_dump())
     db.add(new_schedule)

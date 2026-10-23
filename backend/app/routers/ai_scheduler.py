@@ -77,6 +77,19 @@ def generate_schedule(
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
     resolved_faculty_ids = [cast(int, f.id) for f in faculty_records]
 
+    # Ensure every major subject in the active term has an assigned professor before scheduling
+    from .subject_offerings import get_active_term_assigned_subjects
+    assignment_data = get_active_term_assigned_subjects(db, current_user, semester_id=semester_id, department_id=dept.id)
+    if assignment_data.get("summary", {}).get("unassigned", 0) > 0:
+        unassigned_codes = [s["code"] for s in assignment_data.get("subjects", []) if s["status"] == "unassigned"]
+        sample_str = ", ".join(unassigned_codes[:5])
+        if len(unassigned_codes) > 5:
+            sample_str += f" and {len(unassigned_codes) - 5} more"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot generate schedules: {len(unassigned_codes)} major subject(s) are unassigned ({sample_str}). Every major subject for the active term must have an assigned professor before scheduling."
+        )
+
     # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
     results = generate_schedules(
         db, semester_id, resolved_faculty_ids, cast(int, dept.id),

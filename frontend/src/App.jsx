@@ -7,6 +7,7 @@ import CurriculumRoute from './pages/dashboard/CurriculumRoute';
 import CurriculumDetail from './pages/dashboard/CurriculumDetail';
 import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
+import AssignedSubjects from './pages/dashboard/AssignedSubjects';
 import Overview from './pages/dashboard/Overview';
 import SystemLogs from './pages/dashboard/SystemLogs';
 import UserManagement from './pages/dashboard/UserManagement';
@@ -100,6 +101,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={ALL_ROLES}>
                   <Rooms />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="assigned-subjects"
+              element={
+                <ProtectedRoute allowedRoles={SCHEDULING_ROLES}>
+                  <AssignedSubjects />
                 </ProtectedRoute>
               }
             />

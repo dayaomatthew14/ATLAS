@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList, FileText, FileSpreadsheet, Table as TableIcon, Clock, Calendar, ChevronDown, Check } from 'lucide-react';
 import Modal from '../../components/Modal';
 import AtlasDialog from '../../components/ui/Dialog';
@@ -579,6 +580,8 @@ export default function Schedules() {
   }, []);
 
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const navigate = useNavigate();
+  const [unassignedOfferingsData, setUnassignedOfferingsData] = useState({ unassigned: 0, total: 0 });
   // Whether the generator should put laboratory subjects in a room. Lecture
   // subjects never get one either way. Defaults on, which is what the generator
   // did before this was a choice.
@@ -898,6 +901,13 @@ export default function Schedules() {
       const active = safeSems.find(s => s.is_active);
       if (active) {
         setSelectedGenSemester(active.id);
+        const assignedRes = await api.get('/subject-offerings/assigned-subjects').catch(() => null);
+        if (assignedRes?.summary) {
+          setUnassignedOfferingsData({
+            unassigned: assignedRes.summary.unassigned || 0,
+            total: assignedRes.summary.total || 0
+          });
+        }
       }
     } catch (e) {
       console.error(e);
@@ -1097,6 +1107,9 @@ export default function Schedules() {
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
     if (!selectedGenSemester) return addToast('Select a semester', 'error');
+    if (unassignedOfferingsData.unassigned > 0) {
+      return addToast(`Cannot generate: ${unassignedOfferingsData.unassigned} subject(s) are unassigned. Please assign all subjects first under Assigned Subjects.`, 'error');
+    }
     if (selectedGenProfessors.length === 0) return addToast('Select at least one professor', 'error');
 
     setIsGenerating(true);
@@ -2324,6 +2337,33 @@ export default function Schedules() {
                 </span>
               </p>
 
+              {unassignedOfferingsData.unassigned > 0 && (
+                <div className="p-4 rounded-panel bg-amber-50 border border-amber-300 flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-ui text-sm font-bold text-amber-950">
+                      Cannot generate: {unassignedOfferingsData.unassigned} unassigned major {unassignedOfferingsData.unassigned === 1 ? 'subject' : 'subjects'}
+                    </p>
+                    <p className="font-ui text-xs text-amber-800 mt-1 leading-relaxed">
+                      Every major subject in the active term must have an assigned professor before AI scheduling can proceed.
+                    </p>
+                    <div className="mt-2.5">
+                      <AtlasButton
+                        size="small"
+                        variant="secondary"
+                        className="bg-white border-amber-300 text-amber-900 hover:bg-amber-100"
+                        onClick={() => {
+                          setIsGenerateModalOpen(false);
+                          navigate('/dashboard/assigned-subjects');
+                        }}
+                      >
+                        Review Assigned Subjects
+                      </AtlasButton>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <fieldset>
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <legend className="font-ui text-micro uppercase text-atlas-slate">
@@ -2376,7 +2416,12 @@ export default function Schedules() {
                 <AtlasButton variant="ghost" onClick={() => setIsGenerateModalOpen(false)} disabled={isGenerating}>
                   Cancel
                 </AtlasButton>
-                <AtlasButton type="submit" icon={Sparkles} loading={isGenerating}>
+                <AtlasButton
+                  type="submit"
+                  icon={Sparkles}
+                  loading={isGenerating}
+                  disabled={isGenerating || unassignedOfferingsData.unassigned > 0}
+                >
                   {isGenerating ? 'Generating…' : 'Generate Schedule'}
                 </AtlasButton>
               </div>
