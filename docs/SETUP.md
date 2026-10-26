@@ -105,17 +105,21 @@ and `start_atlas.bat` already runs it.
 
 ## 3. System User Accounts & Roles
 
-ATLAS supports three authenticated user roles:
-1. `admin` (System Administrator)
-2. `program_chair` (Program Chair)
-3. `coordinator` (Coordinator)
+ATLAS supports exactly two authenticated user roles:
+1. `admin` (Administrator / College Dean — Department-Isolated)
+2. `program_chair` (User / Program Chair — Department Scope)
 
-Master administrator credentials seeded via `python seed.py`:
-- **Email**: `admin@dlsau.edu.ph`
-- **Password**: `Admin123!`
-- **Role**: `admin`
+### Pre-seeded College Dean Administrator Accounts
+College Deans serve as the Administrators for their respective departments. Four official accounts are automatically seeded at backend startup:
+- **CAST**: `dean.cast@dlsau.edu.ph`
+- **CBMA**: `dean.cbma@dlsau.edu.ph`
+- **COED**: `dean.coed@dlsau.edu.ph`
+- **CVMAS**: `dean.cvmas@dlsau.edu.ph`
+- **Initial Password**: `DeanPassword123!` (or configured via `DEAN_SEED_PASSWORD`)
 
-Program Chair and Coordinator accounts can be created and managed by System Administrators via the **User Management** page (`/dashboard/users`).
+### Program Chair Registration & Governance
+- Public self-registration is strictly restricted to **Program Chairs** selecting their designated college. Attempts to register as an Administrator or Dean are rejected with HTTP 403.
+- College Deans manage, verify, and issue temporary passwords for Program Chairs within their college from the **Users** page (`/dashboard/users`).
 
 ---
 
@@ -129,6 +133,7 @@ Program Chair and Coordinator accounts can be created and managed by System Admi
 | `DATABASE_URL` | Optional | `sqlite:///./atlas_v3.db` | Database connection URI (PostgreSQL or SQLite) |
 | `ALLOWED_ORIGINS` | Optional | `http://localhost:5173` | Comma-separated CORS allowed origin URLs |
 | `ENV` | Optional | `development` | Environment mode (`development` | `production`) |
+| `DEAN_SEED_PASSWORD` | Optional | `DeanPassword123!` | Initial password for pre-seeded Dean accounts |
 | `TEXTBEE_API_KEY` | Optional | `<api-key>` | SMS OTP service integration key |
 | `TEXTBEE_DEVICE_ID` | Optional | `<device-id>` | SMS device ID |
 
@@ -184,4 +189,4 @@ developer machine at the deployed database — see `backend/.env.example`.
 
 ### 3. Invalid Token / 401 Unauthorized
 - **Cause**: JWT token expired, unauthorized role, or invalid `SECRET_KEY`.
-- **Solution**: Clear browser localStorage (`atlas_token`) and log in as an authorized user (`admin`, `program_chair`, `coordinator`).
+- **Solution**: Clear browser localStorage (`atlas_token`) and log in as an authorized user (`admin`, `program_chair`).

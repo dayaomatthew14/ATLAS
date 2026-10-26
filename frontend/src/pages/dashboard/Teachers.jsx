@@ -93,8 +93,8 @@ const validateUnits = (value, unitType = 'units', facultyType = 'full_time') => 
  * the signed-in role, not a preference, so it is stated rather than offered.
  */
 const SUBJECT_SCOPE = {
-  [ROLES.PROGRAM_CHAIR]: { isMajor: true, label: 'Major subjects', assigns: 'major subjects' },
-  [ROLES.COORDINATOR]: { isMajor: false, label: 'General Education', assigns: 'General Education subjects' },
+  [ROLES.PROGRAM_CHAIR]: { isMajor: undefined, label: 'Department subjects', assigns: 'subjects' },
+  [ROLES.DEAN]: { isMajor: undefined, label: 'Department subjects', assigns: 'subjects' },
 };
 
 const formatTime = (timeStr) => {
@@ -313,6 +313,9 @@ export default function Teachers() {
   const [deleteImpact, setDeleteImpact] = useState(null);
   const [formErrors, setFormErrors] = useState({});
   const [isSavingTeacher, setIsSavingTeacher] = useState(false);
+  const [allSemesterOfferings, setAllSemesterOfferings] = useState([]);
+  const [confirmGenEdModalOpen, setConfirmGenEdModalOpen] = useState(false);
+  const [pendingGenEdSubject, setPendingGenEdSubject] = useState(null);
 
   const canManageFaculty = canManageFacultyRole();
   // Null only if a role outside the scheduling pair ever reaches this screen;
@@ -342,7 +345,7 @@ export default function Teachers() {
 
         // Not a filter — the role's scope. A chair never sees General
         // Education here and a coordinator never sees majors.
-        const matchScope = !subjectScope || Boolean(sub.is_major) === subjectScope.isMajor;
+        const matchScope = !subjectScope || subjectScope.isMajor === undefined || Boolean(sub.is_major) === subjectScope.isMajor;
 
         const matchSearch = !q
           || String(sub.code || '').toLowerCase().includes(q)
@@ -420,6 +423,7 @@ export default function Teachers() {
 
       if (active) {
         const offerings = await api.get(`/subject-offerings?semester_id=${active.id}`).catch(() => []);
+        setAllSemesterOfferings(Array.isArray(offerings) ? offerings : []);
         const teacherOfferings = offerings.filter(o => o.faculty_id === (teacher.faculty_id || teacher.id));
         setTeacherSubjects(teacherOfferings);
       }
@@ -452,6 +456,36 @@ export default function Teachers() {
     }
   };
 
+  const confirmAssignSubject = async (subject) => {
+    try {
+      const updatedUnits = (selectedTeacherForSubjects.current_units || 0) + (subject.units || 0);
+
+      const res = await api.post('/subject-offerings', {
+        faculty_id: selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id,
+        curriculum_id: subject.id,
+        semester_id: activeSemester.id
+      });
+      setTeacherSubjects(prev => [...prev.filter(ts => ts.curriculum_id !== subject.id), res]);
+      setAllSemesterOfferings(prev => [...prev.filter(ts => ts.curriculum_id !== subject.id), res]);
+
+      setTeachers(prev => prev.map(t => {
+        if (t.id === selectedTeacherForSubjects.id) {
+          const newOfferings = [...(t.subject_offerings || []).filter(o => o.curriculum_id !== subject.id), res];
+          return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
+        }
+        return t;
+      }));
+      setSelectedTeacherForSubjects(prev => ({
+        ...prev,
+        subject_offerings: [...(prev.subject_offerings || []).filter(o => o.curriculum_id !== subject.id), res],
+        current_units: updatedUnits
+      }));
+      addToast('Subject added', 'success');
+    } catch (error) {
+      addToast(error.message || 'Failed to toggle subject', 'error');
+    }
+  };
+
   const handleToggleSubject = async (subject) => {
     if (!activeSemester) {
       addToast('No active semester found. Please set an active semester first.', 'error');
@@ -466,6 +500,7 @@ export default function Teachers() {
         if (offering) {
           await api.delete(`/subject-offerings/${offering.id}`);
           setTeacherSubjects(prev => prev.filter(ts => ts.id !== offering.id && ts.curriculum_id !== subject.id));
+          setAllSemesterOfferings(prev => prev.filter(ts => ts.id !== offering.id));
 
           setTeachers(prev => prev.map(t => {
             if (t.id === selectedTeacherForSubjects.id) {
@@ -483,28 +518,23 @@ export default function Teachers() {
           addToast('Subject removed', 'success');
         }
       } else {
-        const updatedUnits = (selectedTeacherForSubjects.current_units || 0) + (subject.units || 0);
+        // If subject is NOT a major subject (Gen Ed):
+        const GEN_ED_PREFIXES = ['GE', 'CORE', 'PEED', 'NSTP', 'LSVI', 'RZAL', 'RIZAL', 'GEC'];
+        const isGenEd = !subject.is_major || GEN_ED_PREFIXES.some(prefix => (subject.code || '').toUpperCase().startsWith(prefix));
 
-        const res = await api.post('/subject-offerings', {
-          faculty_id: selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id,
-          curriculum_id: subject.id,
-          semester_id: activeSemester.id
-        });
-        setTeacherSubjects(prev => [...prev.filter(ts => ts.curriculum_id !== subject.id), res]);
+        if (isGenEd) {
+          const currentFacultyId = selectedTeacherForSubjects.faculty_id || selectedTeacherForSubjects.id;
+          const otherOffering = allSemesterOfferings.find(o => o.curriculum_id === subject.id && o.faculty_id !== currentFacultyId);
 
-        setTeachers(prev => prev.map(t => {
-          if (t.id === selectedTeacherForSubjects.id) {
-            const newOfferings = [...(t.subject_offerings || []).filter(o => o.curriculum_id !== subject.id), res];
-            return { ...t, subject_offerings: newOfferings, current_units: updatedUnits };
-          }
-          return t;
-        }));
-        setSelectedTeacherForSubjects(prev => ({
-          ...prev,
-          subject_offerings: [...(prev.subject_offerings || []).filter(o => o.curriculum_id !== subject.id), res],
-          current_units: updatedUnits
-        }));
-        addToast('Subject added', 'success');
+          setPendingGenEdSubject({
+            subject,
+            existingOtherOffering: otherOffering || null
+          });
+          setConfirmGenEdModalOpen(true);
+          return;
+        }
+
+        await confirmAssignSubject(subject);
       }
     } catch (error) {
       addToast(error.message || 'Failed to toggle subject', 'error');
@@ -1804,6 +1834,30 @@ export default function Teachers() {
           )}
         </div>
       </AtlasDialog>
+
+      {/* Confirmation Dialog before overriding/assigning a Gen Ed subject */}
+      <AtlasConfirmDialog
+        isOpen={confirmGenEdModalOpen}
+        onClose={() => {
+          setConfirmGenEdModalOpen(false);
+          setPendingGenEdSubject(null);
+        }}
+        onConfirm={async () => {
+          if (pendingGenEdSubject?.subject) {
+            await confirmAssignSubject(pendingGenEdSubject.subject);
+          }
+          setConfirmGenEdModalOpen(false);
+          setPendingGenEdSubject(null);
+        }}
+        title={pendingGenEdSubject?.existingOtherOffering ? 'Confirm Assignment Override' : 'Confirm General Education Assignment'}
+        description={
+          pendingGenEdSubject?.existingOtherOffering
+            ? `${pendingGenEdSubject.subject.code} (${pendingGenEdSubject.subject.name}) is a General Education subject currently assigned to ${pendingGenEdSubject.existingOtherOffering.faculty_name}. Assigning it to ${selectedTeacherForSubjects?.name} will override the existing assignment. Do you want to proceed?`
+            : `${pendingGenEdSubject?.subject.code} (${pendingGenEdSubject?.subject.name}) is a General Education subject. Are you sure you want to assign this subject to ${selectedTeacherForSubjects?.name}?`
+        }
+        confirmLabel={pendingGenEdSubject?.existingOtherOffering ? 'Confirm Override' : 'Confirm Assignment'}
+        destructive={Boolean(pendingGenEdSubject?.existingOtherOffering)}
+      />
     </Page>
   );
 }

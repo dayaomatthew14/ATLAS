@@ -10,42 +10,42 @@ schedule for a term.
 
 ## 1. What it is for
 
-Four colleges each build their own timetable, but they draw on shared resources —
+Four colleges each build their own timetable, drawing on shared campus infrastructure —
 the same rooms, the same academic calendar. ATLAS exists to let each college plan
-independently while an administrator governs the things that must stay common:
-who may act, what may be taught, when, and where.
+and administer its operations independently while Dean Administrators govern their
+college domain: who may act, what may be taught, when, and where.
 
 The core loop:
 
-1. An administrator sets the **active academic term** and maintains the
-   **curriculum** for each programme.
-2. A **Program Chair** or **Coordinator** registers faculty, sets their unit caps
+1. A **Dean Administrator** maintains the **curriculum**, oversees college **programmes**,
+   and manages college user access.
+2. A **Program Chair** registers faculty, sets their unit caps
    and unavailable hours, and assigns subject offerings.
 3. The scheduler **generates** a weekly timetable for that college.
 4. Conflicts are **resolved one at a time**, each as a deliberate decision.
-5. An administrator **publishes** the schedule, which makes it official.
+5. Schedules are reviewed and verified before publication.
 
 ---
 
 ## 2. Who uses it
 
-Three roles. Faculty members do **not** log in — they are managed as teaching
-resource records.
+Two roles across the system. Faculty members do **not** log in — they are managed as teaching
+resource records. Deans do not self-register; their accounts are pre-seeded at startup as the
+college administrators. Public self-registration is strictly locked to Program Chairs.
 
 | Role | Owns |
 |---|---|
-| **System Administrator** | Institutional reference data: user accounts, colleges & programmes, curriculum, academic terms, rooms. Publishes schedules. |
-| **Program Chair** | Their college's operations: faculty, subject offerings, schedule generation, conflict resolution. |
-| **Coordinator** | Same as Program Chair, oriented toward General Education subjects. |
+| **Administrator / College Dean (`admin`)** | College executive governance and administration, separated by department (`CAST`, `CBMA`, `COED`, `CVMAS`). Manages college users (Program Chairs), oversees curriculum blocks, curates programmes, monitors academic terms, and inspects activity logs within their college. |
+| **User / Program Chair (`program_chair`)** | Departmental academic and scheduling operations: faculty resource profiles, subject offerings, schedule generation, timetable refinement, and conflict resolution. |
 
-**The governing boundary:** the administrator sets the frame; chairs work inside
-it. This follows the data model — `Room` has no owning college and is shared
-campus infrastructure; `Faculty` belongs to a college. The administrator is
-therefore absent from Faculty and schedule editing entirely, rather than being
-shown controls that would refuse.
-
-Publishing stays with the administrator deliberately: whoever builds a timetable
-should not be the one who declares it official.
+**The governing boundary:** The Dean Administrator sets the frame and manages curriculum/users;
+program chairs work inside it to build timetables and manage teaching resources. This follows
+the data model — `Room` represents shared campus infrastructure, while `Faculty` and `CurriculumBlock`
+belong to a college department. Dean accounts operate strictly isolated within their assigned college:
+- `dean.cast@dlsau.edu.ph` (CAST)
+- `dean.cbma@dlsau.edu.ph` (CBMA)
+- `dean.coed@dlsau.edu.ph` (COED)
+- `dean.cvmas@dlsau.edu.ph` (CVMAS)
 
 ---
 

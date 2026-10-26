@@ -16,12 +16,12 @@ def get_rules(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = db.query(models.AIRule)
     
-    if current_user.role == 'program_chair':
+    if current_user.role in ['dean', 'program_chair']:
         # Find department id
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
@@ -40,7 +40,7 @@ def create_rule(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role == 'program_chair':
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -67,7 +67,7 @@ def update_rule(
         raise HTTPException(status_code=404, detail="Rule not found")
         
     # Check authorization
-    if current_user.role == 'program_chair':
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -94,7 +94,7 @@ def delete_rule(
         raise HTTPException(status_code=404, detail="Rule not found")
         
     # Check authorization
-    if current_user.role == 'program_chair':
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)

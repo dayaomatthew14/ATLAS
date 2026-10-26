@@ -66,11 +66,29 @@ def _seeded_colleges(db: Session):
     )
 
 
+def _require_admin_or_dean(db: Session, current_user: models.User, department_id: Optional[int] = None) -> None:
+    if current_user.role not in ["admin", "dean"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can manage the academic structure."
+        )
+    if current_user.department and department_id is not None:
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if not dept or dept.id != department_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Deans can only manage programmes for their own college."
+            )
+
+
 def _require_admin(current_user: models.User) -> None:
     if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can change the academic taxonomy."
+            detail="Only administrators can perform this action."
         )
 
 
@@ -112,6 +130,8 @@ def list_colleges(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     colleges = _seeded_colleges(db)
+    if current_user.department:
+        colleges = [c for c in colleges if c.code == current_user.department]
     return [
         CollegeOut(
             id=int(c.id),  # type: ignore
@@ -159,16 +179,17 @@ def assign_block(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    _require_admin(current_user)
     block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
     if not block:
         raise HTTPException(status_code=404, detail="Curriculum block not found.")
+
     program = db.query(models.Program).filter(models.Program.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Programme not found.")
+    _require_admin_or_dean(db, current_user, int(program.department_id))  # type: ignore
 
-    block.program_id = program.id
-    block.department_id = program.department_id
+    block.program_id = program.id  # type: ignore
+    block.department_id = program.department_id  # type: ignore
     # Subjects carry their own department_id and are filtered by it elsewhere.
     db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).update(
         {models.Curriculum.department_id: program.department_id}, synchronize_session=False
@@ -188,7 +209,7 @@ def create_program(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    _require_admin(current_user)
+    _require_admin_or_dean(db, current_user, payload.department_id)
     code = payload.code.strip().upper()
     if db.query(models.Program).filter(models.Program.code == code).first():
         raise HTTPException(status_code=409, detail=f"Programme code {code} is already in use.")
@@ -211,10 +232,12 @@ def update_program(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    _require_admin(current_user)
     program = db.query(models.Program).filter(models.Program.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Programme not found.")
+    _require_admin_or_dean(db, current_user, int(program.department_id))  # type: ignore
+    if payload.department_id:
+        _require_admin_or_dean(db, current_user, payload.department_id)
 
     if payload.code:
         code = payload.code.strip().upper()
@@ -242,10 +265,10 @@ def delete_program(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    _require_admin(current_user)
     program = db.query(models.Program).filter(models.Program.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Programme not found.")
+    _require_admin_or_dean(db, current_user, int(program.department_id))  # type: ignore
 
     # Refuse with a count rather than cascading a delete through real curriculum.
     blocks = db.query(models.CurriculumBlock).filter(

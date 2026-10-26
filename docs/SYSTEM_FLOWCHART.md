@@ -19,7 +19,7 @@ flowchart TD
     Role -- Administrator --> AdminSetup["Set the active term<br/>Maintain colleges &amp; programmes<br/>Import curriculum<br/>Register rooms<br/>Verify accounts"]
     AdminSetup --> AdminDone([End])
 
-    Role -- "Program Chair /<br/>Coordinator" --> Faculty["Add faculty<br/>set teaching hours + unavailable times"]
+    Role -- "College Dean /<br/>Program Chair" --> Faculty["Add faculty<br/>set teaching hours + unavailable times"]
     Faculty --> Offerings["Assign subjects to faculty"]
     Offerings --> Ready{"Active term, faculty<br/>and subjects all set?"}
 
@@ -47,8 +47,7 @@ flowchart TD
 
 ## Notes
 
-- **Registration** is self-service for Program Chair and Coordinator only.
-  Administrator accounts are created server-side.
+- **Registration** is self-service for Program Chairs only. College Deans are pre-seeded and System Administrators are created server-side.
 - **A verification code** is required before an account can log in.
 - **Nothing can be generated** until an administrator has set an active academic
   term — this is why the administrator branch feeds the chair's work.

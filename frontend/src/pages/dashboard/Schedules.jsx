@@ -197,7 +197,7 @@ const formatSubjectCode = (sched) => {
   const abMatch = rawCode.match(/^(.*?)[_\-\s]*A\/B$/i);
   if (abMatch) {
     const baseCode = abMatch[1].trim();
-    const isLec = !sched.room_id || sched.room_name === '—' || sched.room_name === '' || sched.part_type === 'lecture';
+    const isLec = sched.part_type === 'lecture';
     return isLec ? `${baseCode}A` : `${baseCode}B`;
   }
   return rawCode;
@@ -209,11 +209,8 @@ const isLabSession = (sched) => {
   if (sched.curriculum?.type === 'lab') return true;
   const rawCode = sched.subject_code || sched.code || sched.curriculum?.code || '';
   if (rawCode.toUpperCase().endsWith('B')) return true;
-  const roomName = (sched.room_name || sched.room?.name || '').toLowerCase();
-  const roomType = (sched.room_type || sched.room?.type || '').toLowerCase();
-  if (roomType === 'lab' || roomType === 'computer_lab' || roomName.includes('lab')) return true;
   const dur = durationHours(sched);
-  if (dur >= 2.0 && (sched.room_id || sched.curriculum?.lab_units > 0)) return true;
+  if (dur >= 2.0 && sched.curriculum?.lab_units > 0) return true;
   return false;
 };
 
@@ -291,10 +288,10 @@ const EXPORT_COLUMNS = [
   { key: 'faculty', label: 'Professor', value: (s) => s.faculty_name || 'TBA' },
   { key: 'code', label: 'Subject Code', value: (s) => formatSubjectCode(s) },
   { key: 'name', label: 'Subject Name', value: (s) => s.subject_name || '' },
+  { key: 'section', label: 'Section', value: (s) => s.section || '—' },
   { key: 'day', label: 'Day', value: (s) => DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '' },
   { key: 'start', label: 'Start Time', value: (s) => to12h(s.start_time) },
   { key: 'end', label: 'End Time', value: (s) => to12h(s.end_time) },
-  { key: 'room', label: 'Room', value: (s) => (s.room_name && s.room_name !== '—' && s.room_name !== 'No room assigned' ? s.room_name : 'TBA') },
 ];
 
 /**
@@ -391,8 +388,6 @@ const buildWordHtml = (rows, opts = {}) => {
         <th class="center">Day</th>
         <th class="center">Start Time</th>
         <th class="center">End Time</th>
-        <th class="left">Room</th>
-        <th class="left">Building</th>
       </tr>
     </thead>
     <tbody>
@@ -405,8 +400,6 @@ const buildWordHtml = (rows, opts = {}) => {
           <td class="center font-bold">${htmlEscape(DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '—')}</td>
           <td class="center">${htmlEscape(to12h(s.start_time))}</td>
           <td class="center">${htmlEscape(to12h(s.end_time))}</td>
-          <td class="left">${htmlEscape(s.room_name && s.room_name !== '—' ? s.room_name : 'No room assigned')}</td>
-          <td class="left">${htmlEscape(s.room_building || '—')}</td>
         </tr>
       `).join('')}
     </tbody>
@@ -417,7 +410,7 @@ const buildWordHtml = (rows, opts = {}) => {
       <td>
         <div style="font-weight: bold; color: #05301F;">Certified Correct:</div>
         <div class="sig-line"></div>
-        <div class="sig-title">Program Chair / Department Coordinator</div>
+        <div class="sig-title">Program Chair</div>
         <div class="sig-meta">Date: ________________________</div>
       </td>
       <td>
@@ -454,8 +447,8 @@ function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDele
   const code = formatSubjectCode(sched);
   const label =
     `${code}, ${sched.subject_name}, ${dayLabel} ` +
-    `${to12h(sched.start_time)} to ${to12h(sched.end_time)}, ` +
-    `${sched.room_name && sched.room_name !== '—' ? sched.room_name : 'no room assigned'}` +
+    `${to12h(sched.start_time)} to ${to12h(sched.end_time)}` +
+    (sched.section ? `, Section ${sched.section}` : '') +
     (canManage ? '. Press Delete to remove this class.' : '');
 
   return (
@@ -537,17 +530,6 @@ function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDele
       >
         {sched.subject_name}
       </h4>
-
-      {/* Metadata: Room & Building */}
-      <div className="mt-3 pl-1.5 flex flex-col gap-1 text-caption font-medium" style={{ color: color.meta }}>
-        <span className="flex items-center gap-1.5">
-          <MapPin className="w-3.5 h-3.5 text-[#6B9071] shrink-0" aria-hidden="true" />
-          <span className="truncate">
-            {sched.room_name && sched.room_name !== '—' && sched.room_name !== 'No room assigned' ? sched.room_name : 'TBA'}
-            {sched.room_building ? ` · ${sched.room_building}` : ''}
-          </span>
-        </span>
-      </div>
 
       {/* Footer: Time range */}
       <div className="mt-3 pt-2.5 border-t border-[#AEC3B0]/30 pl-1.5 flex items-center">
@@ -861,6 +843,9 @@ export default function Schedules() {
           items: res.backup
         });
       }
+      setSelectedProfessorFilter('');
+      setGlobalSchedules([]);
+      setSchedules([]);
       fetchGlobalSchedules(semId);
       fetchSchedules();
       fetchActiveConflicts();
@@ -1069,22 +1054,27 @@ export default function Schedules() {
   /**
    * One board per professor: their week, day by day, in time order.
    *
-   * Every professor in the department appears, including those the generator
-   * placed nothing for. An empty week is a fact worth seeing — it is how an
-   * unloaded professor becomes visible — and hiding them would make the page
-   * shorter at the cost of the thing it exists to show.
+   * When no classes are scheduled (such as before generation or after Clear All),
+   * no professor cards are rendered so the empty state is properly displayed.
    */
   const facultyBoards = React.useMemo(() => {
+    if (!globalSchedules || globalSchedules.length === 0) {
+      return [];
+    }
+
     const boards = new Map();
 
-    allTeachers.forEach((t) => {
-      if (t.name && t.name.trim()) boards.set(t.name, { name: t.name, classes: [] });
-    });
     globalSchedules.forEach((s) => {
       const name = s.faculty_name || 'Unassigned';
       if (!boards.has(name)) boards.set(name, { name, classes: [] });
       boards.get(name).classes.push(s);
     });
+
+    // If a specific professor filter is selected, ensure their card exists
+    // so any filter status or empty state for that professor is viewable.
+    if (selectedProfessorFilter && !boards.has(selectedProfessorFilter)) {
+      boards.set(selectedProfessorFilter, { name: selectedProfessorFilter, classes: [] });
+    }
 
     return [...boards.values()]
       .map((board) => ({
@@ -1098,7 +1088,7 @@ export default function Schedules() {
         })),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [globalSchedules, allTeachers]);
+  }, [globalSchedules, selectedProfessorFilter]);
 
   const visibleBoards = selectedProfessorFilter
     ? facultyBoards.filter((b) => b.name === selectedProfessorFilter)
@@ -1107,9 +1097,6 @@ export default function Schedules() {
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
     if (!selectedGenSemester) return addToast('Select a semester', 'error');
-    if (unassignedOfferingsData.unassigned > 0) {
-      return addToast(`Cannot generate: ${unassignedOfferingsData.unassigned} subject(s) are unassigned. Please assign all subjects first under Assigned Subjects.`, 'error');
-    }
     if (selectedGenProfessors.length === 0) return addToast('Select at least one professor', 'error');
 
     setIsGenerating(true);
@@ -1140,11 +1127,9 @@ export default function Schedules() {
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
   const [subjects, setSubjects] = useState([]);
-  const [rooms, setRooms] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [formData, setFormData] = useState({
     subject_id: '',
-    room_id: '',
     faculty_id: '',
     day_of_week: 'Mon',
     start_time: '07:30',
@@ -1154,9 +1139,8 @@ export default function Schedules() {
 
   const fetchDropdownData = async () => {
     try {
-      const [subjectsData, roomsData, teachersData] = await Promise.all([
+      const [subjectsData, teachersData] = await Promise.all([
         api.get('/curriculum').catch(() => []),
-        api.get('/rooms').catch(() => []),
         api.get('/professors').catch(() => [])
       ]);
       const formattedTeachers = (teachersData || []).map(t => ({
@@ -1164,7 +1148,6 @@ export default function Schedules() {
         name: `${t.first_name} ${t.last_name}`
       }));
       setSubjects(subjectsData || []);
-      setRooms(roomsData || []);
       setTeachers(formattedTeachers);
     } catch (error) {
       console.error('Error fetching dropdown data');
@@ -1208,13 +1191,11 @@ export default function Schedules() {
     if (formData.subject_id && formData.start_time) {
       const conflicts = detectConflicts({
         ...formData,
-        room_id: formData.room_id ? parseInt(formData.room_id) : null,
-        room_name: formData.room_id ? rooms.find(r => r.id === parseInt(formData.room_id))?.name : undefined,
         teacher: teachers.find(t => t.id === parseInt(formData.faculty_id))?.name
       }, schedules);
       setFormConflicts(conflicts);
     }
-  }, [formData, schedules, rooms, teachers]);
+  }, [formData, schedules, teachers]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1226,7 +1207,7 @@ export default function Schedules() {
       const submissionData = {
         semester_id: activeSemesterId,
         curriculum_id: parseInt(formData.subject_id),
-        room_id: formData.room_id ? parseInt(formData.room_id) : null,
+        room_id: null,
         faculty_id: parseInt(formData.faculty_id),
         day_of_week: formData.day_of_week,
         start_time: formData.start_time,
@@ -1616,7 +1597,7 @@ export default function Schedules() {
                         <strong className="text-[#0F2A1D]">
                           {facultyBoards.filter((b) => b.classes.length > 0).length}
                         </strong>{' '}
-                        of {facultyBoards.length} professors scheduled
+                        of {allTeachers.length > 0 ? allTeachers.length : facultyBoards.length} professors scheduled
                       </span>
                     </>
                   )}
@@ -1746,9 +1727,6 @@ export default function Schedules() {
                 <table className="w-full border-collapse text-left min-w-[1020px]">
                   <thead>
                     <tr className="border-b-2 border-[#8FBFA6]/60 bg-[#F4F8F5] text-[#05301F]">
-                      <th className="w-28 px-3 py-3.5 text-center bg-[#F4F8F5] border-r border-[#E1E5E2] font-ui text-xs font-extrabold uppercase tracking-wider text-[#05301F]">
-                        Period / Time
-                      </th>
                       {/* Day Column Headers */}
                       {DAY_ORDER.map((day, dIdx) => {
                         const todayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][currentTime.getDay()];
@@ -1796,10 +1774,6 @@ export default function Schedules() {
                               : 'bg-white'
                           }`}
                         >
-                          <td className="w-28 px-3 py-3 align-top border-r border-[#E1E5E2] bg-[#FAFBF9]/80 text-center select-none">
-                            <div className="font-ui text-xs font-extrabold text-[#05301F] tracking-tight">{period.title}</div>
-                            <div className="font-data text-[10.5px] font-semibold text-[#4D6B4A] mt-0.5">{period.time}</div>
-                          </td>
                           {/* 6 Day Matrix Cells */}
                           {DAY_ORDER.map((day, dIdx) => {
                             const todayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][currentTime.getDay()];
@@ -1831,7 +1805,7 @@ export default function Schedules() {
 
                                       const blockLabel =
                                         `${formatSubjectCode(sched)} (${isLab ? 'LAB' : 'LEC'}), ${sched.subject_name}, ` +
-                                        `${sched.faculty_name}, ${sched.room_name || 'TBA'}, ` +
+                                        `${sched.faculty_name}, ` +
                                         `${day} ${sched.start_time} to ${sched.end_time}` +
                                         (canManageSchedules ? '. Press Delete to remove this class.' : '');
 
@@ -1912,7 +1886,7 @@ export default function Schedules() {
                                               {sched.subject_name}
                                             </h4>
 
-                                            {/* Time range & Room */}
+                                            {/* Time range */}
                                             <div className="mt-0.5 flex items-center justify-between gap-1 text-[10.5px]">
                                               <span
                                                 className="font-data font-bold tabular-nums whitespace-nowrap"
@@ -1920,9 +1894,11 @@ export default function Schedules() {
                                               >
                                                 {to12h(sched.start_time)} – {to12h(sched.end_time)}
                                               </span>
-                                              <span className="font-ui text-[10px] font-semibold text-[#4D6B4A] truncate">
-                                                {sched.room_name && sched.room_name !== '—' ? sched.room_name : 'TBA'}
-                                              </span>
+                                              {sched.section && (
+                                                <span className="font-ui text-[10px] font-semibold text-[#4D6B4A] truncate">
+                                                  Sec {sched.section}
+                                                </span>
+                                              )}
                                             </div>
                                           </div>
                                         </div>
@@ -2020,16 +1996,15 @@ export default function Schedules() {
                   </span>
                 </div>
 
-                {/* Room */}
-                <div className="flex items-center gap-2 text-[#0F2A1D]">
-                  <MapPin className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
-                  <span className="font-medium truncate">
-                    {hoveredSchedule.sched.room_name && hoveredSchedule.sched.room_name !== '—' && hoveredSchedule.sched.room_name !== 'No room assigned'
-                      ? hoveredSchedule.sched.room_name
-                      : 'TBA (No Room Assigned)'}
-                    {hoveredSchedule.sched.room_building ? ` (${hoveredSchedule.sched.room_building})` : ''}
-                  </span>
-                </div>
+                {/* Section */}
+                {hoveredSchedule.sched.section && (
+                  <div className="flex items-center gap-2 text-[#0F2A1D]">
+                    <Users className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
+                    <span className="font-medium truncate">
+                      Section {hoveredSchedule.sched.section}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Delete button (if can manage) */}
@@ -2138,20 +2113,7 @@ export default function Schedules() {
               </div>
             </div>
           )}
-          {blockingFormConflicts.length === 0 && advisoryFormConflicts.length > 0 && (
-            <div className="rounded-panel bg-sem-warning-bg border border-sem-warning/30 p-3.5 flex items-start gap-2.5">
-              <MapPin className="w-4 h-4 text-sem-warning shrink-0 mt-0.5" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="font-ui text-caption font-semibold text-sem-warning">
-                  That room is already in use then
-                </p>
-                <p className="font-ui text-caption text-sem-warning/90 mt-0.5 leading-relaxed">
-                  You can save this — the Registrar assigns the final rooms. Clear the room if you
-                  would rather leave it to them.
-                </p>
-              </div>
-            </div>
-          )}
+
 
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700">Subject</label>
@@ -2180,15 +2142,14 @@ export default function Schedules() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Room (Optional)</label>
-              <select
+              <label className="block text-sm font-medium text-gray-700">Section (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. 1A, CS-3A"
                 className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.room_id}
-                onChange={(e) => setFormData({ ...formData, room_id: e.target.value })}
-              >
-                <option value="">Unassigned (TBA)</option>
-                {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.building}) - {r.type}</option>)}
-              </select>
+                value={formData.section}
+                onChange={(e) => setFormData({ ...formData, section: e.target.value })}
+              />
             </div>
           </div>
 
@@ -2265,7 +2226,7 @@ export default function Schedules() {
                 {aiSuggestions.map((sug, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg hover:border-indigo-300 transition-colors">
                     <div>
-                      <p className="text-sm font-bold text-slate-800">{sug.faculty_name} <span className="text-xs font-normal text-slate-500 ml-1">in {sug.room_name}</span></p>
+                      <p className="text-sm font-bold text-slate-800">{sug.faculty_name}</p>
                       <p className="text-xs font-medium text-indigo-600 mt-0.5">{sug.day_of_week} • {sug.start_time} - {sug.end_time} • {sug.confidence}% Match</p>
                     </div>
                     <button
@@ -2273,7 +2234,6 @@ export default function Schedules() {
                       onClick={() => setFormData({
                         ...formData,
                         faculty_id: sug.faculty_id.toString(),
-                        room_id: sug.room_id.toString(),
                         day_of_week: sug.day_of_week,
                         start_time: sug.start_time,
                         end_time: sug.end_time
@@ -2320,32 +2280,15 @@ export default function Schedules() {
                 })()}
               </div>
 
-              {/* Rooms are not asked about any more.
-                  A laboratory is given a free room where one exists and placed
-                  without one where it does not, so there is no longer a choice
-                  that changes what the generator will refuse. This states what
-                  will happen instead of asking a question whose wrong answer
-                  used to cost a class its place on the timetable. */}
-              <p className="flex items-start gap-2.5 px-4 py-3 rounded-panel bg-atlas-50 border border-atlas-line
-                            font-ui text-caption text-atlas-slate leading-relaxed">
-                <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-atlas-700" aria-hidden="true" />
-                <span>
-                  <span className="block font-medium text-atlas-ink">Rooms are filled in where possible</span>
-                  Laboratories are given a free laboratory room when your college has one. Anything
-                  left blank — including every lecture — is for the Registrar to assign once you
-                  submit. A missing room never stops a class being scheduled.
-                </span>
-              </p>
-
               {unassignedOfferingsData.unassigned > 0 && (
-                <div className="p-4 rounded-panel bg-amber-50 border border-amber-300 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="p-4 rounded-panel bg-amber-50/80 border border-amber-300 flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
                     <p className="font-ui text-sm font-bold text-amber-950">
-                      Cannot generate: {unassignedOfferingsData.unassigned} unassigned major {unassignedOfferingsData.unassigned === 1 ? 'subject' : 'subjects'}
+                      Notice: {unassignedOfferingsData.unassigned} unassigned major {unassignedOfferingsData.unassigned === 1 ? 'subject' : 'subjects'}
                     </p>
                     <p className="font-ui text-xs text-amber-800 mt-1 leading-relaxed">
-                      Every major subject in the active term must have an assigned professor before AI scheduling can proceed.
+                      Unassigned subjects will be skipped until assigned to a professor. You can still proceed to generate schedules for the selected professors below.
                     </p>
                     <div className="mt-2.5">
                       <AtlasButton
@@ -2420,7 +2363,7 @@ export default function Schedules() {
                   type="submit"
                   icon={Sparkles}
                   loading={isGenerating}
-                  disabled={isGenerating || unassignedOfferingsData.unassigned > 0}
+                  disabled={isGenerating || selectedGenProfessors.length === 0}
                 >
                   {isGenerating ? 'Generating…' : 'Generate Schedule'}
                 </AtlasButton>

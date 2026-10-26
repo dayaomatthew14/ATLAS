@@ -12,12 +12,13 @@ ATLAS is designed around specialized administrative timetabling workflows for au
 
 | Role | Key Capabilities & Workflows |
 | :--- | :--- |
-| 👑 **System Administrator** | Master system control, user account creation (`admin`, `program_chair`, `coordinator`), department assignments, active semester configuration, system-wide audit log monitoring, and global data purges. |
-| 🎓 **Program Chair** | Departmental workspace control (CAST, CBMA, CVMAS, COED), Excel curriculum ingestion, faculty workload limits, room management, subject assignment, AI schedule generation, and conflict resolution. |
-| 📋 **Coordinator** | Departmental scheduling assistance, subject assignments, timetable reviews, conflict resolution, and schedule exports. |
+| 👑 **Administrator / College Dean (`admin`)** | Institutional administration separated by academic department (`CAST`, `CBMA`, `COED`, `CVMAS`). Each Dean serves as the Administrator for their college with a dedicated sidebar navigation: <br>• **Overview**: College-specific enrollment statistics, curriculum status, and recent activity.<br>• **PEOPLE**: Manage college **Users** (Program Chairs and department staff), verify accounts, and trigger temporary password resets.<br>• **ACADEMIC STRUCTURE**: Manage **Colleges and Programs**, import and curate **Curriculum** blocks (`DRAFT`, `PUBLISHED`, `ARCHIVED`), and monitor **Academic Terms**.<br>• **OVERSIGHT**: Inspect college-scoped **Activity** audit logs. |
+| 🎓 **User / Program Chair (`program_chair`)** | Departmental academic head & scheduling planner. Excel curriculum ingestion, faculty workload limits, room management, subject assignment, AI schedule generation, conflict resolution, and schedule exports. |
 
 > [!NOTE]
-> **Faculty Records & Profiles**: Faculty members do not log into or access ATLAS. Faculty profiles are managed strictly as scheduling resource records by Program Chairs and Coordinators to track teaching unit caps, subject qualifications, and unavailability schedules.
+> - **Pre-seeded Dean Admin Accounts**: Deans do not self-register. Official accounts for each college (`dean.cast@dlsau.edu.ph`, `dean.cbma@dlsau.edu.ph`, `dean.coed@dlsau.edu.ph`, `dean.cvmas@dlsau.edu.ph`) are pre-seeded on startup with initial password `DeanPassword123!`.
+> - **Public Registration**: Self-registration is strictly restricted to **Users (Program Chairs)**. Attempts to register as an Administrator or Dean are blocked with HTTP 403 Forbidden.
+> - **Faculty Records & Profiles**: Faculty members do not log into or access ATLAS. Faculty profiles are managed strictly as scheduling resource records by authorized Deans and Program Chairs to track teaching unit caps, subject qualifications, and unavailability schedules.
 
 ---
 
@@ -64,10 +65,15 @@ ATLAS is designed around specialized administrative timetabling workflows for au
 ---
 
 ### 3.4 Assigning Subject Offerings (Faculty Records to Subjects)
-1. Navigate to **Teachers / Faculty** (`/dashboard/teachers`) or **Curriculum**.
-2. Click **Assign Subject Offerings**.
-3. Select the target Faculty record and check the curriculum subjects they are qualified/assigned to teach for the active semester.
-4. Click **Save Assignments**.
+1. Navigate to **Assigned Subjects** (`/dashboard/assigned-subjects`) or **Teachers** (`/dashboard/teachers`).
+2. **Major & General Education Subjects**:
+   - Both Major subjects and General Education (Gen Ed) subjects for the active term appear for assignment.
+   - You can filter by Category (**Major Subjects** vs. **General Education (Gen Ed)**) or by assignment status.
+3. **Assigning & Overriding Subjects**:
+   - Select a subject and click **Assign** or **Change** to select a professor from your faculty roster.
+   - **Gen Ed Assignment Confirmation**: If the subject being assigned is not a major subject (General Education), the system prompts for confirmation before the assignment is committed or overridden.
+   - If a Gen Ed subject is already assigned to a professor, the dialog explicitly warns you that assigning a new professor will override the current assignment.
+4. Click **Confirm & Override** or **Save Assignment** to commit the change.
 
 ---
 
@@ -96,3 +102,10 @@ ATLAS is designed around specialized administrative timetabling workflows for au
 1. **Locking Schedules**: Click the **Lock Icon** on any individual schedule row. Locked items are preserved in their exact time slot during future AI regeneration runs.
 2. **Publishing**: When satisfied with draft timetables, click **Publish Schedule**. This transitions schedule status from `draft` to `published` for official department use and exports.
 3. **Exporting**: Click **Export PDF** or **Export Excel** to download clean, publication-ready timetable documents.
+
+### 3.8 College Dean Administration (Dean Admin Only)
+1. **Overview & Metrics**: Deans navigate to **Overview** (`/dashboard/overview`) to view college-specific program counts, user totals, and recent activity logs.
+2. **Managing College Users**: Deans navigate to **Users** (`/dashboard/users`) to review registered chairs strictly within their college, verify new registrations, and issue temporary passwords when requested.
+3. **Colleges & Programs Review**: Deans navigate to **Colleges and Programs** (`/dashboard/colleges`) to view and update academic degree programs belonging exclusively to their college.
+4. **Curriculum Oversight**: Deans navigate to **Curriculum** (`/dashboard/curriculum`) to review, import, draft, publish, or archive curriculum blocks for their department without cross-college exposure.
+5. **Academic Terms & Activity**: Deans inspect **Academic Terms** (`/dashboard/semesters`) to view the active term context, and check **Activity** (`/dashboard/activity`) for department-isolated audit trails.

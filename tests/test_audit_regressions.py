@@ -18,9 +18,10 @@ BACKEND = Path(__file__).resolve().parents[1] / "backend"
 sys.path.insert(0, str(BACKEND))
 os.environ.setdefault("SECRET_KEY", "test-secret-for-audit-regressions")
 
-import re  # noqa: E402
+import re
+from typing import cast
 from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.orm import sessionmaker, Session  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
 from backend.app import models, schemas, storage  # noqa: E402
@@ -52,11 +53,11 @@ class ConflictReportingTests(unittest.TestCase):
 
     def test_count_raises_rather_than_reporting_clean(self):
         with self.assertRaises(RuntimeError):
-            get_conflict_count(db=_RaisingDB(), current_user=_Admin())
+            get_conflict_count(db=cast(Session, _RaisingDB()), current_user=_Admin())
 
     def test_list_raises_rather_than_reporting_clean(self):
         with self.assertRaises(RuntimeError):
-            get_conflicts(skip=0, limit=100, db=_RaisingDB(), current_user=_Admin())
+            get_conflicts(skip=0, limit=100, db=cast(Session, _RaisingDB()), current_user=_Admin())
 
     def test_legitimate_zero_is_still_zero(self):
         """An unprivileged caller genuinely has no conflicts; that is not a failure."""
@@ -107,7 +108,7 @@ class ConflictReportingTests(unittest.TestCase):
                     return Chain()
                 raise RuntimeError("curriculum lookup failed")
 
-        res = get_conflicts(skip=0, limit=100, db=PartialDB(), current_user=_Admin())
+        res = get_conflicts(skip=0, limit=100, db=cast(Session, PartialDB()), current_user=_Admin())
         self.assertEqual(len(res), 1, "the conflict must still appear in the list")
         self.assertTrue(res[0]["degraded"])
         self.assertEqual(res[0]["id"], 42)
@@ -207,7 +208,7 @@ class RegistrationInputTests(unittest.TestCase):
             contact_number="09171234567", role="program_chair",
             department="CAST", password="CorrectHorse12",
         )
-        self.assertEqual(str(user.email), "ann.cruz@dlsau.edu.ph")
+        self.assertEqual(user.email, "ann.cruz@dlsau.edu.ph")
 
     def test_lookup_finds_accounts_however_they_were_capitalised(self):
         """
@@ -291,8 +292,10 @@ class SessionInvalidationTests(unittest.TestCase):
 
     def test_superseded_version_is_rejected(self):
         token = self._token(1)
-        self.db.query(models.User).first().session_version = 2  # password changed
-        self.db.commit()
+        u = self.db.query(models.User).first()
+        if u:
+            setattr(u, "session_version", 2)  # password changed
+            self.db.commit()
         with self.assertRaises(HTTPException) as ctx:
             self.auth.get_current_user(self._request(token), db=self.db)
         self.assertEqual(ctx.exception.status_code, 401)
@@ -314,6 +317,105 @@ class SessionInvalidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             self.auth.get_current_user(req, db=self.db)
         self.assertEqual(ctx.exception.status_code, 401)
+
+
+class DeanAccountAndRoleSeedingTests(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(bind=engine)
+        self.Session = sessionmaker(bind=engine)
+        self.db = self.Session()
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_dean_seeder_creates_four_institutional_deans(self):
+        from backend.main import seed_dean_accounts
+        seed_dean_accounts(self.db)
+        deans = self.db.query(models.User).filter(models.User.email.startswith("dean.")).all()
+        self.assertEqual(len(deans), 4)
+        dept_codes = sorted([d.department for d in deans])
+        self.assertEqual(dept_codes, ["CAST", "CBMA", "COED", "CVMAS"])
+        for d in deans:
+            self.assertEqual(d.role, "admin")
+            self.assertTrue(d.is_verified)
+            self.assertTrue(d.email.startswith("dean."))
+
+    def test_self_registration_roles_strictly_program_chair(self):
+        self.assertEqual(schemas.SELF_REGISTRATION_ROLES, {"program_chair"})
+        self.assertNotIn("admin", schemas.SELF_REGISTRATION_ROLES)
+        self.assertNotIn("coordinator", schemas.VALID_ROLES)
+        self.assertIn("admin", schemas.VALID_ROLES)
+
+
+class DeanDepartmentScopedPermissionsTests(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(bind=engine)
+        self.Session = sessionmaker(bind=engine)
+        self.db = self.Session()
+
+        # Seed departments
+        self.dept_cast = models.Department(code="CAST", name="College of Arts, Sciences, and Technology")
+        self.dept_cbma = models.Department(code="CBMA", name="College of Business and Accountancy")
+        self.db.add_all([self.dept_cast, self.dept_cbma])
+        self.db.commit()
+
+        # Dean CAST (Administrator of CAST)
+        self.dean_cast = models.User(
+            first_name="Dean", last_name="CAST", email="dean.cast@dlsau.edu.ph",
+            role="admin", department="CAST", is_verified=True, password_hash="hashed"
+        )
+        # Chair CAST
+        self.chair_cast = models.User(
+            first_name="Chair", last_name="CAST", email="chair.cast@dlsau.edu.ph",
+            role="program_chair", department="CAST", is_verified=False, password_hash="hashed"
+        )
+        # Chair CBMA
+        self.chair_cbma = models.User(
+            first_name="Chair", last_name="CBMA", email="chair.cbma@dlsau.edu.ph",
+            role="program_chair", department="CBMA", is_verified=False, password_hash="hashed"
+        )
+        self.db.add_all([self.dean_cast, self.chair_cast, self.chair_cbma])
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_dean_can_verify_department_chair_but_not_other_departments(self):
+        from backend.app.routers.users import toggle_user_verification
+
+        # Dean CAST verifying Chair CAST -> Success
+        res = toggle_user_verification(getattr(self.chair_cast, "id"), self.db, self.dean_cast)
+        self.assertTrue(res["is_verified"])
+
+        # Dean CAST verifying Chair CBMA -> 403 Forbidden
+        with self.assertRaises(HTTPException) as ctx:
+            toggle_user_verification(getattr(self.chair_cbma, "id"), self.db, self.dean_cast)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_dean_can_reset_password_for_department_chair_only(self):
+        from backend.app.routers.users import admin_reset_password
+
+        # Dean CAST reset Chair CAST -> Success
+        res = admin_reset_password(getattr(self.chair_cast, "id"), self.db, self.dean_cast)
+        self.assertIn("temporary_password", res)
+
+        # Dean CAST reset Chair CBMA -> 403 Forbidden
+        with self.assertRaises(HTTPException) as ctx:
+            admin_reset_password(getattr(self.chair_cbma, "id"), self.db, self.dean_cast)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_dean_curriculum_scoping(self):
+        from backend.app.routers.curriculum import _require_admin_or_dept_dean
+
+        # Dean CAST managing CAST dept -> Allowed (no exception)
+        _require_admin_or_dept_dean(self.dean_cast, getattr(self.dept_cast, "id"), self.db)
+
+        # Dean CAST managing CBMA dept -> 403 Forbidden
+        with self.assertRaises(HTTPException) as ctx:
+            _require_admin_or_dept_dean(self.dean_cast, getattr(self.dept_cbma, "id"), self.db)
+        self.assertEqual(ctx.exception.status_code, 403)
 
 
 if __name__ == "__main__":

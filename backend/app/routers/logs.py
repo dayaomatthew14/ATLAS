@@ -21,7 +21,7 @@ def get_logs(
     Get system logs with optional status filtering.
     Only accessible by Admin and Program Chair.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=403, detail="Not authorized to view logs")
     
     query = db.query(models.SystemLog)
@@ -29,15 +29,15 @@ def get_logs(
     if status:
         query = query.filter(models.SystemLog.status == status)
     
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.department:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
         ).first()
         if dept:
             query = query.filter(
-                (models.SystemLog.department_id == dept.id) | 
-                (models.SystemLog.department_id == None)
+                (models.SystemLog.department_id == dept.id) |
+                (models.SystemLog.user_id == current_user.id)
             )
         else:
             query = query.filter(models.SystemLog.user_id == current_user.id)

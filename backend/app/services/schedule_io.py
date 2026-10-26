@@ -98,12 +98,9 @@ def build_schedule_pdf(
     day_order = {d: i for i, d in enumerate(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])}
     rows = []
     unique_profs = set()
-    unique_rooms = set()
-
     for s in schedules:
         curriculum_item = s.curriculum
         faculty = s.faculty
-        room = s.room
 
         prof = f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA"
         if faculty_name and prof != faculty_name:
@@ -111,19 +108,15 @@ def build_schedule_pdf(
 
         if faculty:
             unique_profs.add(prof)
-        if room and room.name:
-            unique_rooms.add(room.name)
 
         rows.append({
             "professor": prof,
             "code": curriculum_item.code if curriculum_item else "N/A",
             "name": curriculum_item.name if curriculum_item else "N/A",
+            "section": s.section or "—",
             "day": str(s.day_of_week or "—"),
             "start": s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else "—",
             "end": s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else "—",
-            "room": room.name if room and room.name else "TBA",
-            "building": room.building if room else "—",
-            "section": s.section or "—",
             "_sort": (prof, day_order.get(str(s.day_of_week or "")[:3], 9),
                       s.start_time.strftime('%H:%M') if s.start_time else ""),
         })
@@ -240,25 +233,25 @@ def build_schedule_pdf(
     elements.append(Spacer(1, 8))
 
     # Main Data Table
-    header = ["Professor", "Subject Code", "Subject Name", "Day",
-              "Start Time", "End Time", "Room"]
+    header = ["Professor", "Subject Code", "Subject Name", "Section", "Day",
+              "Start Time", "End Time"]
     data: list[Any] = [header]
     for r in rows:
         data.append([
             Paragraph(cell_text(r["professor"]), cell_bold),
             Paragraph(cell_text(r["code"]), cell_center_bold),
             Paragraph(cell_text(r["name"]), cell_style),
+            Paragraph(cell_text(r["section"]), cell_center),
             Paragraph(cell_text(r["day"]), cell_center_bold),
             Paragraph(cell_text(r["start"]), cell_center),
             Paragraph(cell_text(r["end"]), cell_center),
-            Paragraph(cell_text(r["room"]), cell_style),
         ])
 
     if not rows:
         elements.append(Paragraph("No classes are scheduled for this selection.", styles['Normal']))
     else:
         t = Table(data, repeatRows=1,
-                  colWidths=[120, 75, 230, 55, 70, 70, 112])
+                  colWidths=[130, 80, 222, 60, 70, 85, 85])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#05301F')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -280,7 +273,7 @@ def build_schedule_pdf(
         sig_text_1 = Paragraph(
             "<b>Certified Correct:</b><br/><br/><br/><br/>"
             "_____________________________________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br/>"
-            "<b>Program Chair / Department Coordinator</b><br/>"
+            "<b>Program Chair</b><br/>"
             "Date: ________________________",
             meta_val
         )
@@ -317,12 +310,10 @@ def build_schedule_excel(
     day_order = {d: i for i, d in enumerate(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])}
     rows = []
     unique_profs = set()
-    unique_rooms = set()
 
     for s in schedules:
         curriculum_item = s.curriculum
         faculty = s.faculty
-        room = s.room
 
         prof = f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA"
         if faculty_name and prof != faculty_name:
@@ -330,17 +321,15 @@ def build_schedule_excel(
 
         if faculty:
             unique_profs.add(prof)
-        if room and room.name:
-            unique_rooms.add(room.name)
 
         rows.append({
             "professor": prof,
             "code": curriculum_item.code if curriculum_item else "N/A",
             "name": curriculum_item.name if curriculum_item else "N/A",
+            "section": s.section or "—",
             "day": str(s.day_of_week or "—"),
             "start": s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else "—",
             "end": s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else "—",
-            "room": room.name if room and room.name else "TBA",
             "_sort": (prof, day_order.get(str(s.day_of_week or "")[:3], 9),
                       s.start_time.strftime('%H:%M') if s.start_time else ""),
         })
@@ -389,9 +378,8 @@ def build_schedule_excel(
     ws['A5'] = f"TOTAL CLASSES: {len(rows)}"
     ws.merge_cells('C5:D5')
     ws['C5'] = f"FACULTY ASSIGNED: {len(unique_profs)}"
-    ws['E5'] = f"ROOMS UTILIZED: {len(unique_rooms)}"
-    ws.merge_cells('F5:G5')
-    ws['F5'] = f"TERM: {term_label or 'Active Term'}"
+    ws.merge_cells('E5:G5')
+    ws['E5'] = f"TERM: {term_label or 'Active Term'}"
 
     for col in range(1, 8):
         c = ws.cell(row=5, column=col)
@@ -404,7 +392,7 @@ def build_schedule_excel(
     ws.row_dimensions[6].height = 8
 
     # Table Header (Row 7)
-    headers = ["Professor", "Subject Code", "Subject Name", "Day", "Start Time", "End Time", "Room"]
+    headers = ["Professor", "Subject Code", "Subject Name", "Section", "Day", "Start Time", "End Time"]
     header_fill = PatternFill(start_color='05301F', end_color='05301F', fill_type='solid')
     header_font = Font(name='Segoe UI', size=10, bold=True, color='FFFFFF')
     header_border = Border(
@@ -417,7 +405,7 @@ def build_schedule_excel(
         c.fill = header_fill
         c.font = header_font
         c.border = header_border
-        c.alignment = Alignment(horizontal='center' if col_idx not in (1, 3, 7) else 'left', vertical='center')
+        c.alignment = Alignment(horizontal='center' if col_idx not in (1, 3) else 'left', vertical='center')
     ws.row_dimensions[7].height = 26
 
     # Table Rows (Row 8+)
@@ -429,7 +417,7 @@ def build_schedule_excel(
         bottom=Side(style='thin', color='D5DFD9'),
     )
 
-    data_keys = ["professor", "code", "name", "day", "start", "end", "room"]
+    data_keys = ["professor", "code", "name", "section", "day", "start", "end"]
     for row_idx, r in enumerate(rows, start=8):
         is_alt = (row_idx % 2 == 1)
         ws.row_dimensions[row_idx].height = 21
@@ -447,7 +435,7 @@ def build_schedule_excel(
             elif key == "code":
                 c.font = Font(name='Segoe UI', size=9.5, bold=True, color='05301F')
                 c.alignment = Alignment(horizontal='center', vertical='center')
-            elif key in ("day", "start", "end"):
+            elif key in ("section", "day", "start", "end"):
                 c.font = Font(name='Segoe UI', size=9.5, color='1E293B')
                 c.alignment = Alignment(horizontal='center', vertical='center')
             else:
@@ -455,7 +443,7 @@ def build_schedule_excel(
                 c.alignment = Alignment(horizontal='left', vertical='center')
 
     # Auto-adjust column widths
-    min_widths = {1: 24, 2: 15, 3: 38, 4: 12, 5: 14, 6: 14, 7: 20}
+    min_widths = {1: 24, 2: 15, 3: 38, 4: 12, 5: 12, 6: 14, 7: 14}
     for col_idx in range(1, 8):
         col_letter = get_column_letter(col_idx)
         max_len = min_widths.get(col_idx, 15)
@@ -494,7 +482,7 @@ def import_schedules_from_excel(
     
     # Basic validation
     header = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
-    required_cols = ['CurriculumCode', 'FacultyEmail', 'RoomName', 'Day', 'StartTime', 'EndTime', 'Section']
+    required_cols = ['CurriculumCode', 'FacultyEmail', 'Day', 'StartTime', 'EndTime', 'Section']
     col_indices = {}
     for col in required_cols:
         if col not in header:
@@ -514,7 +502,6 @@ def import_schedules_from_excel(
 
     curriculum_by_code = _index(db.query(models.Curriculum).order_by(models.Curriculum.id).all(), "code")
     faculty_by_email = _index(db.query(models.Faculty).order_by(models.Faculty.id).all(), "email")
-    room_by_name = _index(db.query(models.Room).order_by(models.Room.id).all(), "name")
 
     for index, row in enumerate(rows[1:], start=2):
         if not row or all(v is None for v in row):
@@ -522,7 +509,6 @@ def import_schedules_from_excel(
         try:
             curr_code = str(row[col_indices['CurriculumCode']]).strip() if row[col_indices['CurriculumCode']] is not None else ""
             fac_email = str(row[col_indices['FacultyEmail']]).strip() if row[col_indices['FacultyEmail']] is not None else ""
-            rm_name = str(row[col_indices['RoomName']]).strip() if row[col_indices['RoomName']] is not None else ""
             day_val = str(row[col_indices['Day']]).strip() if row[col_indices['Day']] is not None else ""
             start_val = row[col_indices['StartTime']]
             end_val = row[col_indices['EndTime']]
@@ -530,10 +516,9 @@ def import_schedules_from_excel(
 
             curriculum_item = curriculum_by_code.get(curr_code)
             faculty = faculty_by_email.get(fac_email)
-            room = room_by_name.get(rm_name)
             
-            if not curriculum_item or not faculty or not room:
-                errors.append(f"Row {index}: Entity not found (Curriculum: {curriculum_item is not None}, Faculty: {faculty is not None}, Room: {room is not None})")
+            if not curriculum_item or not faculty:
+                errors.append(f"Row {index}: Entity not found (Curriculum: {curriculum_item is not None}, Faculty: {faculty is not None})")
                 continue
                 
             def parse_time_val(t_val):
@@ -556,7 +541,7 @@ def import_schedules_from_excel(
                 semester_id=semester_id,
                 curriculum_id=curriculum_item.id,
                 faculty_id=faculty.id,
-                room_id=room.id,
+                room_id=None,
                 day_of_week=day_val,
                 start_time=start_t,
                 end_time=end_t,

@@ -8,7 +8,7 @@ Validates:
 """
 import unittest
 from datetime import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, cast
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -97,9 +97,9 @@ class TestConsecutiveLecLabScheduling(unittest.TestCase):
         gap_minutes = (lab1.start_time.hour * 60 + lab1.start_time.minute) - (lec1.end_time.hour * 60 + lec1.end_time.minute)
         self.assertEqual(gap_minutes, 40)
 
-        # Room allocation: Lecture gets None (TBA/classroom), Lab gets laboratory room
+        # Room allocation: Neither lecture nor lab assigns rooms anymore
         self.assertIsNone(lec1.room_id)
-        self.assertEqual(lab1.room_id, 101)
+        self.assertIsNone(lab1.room_id)
 
     def test_consecutive_scheduling_full_flow(self):
         """Test full schedule generation with paired A (LEC) and B (LAB) curricula in the DB."""
@@ -129,9 +129,9 @@ class TestConsecutiveLecLabScheduling(unittest.TestCase):
         db.add_all([off1, off2])
         db.commit()
 
-        sem_id: int = int(sem.id)
-        fac_id: int = int(fac.id)
-        dept_id: int = int(dept.id)
+        sem_id: int = cast(int, sem.id)
+        fac_id: int = cast(int, fac.id)
+        dept_id: int = cast(int, dept.id)
 
         results = generate_schedules(db, sem_id, [fac_id], dept_id, auto_bump_units=False)
         self.assertEqual(results.get("generated"), 4)
@@ -149,7 +149,7 @@ class TestConsecutiveLecLabScheduling(unittest.TestCase):
 
             self.assertLessEqual(day_lec.end_time, day_lab.start_time, f"Lecture must end before Lab starts on {day}")
             self.assertIsNone(day_lec.room_id)
-            self.assertEqual(day_lab.room_id, lab_room.id)
+            self.assertIsNone(day_lab.room_id)
 
     def test_conflict_validation_session_order(self):
         """Test that validate_schedule_conflict flags inverted session order (Lab before Lec on the same day)."""
@@ -191,10 +191,10 @@ class TestConsecutiveLecLabScheduling(unittest.TestCase):
 
         # Case A: Try to schedule Lab BEFORE Lecture (06:00 to 07:20) on the same day -> Session Order Conflict!
         val_bad = schemas.ConflictValidate(
-            semester_id=sem.id,
-            curriculum_id=c_lab.id, # Lab
-            faculty_id=fac.id,
-            room_id=rm.id,
+            semester_id=cast(int, sem.id),
+            curriculum_id=cast(int, c_lab.id), # Lab
+            faculty_id=cast(int, fac.id),
+            room_id=None,
             section="BSCS3A",
             day_of_week="Mon",
             start_time=time(6, 0),
@@ -207,10 +207,10 @@ class TestConsecutiveLecLabScheduling(unittest.TestCase):
 
         # Case B: Try to schedule Lab AFTER Lecture with an empty window (09:30 to 11:30) -> No conflict, perfectly valid!
         val_good = schemas.ConflictValidate(
-            semester_id=sem.id,
-            curriculum_id=c_lab.id, # Lab
-            faculty_id=fac.id,
-            room_id=rm.id,
+            semester_id=cast(int, sem.id),
+            curriculum_id=cast(int, c_lab.id), # Lab
+            faculty_id=cast(int, fac.id),
+            room_id=None,
             section="BSCS3A",
             day_of_week="Mon",
             start_time=time(9, 30),

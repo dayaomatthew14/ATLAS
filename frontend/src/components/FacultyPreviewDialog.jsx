@@ -1,4 +1,4 @@
-import { BookOpen, CalendarRange, Clock, MapPin, AlertTriangle, Users, GraduationCap, Activity, Layers } from 'lucide-react';
+import { BookOpen, CalendarRange, Clock, AlertTriangle, Users, GraduationCap, Activity, Layers } from 'lucide-react';
 import Dialog from './ui/Dialog';
 import Button from './ui/Button';
 import { LoadStatusBadge } from './ui/Badge';
@@ -329,11 +329,6 @@ export default function FacultyPreviewDialog({
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200/70 font-medium">
-                            <MapPin className="w-3 h-3 text-emerald-700" />
-                            {s.room_name && s.room_name !== '—' ? s.room_name : 'No room assigned'}
-                            {s.room_building ? ` · ${s.room_building}` : ''}
-                          </span>
                           {s.section && (
                             <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200/70 font-medium">
                               <Users className="w-3 h-3 text-emerald-700" />

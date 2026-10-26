@@ -38,8 +38,8 @@ import { getRole, ROLES } from '../utils/session';
  * Teachers.jsx, and it is a fact about the role rather than a choice.
  */
 const SUBJECT_SCOPE = {
-  [ROLES.PROGRAM_CHAIR]: 'your programme’s major subjects',
-  [ROLES.COORDINATOR]: 'the General Education subjects',
+  [ROLES.PROGRAM_CHAIR]: 'your programme’s curriculum subjects',
+  [ROLES.DEAN]: 'your college’s curriculum subjects',
 };
 
 /**
@@ -143,8 +143,8 @@ const FAQS = [
   {
     q: 'Why could a subject not be placed?',
     a:
-      'One of three things: the faculty member has no teaching hours left, no room of the right type ' +
-      'was free, or every slot in their day pairs was already taken. The conflict view names which.',
+      'The faculty member has reached their maximum teaching load, ' +
+      'or every slot in their available times was already taken. The conflict view names which.',
   },
   {
     q: 'Why can I not edit the curriculum?',

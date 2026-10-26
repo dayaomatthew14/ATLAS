@@ -102,18 +102,18 @@ class EndToEndFunctionalAudit(unittest.TestCase):
             department="CAST",
             is_verified=True
         )
-        # Seed Coordinator
-        coord_user = models.User(
+        # Seed Dean
+        dean_user = models.User(
             id=3,
-            first_name="Juan",
-            last_name="Dela Cruz",
-            email="coord.cast@dlsau.edu.ph",
-            password_hash=auth.get_password_hash("Coord123!"),
-            role="coordinator",
+            first_name="Dean",
+            last_name="CAST",
+            email="dean.cast@dlsau.edu.ph",
+            password_hash=auth.get_password_hash("Dean123!"),
+            role="dean",
             department="CAST",
             is_verified=True
         )
-        self.db.add_all([admin_user, chair_user, coord_user])
+        self.db.add_all([admin_user, chair_user, dean_user])
         self.db.commit()
 
     def tearDown(self):
@@ -157,23 +157,23 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         self.assertEqual(fetched_sem.term, "1st")
 
     def test_04_admin_user_management_crud(self):
-        # Add a new coordinator user
-        new_coord = models.User(
+        # Add a new program chair user
+        new_chair = models.User(
             first_name="Ana",
             last_name="Reyes",
             email="ana.reyes@dlsau.edu.ph",
             password_hash=auth.get_password_hash("Password123!"),
-            role="coordinator",
+            role="program_chair",
             department="CAST",
             is_verified=True
         )
-        self.db.add(new_coord)
+        self.db.add(new_chair)
         self.db.commit()
 
         user_in_db = self.db.query(models.User).filter(models.User.email == "ana.reyes@dlsau.edu.ph").first()
         self.assertIsNotNone(user_in_db)
         assert user_in_db is not None
-        self.assertEqual(user_in_db.role, "coordinator")
+        self.assertEqual(user_in_db.role, "program_chair")
 
     # ----------------------------------------------------------------------
     # 3. PROGRAM CHAIR & COORDINATOR WORKFLOWS
@@ -310,10 +310,9 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         for s in schedules_in_db:
             c = self.db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
             assert c is not None
-            if getattr(c, 'type') == 'lecture':
-                self.assertIsNone(s.room_id) # Lecture has room_id NULL
-            elif getattr(c, 'type') == 'lab':
-                self.assertIsNotNone(s.room_id) # Lab has room_id assigned
+            self.assertIsNotNone(s.start_time)
+            self.assertIsNotNone(s.end_time)
+            self.assertIsNotNone(s.day_of_week)
 
     def test_09b_generated_lectures_match_institutional_patterns(self):
         """

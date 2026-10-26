@@ -19,7 +19,7 @@ from app.routers import (
     academics_router
 )
 
-from sqlalchemy import text, inspect
+from sqlalchemy import text, inspect, func
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
@@ -235,6 +235,41 @@ def seed_academic_taxonomy(db):
         print(f"  {unmatched} curriculum block(s) match no programme; shown under Unassigned.")
 
 
+def seed_dean_accounts(db):
+    """
+    Ensure the four institutional Deans exist, one per college:
+    - CAST: dean.cast@dlsau.edu.ph
+    - CBMA: dean.cbma@dlsau.edu.ph
+    - COED: dean.coed@dlsau.edu.ph
+    - CVMAS: dean.cvmas@dlsau.edu.ph
+    """
+    from app.academics import COLLEGES
+    default_password = os.getenv("DEAN_SEED_PASSWORD", "DeanPassword123!")
+    hashed_pw = auth.get_password_hash(default_password)
+
+    for spec in COLLEGES:
+        code = str(spec["code"])
+        email = f"dean.{code.lower()}@dlsau.edu.ph"
+        dean_user = db.query(models.User).filter(func.lower(models.User.email) == email.lower()).first()
+        if not dean_user:
+            dean_user = models.User(
+                first_name="Dean",
+                last_name=code,
+                email=email,
+                password_hash=str(hashed_pw),
+                role="admin",
+                department=code,
+                is_verified=True,
+            )
+            db.add(dean_user)
+            print(f"Successfully seeded Dean account: {email} ({code})")
+        else:
+            setattr(dean_user, 'role', 'admin')
+            setattr(dean_user, 'department', code)
+            setattr(dean_user, 'is_verified', True)
+    db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -282,6 +317,12 @@ async def lifespan(app: FastAPI):
                 db.commit()
     except Exception as e:
         print(f"Startup admin seeder result: {e}")
+
+    try:
+        with database.SessionLocal() as db:
+            seed_dean_accounts(db)
+    except Exception as e:
+        print(f"Startup Dean seeder result: {e}")
 
     # Say out loud whether codes can actually reach anyone. A misconfigured
     # deployment used to start up looking perfectly healthy and then fail every

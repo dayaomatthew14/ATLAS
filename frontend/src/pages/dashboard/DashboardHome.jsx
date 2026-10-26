@@ -450,7 +450,7 @@ export default function DashboardHome() {
             <div className="p-4 rounded-xl bg-[#E3EED4]/35 border border-[#AEC3B0]/30 text-caption font-medium text-[#406349] flex items-start gap-2.5 leading-relaxed">
               <span className="font-bold text-[#1E3A2B] shrink-0">Tip:</span>
               <span>
-                Verify all faculty teaching limits and room assignments prior to final timetable publication.
+                Verify all faculty teaching limits and section assignments prior to final timetable publication.
               </span>
             </div>
           </div>

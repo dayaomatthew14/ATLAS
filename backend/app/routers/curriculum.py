@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List, Optional
+from typing import List, Optional, Any
 import logging
 import re
 from .. import models, schemas, database, auth
@@ -18,6 +18,17 @@ router = APIRouter(
     tags=["Curriculum"]
 )
 
+def _require_admin_or_dept_dean(user: models.User, dept_id: Any, db: Session):
+    if user.role not in ['admin', 'dean']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to manage curriculum")
+    if user.department:
+        if not dept_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department required")
+        dept = db.query(models.Department).filter(models.Department.id == int(dept_id)).first()
+        if not dept or (dept.code != user.department and dept.name != user.department):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only manage curriculum for your department")
+        return
+
 @router.get("/blocks", response_model=List[schemas.CurriculumBlockWithCount])
 def get_curriculum_blocks(
     db: Session = Depends(database.get_db),
@@ -26,14 +37,15 @@ def get_curriculum_blocks(
     try:
         query = db.query(models.CurriculumBlock)
         
-        if current_user.role != 'admin':
-            # All non-admin roles only see PUBLISHED curricula
+        if current_user.role not in ['admin', 'dean']:
+            # All non-admin/dean roles only see PUBLISHED curricula
             query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
 
-        if current_user.role in ['program_chair', 'coordinator']:
+        user_dept = getattr(current_user, 'department', None)
+        if user_dept:
             dept = db.query(models.Department).filter(
-                (models.Department.code == current_user.department) | 
-                (models.Department.name == current_user.department)
+                (models.Department.code == user_dept) | 
+                (models.Department.name == user_dept)
             ).first()
             if dept:
                 query = query.filter(models.CurriculumBlock.department_id == dept.id)
@@ -65,9 +77,9 @@ def get_curriculum_blocks(
         results = []
         for block in blocks:
             b_status = getattr(block, "status", "PUBLISHED") or "PUBLISHED"
-            if current_user.role != 'admin' and b_status != 'PUBLISHED':
+            if current_user.role not in ['admin', 'dean'] and b_status != 'PUBLISHED':
                 continue
-            if current_user.role in ['program_chair', 'coordinator']:
+            if current_user.role in ['dean', 'program_chair']:
                 dept = db.query(models.Department).filter(
                     (models.Department.code == current_user.department) | 
                     (models.Department.name == current_user.department)
@@ -96,9 +108,6 @@ def create_curriculum_block(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can create curriculum flowcharts")
-        
     target_dept_id = block_data.department_id
 
     # A version belongs to a programme; the college follows from it. Deriving
@@ -109,6 +118,8 @@ def create_curriculum_block(
         if not program:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Programme not found.")
         target_dept_id = program.department_id
+
+    _require_admin_or_dept_dean(current_user, target_dept_id, db)
 
     existing = db.query(models.CurriculumBlock).filter(
         models.CurriculumBlock.program_name == block_data.program_name,
@@ -164,12 +175,11 @@ def update_curriculum_block_status(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can change curriculum status")
-        
     block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
     if not block:
         raise HTTPException(status_code=404, detail="Curriculum block not found")
+
+    _require_admin_or_dept_dean(current_user, block.department_id, db)
         
     new_status = status_value.upper().strip()
     if new_status not in ['DRAFT', 'PUBLISHED', 'ARCHIVED']:
@@ -208,8 +218,8 @@ def get_curriculum(
 ):
     query = db.query(models.Curriculum)
     
-    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
-        # Filter curriculum by the program chair/coordinator's department
+    if current_user.role in ['dean', 'program_chair'] and current_user.department:
+        # Filter curriculum by the user's department
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -239,7 +249,7 @@ def get_curriculum_item(
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role in ['program_chair', 'coordinator'] and current_user.department:
+    if current_user.role in ['dean', 'program_chair'] and current_user.department:
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this curriculum item")
@@ -252,13 +262,24 @@ def create_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can create curriculum subjects")
-        
     if not curriculum_item.department_id:
-        first_dept = db.query(models.Department).first()
-        if first_dept:
-            curriculum_item.department_id = int(first_dept.id) # type: ignore
+        if curriculum_item.block_id:
+            blk = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == curriculum_item.block_id).first()
+            if blk:
+                curriculum_item.department_id = int(blk.department_id) # type: ignore
+        if not curriculum_item.department_id and current_user.role == 'dean':
+            dept = db.query(models.Department).filter(
+                (models.Department.code == current_user.department) | 
+                (models.Department.name == current_user.department)
+            ).first()
+            if dept:
+                curriculum_item.department_id = int(dept.id) # type: ignore
+        if not curriculum_item.department_id:
+            first_dept = db.query(models.Department).first()
+            if first_dept:
+                curriculum_item.department_id = int(first_dept.id) # type: ignore
+
+    _require_admin_or_dept_dean(current_user, curriculum_item.department_id, db)
              
     # Determine subject type using Lec/Lab unit values as primary priority
     lec_u_val = curriculum_item.lec_units
@@ -343,12 +364,11 @@ def update_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can edit curriculum subjects")
-        
     db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if not db_curriculum:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
+
+    _require_admin_or_dept_dean(current_user, db_curriculum.department_id, db)
              
     update_data = curriculum_item.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -367,12 +387,11 @@ def delete_curriculum_item(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can delete curriculum subjects")
-        
     db_curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if not db_curriculum:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
+
+    _require_admin_or_dept_dean(current_user, db_curriculum.department_id, db)
              
     curr_code = db_curriculum.code
     dept_id = getattr(db_curriculum, 'department_id', None)
@@ -405,8 +424,7 @@ def bulk_create_curriculum(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can bulk import curriculum data")
+    _require_admin_or_dept_dean(current_user, payload.department_id, db)
 
     try:
         # Step 0: Ensure Curriculum Block exists or create it
@@ -451,7 +469,7 @@ def bulk_create_curriculum(
             db.add_all(new_items)
             db.commit()
             
-            log_activity(db, current_user.id, "Bulk Create Curriculum", f"Bulk created {len(new_items)} items for {payload.program_name}", "success", department_id=payload.department_id)
+            log_activity(db, int(current_user.id), "Bulk Create Curriculum", f"Bulk created {len(new_items)} items for {payload.program_name}", "success", department_id=payload.department_id) # type: ignore
         
         summary = {
             "program_name": payload.program_name,
@@ -479,8 +497,8 @@ async def get_excel_headers(
     file: UploadFile = File(...),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can preview Excel headers")
+    if current_user.role not in ['admin', 'dean']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators and Deans can preview Excel headers")
     contents = await file.read()
     try:
         return parse_excel_headers(contents)
@@ -493,19 +511,26 @@ async def delete_curriculum_course(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can delete curriculum courses")
-    db.query(models.Curriculum).filter(models.Curriculum.program_code == course_name).delete(synchronize_session=False)
-    db.commit()
-    
-    # Get department for logging
-    dept = db.query(models.Department).filter(
-        (models.Department.code == current_user.department) | 
-        (models.Department.name == current_user.department)
-    ).first()
-    log_activity(db, current_user.id, "Delete Course", f"Deleted all items for course: {course_name}", "success", department_id=dept.id if dept else None) # type: ignore
-    
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if current_user.role == 'dean':
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) | 
+            (models.Department.name == current_user.department)
+        ).first()
+        dept_id = dept.id if dept else None
+        db.query(models.Curriculum).filter(
+            models.Curriculum.program_code == course_name,
+            models.Curriculum.department_id == dept_id
+        ).delete(synchronize_session=False)
+        db.commit()
+        log_activity(db, int(current_user.id), "Delete Course", f"Deleted items for course: {course_name}", "success", department_id=int(dept_id) if dept_id is not None else None) # type: ignore
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    elif current_user.role == 'admin':
+        db.query(models.Curriculum).filter(models.Curriculum.program_code == course_name).delete(synchronize_session=False)
+        db.commit()
+        log_activity(db, int(current_user.id), "Delete Course", f"Deleted all items for course: {course_name}", "success") # type: ignore
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators and Deans can delete curriculum courses")
 
 @router.get("/block/{block_id}/impact")
 def curriculum_block_impact(
@@ -526,12 +551,11 @@ def curriculum_block_impact(
     listing: a chair can assign subjects between a page load and a delete, and
     the number that matters is the one true when the administrator decides.
     """
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can delete curriculum blocks")
-
     block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
     if not block:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum not found")
+
+    _require_admin_or_dept_dean(current_user, block.department_id, db)
 
     subject_ids = [
         row[0] for row in
@@ -574,13 +598,15 @@ async def delete_curriculum_block(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators can delete curriculum blocks")
-    
     # Get block details for logging before deletion
     block = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == block_id).first()
-    block_name = block.program_name if block else str(block_id)
-    dept_id = block.department_id if block else None
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum block not found")
+
+    _require_admin_or_dept_dean(current_user, block.department_id, db)
+
+    block_name = block.program_name
+    dept_id = block.department_id
 
     # Counted before the delete, because the cascade takes these with it and
     # afterwards there is nothing left to count. The audit entry used to record

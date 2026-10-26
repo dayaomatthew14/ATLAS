@@ -43,7 +43,7 @@ def generate_schedule(
     # administrator had no department of their own, so generating as an admin
     # silently built a schedule for whichever college happened to sort first.
     dept = None
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         if not current_user.department:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -56,7 +56,7 @@ def generate_schedule(
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrators do not generate schedules. This is done by the program chair or coordinator."
+            detail="Institutional administrators do not generate schedules. This is done by the college Dean or Program Chair."
         )
     
     if not dept:
@@ -76,19 +76,6 @@ def generate_schedule(
     # Map input User IDs to Faculty IDs
     faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
     resolved_faculty_ids = [cast(int, f.id) for f in faculty_records]
-
-    # Ensure every major subject in the active term has an assigned professor before scheduling
-    from .subject_offerings import get_active_term_assigned_subjects
-    assignment_data = get_active_term_assigned_subjects(db, current_user, semester_id=semester_id, department_id=dept.id)
-    if assignment_data.get("summary", {}).get("unassigned", 0) > 0:
-        unassigned_codes = [s["code"] for s in assignment_data.get("subjects", []) if s["status"] == "unassigned"]
-        sample_str = ", ".join(unassigned_codes[:5])
-        if len(unassigned_codes) > 5:
-            sample_str += f" and {len(unassigned_codes) - 5} more"
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot generate schedules: {len(unassigned_codes)} major subject(s) are unassigned ({sample_str}). Every major subject for the active term must have an assigned professor before scheduling."
-        )
 
     # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
     results = generate_schedules(
@@ -255,8 +242,6 @@ def get_global_schedule(
         models.Curriculum.type.label("curriculum_type"),
         models.Faculty.first_name,
         models.Faculty.last_name,
-        models.Room.name.label("room_name"),
-        models.Room.building.label("room_building"),
         models.Schedule.day_of_week,
         models.Schedule.start_time,
         models.Schedule.end_time,
@@ -268,8 +253,6 @@ def get_global_schedule(
         models.Curriculum, models.Schedule.curriculum_id == models.Curriculum.id
     ).join(
         models.Faculty, models.Schedule.faculty_id == models.Faculty.id
-    ).outerjoin(
-        models.Room, models.Schedule.room_id == models.Room.id
     ).join(
         models.Department, models.Curriculum.department_id == models.Department.id
     ).filter(
@@ -299,7 +282,7 @@ def get_global_schedule(
         ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", raw_code, re.IGNORECASE)
         if ab_match:
             base_code = ab_match.group(1).strip()
-            if s.room_id is None or s.curriculum_type == 'lecture':
+            if s.curriculum_type == 'lecture':
                 display_code = f"{base_code}A"
             else:
                 display_code = f"{base_code}B"
@@ -313,8 +296,8 @@ def get_global_schedule(
             "subject_code": display_code,
             "subject_name": s.subject_name,
             "faculty_name": f"{s.first_name} {s.last_name}",
-            "room_name": s.room_name if s.room_name and s.room_name != "—" else "TBA",
-            "room_building": s.room_building if s.room_building else "",
+            "room_name": "TBA",
+            "room_building": "",
             "day_of_week": s.day_of_week,
             "start_time": s.start_time.strftime("%H:%M") if s.start_time else "00:00",
             "end_time": s.end_time.strftime("%H:%M") if s.end_time else "00:00",
@@ -369,68 +352,37 @@ def solve_conflict(
             curr_item = db.query(models.Curriculum).filter(models.Curriculum.id == target_sched.curriculum_id).first()
             is_lec = (curr_item and curr_item.type == 'lecture') or (req.part_type == 'lecture')
             
-            from ..services.schedule_generator import TIMESLOTS, DAYS, is_room_conflict, is_prof_conflict
+            from ..services.schedule_generator import TIMESLOTS, DAYS, is_prof_conflict
             all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == target_sched.semester_id).all()
 
             placed = False
             item_code = curr_item.code if curr_item else subj_code
-            if is_lec:
-                for day in DAYS:
-                    if placed: break
-                    for start_t, end_t in TIMESLOTS:
-                        if not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
-                            target_sched.room_id = None # type: ignore
-                            target_sched.day_of_week = day # type: ignore
-                            target_sched.start_time = start_t # type: ignore
-                            target_sched.end_time = end_t # type: ignore
-                            conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
-                            log_activity(
-                                db,
-                                current_user.id,
-                                "Resolve Conflict",
-                                f"Relocated lecture schedule for {item_code} ({fac_name}) to {day} {start_t.strftime('%H:%M')}",
-                                "success",
-                                dept_id
-                            )
-                            db.commit()
-                            placed = True
-                            return {
-                                "status": "success",
-                                "action_taken": "schedule_relocated",
-                                "title": "Schedule Relocated",
-                                "message": f"Relocated lecture schedule to {day} {start_t.strftime('%H:%M')}.",
-                                "details": f"Schedule for {item_code} was moved to {day} {start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')} to resolve the overlap. Recorded in the Activity Log."
-                            }
-            else:
-                all_rooms = db.query(models.Room).filter(models.Room.type.in_(['lab', 'computer_lab'])).all()
-                for r in all_rooms:
-                    if placed: break
-                    for day in DAYS:
-                        if placed: break
-                        for start_t, end_t in TIMESLOTS:
-                            if not is_room_conflict(r.id, day, day, start_t, end_t, all_schedules) and not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
-                                target_sched.room_id = r.id # type: ignore
-                                target_sched.day_of_week = day # type: ignore
-                                target_sched.start_time = start_t # type: ignore
-                                target_sched.end_time = end_t # type: ignore
-                                conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
-                                log_activity(
-                                    db,
-                                    current_user.id,
-                                    "Resolve Conflict",
-                                    f"Relocated lab schedule for {item_code} ({fac_name}) to {r.name} on {day} {start_t.strftime('%H:%M')}",
-                                    "success",
-                                    dept_id
-                                )
-                                db.commit()
-                                placed = True
-                                return {
-                                    "status": "success",
-                                    "action_taken": "schedule_relocated",
-                                    "title": "Schedule Relocated",
-                                    "message": f"Relocated schedule to {r.name} on {day} {start_t.strftime('%H:%M')}.",
-                                    "details": f"Schedule for {item_code} was moved to {r.name} on {day} {start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')} to resolve the room/faculty clash. Recorded in the Activity Log."
-                                }
+            for day in DAYS:
+                if placed: break
+                for start_t, end_t in TIMESLOTS:
+                    if not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
+                        target_sched.room_id = None # type: ignore
+                        target_sched.day_of_week = day # type: ignore
+                        target_sched.start_time = start_t # type: ignore
+                        target_sched.end_time = end_t # type: ignore
+                        conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+                        log_activity(
+                            db,
+                            current_user.id,
+                            "Resolve Conflict",
+                            f"Relocated schedule for {item_code} ({fac_name}) to {day} {start_t.strftime('%H:%M')}",
+                            "success",
+                            dept_id
+                        )
+                        db.commit()
+                        placed = True
+                        return {
+                            "status": "success",
+                            "action_taken": "schedule_relocated",
+                            "title": "Schedule Relocated",
+                            "message": f"Relocated schedule to {day} {start_t.strftime('%H:%M')}.",
+                            "details": f"Schedule for {item_code} was moved to {day} {start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')} to resolve the overlap. Recorded in the Activity Log."
+                        }
 
             if not placed:
                 conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
@@ -529,11 +481,7 @@ def solve_conflict(
         # Automatically bump faculty max units cap to accommodate the unplaced subject
         f_obj.max_units = int((f_obj.max_units or 18) + 12) # type: ignore
 
-        all_rooms = db.query(models.Room).all()
-        if not all_rooms:
-            raise HTTPException(status_code=400, detail="No rooms available in database")
-
-        from ..services.schedule_generator import LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_room_conflict, is_prof_conflict, lecture_slots_for
+        from ..services.schedule_generator import LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_prof_conflict, lecture_slots_for
         all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
 
         part_type = req.part_type or 'lecture'
@@ -544,60 +492,49 @@ def solve_conflict(
         day_pairs = [MW_PAIR, TTH_PAIR, FS_PAIR]
 
         placed = False
-        placed_room_name = ""
         placed_days_str = ""
         placed_times_str = ""
         for days in day_pairs:
             if placed: break
             d1, d2 = days[0], days[1]
             for start_t, end_t in slots:
-                if placed: break
-                for r in all_rooms:
-                    if not is_room_conflict(r.id, d1, d2, start_t, end_t, all_schedules) and not is_prof_conflict(faculty_id, d1, d2, start_t, end_t, all_schedules):
-                        s1 = models.Schedule(
-                            semester_id=sem_id,
-                            curriculum_id=c_obj.id,
-                            faculty_id=faculty_id,
-                            room_id=r.id,
-                            day_of_week=d1,
-                            start_time=start_t,
-                            end_time=end_t,
-                            section="",
-                            status='draft'
-                        )
-                        s2 = models.Schedule(
-                            semester_id=sem_id,
-                            curriculum_id=c_obj.id,
-                            faculty_id=faculty_id,
-                            room_id=r.id,
-                            day_of_week=d2,
-                            start_time=start_t,
-                            end_time=end_t,
-                            section="",
-                            status='draft'
-                        )
-                        db.add_all([s1, s2])
-                        placed = True
-                        placed_room_name = r.name
-                        placed_days_str = f"{d1}/{d2}"
-                        placed_times_str = f"{start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')}"
-                        break
+                if not is_prof_conflict(faculty_id, d1, d2, start_t, end_t, all_schedules):
+                    s1 = models.Schedule(
+                        semester_id=sem_id,
+                        curriculum_id=c_obj.id,
+                        faculty_id=faculty_id,
+                        room_id=None,
+                        day_of_week=d1,
+                        start_time=start_t,
+                        end_time=end_t,
+                        section="",
+                        status='draft'
+                    )
+                    s2 = models.Schedule(
+                        semester_id=sem_id,
+                        curriculum_id=c_obj.id,
+                        faculty_id=faculty_id,
+                        room_id=None,
+                        day_of_week=d2,
+                        start_time=start_t,
+                        end_time=end_t,
+                        section="",
+                        status='draft'
+                    )
+                    db.add_all([s1, s2])
+                    placed = True
+                    placed_days_str = f"{d1}/{d2}"
+                    placed_times_str = f"{start_t.strftime('%H:%M')}–{end_t.strftime('%H:%M')}"
+                    break
 
-        # DEP-6. There used to be a "fallback placement" here: when no
-        # conflict-free slot existed it forced the class into the first room on
-        # Mon/Wed regardless of what was already there, marked the conflict
-        # resolved, and returned success. That manufactured a double-booking and
-        # reported it as a fix. Refusing is the honest outcome -- the schedule
-        # needs a room, a wider availability window, or a different cap, and
-        # only a human can decide which.
         if not placed:
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"No conflict-free slot exists for {c_obj.code} with the current rooms "
+                    f"No conflict-free slot exists for {c_obj.code} with the current timetable "
                     f"and {f_obj.first_name} {f_obj.last_name}'s availability. "
-                    "Add a room, relax an unavailable window, or raise the teaching-load cap, "
+                    "Relax an unavailable window or raise the teaching-load cap, "
                     "then try again."
                 )
             )
@@ -614,7 +551,7 @@ def solve_conflict(
         for uc in unresolved:
             uc.resolved_at = datetime.now(timezone.utc) # type: ignore
 
-        log_msg = f"Scheduled unplaced subject {c_obj.code} for {fac_name} on {placed_days_str} {placed_times_str} in Room {placed_room_name}"
+        log_msg = f"Scheduled unplaced subject {c_obj.code} for {fac_name} on {placed_days_str} {placed_times_str}"
         log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
         db.commit()
 
@@ -623,7 +560,7 @@ def solve_conflict(
             "action_taken": "subject_scheduled",
             "title": "Subject Scheduled",
             "message": f"Successfully resolved conflict and scheduled {c_obj.code} for {fac_name}.",
-            "details": f"Assigned time slot {placed_days_str} {placed_times_str} in Room {placed_room_name}. Teaching capacity was adjusted and recorded in the Activity Log."
+            "details": f"Assigned time slot {placed_days_str} {placed_times_str}. Teaching capacity was adjusted and recorded in the Activity Log."
         }
 
     # 4. Fallback: Any other conflict marked resolved by administrative decision
@@ -648,7 +585,7 @@ def resolve_conflicts(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     resolved_count = 0

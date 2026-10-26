@@ -188,7 +188,7 @@ export default function Landing() {
               <div>
                 <h3 className="text-base font-bold text-white tracking-normal">Conflict Lens</h3>
                 <p className="text-xs sm:text-sm text-emerald-100 leading-relaxed mt-1 font-normal">
-                  Clear oversight of laboratory rooms and cross-department conflict resolution.
+                  Clear oversight of faculty workload and cross-department conflict resolution.
                 </p>
               </div>
             </div>

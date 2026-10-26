@@ -10,10 +10,9 @@ ATLAS exposes a RESTful API powered by FastAPI. All requests and responses use s
 
 > [!IMPORTANT]
 > **Authorized System User Roles**:
-> System access is strictly restricted to three authenticated user roles:
-> 1. `admin` (System Administrator)
-> 2. `program_chair` (Program Chair)
-> 3. `coordinator` (Coordinator)
+> System access is strictly restricted to two authenticated user roles:
+> 1. `admin` (College Dean Administrator — department-isolated: CAST, CBMA, COED, CVMAS)
+> 2. `program_chair` (Program Chair / Academic Planner — Department Scope)
 
 ### Base URL
 - **Local Development**: `http://localhost:8000`
@@ -35,7 +34,7 @@ Authorization: Bearer <access_token_jwt>
 ### 2.1 Authentication (`/api/auth`)
 
 #### `POST /api/auth/login`
-Authenticates a System Administrator, Program Chair, or Coordinator and issues a JWT token.
+Authenticates a Dean Administrator or Program Chair and issues a JWT token.
 - **Content-Type**: `application/x-www-form-urlencoded`
 - **Body Parameters**:
   - `username` (string, required): User email address.
@@ -46,23 +45,25 @@ Authenticates a System Administrator, Program Chair, or Coordinator and issues a
   {
     "access_token": "eyJhbGciOi...",
     "token_type": "bearer",
-    "role": "program_chair",
+    "role": "admin",
+    "department": "CAST",
     "user": {
       "id": 1,
-      "email": "chair@dlsau.edu.ph",
-      "first_name": "Maria",
-      "last_name": "Santos",
+      "email": "dean.cast@dlsau.edu.ph",
+      "first_name": "Dean",
+      "last_name": "CAST",
       "department": "CAST",
-      "role": "program_chair"
+      "role": "admin"
     }
   }
   ```
 - **Error Responses**: `404 Not Found` (User not found), `401 Unauthorized` (Invalid credentials or unauthorized role).
 
 #### `POST /api/auth/register`
-Registers a new authorized user account.
-- **Auth**: None (Public / Seeding)
-- **Body (JSON)**: `first_name`, `last_name`, `email`, `password`, `role` (`admin` | `program_chair` | `coordinator`), `department`, `contact_number`.
+Self-registers a new Program Chair account.
+- **Auth**: None (Public Registration)
+- **Constraint**: Self-registration is strictly restricted to `role: "program_chair"`. Attempts to register as `dean` or `admin` return `403 Forbidden`.
+- **Body (JSON)**: `first_name`, `last_name`, `email`, `password`, `role` (`program_chair`), `department` (`CAST` | `CBMA` | `COED` | `CVMAS`), `contact_number`.
 
 #### `GET /api/auth/me`
 Retrieves currently authenticated user profile.
@@ -79,7 +80,7 @@ Uploads a user avatar image (`.png`, `.jpg`, `.jpeg`).
 
 #### `POST /api/curriculum/upload`
 Uploads and parses an `.xlsx` curriculum file using the v1.4 Block Isolation parser.
-- **Auth**: Bearer Token required (`admin`, `program_chair`, `coordinator`)
+- **Auth**: Bearer Token required (`admin`, `dean`, `program_chair`)
 - **Content-Type**: `multipart/form-data`
 - **Form Parameters**:
   - `file` (UploadFile, required): The `.xlsx` curriculum file.
@@ -114,7 +115,7 @@ Updates status of a curriculum block (`DRAFT`, `PUBLISHED`, `ARCHIVED`).
 
 #### `GET /api/rooms/`
 Lists all physical rooms in the system.
-- **Auth**: Bearer Token required (`admin`, `program_chair`, `coordinator`)
+- **Auth**: Bearer Token required (`admin`, `dean`, `program_chair`)
 - **Response**: Array of Room objects (`id`, `name`, `building`, `capacity`, `type`).
 
 #### `POST /api/rooms/`
@@ -137,11 +138,11 @@ Updates or deletes a specific room record.
 ### 2.4 Faculty Record Management (`/api/faculty`)
 
 > [!NOTE]
-> Endpoints under `/api/faculty` manage teaching staff resource profiles (workload limits, unavailability slots), which are configured by Program Chairs and Coordinators. Faculty members do not log into these endpoints.
+> Endpoints under `/api/faculty` manage teaching staff resource profiles (workload limits, unavailability slots), which are configured by College Deans and Program Chairs. Faculty members do not log into these endpoints.
 
 #### `GET /api/faculty/`
 Lists faculty resource records for the user's department.
-- **Auth**: Bearer Token required (`admin`, `program_chair`, `coordinator`)
+- **Auth**: Bearer Token required (`admin`, `dean`, `program_chair`)
 - **Response**: Array of Faculty objects with department and unavailability relationships, each carrying its teaching load for the active term.
 
 **Teaching load fields.** Load is measured in **hours per week**, computed from the
@@ -194,7 +195,7 @@ Lists faculty-to-curriculum subject assignments for a given semester.
 
 #### `POST /api/subject-offerings/assign-bulk`
 Bulk assigns faculty members to curriculum subjects for an active semester.
-- **Auth**: Bearer Token required (`admin`, `program_chair`, `coordinator`)
+- **Auth**: Bearer Token required (`admin`, `dean`, `program_chair`)
 - **Body (JSON)**:
   ```json
   {
@@ -212,7 +213,7 @@ Bulk assigns faculty members to curriculum subjects for an active semester.
 
 #### `POST /api/ai-scheduler/generate/{semester_id}`
 Triggers the algorithmic constraint-satisfaction schedule generator.
-- **Auth**: Bearer Token required (`admin`, `program_chair`, `coordinator`)
+- **Auth**: Bearer Token required (`admin`, `dean`, `program_chair`)
 - **Path Parameter**: `semester_id` (int)
 - **Body (JSON)**:
   ```json
@@ -271,7 +272,7 @@ Fetches unresolved conflict items generated by the scheduling engine.
 
 #### `GET /api/schedules/`
 Retrieves schedules with filters.
-- **Auth**: Bearer Token required (`admin`, `program_chair`, `coordinator`)
+- **Auth**: Bearer Token required (`admin`, `dean`, `program_chair`)
 - **Query Parameters**: `semester_id` (int), `department_id` (int), `faculty_id` (int), `room_id` (int), `status` (`draft` | `published`).
 
 #### `GET /api/schedules/grid`
@@ -300,8 +301,25 @@ Sets the specified semester as the system's active semester (`admin` only).
 
 ### 2.9 User Management (`/api/users`)
 
-#### `GET /api/users/`, `POST /api/users/`, `PUT /api/users/{id}`, `DELETE /api/users/{id}`
-Admin-only endpoints for managing system user accounts (`admin`, `program_chair`, `coordinator`) and department assignments.
+#### `GET /api/users/`
+Retrieves user accounts.
+- **Auth**: `admin` (scoped to users within the Dean's college department).
+
+#### `POST /api/users/`
+Creates a user account.
+- **Auth**: `admin` (creates `program_chair` or department users within their own college).
+
+#### `PUT /api/users/{id}/verify`
+Toggles user verification status.
+- **Auth**: `admin` (restricted to users within their own college).
+
+#### `POST /api/users/{id}/reset-password`
+Issues a temporary administrative password.
+- **Auth**: `admin` (restricted to users within their own college).
+
+#### `DELETE /api/users/{id}`
+Permanently deletes a user account.
+- **Auth**: `admin` (restricted to users within their own college; self-deletion and last admin deletion blocked).
 
 ---
 
@@ -309,3 +327,25 @@ Admin-only endpoints for managing system user accounts (`admin`, `program_chair`
 
 #### `GET /api/logs/`
 Retrieves audit logs tracking operational actions (schedule generation, file uploads, user account management, conflict resolutions).
+
+---
+
+### 2.11 Subject Offerings & Assigned Subjects (`/api/subject-offerings`)
+
+#### `GET /api/subject-offerings/assigned-subjects`
+Retrieves active semester subjects (both Major subjects and General Education subjects) with their assignment status, assigned professor details, and summary metrics.
+- **Auth**: `admin` or `program_chair` (scoped to user's college department).
+
+#### `GET /api/subject-offerings`
+Lists teaching load subject offering assignments for a specified `semester_id`.
+- **Query Parameters**: `semester_id` (int, required), `department_id` (int, optional).
+
+#### `POST /api/subject-offerings`
+Assigns a professor to a curriculum subject for a semester.
+- **Behavior**:
+  - Supports both Major and General Education subjects.
+  - Automatically overrides and reassigns if the subject already has an active offering in the target semester.
+- **Body**: `{ "faculty_id": int, "curriculum_id": int, "semester_id": int }`
+
+#### `DELETE /api/subject-offerings/{id}`
+Removes a subject assignment offering.

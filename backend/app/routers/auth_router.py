@@ -196,12 +196,8 @@ def login_for_access_token(
 
     # Auto-heal role string if created under legacy schema or invalid text
     user_role = (str(user.role or "")).strip().lower()
-    if user_role not in ['admin', 'program_chair', 'coordinator']:
-        dept_str = (user.department or '').lower()
-        if any(keyword in dept_str for keyword in ['language', 'math', 'nstp', 'human', 'societal']):
-            setattr(user, 'role', 'coordinator')
-        else:
-            setattr(user, 'role', 'program_chair')
+    if user_role not in ['admin', 'dean', 'program_chair']:
+        setattr(user, 'role', 'program_chair')
         db.commit()
         db.refresh(user)
 
@@ -361,13 +357,14 @@ def register_user(
 
     # This endpoint is public, so the requested role must never be trusted.
     # Administrator accounts are provisioned server-side only.
+    # This endpoint is public, so the requested role must never be trusted.
+    # Dean and Administrator accounts are provisioned by the institution.
     if user.role not in schemas.SELF_REGISTRATION_ROLES:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "Self-registration is limited to "
-                f"{' and '.join(sorted(schemas.SELF_REGISTRATION_ROLES))} accounts. "
-                "Administrator accounts must be created by an existing administrator."
+                "Self-registration is limited to Program Chair accounts. "
+                "Dean and Administrator accounts are provisioned by the institution."
             )
         )
 

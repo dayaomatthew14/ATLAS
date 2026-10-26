@@ -70,14 +70,14 @@ export function resolveDepartment(code) {
  * ----------------------------------------------------------------------- */
 export const ROLE_LABELS = {
   admin: 'System Administrator',
+  dean: 'Dean',
   program_chair: 'Program Chair',
-  coordinator: 'Coordinator',
 };
 
 export const ROLE_PLURALS = {
   admin: 'administrators',
+  dean: 'deans',
   program_chair: 'program chairs',
-  coordinator: 'coordinators',
 };
 
 /**

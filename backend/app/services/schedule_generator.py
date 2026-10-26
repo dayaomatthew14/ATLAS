@@ -92,12 +92,6 @@ def check_overlap(s1_start: time, s1_end: time, s2_start: time, s2_end: time) ->
     return s1_start < s2_end and s1_end > s2_start
 
 def is_room_conflict(room_id, day1, day2, start_t, end_t, all_scheds):
-    if not room_id:
-        return False
-    for s in all_scheds:
-        if s.room_id and s.room_id == room_id and s.day_of_week in (day1, day2):
-            if check_overlap(s.start_time, s.end_time, start_t, end_t):
-                return True
     return False
 
 def is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_scheds):
@@ -274,46 +268,37 @@ def _place_lab_slot(
     Attempt to place a lab slot. Tries available lab/computer_lab rooms first,
     falling back to unassigned room (room_id=None) if no lab rooms are free.
     """
-    lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
-    room_passes = ([lab_rooms] if lab_rooms else []) + [[None]]
+    for days_pair in day_pairs_to_try:
+        day1, day2 = days_pair[0], days_pair[1]
+        for start_t, end_t in slots:
+            if is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
+                continue
+            if is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_schedules):
+                continue
 
-    for room_candidates in room_passes:
-        for days_pair in day_pairs_to_try:
-            day1, day2 = days_pair[0], days_pair[1]
-            for start_t, end_t in slots:
-                if is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
-                    continue
-                if is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_schedules):
-                    continue
-
-                for room in room_candidates:
-                    if room is not None and is_room_conflict(room.id, day1, day2, start_t, end_t, all_schedules):
-                        continue
-                    room_id = room.id if room is not None else None
-
-                    sched1 = models.Schedule(
-                        semester_id=semester_id,
-                        curriculum_id=curriculum_id,
-                        faculty_id=faculty_id,
-                        room_id=room_id,
-                        day_of_week=day1,
-                        start_time=start_t,
-                        end_time=end_t,
-                        section="",
-                        status='draft'
-                    )
-                    sched2 = models.Schedule(
-                        semester_id=semester_id,
-                        curriculum_id=curriculum_id,
-                        faculty_id=faculty_id,
-                        room_id=room_id,
-                        day_of_week=day2,
-                        start_time=start_t,
-                        end_time=end_t,
-                        section="",
-                        status='draft'
-                    )
-                    return sched1, sched2
+            sched1 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day1,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+            sched2 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day2,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+            return sched1, sched2
     return None
 
 
@@ -358,75 +343,66 @@ def _place_consecutive_lec_lab_slot(
     # Sort by lecture start time, then minimal gap to maintain natural chronological sequence
     candidate_pairs.sort(key=lambda x: (x[0], x[4]))
 
-    lab_rooms = rooms_by_type.get('lab', []) + rooms_by_type.get('computer_lab', [])
-    room_passes = ([lab_rooms] if lab_rooms else []) + [[None]]
+    for days_pair in day_pairs_to_try:
+        day1, day2 = days_pair[0], days_pair[1]
+        for l_start, l_end, b_start, b_end, _gap in candidate_pairs:
+            if is_prof_unavail(faculty_id, day1, day2, l_start, l_end, all_unavails):
+                continue
+            if is_prof_unavail(faculty_id, day1, day2, b_start, b_end, all_unavails):
+                continue
 
-    for room_candidates in room_passes:
-        for days_pair in day_pairs_to_try:
-            day1, day2 = days_pair[0], days_pair[1]
-            for l_start, l_end, b_start, b_end, _gap in candidate_pairs:
-                if is_prof_unavail(faculty_id, day1, day2, l_start, l_end, all_unavails):
-                    continue
-                if is_prof_unavail(faculty_id, day1, day2, b_start, b_end, all_unavails):
-                    continue
+            if is_prof_conflict(faculty_id, day1, day2, l_start, l_end, all_schedules):
+                continue
+            if is_prof_conflict(faculty_id, day1, day2, b_start, b_end, all_schedules):
+                continue
 
-                if is_prof_conflict(faculty_id, day1, day2, l_start, l_end, all_schedules):
-                    continue
-                if is_prof_conflict(faculty_id, day1, day2, b_start, b_end, all_schedules):
-                    continue
+            lec_sched1 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=lec_curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day1,
+                start_time=l_start,
+                end_time=l_end,
+                section="",
+                status='draft'
+            )
+            lec_sched2 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=lec_curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day2,
+                start_time=l_start,
+                end_time=l_end,
+                section="",
+                status='draft'
+            )
 
-                for room in room_candidates:
-                    if room is not None and is_room_conflict(room.id, day1, day2, b_start, b_end, all_schedules):
-                        continue
-                    room_id = room.id if room is not None else None
+            lab_sched1 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=lab_curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day1,
+                start_time=b_start,
+                end_time=b_end,
+                section="",
+                status='draft'
+            )
+            lab_sched2 = models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=lab_curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day2,
+                start_time=b_start,
+                end_time=b_end,
+                section="",
+                status='draft'
+            )
 
-                    lec_sched1 = models.Schedule(
-                        semester_id=semester_id,
-                        curriculum_id=lec_curriculum_id,
-                        faculty_id=faculty_id,
-                        room_id=None,
-                        day_of_week=day1,
-                        start_time=l_start,
-                        end_time=l_end,
-                        section="",
-                        status='draft'
-                    )
-                    lec_sched2 = models.Schedule(
-                        semester_id=semester_id,
-                        curriculum_id=lec_curriculum_id,
-                        faculty_id=faculty_id,
-                        room_id=None,
-                        day_of_week=day2,
-                        start_time=l_start,
-                        end_time=l_end,
-                        section="",
-                        status='draft'
-                    )
-
-                    lab_sched1 = models.Schedule(
-                        semester_id=semester_id,
-                        curriculum_id=lab_curriculum_id,
-                        faculty_id=faculty_id,
-                        room_id=room_id,
-                        day_of_week=day1,
-                        start_time=b_start,
-                        end_time=b_end,
-                        section="",
-                        status='draft'
-                    )
-                    lab_sched2 = models.Schedule(
-                        semester_id=semester_id,
-                        curriculum_id=lab_curriculum_id,
-                        faculty_id=faculty_id,
-                        room_id=room_id,
-                        day_of_week=day2,
-                        start_time=b_start,
-                        end_time=b_end,
-                        section="",
-                        status='draft'
-                    )
-
-                    return lec_sched1, lec_sched2, lab_sched1, lab_sched2
+            return lec_sched1, lec_sched2, lab_sched1, lab_sched2
 
     return None
 
@@ -499,13 +475,8 @@ def generate_schedules(
     # Load unavailabilities
     all_unavails = db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id.in_(faculty_ids)).all()
 
-    # 3. Load Rooms grouped by type
-    rooms = db.query(models.Room).all()
+    # 3. Rooms are not queried or assigned
     rooms_by_type = {}
-    for r in rooms:
-        if r.type not in rooms_by_type:
-            rooms_by_type[r.type] = []
-        rooms_by_type[r.type].append(r)
 
     semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     if not semester:

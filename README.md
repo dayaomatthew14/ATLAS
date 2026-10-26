@@ -12,7 +12,7 @@
 
 ## 🌟 Overview
 
-**ATLAS** (Academic Timetabling System) is an enterprise web application designed exclusively for **System Administrators**, **Program Chairs**, and **Department Coordinators** of **De La Salle Araneta University - Tertiary Education**.
+**ATLAS** (Academic Timetabling System) is an enterprise web application designed exclusively for **System Administrators**, **College Deans**, and **Program Chairs** of **De La Salle Araneta University - Tertiary Education**.
 
 ATLAS automates academic schedule generation and faculty resource management across four major college departments:
 - **CAST** — College of Arts, Sciences, and Technology
@@ -26,14 +26,27 @@ The platform combines automated Excel curriculum ingestion with block isolation,
 
 ## 👥 Authenticated System User Roles
 
-ATLAS enforces strict Role-Based Access Control (RBAC) across three authenticated user roles:
+ATLAS enforces strict Role-Based Access Control (RBAC) across two authenticated user roles:
 
-1. 👑 **System Administrator (`admin`)**: Master system management, user account administration, active semester activation, system audit logs, and global configuration.
-2. 🎓 **Program Chair (`program_chair`)**: Departmental workspace management (CAST, CBMA, CVMAS, COED), Excel curriculum ingestion, faculty workload limits, room management, subject assignments, AI schedule generation, and conflict resolution.
-3. 📋 **Coordinator (`coordinator`)**: Departmental scheduling assistance, subject assignment, timetable reviews, conflict resolution, and schedule exports.
+1. 👑 **Administrator / College Dean (`admin`)**: Institutional administrators separated by academic department. Each College Dean operates as the Administrator for their respective college:
+   - **CAST**: `dean.cast@dlsau.edu.ph`
+   - **CBMA**: `dean.cbma@dlsau.edu.ph`
+   - **COED**: `dean.coed@dlsau.edu.ph`
+   - **CVMAS**: `dean.cvmas@dlsau.edu.ph`
+   - Initial Seed Password: `DeanPassword123!`
+
+   Dean Administrators have department-isolated authority across their college:
+   - **Overview**: College-specific enrollment statistics, curriculum counts, and quick activity feeds.
+   - **PEOPLE**: Manage college `Users` (Program Chairs and department personnel).
+   - **ACADEMIC STRUCTURE**: Manage `Colleges and Programs`, upload & curate `Curriculum`, and monitor `Academic Terms`.
+   - **OVERSIGHT**: Filtered `Activity` audit logs scoped to their college.
+
+2. 🎓 **User / Program Chair (`program_chair`)**: Departmental academic head & scheduling planner. Manages program curricula, faculty teaching resource records, workload caps, room constraints, subject assignments, AI schedule generation, timetable refinement, and conflict resolution.
 
 > [!NOTE]
-> **Faculty Records & Resources**: Faculty members do not log into the system. Instead, faculty profiles are managed as teaching resource records by Program Chairs and Coordinators to track teaching unit caps, subject qualifications, and unavailability schedules.
+> - **Pre-seeded Dean Admin Accounts**: Deans do not register manually. Dedicated Dean Administrator accounts for all 4 colleges (`dean.cast@dlsau.edu.ph`, `dean.cbma@dlsau.edu.ph`, `dean.coed@dlsau.edu.ph`, `dean.cvmas@dlsau.edu.ph`) are automatically seeded on startup with default password `DeanPassword123!`.
+> - **Registration Policy**: Public self-registration is strictly locked to **Users (Program Chairs)**. Attempts to register as an Administrator or Dean are rejected.
+> - **Faculty Records & Resources**: Faculty members do not log into the system. Instead, faculty profiles are managed as teaching resource records by authorized Deans and Program Chairs to track teaching unit caps, subject qualifications, and unavailability schedules.
 
 ---
 
@@ -109,7 +122,7 @@ npm install
 npm run dev
 ```
 
-Visit **`http://localhost:5173`** in your browser. Default Admin Login: `admin@dlsau.edu.ph` / `Admin123!`.
+Visit **`http://localhost:5173`** in your browser. Pre-seeded Dean Administrator Accounts: `dean.[college]@dlsau.edu.ph` (e.g., `dean.cast@dlsau.edu.ph`, `dean.cbma@dlsau.edu.ph`, `dean.coed@dlsau.edu.ph`, `dean.cvmas@dlsau.edu.ph`) / `DeanPassword123!`.
 
 Detailed setup and deployment instructions are available in [docs/SETUP.md](file:///c:/Users/mtthw/GitHub/ATLAS/docs/SETUP.md).
 

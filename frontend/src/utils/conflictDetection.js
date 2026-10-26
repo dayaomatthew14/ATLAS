@@ -65,36 +65,6 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
     const end2 = existing.end_time || existing.endTime;
 
     if (isTimeOverlap(start1, end1, start2, end2)) {
-      // Room Conflict (only if room is assigned)
-      // Identity only. Matching on display name additionally flagged two
-      // distinct rooms that happen to share a name -- `rooms` has no unique
-      // constraint on `name`, so "101" in two buildings is normal -- and two
-      // faculty who share a display name. Both produced conflicts the server
-      // does not have and the user cannot resolve. The server compares ids
-      // (schedule_generator.is_room_conflict); so does this now.
-      const newRoomId = newSchedule.room_id || newSchedule.roomId;
-      const existingRoomId = existing.room_id || existing.roomId;
-
-      const hasRoomConflict = Boolean(newRoomId && existingRoomId && newRoomId === existingRoomId);
-
-      /*
-       * Severity, not just type.
-       *
-       * A room clash is advisory. Timetables are submitted to the Registrar,
-       * who assigns the rooms -- so a room ATLAS chose may not be the room the
-       * class ends up in, and blocking a chair on one asks them to carefully
-       * resolve an allocation that gets overwritten downstream. Worth saying,
-       * not worth stopping for.
-       *
-       * A faculty or section clash is blocking. Those are the two things this
-       * system exists to prevent, and nobody downstream fixes them: the
-       * Registrar changes rooms, not who teaches what or which section sits
-       * where.
-       */
-      if (hasRoomConflict) {
-        conflicts.push({ type: 'Room', severity: 'advisory', with: existing });
-      }
-      
       // Teacher Conflict
       const newFacId = newSchedule.faculty_id || newSchedule.teacherId;
       const existingFacId = existing.faculty_id || existing.teacherId;
@@ -121,11 +91,11 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
       (newSchedule.curriculum_id && existing.curriculum_id && newSchedule.curriculum_id === existing.curriculum_id);
 
     if (isSameSubject) {
-      const isNewLab = newSchedule.part_type === 'lab' || newSchedule.type === 'lab' || String(newCode).toUpperCase().endsWith('B') || Boolean(newSchedule.room_id);
-      const isExistingLec = existing.part_type === 'lecture' || existing.type === 'lecture' || String(existingCode).toUpperCase().endsWith('A') || !existing.room_id;
+      const isNewLab = newSchedule.part_type === 'lab' || newSchedule.type === 'lab' || String(newCode).toUpperCase().endsWith('B');
+      const isExistingLec = existing.part_type === 'lecture' || existing.type === 'lecture' || String(existingCode).toUpperCase().endsWith('A');
 
-      const isNewLec = newSchedule.part_type === 'lecture' || newSchedule.type === 'lecture' || String(newCode).toUpperCase().endsWith('A') || !newSchedule.room_id;
-      const isExistingLab = existing.part_type === 'lab' || existing.type === 'lab' || String(existingCode).toUpperCase().endsWith('B') || Boolean(existing.room_id);
+      const isNewLec = newSchedule.part_type === 'lecture' || newSchedule.type === 'lecture' || String(newCode).toUpperCase().endsWith('A');
+      const isExistingLab = existing.part_type === 'lab' || existing.type === 'lab' || String(existingCode).toUpperCase().endsWith('B');
 
       const s1 = parseTimeToMinutes(start1);
       const e1 = parseTimeToMinutes(end1);
@@ -171,44 +141,21 @@ export const checkScheduleIntegrity = (schedules) => {
       const otherEnd = other.end_time || other.endTime;
       if (!isTimeOverlap(start, end, otherStart, otherEnd)) return false;
 
-      // Identity only -- see the note in detectConflicts above.
-      const itemId = item.room_id || item.roomId;
-      const otherRoomId = other.room_id || other.roomId;
-      const roomConflict = Boolean(itemId && otherRoomId && itemId === otherRoomId);
-
       const itemFacId = item.faculty_id || item.teacherId;
       const otherFacId = other.faculty_id || other.teacherId;
       const teacherConflict = Boolean(itemFacId && otherFacId && itemFacId === otherFacId);
 
       const sectionConflict = item.section && other.section && item.section === other.section;
 
-      return roomConflict || teacherConflict || sectionConflict;
-    });
-
-    /*
-     * `isConflicting` drives the red hatching on the grid and the conflict
-     * count, so it now means "blocking" -- a faculty or section clash. A class
-     * whose only overlap is a shared room is reported through `hasRoomOverlap`
-     * instead, so the information survives without the class being dressed as
-     * broken.
-     */
-    const blocking = conflicts.filter((other) => {
-      const otherDay = other.day_of_week || other.dayOfWeek;
-      if (!otherDay || !day || otherDay !== day) return false;
-
-      const itemFacId = item.faculty_id || item.teacherId;
-      const otherFacId = other.faculty_id || other.teacherId;
-      if (itemFacId && otherFacId && itemFacId === otherFacId) return true;
-
-      return Boolean(item.section && other.section && item.section === other.section);
+      return teacherConflict || sectionConflict;
     });
 
     return {
       ...item,
-      isConflicting: blocking.length > 0,
-      hasRoomOverlap: conflicts.length > blocking.length,
-      conflictDetails: blocking,
-      roomOverlapDetails: conflicts.filter((c) => !blocking.includes(c)),
+      isConflicting: conflicts.length > 0,
+      hasRoomOverlap: false,
+      conflictDetails: conflicts,
+      roomOverlapDetails: [],
     };
   });
 };

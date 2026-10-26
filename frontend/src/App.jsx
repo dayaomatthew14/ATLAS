@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard';
 import Schedules from './pages/dashboard/Schedules';
 import CurriculumRoute from './pages/dashboard/CurriculumRoute';
 import CurriculumDetail from './pages/dashboard/CurriculumDetail';
-import Rooms from './pages/dashboard/Rooms';
 import Teachers from './pages/dashboard/Teachers';
 import AssignedSubjects from './pages/dashboard/AssignedSubjects';
 import Overview from './pages/dashboard/Overview';
@@ -17,7 +16,7 @@ import Settings from './pages/dashboard/Settings';
 import Colleges from './pages/dashboard/Colleges';
 import { ToastProvider } from './components/ToastProvider';
 import AppErrorBoundary from './components/AppErrorBoundary';
-import { getRole, ROLES, ALL_ROLES, SCHEDULING_ROLES } from './utils/session';
+import { getRole, ROLES, ALL_ROLES, SCHEDULING_ROLES, ADMIN_AND_DEAN_ROLES } from './utils/session';
 
 const Unauthorized403 = () => (
   <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center">
@@ -91,18 +90,14 @@ function App() {
             <Route
               path="curriculum/:blockId"
               element={
-                <ProtectedRoute allowedRoles={adminOnly}>
+                <ProtectedRoute allowedRoles={ADMIN_AND_DEAN_ROLES}>
                   <CurriculumDetail />
                 </ProtectedRoute>
               }
             />
             <Route
               path="rooms"
-              element={
-                <ProtectedRoute allowedRoles={ALL_ROLES}>
-                  <Rooms />
-                </ProtectedRoute>
-              }
+              element={<Navigate to="/dashboard/schedules" replace />}
             />
             <Route
               path="assigned-subjects"
@@ -131,7 +126,7 @@ function App() {
             <Route
               path="users"
               element={
-                <ProtectedRoute allowedRoles={adminOnly}>
+                <ProtectedRoute allowedRoles={ADMIN_AND_DEAN_ROLES}>
                   <UserManagement />
                 </ProtectedRoute>
               }
@@ -139,7 +134,7 @@ function App() {
             <Route
               path="colleges"
               element={
-                <ProtectedRoute allowedRoles={adminOnly}>
+                <ProtectedRoute allowedRoles={ADMIN_AND_DEAN_ROLES}>
                   <Colleges />
                 </ProtectedRoute>
               }

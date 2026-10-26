@@ -6,10 +6,9 @@
 
 ## 1. Executive Summary & System Overview
 
-**ATLAS** (Academic Timetabling System) is a specialized, web-based automated class schedule generation and curriculum management platform developed specifically for De La Salle Araneta University (DLSAU) Tertiary Education. It caters strictly to three authorized user roles:
-1. **System Administrator** (`admin`)
-2. **Program Chair** (`program_chair`)
-3. **Coordinator** (`coordinator`)
+**ATLAS** (Academic Timetabling System) is a specialized, web-based automated class schedule generation and curriculum management platform developed specifically for De La Salle Araneta University (DLSAU) Tertiary Education. It caters strictly to two authorized user roles:
+1. **Administrator / College Dean** (`admin`) — Institutional administrators separated by academic department (`CAST`, `CBMA`, `COED`, `CVMAS`)
+2. **User / Program Chair** (`program_chair`) — Departmental academic head & scheduling planner
 
 Across university academic departments:
 - **CAST** (College of Arts, Sciences, and Technology)
@@ -18,7 +17,11 @@ Across university academic departments:
 - **COED** (College of Education)
 
 > [!IMPORTANT]
-> **User Scope**: Only System Administrators, Program Chairs, and Coordinators are authenticated users who log into and interact with ATLAS. Faculty members do not access or log into the system; faculty records are managed as scheduling resources (teaching unit limits, unavailability slots, subject qualifications) by authorized Program Chairs and Coordinators.
+> **User Scope & Governance**:
+> - Only College Dean Administrators (`admin`) and Program Chairs (`program_chair`) are authenticated users who log into and interact with ATLAS.
+> - Deans do not self-register; their accounts are pre-seeded on startup as department administrators (`dean.cast@dlsau.edu.ph`, `dean.cbma@dlsau.edu.ph`, `dean.coed@dlsau.edu.ph`, `dean.cvmas@dlsau.edu.ph` / `DeanPassword123!`).
+> - Self-registration is strictly restricted to Program Chairs selecting their designated college.
+> - Faculty members do not access or log into the system; faculty records are managed as scheduling resources (teaching unit limits, unavailability slots, subject qualifications) by authorized users.
 
 ATLAS replaces manual, error-prone timetabling spreadsheets with an algorithmic constraint-satisfaction engine, dynamic visual schedule calendars, automated Excel curriculum ingestion with block isolation, multi-department role-based access control (RBAC), and publication export capabilities (PDF/Excel).
 
@@ -30,7 +33,7 @@ ATLAS follows a modern decoupled architecture comprising a single-page applicati
 
 ```mermaid
 graph TD
-    User["User Browser (System Admin / Program Chair / Coordinator)"]
+    User["User Browser (Dean Administrator / Program Chair)"]
     
     subgraph Frontend ["Frontend (Vite + React SPA)"]
         UI["React 18 Components & UI Pages"]
@@ -113,12 +116,12 @@ graph TD
 
 ### 4.1 Authentication & Session Handling Flow
 
-ATLAS utilizes JSON Web Tokens (JWT) for stateless authentication of System Administrators, Program Chairs, and Coordinators.
+ATLAS utilizes JSON Web Tokens (JWT) for stateless authentication of Dean Administrators and Program Chairs.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor AuthorizedUser as Authorized User (Admin / Chair / Coordinator)
+    actor AuthorizedUser as Authorized User (Dean Admin / Program Chair)
     participant Frontend as React App (Login.jsx)
     participant API as FastAPI (auth_router.py)
     participant Auth as Auth Module (auth.py)
@@ -176,11 +179,11 @@ The scheduling service (`schedule_generator.py`) operates via a constraint-satis
 
 ```mermaid
 flowchart TD
-    A[Program Chair / Coordinator clicks 'Generate Schedule'] --> B[POST /api/ai-scheduler/generate/{semester_id}]
+    A[Program Chair clicks 'Generate Schedule'] --> B[POST /api/ai-scheduler/generate/{semester_id}]
     B --> C[Verify Active Semester & Dept Permission]
     C --> D[Purge Previous Unlocked Draft Schedules & Unresolved Conflicts for Selected Faculty Records]
-    D --> E[Fetch Subject Offerings for Department & Active Semester]
     E --> F[Load Faculty Workload Limits & Faculty Unavailability Slots]
+    D --> E[Fetch Subject Offerings for Department & Active Semester]
     F --> G[Load Rooms Grouped by Type: lecture vs lab/computer_lab]
     
     G --> H[Loop Through Subject Offerings]
@@ -213,22 +216,22 @@ flowchart TD
 
 ATLAS enforces RBAC both on the backend (FastAPI dependency injection via `Depends(auth.get_current_user)`) and on the frontend (React `ProtectedRoute` wrappers).
 
-The system supports exactly **three authenticated user roles**:
+The system supports exactly **two authenticated user roles**:
 
-| Feature / Endpoint Group | System Administrator (`admin`) | Program Chair (`program_chair`) | Coordinator (`coordinator`) |
-| :--- | :---: | :---: | :---: |
-| **System Dashboard Overview** | ✅ Full System Overview | ✅ Department Overview | ✅ Department Overview |
-| **User Account Management (`/api/users/*`)** | ✅ Full Control | ❌ Restricted | ❌ Restricted |
-| **Academic Semesters (`/api/semesters/*`)** | ✅ Full (Add, Activate) | 👁️ Read Active Semester | 👁️ Read Active Semester |
-| **Curriculum Ingestion & CRUD (`/api/curriculum/*`)** | ✅ Full | ✅ Department Curriculum | ✅ Department Curriculum |
-| **Room Management (`/api/rooms/*`)** | ✅ Full | ✅ Department Rooms | ✅ Department Rooms |
-| **Faculty Record Management (`/api/faculty/*`)** | ✅ Full | ✅ Department Faculty Records | ✅ Department Faculty Records |
-| **Subject Offering Assignment (`/api/subject-offerings/*`)** | ✅ Full | ✅ Department Assignments | ✅ Department Assignments |
-| **AI Schedule Generator (`/api/ai-scheduler/*`)** | ✅ Full | ✅ Department Execution | ✅ Department Execution |
-| **Conflict Resolution Panel (`/api/conflicts/*`)** | ✅ Full | ✅ Department Conflicts | ✅ Department Conflicts |
-| **Schedule Lock & Publish (`/api/schedules/*`)** | ✅ Full | ✅ Department Schedules | ✅ Department Schedules |
-| **Export Schedules (PDF / Excel)** | ✅ Full | ✅ Full | ✅ Full |
-| **System Audit Logs (`/api/logs/*`)** | ✅ All System Logs | ✅ Dept Activity Logs | ✅ Dept Activity Logs |
+| Feature / Navigation Rail | Dean Administrator (`admin`) | Program Chair (`program_chair`) |
+| :--- | :---: | :---: |
+| **Overview (`/dashboard/overview`)** | ✅ College Statistics & Feeds | ❌ (Redirects to Schedules) |
+| **PEOPLE: Users (`/dashboard/users`)** | 🛡️ Manage Dept Program Chairs | ❌ Restricted |
+| **ACADEMIC STRUCTURE: Colleges & Programs (`/dashboard/colleges`)** | ✅ Manage Dept Degree Programs | ❌ Restricted |
+| **ACADEMIC STRUCTURE: Curriculum (`/dashboard/curriculum`)** | ✅ Curate Dept Curricula & Uploads | ✅ View & Review Curriculum |
+| **ACADEMIC STRUCTURE: Academic Terms (`/dashboard/semesters`)** | 👁️ View Active Academic Term | 👁️ View Active Academic Term |
+| **OVERSIGHT: Activity (`/dashboard/activity`)** | ✅ College-Scoped Audit Logs | ❌ Restricted |
+| **TIMETABLE: Schedules (`/dashboard/schedules`)** | 👁️ View Dept Timetables | ✅ Full Planning & Editing |
+| **TIMETABLE: AI Generator (`/dashboard/ai-scheduler`)** | ❌ (Chair Operational Tool) | ✅ Execute AI Generator Runs |
+| **TIMETABLE: Conflicts (`/dashboard/conflicts`)** | ❌ (Chair Operational Tool) | ✅ Resolve Allocation Conflicts |
+| **RESOURCES: Faculty (`/dashboard/teachers`)** | ❌ (Chair Operational Tool) | ✅ Manage Faculty Profiles & Slots |
+| **RESOURCES: Rooms (`/dashboard/rooms`)** | ❌ (Chair Operational Tool) | ✅ View Campus Classrooms & Labs |
+| **Export Schedules (PDF / Excel)** | ✅ Full | ✅ Full |
 
 ---
 

@@ -581,7 +581,7 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
 
   const subtitle =
     mode === 'login' ? 'DLSAU Tertiary Education Portal' :
-    mode === 'register' ? 'Register a chair or coordinator account' :
+    mode === 'register' ? 'Register a program chair account' :
     mode === 'verify' ? 'Confirm the code we sent you' :
     mode === 'forgot_email' ? 'We will send a reset code to your address' :
     mode === 'forgot_otp' ? 'Enter the 6-digit code' :
@@ -737,15 +737,9 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       {renderSelectField('role', ShieldCheck, role, setRole, 'User Role', [
-                        { value: 'program_chair', label: 'Program Chair' },
-                        { value: 'coordinator', label: 'Coordinator' }
+                        { value: 'program_chair', label: 'Program Chair' }
                       ])}
-                      {renderSelectField('department', Building, department, setDepartment, 'Department / Position', role === 'coordinator' ? [
-                        { value: 'CAST - Language and Literature Courses', label: 'CAST — Language & Literature Courses' },
-                        { value: 'CAST - Math and Science Courses', label: 'CAST — Math & Science Courses' },
-                        { value: 'CAST - Human and Societal Formation Courses', label: 'CAST — Human & Societal Formation Courses' },
-                        { value: 'CAST - NSTP', label: 'CAST — NSTP' },
-                      ] : [
+                      {renderSelectField('department', Building, department, setDepartment, 'Department / College', [
                         { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science' },
                         { value: 'CAST - Psychology', label: 'CAST — Psychology' },
                         { value: 'COED - Education Programs', label: 'COED — Education Programs' },

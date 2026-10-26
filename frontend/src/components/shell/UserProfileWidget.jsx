@@ -65,8 +65,8 @@ export default function UserProfileWidget({
   const roleLabel = useMemo(() => {
     if (role === 'admin') return 'Administrator';
     const dept = typeof window !== 'undefined' ? (localStorage.getItem('atlas_department') || '') : '';
-    if (role === 'coordinator') {
-      return dept ? `${dept} · Coordinator` : 'Coordinator';
+    if (role === 'dean') {
+      return dept ? `${dept} · Dean` : 'Dean';
     }
     return dept ? `${dept} · Program Chair` : 'Program Chair';
   }, [role]);

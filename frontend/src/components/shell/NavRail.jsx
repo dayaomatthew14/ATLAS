@@ -68,6 +68,7 @@ const ADMIN_SECTIONS = [
   },
 ];
 
+
 function RailItem({ item, badge, onNavigate, expanded }) {
   const Icon = item.icon;
   return (

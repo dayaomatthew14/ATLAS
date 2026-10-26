@@ -205,9 +205,9 @@ class ScheduleGeneratorCharacterizationTest(unittest.TestCase):
             (1, 1, None, "Mon", "10:10", "11:30"),
             (1, 1, None, "Wed", "10:10", "11:30"),
 
-            # CS102L (Faculty 1, Lab): TTh 07:30-09:30 in Computer Lab 1 (room 10)
-            (2, 1, 10, "Thu", "07:30", "09:30"),
-            (2, 1, 10, "Tue", "07:30", "09:30"),
+            # CS102L (Faculty 1, Lab): TTh 07:30-09:30 (room unassigned / None)
+            (2, 1, None, "Thu", "07:30", "09:30"),
+            (2, 1, None, "Tue", "07:30", "09:30"),
 
             # CS103 (Faculty 2, Lecture): MW 07:30-08:50 (Grace is available Mon early)
             (3, 2, None, "Mon", "07:30", "08:50"),

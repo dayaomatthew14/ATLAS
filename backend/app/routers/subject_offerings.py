@@ -26,11 +26,8 @@ Two rules, both enforced here rather than only in the UI:
    over the same faculty, and each should only be able to commit their own.
 """
 
-#: `is_major` value each role may assign. Absent = unrestricted (admin).
-ROLE_SUBJECT_SCOPE = {
-    'program_chair': True,
-    'coordinator': False,
-}
+#: `is_major` value each role may assign. Empty/absent = unrestricted (users can assign major & GenEd).
+ROLE_SUBJECT_SCOPE = {}
 
 SCOPE_LABEL = {True: 'major subjects', False: 'General Education subjects'}
 
@@ -170,11 +167,11 @@ def get_active_term_assigned_subjects(
         models.Curriculum.block_id.in_(block_ids)
     ).all()
 
-    # 5. Filter subjects matching the active semester term and major subjects only (no GenEd)
+    # 5. Filter subjects matching the active semester term (both Major and Gen Ed)
     sem_term_norm = normalize_term(semester.term)
     term_subjects = [
         c for c in all_block_subjects
-        if normalize_term(c.semester_term) == sem_term_norm and is_major_subject(c)
+        if normalize_term(c.semester_term) == sem_term_norm
     ]
 
     # 6. Retrieve subject offerings for these curriculum items in the target semester
@@ -222,7 +219,7 @@ def get_active_term_assigned_subjects(
             "lec_units": c.lec_units,
             "lab_units": c.lab_units,
             "type": c.type,
-            "is_major": bool(c.is_major),
+            "is_major": is_major_subject(c),
             "year_level": c.year_level or "",
             "semester_term": c.semester_term or "",
             "program_code": prog_code,
@@ -238,6 +235,7 @@ def get_active_term_assigned_subjects(
     total = len(subject_list)
     assigned_count = len([s for s in subject_list if s["status"] == "assigned"])
     unassigned_count = total - assigned_count
+    all_major_assigned = len([s for s in subject_list if s["is_major"] and s["status"] == "unassigned"]) == 0
 
     curriculum_courses = [
         {
@@ -261,7 +259,7 @@ def get_active_term_assigned_subjects(
             "total": total,
             "assigned": assigned_count,
             "unassigned": unassigned_count,
-            "all_assigned": (unassigned_count == 0)
+            "all_assigned": all_major_assigned
         },
         "subjects": subject_list
     }
@@ -375,6 +373,19 @@ def create_subject_offering(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Faculty member department does not match curriculum subject department"
         )
+
+    # If the subject is already assigned to another professor in this semester, override it
+    prior_offering = db.query(models.SubjectOffering).filter(
+        models.SubjectOffering.curriculum_id == offering.curriculum_id,
+        models.SubjectOffering.semester_id == offering.semester_id
+    ).first()
+
+    if prior_offering:
+        setattr(prior_offering, "faculty_id", offering.faculty_id)
+        setattr(prior_offering, "assigned_by", current_user.id)
+        db.commit()
+        db.refresh(prior_offering)
+        return prior_offering
 
     new_offering = models.SubjectOffering(
         faculty_id=offering.faculty_id,

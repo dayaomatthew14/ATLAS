@@ -53,12 +53,12 @@ def validate_password(value: str) -> str:
     return value
 
 
-# Roles the system recognises. 'admin' is privileged and must never be settable
-# from a public endpoint -- see SELF_REGISTRATION_ROLES below.
-VALID_ROLES = {'admin', 'program_chair', 'coordinator'}
+# Roles the system recognises in incoming payloads.
+# The 2 active system roles are 'admin' (College Deans) and 'program_chair'.
+VALID_ROLES = {'admin', 'dean', 'program_chair'}
 
 # Roles a visitor may choose for themselves at /api/auth/register.
-SELF_REGISTRATION_ROLES = {'program_chair', 'coordinator'}
+SELF_REGISTRATION_ROLES = {'program_chair'}
 
 
 def _validate_role(value: Optional[str]) -> Optional[str]:

@@ -5,12 +5,12 @@
 ---
 
 ##  Target Audience & Core Constraints
-- **Target Users**: System Administrators, Program Chairs (CAST, CBMA, CVMAS, COED), and Coordinators.
+- **Target Users**: College Deans as Department Administrators (`admin` for CAST, CBMA, CVMAS, COED) and Program Chairs (`program_chair`).
 - **Scope**: Tertiary Education Academic Scheduling, Curriculum Ingestion, Faculty Workload Management, Timetables, and Conflict Resolution.
 
 ---
 
-##  Completed Release Milestones (v1.4.0 Live)
+##  Completed Release Milestones (v1.5.0 Live)
 
 ### Phase 1 — Project Initialization & Architecture [COMPLETED]
 - [x] **Frontend Architecture**: Initialized React 18 SPA with Vite, Tailwind CSS, Lucide React icons, and custom light/dark theme switcher.
@@ -19,7 +19,7 @@
 
 ### Phase 2 — Database Modeling & Auth [COMPLETED]
 - [x] **Relational Schema**: Models for `User`, `Department`, `CurriculumBlock`, `Curriculum`, `Room`, `Faculty`, `FacultyUnavailability`, `Semester`, `SubjectOffering`, `Schedule`, `Conflict`, `SystemLog`, and `AIRule`.
-- [x] **Security & Authentication**: Implemented OAuth2 password hashing with Bcrypt, JWT bearer token issuance, OTP email verification flow, session invalidation, and role management for official system users (`admin`, `program_chair`, `coordinator`).
+- [x] **Security & Authentication**: Implemented OAuth2 password hashing with Bcrypt, JWT bearer token issuance, OTP email verification flow, session invalidation, and role management for official system users (`admin` [College Deans] and `program_chair` [Users]). Pre-seeded official Dean accounts and locked public self-registration strictly to Program Chairs.
 
 ### Phase 3 — Curriculum Excel Parser v1.4 [COMPLETED]
 - [x] **Curriculum Block Isolation**: Ingests `.xlsx` files treating each file as a self-contained curriculum block identified by `Program Name + Academic Year`.

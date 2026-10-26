@@ -14,7 +14,7 @@ The database initialization routine (`init_db()` in `backend/main.py`) handles s
 
 > [!IMPORTANT]
 > **User Accounts vs. Faculty Records**:
-> - The `users` table stores authenticated system user accounts (`admin`, `program_chair`, `coordinator`).
+> - The `users` table stores authenticated system user accounts (`admin`, `dean`, `program_chair`).
 > - The `faculty` table stores faculty member profiles used purely as scheduling resource records (workload caps, subject capabilities, unavailability slots) managed by authorized system users. Faculty members do not log into the system.
 
 ---
@@ -69,7 +69,7 @@ Stores user authentication records, profile metadata, and security tokens for au
 | `contact_number`| `VARCHAR(20)` | `NULLABLE` | Phone number |
 | `email` | `VARCHAR(255)` | `NOT NULL`, `UNIQUE`, `INDEX` | User email address (login username) |
 | `password_hash` | `VARCHAR(255)` | `NOT NULL` | Bcrypt hashed password |
-| `role` | `VARCHAR(50)` | `NOT NULL`, `DEFAULT 'program_chair'`| Authenticated role (`admin`, `program_chair`, `coordinator`) |
+| `role` | `VARCHAR(50)` | `NOT NULL`, `DEFAULT 'program_chair'`| Authenticated role (`admin`, `dean`, `program_chair`) |
 | `department` | `VARCHAR(50)` | `NULLABLE` | Assigned department code (CAST, CBMA, CVMAS, COED) |
 | `sex` | `ENUM` | `NULLABLE` | `'Male'`, `'Female'`, `'Other'` |
 | `date_of_birth` | `DATE` | `NULLABLE` | Date of birth |
@@ -148,7 +148,7 @@ Physical spaces available for scheduling.
 ---
 
 ### 3.6 `faculty`
-Faculty member teaching records (resource profiles managed by Program Chairs/Coordinators).
+Faculty member teaching records (resource profiles managed by College Deans and Program Chairs).
 
 | Column | Type | Constraints / Modifiers | Description |
 | :--- | :--- | :--- | :--- |
@@ -198,7 +198,7 @@ Assignments mapping Faculty records to Curriculum subjects for a specific Semest
 | `faculty_id` | `INTEGER` | `FOREIGN KEY(faculty.id ON DELETE CASCADE)` | Assigned faculty record ID |
 | `curriculum_id` | `INTEGER` | `FOREIGN KEY(curriculum.id ON DELETE CASCADE)` | Target subject ID |
 | `semester_id` | `INTEGER` | `FOREIGN KEY(semesters.id ON DELETE CASCADE)` | Active semester ID |
-| `assigned_by` | `INTEGER` | `FOREIGN KEY(users.id ON DELETE SET NULL)` | Authorized user ID (Admin/Chair/Coordinator) who made assignment |
+| `assigned_by` | `INTEGER` | `FOREIGN KEY(users.id ON DELETE SET NULL)` | Authorized user ID (Admin/Dean/Chair) who made assignment |
 | `created_at` | `DATETIME` | `DEFAULT UTC` | Creation timestamp |
 
 ---

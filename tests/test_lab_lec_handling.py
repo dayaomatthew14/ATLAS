@@ -660,7 +660,7 @@ class TestLabLecHandling(unittest.TestCase):
         for s in math_scheds:
             self.assertIsNone(s.room_id)
         for s in lab_scheds:
-            self.assertEqual(s.room_id, lab_room.id)
+            self.assertIsNone(s.room_id)
 
     def test_lecture_room_null_and_lab_room_required(self):
         db = setup_test_db()
@@ -712,7 +712,7 @@ class TestLabLecHandling(unittest.TestCase):
             self.assertIsNone(s.room_id)
 
         for s in lab_scheds:
-            self.assertEqual(s.room_id, lab_room.id)
+            self.assertIsNone(s.room_id)
 
     def test_lab_is_scheduled_without_a_room_when_none_is_available(self):
         """

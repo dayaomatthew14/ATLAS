@@ -26,7 +26,7 @@ def _resolve_scope_department(db: Session, current_user: models.User, requested_
     what they ask for. Admins may target one explicitly, or None for every
     department. Returns None only for an unscoped admin.
     """
-    if current_user.role in ('program_chair', 'coordinator'):
+    if current_user.role in ('dean', 'program_chair'):
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
@@ -46,16 +46,14 @@ def get_schedules(
     semester_id: Optional[int] = None,
     curriculum_id: Optional[int] = None,
     faculty_id: Optional[int] = None,
-    room_id: Optional[int] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
     query = db.query(models.Schedule).options(
-        joinedload(models.Schedule.curriculum),
-        joinedload(models.Schedule.room)
+        joinedload(models.Schedule.curriculum)
     ).join(models.Curriculum)
     
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         if not current_user.department:
             return []
         dept = db.query(models.Department).filter(
@@ -73,8 +71,6 @@ def get_schedules(
         query = query.filter(models.Schedule.curriculum_id == curriculum_id)
     if faculty_id:
         query = query.filter(models.Schedule.faculty_id == faculty_id)
-    if room_id:
-        query = query.filter(models.Schedule.room_id == room_id)
         
     return query.offset(skip).limit(limit).all()
 
@@ -90,14 +86,14 @@ def create_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not create classes. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not create classes. This is done by the program chair.")
         
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
 
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create schedules for your department's curriculum")
@@ -142,14 +138,14 @@ def update_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not edit classes. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not edit classes. This is done by the program chair.")
         
     db_schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
     if not db_schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
         if curriculum_item:
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
@@ -178,12 +174,12 @@ def clear_all_schedules(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not clear schedules. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not clear schedules. This is done by the program chair.")
 
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
 
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         if not current_user.department:
             return {"deleted_count": 0, "backup": []}
         dept = db.query(models.Department).filter(
@@ -240,7 +236,7 @@ def get_schedule_status(
     draft class means the term is still a draft. Anything else would let a
     department post a schedule on its door while part of it was still unsaved.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     dept_id = _resolve_scope_department(db, current_user, department_id)
@@ -352,14 +348,14 @@ def restore_schedules(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not restore schedules. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not restore schedules. This is done by the program chair.")
 
     # Restore is a bulk insert, so it needs the same department check the
     # single-item create path applies -- otherwise it is a way to write
     # schedules into any department's curriculum.
     allowed_dept_id = None
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
@@ -393,14 +389,14 @@ def delete_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not delete classes. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not delete classes. This is done by the program chair.")
         
     db_schedule = db.query(models.Schedule).filter(models.Schedule.id == schedule_id).first()
     if not db_schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
         if curriculum_item:
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
@@ -444,14 +440,14 @@ def get_schedule_suggestions(
     """
     Returns a list of conflict-free scheduling suggestions for a given curriculum item.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this curriculum item")
@@ -462,10 +458,6 @@ def get_schedule_suggestions(
         if not active_sem:
             return []
         semester_id = active_sem.id # type: ignore
-
-    # Get valid rooms for the curriculum item type
-    rooms = db.query(models.Room).all()
-    valid_rooms = [r for r in rooms if r.type == curriculum_item.type or (r.type == 'computer_lab' and curriculum_item.type == 'lab')]
 
     # Get valid faculties for the curriculum department
     faculties = db.query(models.Faculty).filter(models.Faculty.department_id == curriculum_item.department_id).all()
@@ -504,66 +496,51 @@ def get_schedule_suggestions(
 
     suggestions = []
     
-    # Limit suggestions to top 5 to keep it fast and relevant
-    import random
-    random.shuffle(valid_rooms)
-    
     # Sort faculties by load percentage (lowest load first)
     valid_faculties.sort(key=lambda x: x["load_percentage"])
 
-    # Candidate rooms (include None for TBA slots)
-    candidate_rooms = (valid_rooms[:3] if valid_rooms else []) + [None]
-
     for f_data in valid_faculties[:3]:  # Try top 3 faculties with lowest load
         faculty = f_data["faculty"]
-        
-        for room in candidate_rooms:
-            room_id = room.id if room else None
-            room_name = room.name if room else "TBA"
-            for day in DAYS:
-                for start_t, end_t in TIMESLOTS:
-                    overlap = any(
-                        s.day_of_week == day
-                        and s.start_time == start_t
-                        and s.end_time == end_t
-                        and ((room_id and s.room_id == room_id) or s.faculty_id == faculty.id)
-                        for s in semester_schedules
-                    )
-                    if overlap:
-                        continue
+        for day in DAYS:
+            for start_t, end_t in TIMESLOTS:
+                overlap = any(
+                    s.day_of_week == day
+                    and s.start_time == start_t
+                    and s.end_time == end_t
+                    and s.faculty_id == faculty.id
+                    for s in semester_schedules
+                )
+                if overlap:
+                    continue
 
-                    # Check faculty unavailability
-                    blocked = any(
-                        u.faculty_id == faculty.id
-                        and u.day_of_week == day
-                        and u.start_time < end_t
-                        and u.end_time > start_t
-                        for u in unavailabilities
-                    )
-                    if blocked:
-                        continue
-                        
-                    # If we reach here, it's a valid slot
-                    # Calculate confidence based on faculty load (lower load = higher confidence, min 70%)
-                    confidence = int(100 - (f_data["load_percentage"] * 30))
-                    if not room_id:
-                        confidence = max(70, confidence - 5)
+                # Check faculty unavailability
+                blocked = any(
+                    u.faculty_id == faculty.id
+                    and u.day_of_week == day
+                    and u.start_time < end_t
+                    and u.end_time > start_t
+                    for u in unavailabilities
+                )
+                if blocked:
+                    continue
                     
-                    suggestions.append({
-                        "faculty_id": faculty.id,
-                        "faculty_name": f"{faculty.first_name} {faculty.last_name}",
-                        "room_id": room_id,
-                        "room_name": room_name,
-                        "day_of_week": day,
-                        "start_time": start_t.strftime("%H:%M"),
-                        "end_time": end_t.strftime("%H:%M"),
-                        "confidence": confidence
-                    })
-                    
-                    if len(suggestions) >= 5:
-                        # Sort suggestions by confidence descending
-                        suggestions.sort(key=lambda x: x["confidence"], reverse=True)
-                        return suggestions
+                confidence = max(70, int(100 - (f_data["load_percentage"] * 30)))
+                
+                suggestions.append({
+                    "faculty_id": faculty.id,
+                    "faculty_name": f"{faculty.first_name} {faculty.last_name}",
+                    "room_id": None,
+                    "room_name": "TBA",
+                    "day_of_week": day,
+                    "start_time": start_t.strftime("%H:%M"),
+                    "end_time": end_t.strftime("%H:%M"),
+                    "confidence": confidence
+                })
+                
+                if len(suggestions) >= 5:
+                    # Sort suggestions by confidence descending
+                    suggestions.sort(key=lambda x: x["confidence"], reverse=True)
+                    return suggestions
 
     # Sort suggestions by confidence descending
     suggestions.sort(key=lambda x: x["confidence"], reverse=True)
@@ -584,7 +561,7 @@ def export_pdf(
     someone downloads is the one they were shown. Landscape, because nine
     columns do not fit portrait without shrinking the type past reading size.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     # Fetch data
@@ -592,7 +569,7 @@ def export_pdf(
 
     dept = None
     dept_name: str = "All Departments"
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
@@ -636,7 +613,7 @@ async def import_excel(
     Import schedules from an Excel file.
     Expects columns: CurriculumCode, FacultyEmail, RoomName, Day, StartTime, EndTime, Section
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     contents = await file.read()
@@ -663,7 +640,7 @@ def export_excel(
     """
     Export the current department's schedule for a semester to Excel.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
  
     # Fetch data
@@ -671,7 +648,7 @@ def export_excel(
     
     dept = None
     dept_name: str = "All Departments"
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -699,7 +676,7 @@ def export_excel(
         faculty_name=faculty_name,
     )
     
-    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel ({row_count} classes)", department_id=dept.id if current_user.role in ['program_chair', 'coordinator'] and dept else None) # type: ignore
+    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel ({row_count} classes)", department_id=dept.id if current_user.role in ['dean', 'program_chair'] and dept else None) # type: ignore
     
     return StreamingResponse(
         output,
@@ -725,7 +702,7 @@ def get_schedule(
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
 
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
         if curriculum_item:
             dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()

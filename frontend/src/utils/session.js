@@ -12,22 +12,18 @@
 export const ROLES = {
   ADMIN: 'admin',
   PROGRAM_CHAIR: 'program_chair',
-  COORDINATOR: 'coordinator',
 };
 
 /** Every role that may sign in. Use this for router guards. */
-export const ALL_ROLES = [ROLES.ADMIN, ROLES.PROGRAM_CHAIR, ROLES.COORDINATOR];
+export const ALL_ROLES = [ROLES.ADMIN, ROLES.PROGRAM_CHAIR];
 
 /**
- * Roles that plan and edit timetables.
- *
- * The administrator is deliberately absent. The boundary is institutional
- * reference data versus departmental operations, and the schema already draws
- * it: `Room` has no `department_id` and is shared campus infrastructure, while
- * `Faculty` has one and belongs to a college. An admin sets the frame — who may
- * act, what may be taught, when, and where — and chairs work inside it.
+ * Roles that plan, edit, or supervise departmental timetables.
  */
-export const SCHEDULING_ROLES = [ROLES.PROGRAM_CHAIR, ROLES.COORDINATOR];
+export const SCHEDULING_ROLES = [ROLES.PROGRAM_CHAIR];
+
+/** Administrative roles: institutional admin and college deans. */
+export const ADMIN_AND_DEAN_ROLES = [ROLES.ADMIN];
 
 /**
  * Every localStorage key the app owns. Logout and the 401 handler each kept
@@ -50,6 +46,10 @@ export function getRole() {
 
 export function isAdmin() {
   return getRole() === ROLES.ADMIN;
+}
+
+export function isDean() {
+  return isAdmin() && Boolean(getDepartment());
 }
 
 /* --------------------------------------------------------------------------
@@ -82,7 +82,7 @@ export function canManageFaculty() {
  * departments read the one for their own college.
  */
 export function canManageCurriculum() {
-  return isAdmin();
+  return isAdmin() || isDean();
 }
 
 /* --------------------------------------------------------------------------

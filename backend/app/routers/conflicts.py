@@ -31,7 +31,7 @@ def get_conflict_count(
     The early returns below are different: each is a real, known zero, not a
     failure to find out.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         return {"count": 0}
 
     # 1. Find the active semester
@@ -61,8 +61,8 @@ def get_conflict_count(
         (models.Schedule.id == None) | (models.Schedule.semester_id == active_semester.id)
     )
 
-    # 3. Apply department scoping for Program Chairs / Coordinators
-    if current_user.role in ['program_chair', 'coordinator']:
+    # 3. Apply department scoping for Deans and Program Chairs
+    if current_user.role in ['dean', 'program_chair']:
         if not current_user.department:
             return {"count": 0}
 
@@ -87,7 +87,7 @@ def validate_schedule_conflict(
     Checks for conflicts against a potential schedule slot.
     Returns a list of detailed conflicts found.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     conflicts = []
@@ -108,20 +108,7 @@ def validate_schedule_conflict(
         (models.Schedule.end_time > validation_data.start_time)
     )
     
-    # A. Room Conflict
-    if validation_data.room_id:
-        room_overlap = base_query.filter(
-            models.Schedule.room_id == validation_data.room_id,
-            time_filter
-        ).first()
-        if room_overlap:
-            conflicts.append(schemas.ConflictDetail(
-                type="room",
-                existing_schedule=schemas.ScheduleResponse.model_validate(room_overlap),
-                message=f"Room {room_overlap.room_id} is already occupied by {room_overlap.curriculum_id}"
-            ))
-
-    # B. Faculty Conflict
+    # A. Faculty Conflict
     if validation_data.faculty_id:
         # Check existing schedules
         faculty_overlap = base_query.filter(
@@ -167,7 +154,7 @@ def validate_schedule_conflict(
     if getattr(validation_data, 'curriculum_id', None) and validation_data.faculty_id:
         target_curr = db.query(models.Curriculum).filter(models.Curriculum.id == validation_data.curriculum_id).first()
         if target_curr:
-            target_code = target_curr.code or ""
+            target_code = str(target_curr.code or "")
             target_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", target_code, flags=re.IGNORECASE).strip().upper()
             is_target_lab = (target_curr.type == 'lab' or (target_curr.lab_units or 0) > 0 or target_code.upper().endswith('B'))
             is_target_lec = (target_curr.type == 'lecture' or (target_curr.lec_units or 0) > 0 or target_code.upper().endswith('A'))
@@ -182,7 +169,7 @@ def validate_schedule_conflict(
                 other_curr = s.curriculum
                 if not other_curr:
                     continue
-                other_code = other_curr.code or ""
+                other_code = str(other_curr.code or "")
                 other_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", other_code, flags=re.IGNORECASE).strip().upper()
 
                 is_same_subject = (target_base and target_base == other_base) or (
@@ -191,8 +178,8 @@ def validate_schedule_conflict(
                 if not is_same_subject:
                     continue
 
-                is_other_lab = (other_curr.type == 'lab' or (other_curr.lab_units or 0) > 0 or other_code.upper().endswith('B') or (s.room_id is not None))
-                is_other_lec = (other_curr.type == 'lecture' or (other_curr.lec_units or 0) > 0 or other_code.upper().endswith('A') or (s.room_id is None))
+                is_other_lab = (other_curr.type == 'lab' or (other_curr.lab_units or 0) > 0 or other_code.upper().endswith('B'))
+                is_other_lec = (other_curr.type == 'lecture' or (other_curr.lec_units or 0) > 0 or other_code.upper().endswith('A'))
 
                 if is_target_lab and is_other_lec:
                     if validation_data.start_time < s.end_time:

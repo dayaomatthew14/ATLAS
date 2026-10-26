@@ -44,6 +44,7 @@ export default function AssignedSubjects() {
 
   // Filter states
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned'
+  const [scopeFilter, setScopeFilter] = useState('all'); // 'all' | 'major' | 'gened'
   const [courseFilter, setCourseFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [professorFilter, setProfessorFilter] = useState('all'); // 'all' | professor_name
@@ -55,6 +56,10 @@ export default function AssignedSubjects() {
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [selectedProfId, setSelectedProfId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Confirmation modal for Gen Ed subject assignment / override
+  const [confirmOverrideModalOpen, setConfirmOverrideModalOpen] = useState(false);
+  const [pendingOverrideData, setPendingOverrideData] = useState(null);
 
   // Fetch assigned subjects for active term
   const fetchAssignedSubjects = useCallback(async () => {
@@ -136,6 +141,10 @@ export default function AssignedSubjects() {
   const filteredSubjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return (data.subjects || []).filter(sub => {
+      // 0. Scope filter (Major vs Gen Ed)
+      if (scopeFilter === 'major' && !sub.is_major) return false;
+      if (scopeFilter === 'gened' && sub.is_major) return false;
+
       // 1. Status filter
       if (statusFilter === 'assigned' && sub.status !== 'assigned') return false;
       if (statusFilter === 'unassigned' && sub.status !== 'unassigned') return false;
@@ -159,7 +168,7 @@ export default function AssignedSubjects() {
         if (!matchesProf) return false;
       }
 
-      // 4. Search query
+      // 5. Search query
       if (q) {
         const matchCode = (sub.code || '').toLowerCase().includes(q);
         const matchName = (sub.name || '').toLowerCase().includes(q);
@@ -169,7 +178,7 @@ export default function AssignedSubjects() {
 
       return true;
     });
-  }, [data.subjects, statusFilter, courseFilter, yearFilter, professorFilter, searchQuery]);
+  }, [data.subjects, scopeFilter, statusFilter, courseFilter, yearFilter, professorFilter, searchQuery]);
 
   // Open assignment modal for a subject
   const handleOpenAssignModal = (subject) => {
@@ -180,6 +189,38 @@ export default function AssignedSubjects() {
       setSelectedProfId('');
     }
     setAssignModalOpen(true);
+  };
+
+  // Perform the actual API assignment / reassignment
+  const executeAssignment = async (subject, profId) => {
+    setIsSubmitting(true);
+    try {
+      // If already assigned to another professor, remove previous offering
+      if (subject.assigned_professors?.length > 0) {
+        const currentOffering = subject.assigned_professors[0];
+        if (String(currentOffering.faculty_id) !== String(profId)) {
+          await api.delete(`/subject-offerings/${currentOffering.offering_id}`).catch(() => {});
+        }
+      }
+
+      // Create/override offering assignment
+      await api.post('/subject-offerings', {
+        faculty_id: parseInt(profId),
+        curriculum_id: subject.curriculum_id,
+        semester_id: data.active_semester.id
+      });
+
+      addToast(`Assigned professor to ${subject.code}.`, 'success');
+      setAssignModalOpen(false);
+      setConfirmOverrideModalOpen(false);
+      setPendingOverrideData(null);
+      fetchAssignedSubjects();
+    } catch (err) {
+      console.error(err);
+      addToast(err.message || 'Failed to assign professor.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Submit assignment / re-assignment
@@ -195,32 +236,26 @@ export default function AssignedSubjects() {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      // If already assigned to an offering, delete old offering first if changing
-      if (selectedSubject.assigned_professors?.length > 0) {
-        const currentOffering = selectedSubject.assigned_professors[0];
-        if (String(currentOffering.faculty_id) !== String(selectedProfId)) {
-          await api.delete(`/subject-offerings/${currentOffering.offering_id}`);
-        }
-      }
+    const currentOffering = selectedSubject.assigned_professors?.[0];
+    const isOverride = Boolean(currentOffering && String(currentOffering.faculty_id) !== String(selectedProfId));
+    const targetProf = allProfessors.find(p => String(p.id) === String(selectedProfId));
 
-      // Create new offering assignment
-      await api.post('/subject-offerings', {
-        faculty_id: parseInt(selectedProfId),
-        curriculum_id: selectedSubject.curriculum_id,
-        semester_id: data.active_semester.id
+    // If the subject is not a major subject (Gen Ed):
+    // Prompt confirmation before the assignment is overridden (or assigned)
+    if (!selectedSubject.is_major) {
+      setPendingOverrideData({
+        subject: selectedSubject,
+        profId: selectedProfId,
+        targetProfName: targetProf?.name || 'Selected Professor',
+        currentProfName: currentOffering?.faculty_name || 'Unassigned',
+        isOverride
       });
-
-      addToast(`Assigned professor to ${selectedSubject.code}.`, 'success');
-      setAssignModalOpen(false);
-      fetchAssignedSubjects();
-    } catch (err) {
-      console.error(err);
-      addToast(err.message || 'Failed to assign professor.', 'error');
-    } finally {
-      setIsSubmitting(false);
+      setConfirmOverrideModalOpen(true);
+      return;
     }
+
+    // Major subject: proceed directly
+    await executeAssignment(selectedSubject, selectedProfId);
   };
 
   // Unassign professor
@@ -253,7 +288,7 @@ export default function AssignedSubjects() {
             </span>
             <span className="text-slate-400">·</span>
             <span className="font-ui text-xs font-semibold text-slate-500">
-              Major Subjects Only · Active Term
+              Major & General Education Subjects · Active Term
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -290,7 +325,7 @@ export default function AssignedSubjects() {
               {summary.total}
             </p>
             <p className="font-ui text-xs text-slate-500 mt-1">
-              Active term major subjects
+              Active term subjects (Major & Gen Ed)
             </p>
           </div>
           <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
@@ -371,7 +406,7 @@ export default function AssignedSubjects() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              All Major Subjects ({summary.total})
+              All Subjects ({summary.total})
             </button>
             <button
               type="button"
@@ -403,11 +438,12 @@ export default function AssignedSubjects() {
           </div>
 
           {/* Quick Clear Filters if active */}
-          {(statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || searchQuery) && (
+          {(statusFilter !== 'all' || scopeFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || searchQuery) && (
             <button
               type="button"
               onClick={() => {
                 setStatusFilter('all');
+                setScopeFilter('all');
                 setCourseFilter('all');
                 setYearFilter('all');
                 setProfessorFilter('all');
@@ -421,7 +457,23 @@ export default function AssignedSubjects() {
         </div>
 
         {/* Dropdowns & Search */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
+          {/* Category / Scope Filter */}
+          <div>
+            <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+              Category
+            </label>
+            <select
+              value={scopeFilter}
+              onChange={(e) => setScopeFilter(e.target.value)}
+              className={`w-full h-9 px-3 rounded-lg bg-white border border-slate-300 font-ui text-xs text-slate-800 focus:outline-hidden ${focusRing}`}
+            >
+              <option value="all">All Categories</option>
+              <option value="major">Major Subjects</option>
+              <option value="gened">General Education (Gen Ed)</option>
+            </select>
+          </div>
+
           {/* Course / Program Filter */}
           <div>
             <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
@@ -565,14 +617,20 @@ export default function AssignedSubjects() {
                         </div>
                       </td>
 
-                      {/* Subject Name */}
+                      {/* Subject Name & Category */}
                       <td className="px-5 py-3.5 min-w-[200px]">
                         <p className="font-medium text-slate-900 leading-snug">
                           {subject.name}
                         </p>
-                        <p className="text-[11px] font-semibold text-emerald-800 mt-0.5">
-                          Major Subject
-                        </p>
+                        {subject.is_major ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 mt-0.5">
+                            Major Subject
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-50 text-violet-800 border border-violet-200 mt-0.5">
+                            General Education
+                          </span>
+                        )}
                       </td>
 
                       {/* Units */}
@@ -680,17 +738,30 @@ export default function AssignedSubjects() {
           <form onSubmit={handleSaveAssignment} className="space-y-5">
             {/* Subject Context Box */}
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-900 font-bold flex items-center justify-center shrink-0 border border-emerald-300">
+              <div className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center shrink-0 border ${
+                selectedSubject.is_major
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                  : 'bg-violet-100 text-violet-900 border-violet-300'
+              }`}>
                 {selectedSubject.code.substring(0, 2)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-mono font-bold text-slate-900">
                     {selectedSubject.code}
                   </span>
                   <span className="text-xs text-slate-500">
                     ({selectedSubject.units} units)
                   </span>
+                  {selectedSubject.is_major ? (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Major
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-violet-100 text-violet-800 border border-violet-300">
+                      Gen Ed
+                    </span>
+                  )}
                 </div>
                 <p className="font-ui text-sm text-slate-700 font-medium truncate mt-0.5">
                   {selectedSubject.name}
@@ -745,6 +816,78 @@ export default function AssignedSubjects() {
               </Button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* Confirmation Modal before overriding/assigning a Gen Ed subject */}
+      <Modal
+        isOpen={confirmOverrideModalOpen}
+        onClose={() => {
+          if (!isSubmitting) {
+            setConfirmOverrideModalOpen(false);
+            setPendingOverrideData(null);
+          }
+        }}
+        title={pendingOverrideData?.isOverride ? 'Confirm Assignment Override' : 'Confirm General Education Assignment'}
+      >
+        {pendingOverrideData && (
+          <div className="space-y-4">
+            <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+              pendingOverrideData.isOverride
+                ? 'bg-amber-50 border-amber-200 text-amber-950'
+                : 'bg-violet-50 border-violet-200 text-violet-950'
+            }`}>
+              <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${
+                pendingOverrideData.isOverride ? 'text-amber-600' : 'text-violet-600'
+              }`} />
+              <div className="text-xs space-y-1.5 min-w-0">
+                <p className="font-bold text-sm">
+                  {pendingOverrideData.isOverride
+                    ? 'General Education Assignment Override'
+                    : 'Assign General Education Subject'}
+                </p>
+                <p className="text-slate-700 leading-relaxed">
+                  <span className="font-mono font-bold text-slate-900">{pendingOverrideData.subject.code}</span> ({pendingOverrideData.subject.name}) is a <strong className="text-slate-900">General Education subject</strong>.
+                </p>
+                {pendingOverrideData.isOverride ? (
+                  <p className="text-amber-900 font-medium leading-relaxed">
+                    This subject is currently assigned to <strong className="text-slate-900">{pendingOverrideData.currentProfName}</strong>. Assigning it will <span className="underline font-bold">override</span> the current assignment and reassign it to <strong className="text-slate-900">{pendingOverrideData.targetProfName}</strong>.
+                  </p>
+                ) : (
+                  <p className="text-slate-700 leading-relaxed">
+                    You are assigning this General Education subject to <strong className="text-slate-900">{pendingOverrideData.targetProfName}</strong>.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <p className="font-ui text-xs text-slate-600">
+              {pendingOverrideData.isOverride
+                ? 'Are you sure you want to proceed with overriding this assignment?'
+                : 'Are you sure you want to proceed with this assignment?'}
+            </p>
+
+            <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200">
+              <Button
+                variant="ghost"
+                type="button"
+                onClick={() => {
+                  setConfirmOverrideModalOpen(false);
+                  setPendingOverrideData(null);
+                }}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={pendingOverrideData.isOverride ? 'destructive' : 'primary'}
+                loading={isSubmitting}
+                onClick={() => executeAssignment(pendingOverrideData.subject, pendingOverrideData.profId)}
+              >
+                {pendingOverrideData.isOverride ? 'Confirm & Override' : 'Confirm & Assign'}
+              </Button>
+            </div>
+          </div>
         )}
       </Modal>
     </div>

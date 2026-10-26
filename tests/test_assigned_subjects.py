@@ -148,20 +148,22 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         models.Base.metadata.drop_all(self.engine)
 
     def test_assigned_subjects_active_term_summary(self):
-        """Only 1st term subjects are included for active term (CS101 and CS102, not CS201)."""
+        """Only 1st term subjects are included for active term (CS101, CS102, GE101, PEED1, not CS201)."""
         res = get_active_term_assigned_subjects(self.db, self.user)
 
         self.assertEqual(res["active_semester"]["id"], 1)
         self.assertEqual(res["active_semester"]["term"], "1st")
-        self.assertEqual(res["summary"]["total"], 2)
+        self.assertEqual(res["summary"]["total"], 4)
         self.assertEqual(res["summary"]["assigned"], 0)
-        self.assertEqual(res["summary"]["unassigned"], 2)
+        self.assertEqual(res["summary"]["unassigned"], 4)
         self.assertFalse(res["summary"]["all_assigned"])
 
         # Codes present
         codes = [s["code"] for s in res["subjects"]]
         self.assertIn("CS101", codes)
         self.assertIn("CS102", codes)
+        self.assertIn("GE101", codes)
+        self.assertIn("PEED1", codes)
         self.assertNotIn("CS201", codes)  # 2nd term subject excluded
 
         # Curriculum courses and program name match the curriculum block
@@ -171,7 +173,7 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.assertEqual(res["subjects"][0]["program_name"], "BS Computer Science")
 
     def test_assigning_professor_updates_status(self):
-        """Assigning a professor to CS101 updates counts to 1 assigned, 1 unassigned."""
+        """Assigning a professor to CS101 updates counts to 1 assigned, 3 unassigned."""
         offering = models.SubjectOffering(
             faculty_id=1,
             curriculum_id=101,
@@ -182,9 +184,9 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.db.commit()
 
         res = get_active_term_assigned_subjects(self.db, self.user)
-        self.assertEqual(res["summary"]["total"], 2)
+        self.assertEqual(res["summary"]["total"], 4)
         self.assertEqual(res["summary"]["assigned"], 1)
-        self.assertEqual(res["summary"]["unassigned"], 1)
+        self.assertEqual(res["summary"]["unassigned"], 3)
         self.assertFalse(res["summary"]["all_assigned"])
 
         cs101 = next(s for s in res["subjects"] if s["code"] == "CS101")
@@ -195,20 +197,17 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.assertEqual(cs102["status"], "unassigned")
         self.assertEqual(cs102["professor_name"], "Unassigned")
 
-    def test_ai_generator_blocked_when_unassigned_subjects_exist(self):
-        """AI schedule generation must be blocked if any active-term subject is unassigned."""
+    def test_ai_generator_succeeds_even_when_unassigned_subjects_exist(self):
+        """AI schedule generation can proceed even if some active-term subjects are unassigned."""
         # Only assign CS101; leave CS102 unassigned
         offering1 = models.SubjectOffering(faculty_id=1, curriculum_id=101, semester_id=1, assigned_by=1)
         self.db.add(offering1)
         self.db.commit()
 
         req = GenerateRequest(faculty_ids=[1, 2])
-        with self.assertRaises(HTTPException) as ctx:
-            generate_schedule(semester_id=1, request=req, db=self.db, current_user=self.user)
-
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertIn("CS102", ctx.exception.detail)
-        self.assertIn("unassigned", ctx.exception.detail.lower())
+        res = generate_schedule(semester_id=1, request=req, db=self.db, current_user=self.user)
+        self.assertIn("generated", res)
+        self.assertGreater(res["generated"], 0)
 
     def test_manual_schedule_blocked_for_unassigned_subject(self):
         """Manual schedule creation must be blocked if the subject has no assigned professor in SubjectOffering."""
@@ -252,16 +251,21 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("not assigned", ctx.exception.detail.lower())
 
-    def test_gen_ed_subjects_excluded_from_assigned_subjects(self):
-        """GenEd subjects (is_major=False or GE/PEED prefixes) must not appear in assigned subjects."""
+    def test_gen_ed_subjects_included_in_assigned_subjects(self):
+        """GenEd subjects must appear in assigned subjects with is_major=False and be assignable."""
         res = get_active_term_assigned_subjects(self.db, self.user)
         codes = [s["code"] for s in res["subjects"]]
 
         self.assertIn("CS101", codes)
         self.assertIn("CS102", codes)
-        self.assertNotIn("GE101", codes)
-        self.assertNotIn("PEED1", codes)
-        self.assertEqual(res["summary"]["total"], 2)
+        self.assertIn("GE101", codes)
+        self.assertIn("PEED1", codes)
+        self.assertEqual(res["summary"]["total"], 4)
+
+        ge101 = next(s for s in res["subjects"] if s["code"] == "GE101")
+        self.assertFalse(ge101["is_major"])
+        cs101 = next(s for s in res["subjects"] if s["code"] == "CS101")
+        self.assertTrue(cs101["is_major"])
 
     def test_gen_ed_subjects_do_not_block_scheduling(self):
         """When all major subjects are assigned, unassigned GenEd subjects do not block all_assigned."""
@@ -271,10 +275,25 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.db.commit()
 
         res = get_active_term_assigned_subjects(self.db, self.user)
-        self.assertEqual(res["summary"]["total"], 2)
+        self.assertEqual(res["summary"]["total"], 4)
         self.assertEqual(res["summary"]["assigned"], 2)
-        self.assertEqual(res["summary"]["unassigned"], 0)
+        self.assertEqual(res["summary"]["unassigned"], 2)
         self.assertTrue(res["summary"]["all_assigned"])
+
+    def test_user_can_assign_gen_ed_subject_and_override(self):
+        """Users can assign Gen Ed subjects and override an existing assignment."""
+        from backend.app.routers.subject_offerings import create_subject_offering
+
+        # Assign GE101 to Faculty 1
+        data1 = schemas.SubjectOfferingCreate(faculty_id=1, curriculum_id=104, semester_id=1)
+        off1 = create_subject_offering(data1, self.db, self.user)
+        self.assertEqual(off1.faculty_id, 1)
+
+        # Override assignment: assign GE101 to Faculty 2
+        data2 = schemas.SubjectOfferingCreate(faculty_id=2, curriculum_id=104, semester_id=1)
+        off2 = create_subject_offering(data2, self.db, self.user)
+        self.assertEqual(off2.faculty_id, 2)
+        self.assertEqual(off2.id, off1.id)  # Overridden existing offering
 
     def test_manual_schedule_allowed_for_gen_ed_without_offering(self):
         """Manual schedule creation for GenEd subjects does not require a chair SubjectOffering."""

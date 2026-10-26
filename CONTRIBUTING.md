@@ -10,7 +10,7 @@ Thank you for contributing to **ATLAS** (Academic Timetabling System for De La S
 > **Commit & Redeploy Policy**: Do not automatically commit or push code changes to remote repositories unless explicitly requested by the project lead.
 
 > [!IMPORTANT]
-> **System User Roles**: ATLAS strictly supports three authenticated system user roles: System Administrator (`admin`), Program Chair (`program_chair`), and Coordinator (`coordinator`). Faculty members are teaching staff records managed by authorized users, not system user accounts.
+> **System User Roles**: ATLAS strictly supports three authenticated system user roles: System Administrator (`admin`), College Dean (`dean`), and Program Chair (`program_chair`). Faculty members are teaching staff records managed by authorized users, not system user accounts.
 
 ---
 

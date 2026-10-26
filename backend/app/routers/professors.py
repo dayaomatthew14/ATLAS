@@ -10,7 +10,7 @@ router = APIRouter(
     tags=["Professors"]
 )
 
-SCOPED_ROLES = ['program_chair', 'coordinator']
+SCOPED_ROLES = ['dean', 'program_chair']
 
 
 def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=None) -> dict:
@@ -178,7 +178,7 @@ def get_professors(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     query = db.query(models.Faculty)
@@ -257,8 +257,8 @@ def create_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not add faculty. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not add faculty. This is done by the program chair.")
         
     faculty_data = faculty.model_dump()
 
@@ -268,7 +268,7 @@ def create_professor(
     if faculty_data.get('type') == 'full_time' and (not faculty_data.get('max_units') or faculty_data.get('max_units') == 0):
         faculty_data['max_units'] = 24 if faculty_data.get('load_unit') == 'hrs' else 18
     
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
@@ -290,8 +290,8 @@ def update_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not edit faculty. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not edit faculty. This is done by the program chair.")
         
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
@@ -324,8 +324,8 @@ def delete_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not remove faculty. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not remove faculty. This is done by the program chair.")
         
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
@@ -401,8 +401,8 @@ def add_unavailability(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not set faculty availability. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not set faculty availability. This is done by the program chair.")
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
@@ -442,8 +442,8 @@ def replace_unavailability(
     nothing to indicate it (audit finding FLOW-03). This either applies the
     whole set or changes nothing.
     """
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not set faculty availability. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not set faculty availability. This is done by the program chair.")
 
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
@@ -498,8 +498,8 @@ def remove_unavailability(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not set faculty availability. This is done by the program chair or coordinator.")
+    if current_user.role not in ['program_chair']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not set faculty availability. This is done by the program chair.")
 
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:

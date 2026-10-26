@@ -9,6 +9,7 @@ import RowMenu from '../../components/ui/RowMenu';
 import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, SelectInput } from '../../components/ui/Field';
 import { DEPARTMENTS, pluralize } from '../../components/ui/tokens';
+import { isDean, getDepartment } from '../../utils/session';
 
 /**
  * Colleges & Programmes.
@@ -32,6 +33,8 @@ function collegeHue(code) {
 
 export default function Colleges() {
   const { addToast } = useToast();
+  const deanMode = isDean();
+  const deptCode = getDepartment();
 
   const [colleges, setColleges] = useState([]);
   const [unassigned, setUnassigned] = useState([]);
@@ -188,10 +191,12 @@ export default function Colleges() {
             </div>
             <div className="min-w-0">
               <h1 className="font-ui text-2xl sm:text-3xl font-bold tracking-tight text-atlas-ink">
-                Colleges and Programs
+                {deanMode ? 'College & Programs' : 'Colleges and Programs'}
               </h1>
               <p className="font-ui text-xs sm:text-sm text-atlas-slate mt-0.5 font-medium">
-                Academic structure, degree offerings, and curriculum coverage
+                {deanMode
+                  ? `Academic structure and degree offerings for ${colleges[0]?.name || deptCode}`
+                  : 'Academic structure, degree offerings, and curriculum coverage'}
               </p>
             </div>
           </div>
@@ -413,6 +418,7 @@ export default function Colleges() {
           <SelectInput
             label="College"
             required
+            disabled={deanMode}
             value={form.department_id}
             error={formErrors.department_id}
             onChange={(e) => setForm({ ...form, department_id: e.target.value })}

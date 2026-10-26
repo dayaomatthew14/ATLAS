@@ -129,7 +129,7 @@ Before applying any modifications, the entire test and lint suite was executed t
    - **No schema modifications:** Model fields, table names, and foreign key relationships will not be altered.
    - **Alembic migration history:** The baseline migration `80c986b8255f_baseline_schema.py` and `alembic_version` state remain untouched.
 2. **Auth, RBAC & Department Scoping Invariant:**
-   - Token validation, session versioning, role scoping (`admin`, `program_chair`, `coordinator`), and college isolation (`CAST`, `CBMA`, `CVMAS`, `COED`) are strictly preserved.
+   - Token validation, session versioning, role scoping (`admin`, `dean`, `program_chair`), and college isolation (`CAST`, `CBMA`, `CVMAS`, `COED`) are strictly preserved.
 3. **Core Import Integrity:**
    - No imports in `main.py`, `models.py`, or `__init__.py` files will be modified without verifying side-effect neutrality.
 

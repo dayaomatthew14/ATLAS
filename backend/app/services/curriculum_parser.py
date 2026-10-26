@@ -57,15 +57,23 @@ async def process_curriculum_import(
     # its subjects outright, so a chair could author curriculum the catalog was
     # meant to hand them. The curriculum is institutional reference data: the
     # administrator owns it, departments read it.
-    if current_user.role != 'admin':
+    if current_user.role not in ['admin', 'dean']:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only System Administrators can import curriculum Excel files"
+            detail="Only System Administrators and Deans can import curriculum Excel files"
         )
 
     # Determine target department
     target_dept_id = department_id
-    if not target_dept_id:
+    if current_user.role == 'dean':
+        user_dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+        if not user_dept:
+            raise HTTPException(status_code=400, detail="Dean department not found")
+        target_dept_id = user_dept.id
+    elif not target_dept_id:
         first_dept = db.query(models.Department).first()
         if not first_dept:
             raise HTTPException(status_code=400, detail="No departments found in system")

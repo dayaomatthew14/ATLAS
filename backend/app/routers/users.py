@@ -24,14 +24,12 @@ def get_users(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     query = db.query(models.User)
     
-    if current_user.role in ['program_chair', 'coordinator']:
-        if not current_user.department:
-            return []
+    if current_user.department:
         query = query.filter(models.User.department == current_user.department)
     elif department:
         query = query.filter(models.User.department == department)
@@ -88,10 +86,10 @@ def get_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.department:
         if user.department != current_user.department:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this user")
-    elif current_user.role not in ['admin'] and current_user.id != user_id:
+    elif current_user.role not in ['admin', 'dean'] and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
             
     return user
@@ -102,13 +100,13 @@ def create_user(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.department:
         if user.department != current_user.department:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create users in your department")
-        if user.role not in ['program_chair', 'coordinator']:
+        if user.role not in ['program_chair']:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot create users with this role")
             
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
@@ -149,10 +147,10 @@ def update_user(
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.department:
         if db_user.department != current_user.department:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this user")
-        if user.role and user.role not in ['program_chair', 'coordinator']:
+        if user.role and user.role not in ['admin', 'program_chair']:
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign this role")
     elif current_user.role != 'admin' and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
@@ -203,12 +201,6 @@ def delete_user(
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    if current_user.role in ['program_chair', 'coordinator']:
-        if db_user.department != current_user.department:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
-    elif current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-
     # Two guards against locking the institution out of its own system. There is
     # no recovery path if the last administrator goes: accounts come from
     # self-registration and only an administrator can grant the role back.
@@ -231,6 +223,12 @@ def delete_user(
                 ),
             )
 
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    if current_user.department and db_user.department and db_user.department != current_user.department:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
+
     db.delete(db_user)
     db.commit()
     log_activity(
@@ -245,11 +243,16 @@ def toggle_user_verification(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can toggle user verification")
+    if current_user.role not in ['admin', 'dean']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators and deans can toggle user verification")
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if current_user.department:
+        if db_user.department != current_user.department:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to verify users outside your department")
+        if db_user.role != 'program_chair':
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Deans can only verify program chairs")
     db_user.is_verified = not db_user.is_verified # type: ignore
     db.commit()
     db.refresh(db_user)
@@ -352,15 +355,27 @@ def admin_reset_password(
     generated password is returned once, is never stored in readable form, and
     every existing session for that account is invalidated.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ['admin', 'dean']:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can reset another user's password.",
+            detail="Only administrators and deans can reset another user's password.",
         )
 
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if current_user.department:
+        if db_user.department != current_user.department:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to reset passwords for users outside your department.",
+            )
+        if db_user.role != 'program_chair':
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Deans can only reset passwords for program chairs in their department.",
+            )
 
     # Long enough to clear the 12-character policy with room to spare.
     temporary = secrets.token_urlsafe(12)

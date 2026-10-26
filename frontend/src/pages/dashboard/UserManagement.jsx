@@ -9,6 +9,7 @@ import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, SelectInput } from '../../components/ui/Field';
 import Badge, { DepartmentMark } from '../../components/ui/Badge';
 import { ROLE_LABELS, focusRing, pluralize } from '../../components/ui/tokens';
+import { isDean, getDepartment } from '../../utils/session';
 
 /**
  * Users. Phase 2 Screen 4.
@@ -63,12 +64,13 @@ const MIN_PASSWORD_LENGTH = 12;
 
 const ROLE_OPTIONS = [
   { value: 'program_chair', label: 'Program Chair' },
-  { value: 'coordinator', label: 'Coordinator' },
-  { value: 'admin', label: 'System Administrator' },
+  { value: 'admin', label: 'Administrator' },
 ];
 
 export default function UserManagement() {
   const { addToast } = useToast();
+  const deanMode = isDean();
+  const deptCode = getDepartment();
 
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -121,12 +123,23 @@ export default function UserManagement() {
       .catch(() => setColleges([]));
   }, []);
 
+  const availableRoleOptions = useMemo(
+    () => (deanMode ? [{ value: 'program_chair', label: 'Program Chair' }] : ROLE_OPTIONS),
+    [deanMode]
+  );
+
   const departmentOptions = useMemo(
-    () => [
-      { value: '', label: 'No college assigned' },
-      ...colleges.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` })),
-    ],
-    [colleges]
+    () => {
+      if (deanMode) {
+        const found = colleges.find((c) => c.code === deptCode);
+        return [{ value: deptCode, label: found ? `${found.code} — ${found.name}` : deptCode }];
+      }
+      return [
+        { value: '', label: 'No college assigned' },
+        ...colleges.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` })),
+      ];
+    },
+    [colleges, deanMode, deptCode]
   );
 
   const filtered = useMemo(() => {
@@ -396,16 +409,24 @@ export default function UserManagement() {
         <div className="min-w-0">
           <h1 className="font-display text-page font-bold text-black">Users</h1>
           <p className="font-ui text-base text-black font-medium mt-1">
-            {users.length} accounts · {verifiedCount} verified · {pendingCount} awaiting verification
+            {users.length} accounts{deanMode ? ` in ${deptCode}` : ''} · {verifiedCount} verified · {pendingCount} awaiting verification
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button variant="secondary" icon={RefreshCw} onClick={fetchUsers}>Refresh</Button>
           <Button
             icon={UserPlus}
-            onClick={() => { setNewUser(EMPTY_NEW_USER); setNewUserErrors({}); setIsCreateOpen(true); }}
+            onClick={() => {
+              setNewUser({
+                ...EMPTY_NEW_USER,
+                role: 'program_chair',
+                department: deanMode ? deptCode : '',
+              });
+              setNewUserErrors({});
+              setIsCreateOpen(true);
+            }}
           >
-            Add User
+            {deanMode ? 'Add Program Chair' : 'Add User'}
           </Button>
         </div>
       </header>
@@ -440,13 +461,15 @@ export default function UserManagement() {
           </div>
         </div>
         <div className="flex md:items-end gap-3">
-          <SelectInput
-            label="Role"
-            className="w-52"
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            options={[{ value: 'all', label: 'All roles' }, ...ROLE_OPTIONS]}
-          />
+          {!deanMode && (
+            <SelectInput
+              label="Role"
+              className="w-52"
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              options={[{ value: 'all', label: 'All roles' }, ...ROLE_OPTIONS]}
+            />
+          )}
           <SelectInput
             label="Status"
             className="w-44"
@@ -478,8 +501,12 @@ export default function UserManagement() {
       <Dialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Add User"
-        description="Created ready to sign in — this account skips e-mail and SMS verification, so use it when a self-registration cannot get through."
+        title={deanMode ? 'Add Program Chair' : 'Add User'}
+        description={
+          deanMode
+            ? `Create a verified Program Chair account for ${deptCode}.`
+            : 'Created ready to sign in — this account skips e-mail and SMS verification, so use it when a self-registration cannot get through.'
+        }
         dismissible={!isCreating}
         footer={
           <>
@@ -528,15 +555,21 @@ export default function UserManagement() {
             required
             value={newUser.role}
             onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-            options={ROLE_OPTIONS}
+            options={availableRoleOptions}
+            disabled={deanMode}
           />
           <div className="md:col-span-2">
             <SelectInput
               label="College"
               required={newUser.role !== 'admin'}
-              hint={newUser.role === 'admin'
-                ? 'Administrators govern every college, so this stays unset.'
-                : 'Without one this account cannot see or generate anything.'}
+              disabled={deanMode}
+              hint={
+                deanMode
+                  ? `Locked to your college (${deptCode}).`
+                  : newUser.role === 'admin'
+                  ? 'Administrators govern every college, so this stays unset.'
+                  : 'Without one this account cannot see or generate anything.'
+              }
               value={newUser.department}
               error={newUserErrors.department}
               onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
@@ -598,14 +631,20 @@ export default function UserManagement() {
             required
             value={editForm.role}
             onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-            options={ROLE_OPTIONS}
+            options={availableRoleOptions}
+            disabled={deanMode}
           />
           <div className="md:col-span-2">
             <SelectInput
               label="College"
-              hint={editForm.role === 'admin'
-                ? 'Administrators govern every college, so this stays unset.'
-                : 'Without one this account cannot see or generate anything.'}
+              disabled={deanMode}
+              hint={
+                deanMode
+                  ? `College is fixed to ${deptCode}.`
+                  : editForm.role === 'admin'
+                  ? 'Administrators govern every college, so this stays unset.'
+                  : 'Without one this account cannot see or generate anything.'
+              }
               value={editForm.department}
               onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
               options={departmentOptions}

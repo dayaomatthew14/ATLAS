@@ -12,6 +12,7 @@ import { api } from '../../utils/api';
 import Button from '../../components/ui/Button';
 import useCountUp from '../../components/ui/useCountUp';
 import { pluralize, focusRing } from '../../components/ui/tokens';
+import { isDean, getDepartment } from '../../utils/session';
 
 const STAT_VARIANTS = {
   classes: {
@@ -116,8 +117,11 @@ export default function AdminOverview() {
 
   const pending = users.filter((u) => u.is_verified === false);
   const chairsCount = users.filter((u) => u.role === 'program_chair').length;
-  const coordinatorsCount = users.filter((u) => u.role === 'coordinator').length;
+  const deansCount = users.filter((u) => u.role === 'dean').length;
   const adminsCount = users.filter((u) => u.role === 'admin').length;
+
+  const deanMode = isDean();
+  const deptCode = getDepartment();
 
   const allPrograms = colleges.flatMap((c) => c.programs || []);
   const programCount = allPrograms.length;
@@ -151,11 +155,11 @@ export default function AdminOverview() {
                 Overview
               </h1>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wider uppercase text-emerald-900 bg-emerald-900/10 border border-emerald-800/25">
-                System Admin
+                {deanMode ? `Dean · ${deptCode || 'College'}` : 'System Admin'}
               </span>
             </div>
             <p className="font-ui text-sm text-slate-600 mt-0.5 font-medium">
-              De La Salle Araneta University
+              {deanMode ? `${colleges[0]?.name || deptCode} · De La Salle Araneta University` : 'De La Salle Araneta University'}
             </p>
           </div>
         </div>
@@ -180,10 +184,12 @@ export default function AdminOverview() {
             </span>
             <div>
               <span className="font-ui text-sm font-bold text-amber-950">
-                {pluralize(pending.length, 'Account')} Awaiting Administrator Clearance
+                {pluralize(pending.length, 'Account')} Awaiting {deanMode ? 'Dean' : 'Administrator'} Clearance
               </span>
               <span className="block font-ui text-xs text-amber-850 font-medium">
-                Review and approve pending accounts to enable timetable and departmental scheduling access.
+                {deanMode
+                  ? `Review and approve pending program chair accounts for ${deptCode}.`
+                  : 'Review and approve pending accounts to enable timetable and departmental scheduling access.'}
               </span>
             </div>
           </div>
@@ -208,7 +214,11 @@ export default function AdminOverview() {
         <StatCard
           label="Registered Accounts"
           value={users.length}
-          hint={`${chairsCount} chairs · ${coordinatorsCount} coords · ${adminsCount} admins`}
+          hint={
+            deanMode
+              ? `${chairsCount} program ${pluralize(chairsCount, 'chair')} in ${deptCode}`
+              : `${chairsCount} chairs · ${deansCount} deans · ${adminsCount} admins`
+          }
           icon={Users}
           to="/dashboard/users"
         />
@@ -230,10 +240,12 @@ export default function AdminOverview() {
             </span>
             <div className="min-w-0">
               <h2 className="text-base font-bold text-emerald-950 tracking-tight truncate">
-                Colleges and Programs
+                {deanMode ? 'College & Programs' : 'Colleges and Programs'}
               </h2>
               <p className="font-ui text-xs text-slate-500 truncate font-medium">
-                Curriculum readiness and degree offerings across all 4 academic units
+                {deanMode
+                  ? `Curriculum readiness and degree offerings for ${colleges[0]?.name || deptCode}`
+                  : 'Curriculum readiness and degree offerings across all 4 academic units'}
               </p>
             </div>
           </div>
@@ -241,7 +253,7 @@ export default function AdminOverview() {
             to="/dashboard/colleges"
             className="font-ui text-xs font-semibold text-emerald-800 hover:text-emerald-950 hover:underline shrink-0 flex items-center gap-1"
           >
-            <span>Manage Colleges</span>
+            <span>{deanMode ? 'Manage Programs' : 'Manage Colleges'}</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         </header>
