@@ -58,7 +58,7 @@ cd ATLAS
    value here is a live connection to whatever it names, and pointing a
    developer machine at a deployed database is how local work silently becomes
    production work.
-5. Initialize and seed the master administrator account (`admin@dlsau.edu.ph`):
+5. Initialize and seed the Dean Administrator accounts (`dean.cast@dlsau.edu.ph`, etc.):
    ```bash
    python seed.py
    ```
@@ -96,7 +96,7 @@ cd ATLAS
 In the root directory, you can launch both services using batch files:
 - **`start_atlas.bat`**: Launches backend Uvicorn server and frontend Vite server concurrently.
 - **`backend/run_server.bat`**: Activates backend virtualenv and starts Uvicorn.
-- **`backend/run_seed.bat`**: Activates backend virtualenv and seeds the master admin.
+- **`backend/run_seed.bat`**: Activates backend virtualenv and seeds the Dean Administrator accounts.
 
 The frontend has no batch wrapper: `npm run dev` in `frontend/` is the command,
 and `start_atlas.bat` already runs it.

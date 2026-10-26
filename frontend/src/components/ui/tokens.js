@@ -69,15 +69,13 @@ export function resolveDepartment(code) {
  * more. If a Dean role is added later this is the only map that changes.
  * ----------------------------------------------------------------------- */
 export const ROLE_LABELS = {
-  admin: 'System Administrator',
-  dean: 'Dean',
+  admin: 'Dean',
   program_chair: 'Program Chair',
 };
 
 export const ROLE_PLURALS = {
-  admin: 'administrators',
-  dean: 'deans',
-  program_chair: 'program chairs',
+  admin: 'Deans',
+  program_chair: 'Program Chairs',
 };
 
 /**

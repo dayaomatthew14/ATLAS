@@ -6,27 +6,12 @@ from app.academics import COLLEGES
 
 def seed_admin():
     db = SessionLocal()
-    admin = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
-    if not admin:
-        hashed = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode("utf-8")
-        new_admin = models.User(
-            first_name="System",
-            last_name="Administrator",
-            email="admin@dlsau.edu.ph",
-            password_hash=hashed,
-            role="admin",
-            department=None,
-            is_verified=True
-        )
-        db.add(new_admin)
+    # Purge the retired admin@dlsau.edu.ph account if present
+    stale_admin = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
+    if stale_admin:
+        db.delete(stale_admin)
         db.commit()
-        print("Master Admin: CREATED")
-    else:
-        print("Master Admin: EXISTS")
-        hashed = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode("utf-8")
-        setattr(admin, "password_hash", hashed)
-        db.commit()
-        print("Master Admin: UPDATED")
+        print("Master Admin (admin@dlsau.edu.ph): PURGED")
 
     # Seed the 4 Dean Administrators
     dean_password = os.getenv("DEAN_SEED_PASSWORD", "DeanPassword123!")

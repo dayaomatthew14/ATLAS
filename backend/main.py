@@ -280,43 +280,14 @@ async def lifespan(app: FastAPI):
         print(f"Academic taxonomy seeding result: {e}")
     try:
         with database.SessionLocal() as db:
-            admin_user = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
-            if not admin_user:
-                # The seed password used to be the constant "Admin123!", which is
-                # readable by anyone with the source and was live in production.
-                # Take it from the environment, or mint a random one and print it
-                # once so it never becomes a known default.
-                seed_password = os.getenv("ADMIN_SEED_PASSWORD")
-                generated = False
-                if not seed_password:
-                    seed_password = secrets.token_urlsafe(18)
-                    generated = True
-
-                hashed_pw = auth.get_password_hash(seed_password)
-                new_admin = models.User(
-                    first_name="ATLAS",
-                    last_name="Administrator",
-                    email="admin@dlsau.edu.ph",
-                    password_hash=str(hashed_pw),
-                    role="admin",
-                    department="DLSAU IT / System Administration",
-                    is_verified=True
-                )
-                db.add(new_admin)
+            # Purge the retired admin@dlsau.edu.ph account if present
+            stale_admin = db.query(models.User).filter(models.User.email == "admin@dlsau.edu.ph").first()
+            if stale_admin:
+                db.delete(stale_admin)
                 db.commit()
-                print("Successfully seeded master System Administrator account: admin@dlsau.edu.ph")
-                if generated:
-                    print("=" * 72)
-                    print("  Generated administrator password (shown once, not stored anywhere):")
-                    print(f"    {seed_password}")
-                    print("  Sign in and change it, or set ADMIN_SEED_PASSWORD before first start.")
-                    print("=" * 72)
-            else:
-                setattr(admin_user, 'role', 'admin')
-                setattr(admin_user, 'is_verified', True)
-                db.commit()
+                print("Purged retired admin@dlsau.edu.ph account")
     except Exception as e:
-        print(f"Startup admin seeder result: {e}")
+        print(f"Stale admin cleanup result: {e}")
 
     try:
         with database.SessionLocal() as db:

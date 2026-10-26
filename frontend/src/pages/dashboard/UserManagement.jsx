@@ -426,7 +426,7 @@ export default function UserManagement() {
               setIsCreateOpen(true);
             }}
           >
-            {deanMode ? 'Add Program Chair' : 'Add User'}
+            Add Program Chair
           </Button>
         </div>
       </header>
@@ -501,12 +501,8 @@ export default function UserManagement() {
       <Dialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title={deanMode ? 'Add Program Chair' : 'Add User'}
-        description={
-          deanMode
-            ? `Create a verified Program Chair account for ${deptCode}.`
-            : 'Created ready to sign in — this account skips e-mail and SMS verification, so use it when a self-registration cannot get through.'
-        }
+        title="Add Program Chair"
+        description={`Create a verified Program Chair account for ${deptCode || 'your college'}.`}
         dismissible={!isCreating}
         footer={
           <>
@@ -563,13 +559,7 @@ export default function UserManagement() {
               label="College"
               required={newUser.role !== 'admin'}
               disabled={deanMode}
-              hint={
-                deanMode
-                  ? `Locked to your college (${deptCode}).`
-                  : newUser.role === 'admin'
-                  ? 'Administrators govern every college, so this stays unset.'
-                  : 'Without one this account cannot see or generate anything.'
-              }
+              hint={`Locked to your college (${deptCode || 'your department'}).`}
               value={newUser.department}
               error={newUserErrors.department}
               onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
@@ -638,13 +628,7 @@ export default function UserManagement() {
             <SelectInput
               label="College"
               disabled={deanMode}
-              hint={
-                deanMode
-                  ? `College is fixed to ${deptCode}.`
-                  : editForm.role === 'admin'
-                  ? 'Administrators govern every college, so this stays unset.'
-                  : 'Without one this account cannot see or generate anything.'
-              }
+              hint={`College is fixed to ${deptCode || 'your department'}.`}
               value={editForm.department}
               onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
               options={departmentOptions}

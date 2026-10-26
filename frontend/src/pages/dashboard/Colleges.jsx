@@ -191,12 +191,10 @@ export default function Colleges() {
             </div>
             <div className="min-w-0">
               <h1 className="font-ui text-2xl sm:text-3xl font-bold tracking-tight text-atlas-ink">
-                {deanMode ? 'College & Programs' : 'Colleges and Programs'}
+                College & Programs
               </h1>
               <p className="font-ui text-xs sm:text-sm text-atlas-slate mt-0.5 font-medium">
-                {deanMode
-                  ? `Academic structure and degree offerings for ${colleges[0]?.name || deptCode}`
-                  : 'Academic structure, degree offerings, and curriculum coverage'}
+                Academic structure and degree offerings for {colleges[0]?.name || deptCode || 'College'}
               </p>
             </div>
           </div>

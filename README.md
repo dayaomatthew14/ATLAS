@@ -12,7 +12,7 @@
 
 ## 🌟 Overview
 
-**ATLAS** (Academic Timetabling System) is an enterprise web application designed exclusively for **System Administrators**, **College Deans**, and **Program Chairs** of **De La Salle Araneta University - Tertiary Education**.
+**ATLAS** (Academic Timetabling System) is an enterprise web application designed exclusively for **College Deans** (Administrators) and **Program Chairs** of **De La Salle Araneta University - Tertiary Education**.
 
 ATLAS automates academic schedule generation and faculty resource management across four major college departments:
 - **CAST** — College of Arts, Sciences, and Technology
@@ -75,7 +75,7 @@ ATLAS/
 │   │   ├── auth.py           # JWT Security & Passlib Hashing
 │   │   └── database.py       # SessionLocal & Engine Configuration
 │   ├── main.py               # Application Entry Point & DB Migrations
-│   ├── seed.py               # Master Admin Seeder
+│   ├── seed.py               # Dean Administrator Accounts Seeder
 │   └── requirements.txt      # Python Dependencies
 ├── frontend/                 # React 18 + Vite SPA
 │   ├── src/
