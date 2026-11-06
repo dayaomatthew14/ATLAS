@@ -491,15 +491,26 @@ async def process_curriculum_import(
                     logger.debug(f"DEBUG: Captured split A/B subject: {ccode} ({ctype_val})")
                 continue
 
-            if lec_units > 0 and lab_units == 0:
+            clean_code = code.upper().strip()
+            if clean_code.endswith('A'):
+                ctype = 'lecture'
+                if lec_units == 0 and lab_units == 0:
+                    lec_units = units
+            elif clean_code.endswith('B') or 'lab' in name.lower() or 'laboratory' in name.lower():
+                ctype = 'lab'
+                if lec_units == 0 and lab_units == 0:
+                    lab_units = units
+            elif clean_code.endswith('C'):
+                ctype = 'lecture'
+                if lec_units == 0 and lab_units == 0:
+                    lab_units = 1
+                    lec_units = max(1, units - 1)
+            elif lec_units > 0 and lab_units == 0:
                 ctype = 'lecture'
             elif lec_units == 0 and lab_units > 0:
                 ctype = 'lab'
             else:
-                if code.upper().endswith('B') or 'lab' in name.lower() or 'laboratory' in name.lower():
-                    ctype = 'lab'
-                else:
-                    ctype = 'lecture'
+                ctype = 'lecture'
 
             item_data = {
                 "block_id": curriculum_block.id,

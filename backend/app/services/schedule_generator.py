@@ -52,6 +52,15 @@ LAB_SLOTS = [
     (time(17, 30), time(19, 30))
 ]
 
+# 4-hour slots for single-day blocks (Combined 'C' courses and standalone 4-hour labs)
+FOUR_HOUR_SINGLE_SLOTS = [
+    (time(8, 0), time(12, 0)),
+    (time(13, 0), time(17, 0)),
+    (time(7, 30), time(11, 30)),
+    (time(13, 30), time(17, 30)),
+    (time(15, 30), time(19, 30)),
+]
+
 # Which grid produces which weekly pattern. Keyed by the figures in
 # faculty_load so the policy is stated once and the grids follow it, rather
 # than the two drifting apart.
@@ -104,6 +113,20 @@ def is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_scheds):
 def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
     for u in all_unavails:
         if u.faculty_id == faculty_id and u.day_of_week in (day1, day2):
+            if check_overlap(u.start_time, u.end_time, start_t, end_t):
+                return True
+    return False
+
+def is_prof_conflict_single(faculty_id, day, start_t, end_t, all_scheds):
+    for s in all_scheds:
+        if s.faculty_id == faculty_id and s.day_of_week == day:
+            if check_overlap(s.start_time, s.end_time, start_t, end_t):
+                return True
+    return False
+
+def is_prof_unavail_single(faculty_id, day, start_t, end_t, all_unavails):
+    for u in all_unavails:
+        if u.faculty_id == faculty_id and u.day_of_week == day:
             if check_overlap(u.start_time, u.end_time, start_t, end_t):
                 return True
     return False
@@ -303,13 +326,47 @@ def _place_lab_slot(
 
 
 
+def _place_single_4hr_slot(
+    semester_id: int,
+    curriculum_id: Any,
+    faculty_id: Any,
+    days_to_try: List[str],
+    slots: List[Tuple[time, time]],
+    all_unavails: List[models.FacultyUnavailability],
+    all_schedules: List[models.Schedule],
+) -> Optional[models.Schedule]:
+    """
+    Attempt to place a single 4-hour session on one available day (for Combined 'C' subjects or standalone 4hr lab blocks).
+    Rooms are always unassigned (room_id=None).
+    """
+    for day in days_to_try:
+        for start_t, end_t in slots:
+            if is_prof_unavail_single(faculty_id, day, start_t, end_t, all_unavails):
+                continue
+            if is_prof_conflict_single(faculty_id, day, start_t, end_t, all_schedules):
+                continue
+            return models.Schedule(
+                semester_id=semester_id,
+                curriculum_id=curriculum_id,
+                faculty_id=faculty_id,
+                room_id=None,
+                day_of_week=day,
+                start_time=start_t,
+                end_time=end_t,
+                section="",
+                status='draft'
+            )
+    return None
+
+
 def get_base_code(code: Optional[str]) -> str:
     if not code:
         return ""
-    m = re.match(r"^(.*?)[_\-\s]*(?:A/B|[AB])$", code.strip(), re.IGNORECASE)
+    clean = re.sub(r"\s+", "", code.strip().upper())
+    m = re.match(r"^(.*?)[_\-\s]*(?:A/B|[ABC])$", clean, re.IGNORECASE)
     if m:
         return m.group(1).strip().upper()
-    return code.strip().upper()
+    return clean
 
 
 def _place_consecutive_lec_lab_slot(
@@ -522,10 +579,11 @@ def generate_schedules(
             if c:
                 off_currs[off.id] = c
 
+        combined_items = []
         paired_items = []
         used_off_ids = set()
 
-        # Step 4a: Detect paired lecture + lab sessions
+        # Step 4a: Detect combined 'C' subjects and paired lecture + lab sessions
         for off1 in offs:
             if off1.id in used_off_ids:
                 continue
@@ -533,11 +591,18 @@ def generate_schedules(
             if not c1:
                 continue
 
+            clean_code1 = re.sub(r"\s+", "", (c1.code or "").upper().strip())
+            # Combined 'C' subject: scheduled as a single 4-hour block on 1 day
+            if clean_code1.endswith('C'):
+                combined_items.append((off1, c1))
+                used_off_ids.add(off1.id)
+                continue
+
             has_lec1 = (c1.type == 'lecture' or (c1.lec_units or 0) > 0)
             has_lab1 = (c1.type == 'lab' or (c1.lab_units or 0) > 0)
 
             # Single curriculum offering with both lecture and lab (e.g. A/B or lec+lab units)
-            if (has_lec1 and has_lab1) or (c1.code and (c1.code.upper().endswith('A/B') or c1.code.upper().endswith('-A/B'))):
+            if (has_lec1 and has_lab1) or (clean_code1.endswith('A/B') or clean_code1.endswith('-A/B')):
                 paired_items.append(('single', off1, off1, c1, c1))
                 used_off_ids.add(off1.id)
                 continue
@@ -570,7 +635,45 @@ def generate_schedules(
                         used_off_ids.add(off2.id)
                         break
 
-        # Step 4b: Schedule paired items consecutively on the same day pair
+        # Step 4b: Schedule combined 'C' subjects (one single 4-hour block on 1 day)
+        for off_c, c_comb in combined_items:
+            proposed_hours = 4.0
+            warn_c, conf_c = _calculate_workload_warnings(
+                semester=semester, f_obj=f_obj, pid=pid, c=c_comb, part_type='combined',
+                proposed_hours_total=proposed_hours, current_hours=faculty_hours_used[pid]
+            )
+            if warn_c: bumped_warnings.append(warn_c)
+            if conf_c: pending_conflicts.append(conf_c)
+
+            single_days_to_try = ['Fri', 'Sat', 'Mon', 'Wed', 'Tue', 'Thu']
+            placed = _place_single_4hr_slot(
+                semester_id=semester_id,
+                curriculum_id=c_comb.id,
+                faculty_id=pid,
+                days_to_try=single_days_to_try,
+                slots=FOUR_HOUR_SINGLE_SLOTS,
+                all_unavails=all_unavails,
+                all_schedules=all_schedules
+            )
+            if placed:
+                pending_schedules.append(placed)
+                all_schedules.append(placed)
+                scheduled_offerings.add((pid, c_comb.id))
+                faculty_hours_used[pid] += proposed_hours
+                generated_count += 1
+            else:
+                reason_msg = f"{c_comb.code} could not be scheduled as a 4-hour block due to faculty availability or schedule conflict."
+                conf_rec = models.Conflict(
+                    faculty_id=pid, curriculum_id=c_comb.id, conflict_type="unplaced_combined",
+                    reason=reason_msg
+                )
+                pending_conflicts.append(conf_rec)
+                unplaced.append({
+                    "faculty": pid, "curriculum_id": c_comb.id, "subject": c_comb.code,
+                    "part_type": "combined", "reason": reason_msg
+                })
+
+        # Step 4c: Schedule paired items consecutively on the same day pair
         for _kind, off_l, off_b, c_lec, c_lab in paired_items:
             lec_slots = lecture_slots_for(c_lec)
             lec_hours = get_duration_hours(lec_slots[0][0], lec_slots[0][1]) * 2
