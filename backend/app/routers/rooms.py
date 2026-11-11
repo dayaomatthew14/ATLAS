@@ -35,16 +35,6 @@ VALID_TYPES = ('lecture',) + LAB_TYPES
 SCHEDULING_ROLES = ('program_chair', 'coordinator')
 
 
-def _user_department(db: Session, user: models.User) -> Optional[models.Department]:
-    """The college a chair or coordinator belongs to, or None."""
-    if not user.department:
-        return None
-    return db.query(models.Department).filter(
-        (models.Department.code == user.department) |
-        (models.Department.name == user.department)
-    ).first()
-
-
 def _assert_may_manage(db: Session, user: models.User, room: models.Room) -> None:
     """
     Guard for renaming, retyping, or deleting an existing room.
@@ -70,7 +60,7 @@ def _assert_may_manage(db: Session, user: models.User, room: models.Room) -> Non
             )
         )
 
-    dept = _user_department(db, user)
+    dept = auth.resolve_user_department(db, user)
     if dept is None or room.department_id != dept.id:
         owner = room.department.code if room.department else "another college"
         raise HTTPException(
@@ -156,7 +146,7 @@ def create_room(
                     "ask an administrator to register one."
                 )
             )
-        dept = _user_department(db, current_user)
+        dept = auth.resolve_user_department(db, current_user)
         if dept is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

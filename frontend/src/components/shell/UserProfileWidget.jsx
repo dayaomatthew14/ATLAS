@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { User, Settings as SettingsIcon, LogOut, ChevronDown, HelpCircle } from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';
@@ -33,10 +33,10 @@ export default function UserProfileWidget({
     });
   };
 
-  const closeMenu = () => {
+  const closeMenu = useCallback(() => {
     setMenuOpen(false);
     onMenuToggle?.(false);
-  };
+  }, [onMenuToggle]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -54,7 +54,7 @@ export default function UserProfileWidget({
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onClickOutside);
     };
-  }, [menuOpen]);
+  }, [menuOpen, closeMenu]);
 
   const initials = useMemo(() => {
     const parts = (profileName || '').trim().split(/\s+/).filter(Boolean);

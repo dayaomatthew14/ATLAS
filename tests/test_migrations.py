@@ -16,7 +16,6 @@ These tests guard the two ways that can come back:
     deploying migrations onto the live database would not be safe.
 """
 
-import os
 import sys
 import tempfile
 import unittest

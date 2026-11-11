@@ -8,7 +8,7 @@ Validates:
 """
 import unittest
 from datetime import time
-from typing import List, Dict, Any, cast
+from typing import cast
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 

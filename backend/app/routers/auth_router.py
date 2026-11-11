@@ -265,19 +265,11 @@ def login_for_access_token(
     # off the code, so returning "College of Arts, Sciences & Technology" here
     # resolved to "Unassigned workspace" on screen. The readable name travels
     # alongside it rather than in place of it.
-    dept_id = None
-    dept_code = user.department
-    dept_name = user.department
-    if user.department:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == user.department) |
-            (models.Department.name == user.department)
-        ).first()
-        if dept:
-            dept_id = dept.id
-            dept_code = dept.code
-            dept_name = dept.name
-            
+    dept = auth.resolve_user_department(db, user)
+    dept_id = dept.id if dept else None
+    dept_code = dept.code if dept else user.department
+    dept_name = dept.name if dept else user.department
+
     log_activity(db, user.id, "Login", f"User {user.email} logged in", "success", department_id=dept_id) # type: ignore
     
     return {
@@ -295,7 +287,7 @@ def read_users_me(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    dept = db.query(models.Department).filter(models.Department.code == current_user.department).first()
+    dept = auth.resolve_user_department(db, current_user)
     # Same rule as sign-in: the code identifies, the name is for reading.
     dept_name = dept.name if dept else current_user.department
     
@@ -575,15 +567,9 @@ def forgot_password(payload: schemas.ForgotPassword, db: Session = Depends(datab
             logger.error(f"Password reset code could not be delivered to {user.email}")
 
 
-        # Get department for logging
-        dept_id = None
-        if user.department:
-            dept = db.query(models.Department).filter(
-                (models.Department.code == user.department) | 
-                (models.Department.name == user.department)
-            ).first()
-            dept_id = dept.id if dept else None
-            
+        dept = auth.resolve_user_department(db, user)
+        dept_id = dept.id if dept else None
+
         log_activity(db, user.id, "Forgot Password", f"Password reset requested for {user.email}", "success", department_id=dept_id) # type: ignore
     return {"msg": "If this account exists, a reset link or code has been sent."}
 
@@ -622,15 +608,9 @@ def reset_password(payload: schemas.ResetPassword, db: Session = Depends(databas
     user.session_version += 1 # type: ignore # Log out all other devices
     db.commit()
     
-    # Get department for logging
-    dept_id = None
-    if user.department:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == user.department) | 
-            (models.Department.name == user.department)
-        ).first()
-        dept_id = dept.id if dept else None
-    
+    dept = auth.resolve_user_department(db, user)
+    dept_id = dept.id if dept else None
+
     log_activity(db, user.id, "Reset Password", f"Password reset successfully for {user.email}", "success", department_id=dept_id) # type: ignore
     
     return {"msg": "Password reset successfully"}
@@ -648,10 +628,7 @@ def logout_all(response: Response, current_user: models.User = Depends(auth.get_
     current_user.session_version += 1 # type: ignore
     db.commit()
     
-    dept = db.query(models.Department).filter(
-        (models.Department.code == current_user.department) | 
-        (models.Department.name == current_user.department)
-    ).first()
+    dept = auth.resolve_user_department(db, current_user)
     log_activity(db, current_user.id, "Logout All", "User logged out of all devices", "success", department_id=dept.id if dept else None) # type: ignore
     
     is_prod = os.getenv("ENV") == "production"

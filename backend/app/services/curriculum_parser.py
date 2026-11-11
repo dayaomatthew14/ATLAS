@@ -106,12 +106,6 @@ async def process_curriculum_import(
             except Exception:
                 pass
 
-        best_sheet = None
-        max_score = -1
-        best_ay = 0
-        extracted_program_name = "Unknown Program"
-        extracted_ay = "Unknown AY"
-
         program_patterns = [
             r'BACHELOR OF SCIENCE IN [A-Z\s]+',
             r'BACHELOR OF [A-Z\s]+',
@@ -123,123 +117,16 @@ async def process_curriculum_import(
             r'\bDVM\b'
         ]
 
-        # Year/term section headers are what a full curriculum grid is made of,
-        # so they are the strongest evidence a sheet holds the real curriculum.
-        section_re = re.compile(r'\b(FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH)\s+YEAR\b')
-        term_re = re.compile(r'\b(FIRST|SECOND|THIRD|SUMMER|MIDYEAR)\s+TERM\b')
+        from . import curriculum_sheet_helpers as _csh
 
-        for sheet_name in wb.sheetnames:
-            try:
-                ws_probe = wb[sheet_name]
-                all_rows = [list(r) for r in ws_probe.iter_rows(values_only=True)]
-                raw_probe_rows = all_rows[:25]
-            except Exception:
-                continue
-
-            probe_vals = []
-            for r in raw_probe_rows:
-                for v in r:
-                    if not is_na(v):
-                        probe_vals.append(str(v).strip())
-
-            probe_text = " ".join([v.upper() for v in probe_vals])
-            probe_vals_lower = [v.lower() for v in probe_vals]
-
-            score = 0
-            has_code_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['code']) for val in probe_vals_lower)
-            has_title_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['name']) for val in probe_vals_lower)
-            has_unit_hdr = any(any(k == val or (len(k) > 3 and k in val) for k in mapping_keywords['units']) for val in probe_vals_lower)
-
-            if has_code_hdr: score += 40
-            if has_title_hdr: score += 30
-            if has_unit_hdr: score += 20
-
-            ay_match = re.search(r'AY\s*(\d{4})', probe_text)
-            if ay_match:
-                score += 10
-
-            for pat in program_patterns:
-                if re.search(pat, probe_text):
-                    score += 10
-                    break
-
-            # Completeness, measured over the whole sheet rather than the first 25 rows.
-            sections = 0
-            subject_rows = 0
-            for row in all_rows:
-                cells = [str(v).strip() for v in row if not is_na(v)]
-                if not cells:
-                    continue
-                joined = " ".join(cells).upper()
-                if section_re.search(joined) and term_re.search(joined):
-                    sections += 1
-                # A subject row: a code-shaped token plus at least one number.
-                elif any(re.match(r'^[A-Z]{2,6}\s?\d{2,4}', c.upper()) for c in cells) and \
-                     any(re.fullmatch(r'\d{1,2}(\.\d+)?', c) for c in cells):
-                    subject_rows += 1
-
-            score += sections * 25 + min(subject_rows, 200)
-
-            ay_year = int(ay_match.group(1)) if ay_match else 0
-
-            candidate = (score, ay_year)
-            best = (max_score, best_ay)
-            if candidate > best and (has_code_hdr or has_title_hdr):
-                max_score, best_ay = candidate
-                best_sheet = sheet_name
-
-        if not best_sheet:
-            best_sheet = wb.sheetnames[0]
-
-        sheet_auto_selected = True
-        if selected_sheet:
-            if selected_sheet not in wb.sheetnames:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"'{selected_sheet}' is not a sheet in this workbook. Available: {', '.join(wb.sheetnames)}"
-                )
-            best_sheet = selected_sheet
-            sheet_auto_selected = False
-
+        best_sheet, max_score, sheet_auto_selected = _csh.select_best_worksheet(
+            wb, mapping_keywords, program_patterns, selected_sheet
+        )
         logger.debug(f"DEBUG: Selected sheet '{best_sheet}' with confidence score {max_score}")
         ws_best = wb[best_sheet]
-        raw_probe_rows = [list(r) for r in list(ws_best.iter_rows(values_only=True))[:25]]
-        probe_vals = []
-        for r in raw_probe_rows:
-            for v in r:
-                if not is_na(v):
-                    probe_vals.append(str(v).strip())
-        probe_text = " ".join([v.upper() for v in probe_vals])
-
-        ay_match = re.search(r'(?:AY|ACADEMIC YEAR)\s*:?\s*(\d{4}\s*[-–]\s*\d{4}|\d{4})', probe_text)
-        if ay_match:
-            extracted_ay = f"AY {ay_match.group(1).strip()}"
-        else:
-            ay_simple = re.search(r'\b(20\d{2}\s*[-–]\s*20\d{2})\b', probe_text)
-            if ay_simple:
-                extracted_ay = f"AY {ay_simple.group(1).strip()}"
-
-        for pat in program_patterns:
-            prog_match = re.search(pat, probe_text)
-            if prog_match:
-                extracted_program_name = prog_match.group(0).strip()
-                break
-
-        if extracted_program_name == "Unknown Program":
-            clean_sheet_title = best_sheet.replace("_", " ").replace("-", " ").strip()
-            if len(clean_sheet_title) > 2 and not clean_sheet_title.lower().startswith("sheet"):
-                extracted_program_name = clean_sheet_title.upper()
-
-        words = [w for w in re.split(r'[\s\-]+', extracted_program_name) if w not in ["OF", "IN", "SCIENCE", "BACHELOR", "ASSOCIATE", "DOCTOR", "MASTER", "AND"]]
-        if words:
-            program_code = "".join([w[0] for w in words])
-        else:
-            program_code = extracted_program_name[:4].upper()
-
-        if len(program_code) < 2:
-            program_code = (best_sheet[:4] if len(best_sheet) >= 4 else best_sheet).upper()
-
-        full_block_name = f"{program_code} ({extracted_ay})" if extracted_ay != "Unknown AY" else f"{program_code} (Curriculum)"
+        extracted_ay, extracted_program_name, program_code, full_block_name = _csh.extract_program_metadata(
+            ws_best, best_sheet, program_patterns
+        )
 
         existing_block = db.query(models.CurriculumBlock).filter(
             models.CurriculumBlock.department_id == target_dept_id,
@@ -262,47 +149,7 @@ async def process_curriculum_import(
             logger.debug(f"DEBUG: Created new block '{full_block_name}' (ID: {curriculum_block.id})")
 
         ws = wb[best_sheet]
-
-        merged_cells = list(ws.merged_cells.ranges)
-        for merged_range in merged_cells:
-            min_col, min_row, max_col, max_row = merged_range.bounds
-            top_left_value = ws.cell(row=min_row, column=min_col).value
-            ws.unmerge_cells(str(merged_range))
-            for r in range(min_row, max_row + 1):
-                for c in range(min_col, max_col + 1):
-                    ws.cell(row=r, column=c).value = top_left_value  # type: ignore
-
-        raw_rows = [list(r) for r in ws.iter_rows(values_only=True)]
-
-        def normalize_year(value: object) -> Optional[str]:
-            if is_na(value):
-                return None
-            s = str(value).strip().upper()
-            if not s or s in {"NAN", "NONE", "N/A"}: return None
-            m = re.search(r"\b([1-5])\b", s)
-            if m: return m.group(1)
-            m = re.search(r"\b(1ST|2ND|3RD|4TH|5TH)\b", s)
-            if m: return m.group(1)[0]
-            word_map = {"FIRST": "1", "SECOND": "2", "THIRD": "3", "FOURTH": "4", "FIFTH": "5", "SIXTH": "6"}
-            for k, v in word_map.items():
-                if k in s: return v
-            return None
-
-        def normalize_semester(value: object) -> Optional[str]:
-            if is_na(value):
-                return None
-            s = str(value).strip().upper()
-            if not s or s in {"NAN", "NONE", "N/A"}: return None
-            if "3RD SEMESTER" in s or "MIDYEAR" in s: return "3rd semester"
-            m = re.search(r"\b([123])\b", s)
-            if m: return {"1": "1st", "2": "2nd", "3": "3rd"}[m.group(1)]
-            if re.search(r"\bI\b", s): return "1st"
-            if re.search(r"\bII\b", s): return "2nd"
-            if re.search(r"\bIII\b", s): return "3rd"
-            if "1ST" in s or "FIRST" in s: return "1st"
-            if "2ND" in s or "SECOND" in s: return "2nd"
-            if "3RD" in s or "THIRD" in s: return "3rd"
-            return None
+        raw_rows = _csh.unmerge_and_read_rows(ws)
 
         last_row_identifier = None
         current_year_context = None
@@ -311,9 +158,15 @@ async def process_curriculum_import(
         seen_any_section = False
         col_map = {}
 
+        blacklist = (
+            'prepared:', 'noted:', 'approved:', 'grade', 'course code', 'course title',
+            'total units', 'summary of units', 'signature', 'printed name', 'page ', 'rev.'
+        )
+
         for idx, row in enumerate(raw_rows):
-            row_text = " ".join([str(v).strip().upper() for v in row if not is_na(v)])
-            if not row_text: continue
+            row_text = " ".join(str(v).strip().upper() for v in row if not is_na(v))
+            if not row_text:
+                continue
 
             cell_strs = [str(v).strip() for v in row if not is_na(v)]
             looks_like_subject = (
@@ -321,20 +174,23 @@ async def process_curriculum_import(
                 and any(re.fullmatch(r'\d{1,2}(\.\d+)?', c) for c in cell_strs)
             )
 
-            y_match = None if looks_like_subject else re.search(r'(1ST|2ND|3RD|4TH|5TH|6TH|FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH)\s+YEAR|YEAR\s+([1-6])', row_text)
-            s_match = None if looks_like_subject else re.search(r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)', row_text)
+            y_match = None if looks_like_subject else re.search(
+                r'(1ST|2ND|3RD|4TH|5TH|6TH|FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH)\s+YEAR|YEAR\s+([1-6])',
+                row_text,
+            )
+            s_match = None if looks_like_subject else re.search(
+                r'(1ST|2ND|3RD|FIRST|SECOND|THIRD)\s+(SEMESTER|TERM)|(3RD SEMESTER|MIDYEAR)',
+                row_text,
+            )
 
             section_updated = False
             if y_match:
-                y_raw = y_match.group(1) or y_match.group(2)
-                norm_y = normalize_year(y_raw)
+                norm_y = _csh.normalize_year(y_match.group(1) or y_match.group(2))
                 if norm_y:
                     current_year_context = norm_y
                     section_updated = True
-
             if s_match:
-                s_raw = s_match.group(1) or s_match.group(3)
-                norm_s = normalize_semester(s_raw)
+                norm_s = _csh.normalize_semester(s_match.group(1) or s_match.group(3))
                 if norm_s:
                     current_sem_context = norm_s
                     section_updated = True
@@ -362,7 +218,8 @@ async def process_curriculum_import(
             for key, keywords in mapping_keywords.items():
                 for i, val in enumerate(row_vals):
                     if any(k == val or (len(k) > 3 and k in val) for k in keywords):
-                        if key == 'units' and any(k in val for k in ["lec", "lab"]): continue
+                        if key == 'units' and any(k in val for k in ("lec", "lab")):
+                            continue
                         temp_map[key] = i
                         break
 
@@ -370,28 +227,20 @@ async def process_curriculum_import(
                 col_map = temp_map
                 is_in_active_zone = True
                 if not seen_any_section:
-                    if not current_year_context:
-                        current_year_context = '1'
-                    if not current_sem_context:
-                        current_sem_context = '1st'
+                    current_year_context = current_year_context or '1'
+                    current_sem_context = current_sem_context or '1st'
                 logger.debug(f"DEBUG: Mapped columns at row {idx}: {col_map}")
                 continue
 
-            if not is_in_active_zone or not col_map or 'code' not in col_map: continue
-            if not current_year_context or not current_sem_context: continue
-            if not current_year_context.isdigit(): continue
+            if not is_in_active_zone or not col_map or 'code' not in col_map:
+                continue
+            if not current_year_context or not current_sem_context or not current_year_context.isdigit():
+                continue
 
             code_raw = row[col_map['code']] if col_map['code'] < len(row) else None
             name_raw = row[col_map['name']] if 'name' in col_map and col_map['name'] < len(row) else ""
             units_raw = row[col_map['units']] if 'units' in col_map and col_map['units'] < len(row) else 0
-
-            def parse_num(val):
-                if is_na(val): return 0
-                s = re.sub(r'[\(\)\[\]\*\s]', '', str(val).strip())
-                try: return int(float(s))
-                except Exception: return 0
-
-            units = parse_num(units_raw)
+            units = _csh.parse_numeric_cell(units_raw)
 
             if is_na(code_raw):
                 if units > 0:
@@ -399,7 +248,7 @@ async def process_curriculum_import(
                     continue
                 if not is_na(name_raw) and current_year_context == 'Elective':
                     sub_cat = str(name_raw).strip()
-                    if sub_cat and len(sub_cat) > 3:
+                    if len(sub_cat) > 3:
                         current_sem_context = sub_cat
                         logger.debug(f"DEBUG: Found Elective Sub-category at row {idx}: {sub_cat}")
                 continue
@@ -413,104 +262,45 @@ async def process_curriculum_import(
                 continue
             last_row_identifier = current_identifier
 
-            blacklist = [
-                'prepared:', 'noted:', 'approved:', 'grade', 'course code', 'course title',
-                'total units', 'summary of units', 'signature', 'printed name', 'page ', 'rev.'
-            ]
             if not code or any(b in code.lower() for b in blacklist) or len(code) < 2:
                 continue
 
-            lec_units = parse_num(row[col_map['lec_units']] if 'lec_units' in col_map and col_map['lec_units'] < len(row) else 0)
-            lab_units = parse_num(row[col_map['lab_units']] if 'lab_units' in col_map and col_map['lab_units'] < len(row) else 0)
-
+            lec_units = _csh.parse_numeric_cell(row[col_map['lec_units']] if 'lec_units' in col_map and col_map['lec_units'] < len(row) else 0)
+            lab_units = _csh.parse_numeric_cell(row[col_map['lab_units']] if 'lab_units' in col_map and col_map['lab_units'] < len(row) else 0)
             if units == 0 and (lec_units > 0 or lab_units > 0):
                 units = lec_units + lab_units
-
-            if units == 0: continue
-
-            if any(k in name.lower() for k in ["course title", "subtotal", "total units", "description"]):
+            if units == 0 or any(k in name.lower() for k in ("course title", "subtotal", "total units", "description")):
                 continue
 
-            def clean_prereqs(val):
-                if not val or is_na(val): return None
-                s = str(val).lower().strip()
-                if s in ['none', 'n/a', '0', 'nan', 'none.', 'no']: return None
-                parts = str(val).replace('\r\n', ',').replace('\n', ',').replace('&', ',').replace(';', ',').replace(' AND ', ',').replace(' OR ', ',')
-                raw_tokens = [c.strip().upper() for c in parts.split(',') if c and c.strip()]
-                codes: list[str] = []
-                for tok in raw_tokens:
-                    tok_clean = re.sub(r"\s+", " ", tok).strip()
-                    if tok_clean in {"AND", "OR", "NONE", "N/A", "0"}: continue
-                    if tok_clean:
-                        codes.append(tok_clean)
-                return ", ".join(codes) if codes else None
-
-            pre_req_raw = row[col_map['pre_requisite']] if 'pre_requisite' in col_map and col_map['pre_requisite'] < len(row) else None
-            pre_req = clean_prereqs(pre_req_raw)
+            pre_req = _csh.clean_prerequisites(
+                row[col_map['pre_requisite']] if 'pre_requisite' in col_map and col_map['pre_requisite'] < len(row) else None
+            )
             is_major_val = not any(code.upper().strip().startswith(prefix) for prefix in ('CORE', 'PEED', 'NSTP', 'LSVI', 'GE', 'RZAL', 'RIZAL'))
 
             ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", code, re.IGNORECASE)
             if ab_match and lab_units > 0 and lec_units > 0:
                 base_code = ab_match.group(1).strip()
-                code_a = f"{base_code}A"
-                code_b = f"{base_code}B"
-
-                u_lec = lec_units
-                u_lab = lab_units
-
                 split_specs = [
-                    (code_a, "lecture", u_lec, u_lec, 0),
-                    (code_b, "lab", u_lab, 0, u_lab)
+                    (f"{base_code}A", "lecture", lec_units, lec_units, 0),
+                    (f"{base_code}B", "lab", lab_units, 0, lab_units),
                 ]
-
                 for ccode, ctype_val, u_val, lec_u, lab_u in split_specs:
-                    item_data = {
-                        "block_id": curriculum_block.id,
-                        "code": ccode, "name": name, "units": u_val, "type": ctype_val,
-                        "department_id": target_dept_id, "program_code": program_code,
-                        "year_level": current_year_context, "semester_term": current_sem_context,
-                        "lec_units": lec_u, "lab_units": lab_u, "pre_requisite": pre_req,
-                        "is_major": is_major_val,
-                        "validation_issues": []
-                    }
-
-                    is_duplicate_in_run = any(i.code == ccode for i in items_to_add)
-                    if is_duplicate_in_run:
-                        item_data["validation_issues"].append("Duplicate: Already exists in this file")
-                        skipped_items.append({**item_data, "reason": "Already exists in this file"})
-                    else:
-                        items_to_add.append(models.Curriculum(
-                            block_id=curriculum_block.id,
-                            code=ccode, name=name, units=u_val, type=ctype_val,
-                            department_id=target_dept_id, program_code=program_code,
-                            year_level=current_year_context, semester_term=current_sem_context,
-                            lec_units=lec_u, lab_units=lab_u, pre_requisite=pre_req,
-                            is_major=is_major_val
-                        ))
-                    all_parsed_data.append(item_data)
+                    _csh.append_parsed_subject(
+                        code=ccode, name=name, units=u_val, ctype=ctype_val,
+                        lec_units=lec_u, lab_units=lab_u, pre_req=pre_req, is_major_val=is_major_val,
+                        block_id=curriculum_block.id, target_dept_id=target_dept_id, program_code=program_code,
+                        year_level=current_year_context, semester_term=current_sem_context,
+                        items_to_add=items_to_add, skipped_items=skipped_items, all_parsed_data=all_parsed_data,
+                    )
                     logger.debug(f"DEBUG: Captured split A/B subject: {ccode} ({ctype_val})")
                 continue
 
-            clean_code = code.upper().strip()
-            if clean_code.endswith('A'):
-                ctype = 'lecture'
-                if lec_units == 0 and lab_units == 0:
-                    lec_units = units
-            elif clean_code.endswith('B') or 'lab' in name.lower() or 'laboratory' in name.lower():
-                ctype = 'lab'
-                if lec_units == 0 and lab_units == 0:
-                    lab_units = units
-            elif clean_code.endswith('C'):
-                ctype = 'lecture'
-                if lec_units == 0 and lab_units == 0:
-                    lab_units = 1
-                    lec_units = max(1, units - 1)
-            elif lec_units > 0 and lab_units == 0:
-                ctype = 'lecture'
-            elif lec_units == 0 and lab_units > 0:
-                ctype = 'lab'
-            else:
-                ctype = 'lecture'
+            ctype, lec_units, lab_units = _csh.classify_subject_units(code, name, units, lec_units, lab_units)
+            issues: list = []
+            if (lec_units > 0 or lab_units > 0) and units != (lec_units + lab_units):
+                issues.append(f"Unit Mismatch: Total ({units}) != Lec ({lec_units}) + Lab ({lab_units})")
+            if not current_year_context or not current_sem_context:
+                issues.append("WARNING: Year/Semester context could not be determined")
 
             item_data = {
                 "block_id": curriculum_block.id,
@@ -519,18 +309,8 @@ async def process_curriculum_import(
                 "year_level": current_year_context, "semester_term": current_sem_context,
                 "lec_units": lec_units, "lab_units": lab_units, "pre_requisite": pre_req,
                 "is_major": is_major_val,
-                "validation_issues": []
+                "validation_issues": issues
             }
-
-            if (lec_units > 0 or lab_units > 0) and units != (lec_units + lab_units):
-                item_data["validation_issues"].append(
-                    f"Unit Mismatch: Total ({units}) != Lec ({lec_units}) + Lab ({lab_units})"
-                )
-
-            if not current_year_context or not current_sem_context:
-                item_data["validation_issues"].append(
-                    "WARNING: Year/Semester context could not be determined"
-                )
 
             is_duplicate_in_run = any(i.code == code for i in items_to_add)
 

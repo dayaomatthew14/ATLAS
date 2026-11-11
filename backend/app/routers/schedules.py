@@ -145,12 +145,9 @@ def update_schedule(
     if not db_schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
-    if current_user.role in ['dean', 'program_chair']:
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
-        if curriculum_item:
-            dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
-            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this schedule")
+    _assert_curriculum_department_access(
+        db, current_user, db_schedule.curriculum_id, "Not authorized to modify this schedule"  # type: ignore
+    )
     
     if db_schedule.is_locked and schedule.is_locked is not False:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule is locked and cannot be modified")
@@ -186,17 +183,11 @@ def clear_all_schedules(
 
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
 
-    if current_user.role in ['dean', 'program_chair']:
-        if not current_user.department:
+    if current_user.role in ('dean', 'program_chair'):
+        dept = auth.resolve_user_department(db, current_user)
+        if not dept:
             return {"deleted_count": 0, "backup": []}
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
-        else:
-            return {"deleted_count": 0, "backup": []}
+        query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
 
     schedules_to_delete = query.all()
     backup = []
@@ -362,13 +353,8 @@ def restore_schedules(
     # single-item create path applies -- otherwise it is a way to write
     # schedules into any department's curriculum.
     allowed_dept_id = None
-    if current_user.role in ['dean', 'program_chair']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
-        if not dept:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your department could not be resolved")
+    if current_user.role in ('dean', 'program_chair'):
+        dept = auth.require_user_department(db, current_user, detail="Your department could not be resolved")
         allowed_dept_id = dept.id
 
     restored_items = []
@@ -390,6 +376,43 @@ def restore_schedules(
     log_activity(db, current_user.id, "Restore Schedules", f"Restored {len(restored_items)} schedule items", "success")
     return {"restored_count": len(restored_items)}
 
+def _assert_curriculum_department_access(
+    db: Session,
+    current_user: models.User,
+    curriculum_id: Optional[int],
+    detail: str,
+) -> None:
+    """Restrict dean/program_chair operations to curricula belonging to their department."""
+    if current_user.role not in ('dean', 'program_chair') or not curriculum_id:
+        return
+    curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
+    if curriculum_item:
+        dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
+        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+def _load_export_schedules(db: Session, current_user: models.User, semester_id: int):
+    """Fetch schedules, resolved department (if scoped), department label, and term label for exports."""
+    query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
+    dept = None
+    dept_name: str = "All Departments"
+    if current_user.role in ('dean', 'program_chair'):
+        dept = auth.resolve_user_department(db, current_user)
+        if dept:
+            query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
+            dept_name = str(dept.name)
+
+    schedules = query.options(
+        joinedload(models.Schedule.curriculum),
+        joinedload(models.Schedule.faculty),
+        joinedload(models.Schedule.room),
+    ).all()
+    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    term_label = f"{semester.academic_year} {semester.term}" if semester else ""
+    return schedules, dept, dept_name, term_label
+
+
 @router.delete("/{schedule_id}")
 def delete_schedule(
     schedule_id: int, 
@@ -403,12 +426,9 @@ def delete_schedule(
     if not db_schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         
-    if current_user.role in ['dean', 'program_chair']:
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
-        if curriculum_item:
-            dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
-            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this schedule")
+    _assert_curriculum_department_access(
+        db, current_user, db_schedule.curriculum_id, "Not authorized to delete this schedule"  # type: ignore
+    )
     
     if db_schedule.is_locked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Locked schedules cannot be deleted")
@@ -454,10 +474,9 @@ def get_schedule_suggestions(
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role in ['dean', 'program_chair']:
-        dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
-        if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this curriculum item")
+    _assert_curriculum_department_access(
+        db, current_user, curriculum_item.id, "Not authorized for this curriculum item"  # type: ignore
+    )
 
     # If semester_id not provided, try to find active semester
     if not semester_id:
@@ -568,34 +587,9 @@ def export_pdf(
     someone downloads is the one they were shown. Landscape, because nine
     columns do not fit portrait without shrinking the type past reading size.
     """
-    if current_user.role not in ['admin', 'dean', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    auth.require_roles(current_user, ('admin', 'dean', 'program_chair'))
 
-    # Fetch data
-    query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
-
-    dept = None
-    dept_name: str = "All Departments"
-    if current_user.role in ['dean', 'program_chair']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
-            dept_name = str(dept.name)
-
-    # Eager-load the three relationships the row loop reads. Resolving them
-    # per row issued three queries per schedule -- a 500-class export was about
-    # 1,500 round-trips, seconds of latency on a networked database.
-    schedules = query.options(
-        joinedload(models.Schedule.curriculum),
-        joinedload(models.Schedule.faculty),
-        joinedload(models.Schedule.room),
-    ).all()
-
-    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
-    term_label = f"{semester.academic_year} {semester.term}" if semester else ""
+    schedules, dept, dept_name, term_label = _load_export_schedules(db, current_user, semester_id)
 
     buffer, row_count = build_schedule_pdf(
         schedules,
@@ -620,23 +614,19 @@ async def import_excel(
     Import schedules from an Excel file.
     Expects columns: CurriculumCode, FacultyEmail, RoomName, Day, StartTime, EndTime, Section
     """
-    if current_user.role not in ['admin', 'dean', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        
+    auth.require_roles(current_user, ('admin', 'dean', 'program_chair'))
+
     contents = await file.read()
     success_count, errors = import_schedules_from_excel(contents, db, semester_id)
-    
-    dept = db.query(models.Department).filter(
-        (models.Department.code == current_user.department) | 
-        (models.Department.name == current_user.department)
-    ).first()
+
+    dept = auth.resolve_user_department(db, current_user)
     log_activity(db, current_user.id, "Import Excel", f"Imported {success_count} schedules from Excel. Errors: {len(errors)}", department_id=dept.id if dept else None) # type: ignore
-    
+
     return {
         "message": f"Successfully imported {success_count} schedules",
         "errors": errors
     }
- 
+
 @router.get("/export/excel")
 def export_excel(
     semester_id: int,
@@ -647,34 +637,9 @@ def export_excel(
     """
     Export the current department's schedule for a semester to Excel.
     """
-    if current_user.role not in ['admin', 'dean', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
- 
-    # Fetch data
-    query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
-    
-    dept = None
-    dept_name: str = "All Departments"
-    if current_user.role in ['dean', 'program_chair']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
-        if dept:
-            query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
-            dept_name = str(dept.name)
-            
-    # Eager-load the three relationships the row loop reads. Resolving them
-    # per row issued three queries per schedule -- a 500-class export was about
-    # 1,500 round-trips, seconds of latency on a networked database.
-    schedules = query.options(
-        joinedload(models.Schedule.curriculum),
-        joinedload(models.Schedule.faculty),
-        joinedload(models.Schedule.room),
-    ).all()
+    auth.require_roles(current_user, ('admin', 'dean', 'program_chair'))
 
-    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
-    term_label = f"{semester.academic_year} {semester.term}" if semester else ""
+    schedules, dept, dept_name, term_label = _load_export_schedules(db, current_user, semester_id)
 
     output, row_count = build_schedule_excel(
         schedules,
@@ -682,9 +647,9 @@ def export_excel(
         term_label=term_label,
         faculty_name=faculty_name,
     )
-    
-    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel ({row_count} classes)", department_id=dept.id if current_user.role in ['dean', 'program_chair'] and dept else None) # type: ignore
-    
+
+    log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel ({row_count} classes)", department_id=dept.id if dept else None) # type: ignore
+
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -709,11 +674,8 @@ def get_schedule(
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
 
-    if current_user.role in ['dean', 'program_chair']:
-        curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == schedule.curriculum_id).first()
-        if curriculum_item:
-            dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
-            if not dept or (dept.code != current_user.department and dept.name != current_user.department):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    _assert_curriculum_department_access(
+        db, current_user, schedule.curriculum_id, "Not authorized"  # type: ignore
+    )
 
     return schedule

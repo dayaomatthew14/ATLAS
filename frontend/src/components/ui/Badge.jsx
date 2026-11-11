@@ -1,4 +1,3 @@
-import { AlertTriangle, TrendingDown, Check, Clock } from 'lucide-react';
 import { resolveDepartment } from './tokens';
 import { formatHours } from '../../utils/load';
 

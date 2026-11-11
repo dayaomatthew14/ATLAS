@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Collection, Optional
 from jose import JWTError, jwt
 import bcrypt
 from fastapi import Depends, HTTPException, status, Request
@@ -107,3 +107,36 @@ def get_current_user(request: Request, db: Session = Depends(database.get_db)):
         )
         
     return user
+
+
+def resolve_user_department(db: Session, user: models.User) -> Optional[models.Department]:
+    """Return the Department row matching ``user.department`` (by code or name), or None."""
+    if not user.department:
+        return None
+    return db.query(models.Department).filter(
+        (models.Department.code == user.department) |
+        (models.Department.name == user.department)
+    ).first()
+
+
+def require_user_department(
+    db: Session,
+    user: models.User,
+    detail: str = "User has no valid assigned department",
+    status_code: int = status.HTTP_403_FORBIDDEN,
+) -> models.Department:
+    """Return the user's Department or raise HTTPException when unset/unmatched."""
+    dept = resolve_user_department(db, user)
+    if not dept:
+        raise HTTPException(status_code=status_code, detail=detail)
+    return dept
+
+
+def require_roles(
+    user: models.User,
+    allowed_roles: Collection[str],
+    detail: str = "Not authorized",
+) -> None:
+    """Raise 403 Forbidden unless ``user.role`` is in ``allowed_roles``."""
+    if user.role not in allowed_roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)

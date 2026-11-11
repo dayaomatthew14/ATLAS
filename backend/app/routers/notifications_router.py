@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from .. import models, database, auth, notifications
 from .logs import log_activity
@@ -17,17 +17,11 @@ def notify_faculty(
     """
     Send schedule notifications to all faculty members of the department.
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    auth.require_roles(current_user, ('admin', 'program_chair', 'coordinator'))
 
-    # Find department
-    dept = db.query(models.Department).filter(
-        (models.Department.code == current_user.department) | 
-        (models.Department.name == current_user.department)
-    ).first()
-    
-    if not dept:
-        raise HTTPException(status_code=400, detail="Department not found")
+    dept = auth.require_user_department(
+        db, current_user, detail="Department not found", status_code=400
+    )
 
     # Get all faculty in this department
     faculties = db.query(models.Faculty).filter(models.Faculty.department_id == dept.id).all()

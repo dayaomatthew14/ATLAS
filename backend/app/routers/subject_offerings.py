@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
-from .. import models, schemas
+from .. import auth, models, schemas
 from ..database import get_db
 from ..auth import get_current_user
 
@@ -32,6 +32,19 @@ ROLE_SUBJECT_SCOPE = {}
 SCOPE_LABEL = {True: 'major subjects', False: 'General Education subjects'}
 
 
+def _assert_role_subject_scope(curriculum: models.Curriculum, current_user: models.User) -> None:
+    """Enforce major vs. GenEd assignment scope for the caller's role."""
+    expected = ROLE_SUBJECT_SCOPE.get(str(current_user.role))
+    if expected is not None and bool(curriculum.is_major) is not expected:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"{curriculum.code} is a {SCOPE_LABEL[bool(curriculum.is_major)][:-1]}. "
+                f"Your role assigns {SCOPE_LABEL[expected]} only."
+            )
+        )
+
+
 def _assert_assignable(curriculum: models.Curriculum, current_user: models.User) -> None:
     block = curriculum.block
     status_value = (getattr(block, 'status', None) or '').upper() if block else ''
@@ -54,15 +67,7 @@ def _assert_assignable(curriculum: models.Curriculum, current_user: models.User)
             )
         )
 
-    expected = ROLE_SUBJECT_SCOPE.get(str(current_user.role))
-    if expected is not None and bool(curriculum.is_major) is not expected:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"{curriculum.code} is a {SCOPE_LABEL[bool(curriculum.is_major)][:-1]}. "
-                f"Your role assigns {SCOPE_LABEL[expected]} only."
-            )
-        )
+    _assert_role_subject_scope(curriculum, current_user)
 
 
 from pydantic import ConfigDict
@@ -94,13 +99,83 @@ def normalize_term(term_str: Any = None) -> str:
     return s
 
 
+def _resolve_offerings_department(
+    db: Session, current_user: models.User, department_id: Optional[int]
+) -> Optional[models.Department]:
+    """Resolve target department for subject-offering queries."""
+    if current_user.role in ('program_chair', 'coordinator'):
+        return auth.resolve_user_department(db, current_user)
+    if department_id:
+        return db.query(models.Department).filter(models.Department.id == department_id).first()
+    return db.query(models.Department).first()
+
+
+def _load_offerings_by_curriculum(
+    db: Session, semester_id: Any, curriculum_ids: list
+) -> dict:
+    """Batch-load subject offerings joined with faculty keyed by curriculum_id."""
+    if not curriculum_ids:
+        return {}
+    raw_offerings = db.query(
+        models.SubjectOffering,
+        models.Faculty,
+    ).join(
+        models.Faculty, models.SubjectOffering.faculty_id == models.Faculty.id
+    ).filter(
+        models.SubjectOffering.semester_id == semester_id,
+        models.SubjectOffering.curriculum_id.in_(curriculum_ids),
+    ).all()
+    offerings_by_curr: dict = {}
+    for off, fac in raw_offerings:
+        offerings_by_curr.setdefault(off.curriculum_id, []).append((off, fac))
+    return offerings_by_curr
+
+
+def _format_subject_offering_entry(
+    curriculum_item: models.Curriculum,
+    is_major: bool,
+    assigned_list: list,
+    block: Optional[models.CurriculumBlock],
+) -> dict:
+    """Serialize one curriculum subject and its assigned faculty for the active term view."""
+    profs = [
+        {
+            "offering_id": off.id,
+            "faculty_id": fac.id,
+            "faculty_name": f"{fac.first_name} {fac.last_name}".strip(),
+            "faculty_email": fac.email,
+            "faculty_type": fac.type,
+        }
+        for off, fac in assigned_list
+    ]
+    is_assigned = len(assigned_list) > 0
+    prog_name = block.program_name if block else (curriculum_item.program_code or "")
+    prog_code = (block.program.code if (block and block.program) else None) or prog_name
+    return {
+        "curriculum_id": curriculum_item.id,
+        "code": curriculum_item.code,
+        "name": curriculum_item.name,
+        "units": curriculum_item.units,
+        "lec_units": curriculum_item.lec_units,
+        "lab_units": curriculum_item.lab_units,
+        "type": curriculum_item.type,
+        "is_major": is_major,
+        "year_level": curriculum_item.year_level or "",
+        "semester_term": curriculum_item.semester_term or "",
+        "program_code": prog_code,
+        "program_name": prog_name,
+        "status": "assigned" if is_assigned else "unassigned",
+        "assigned_professors": profs,
+        "professor_name": profs[0]["faculty_name"] if profs else "Unassigned",
+    }
+
+
 def get_active_term_assigned_subjects(
     db: Session,
     current_user: models.User,
     semester_id: Optional[int] = None,
     department_id: Optional[int] = None
 ) -> dict:
-    # 1. Resolve target semester (defaults to currently active term)
     if semester_id:
         semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     else:
@@ -114,135 +189,58 @@ def get_active_term_assigned_subjects(
             "subjects": []
         }
 
-    # 2. Resolve target department
-    dept = None
-    if current_user.role in ['program_chair', 'coordinator']:
-        if current_user.department:
-            dept = db.query(models.Department).filter(
-                (models.Department.code == current_user.department) |
-                (models.Department.name == current_user.department)
-            ).first()
-    elif department_id:
-        dept = db.query(models.Department).filter(models.Department.id == department_id).first()
-    else:
-        dept = db.query(models.Department).first()
+    semester_meta = {"id": semester.id, "academic_year": semester.academic_year, "term": semester.term}
+    dept = _resolve_offerings_department(db, current_user, department_id)
 
     if not dept:
         return {
-            "active_semester": {
-                "id": semester.id,
-                "academic_year": semester.academic_year,
-                "term": semester.term
-            },
+            "active_semester": semester_meta,
             "department": None,
             "curriculum_courses": [],
             "summary": {"total": 0, "assigned": 0, "unassigned": 0, "all_assigned": True},
             "subjects": []
         }
 
-    # 3. Retrieve all PUBLISHED curriculum blocks for this department
+    dept_meta = {"id": dept.id, "name": dept.name, "code": dept.code}
     published_blocks = db.query(models.CurriculumBlock).filter(
         models.CurriculumBlock.department_id == dept.id,
         models.CurriculumBlock.status == 'PUBLISHED'
     ).all()
-
     block_map = {b.id: b for b in published_blocks}
     block_ids = list(block_map.keys())
 
     if not block_ids:
         return {
-            "active_semester": {
-                "id": semester.id,
-                "academic_year": semester.academic_year,
-                "term": semester.term
-            },
-            "department": {"id": dept.id, "name": dept.name, "code": dept.code},
+            "active_semester": semester_meta,
+            "department": dept_meta,
             "curriculum_courses": [],
             "summary": {"total": 0, "assigned": 0, "unassigned": 0, "all_assigned": True},
             "subjects": []
         }
 
-    # 4. Fetch all subjects belonging to published blocks
     all_block_subjects = db.query(models.Curriculum).filter(
         models.Curriculum.block_id.in_(block_ids)
     ).all()
-
-    # 5. Filter major subjects matching the active semester term.
-    # General Education subjects remain excluded unless explicitly assigned to a
-    # professor for this semester (via Faculty -> Handled Subjects).
     sem_term_norm = normalize_term(semester.term)
+    offerings_by_curr = _load_offerings_by_curriculum(db, semester.id, [c.id for c in all_block_subjects])
 
-    # 6. Retrieve subject offerings for published block items in the target semester
-    all_curr_ids = [c.id for c in all_block_subjects]
-    offerings_by_curr = {}
-    if all_curr_ids:
-        raw_offerings = db.query(
-            models.SubjectOffering,
-            models.Faculty
-        ).join(
-            models.Faculty, models.SubjectOffering.faculty_id == models.Faculty.id
-        ).filter(
-            models.SubjectOffering.semester_id == semester.id,
-            models.SubjectOffering.curriculum_id.in_(all_curr_ids)
-        ).all()
-
-        for off, fac in raw_offerings:
-            offerings_by_curr.setdefault(off.curriculum_id, []).append((off, fac))
-
-    # 7. Build subject list
     subject_list = []
     for c in all_block_subjects:
         is_major = is_major_subject(c)
         assigned_list = offerings_by_curr.get(c.id, [])
-        is_assigned = len(assigned_list) > 0
-
         if is_major:
             if normalize_term(c.semester_term) != sem_term_norm:
                 continue
-        else:
-            if not is_assigned:
-                continue
+        elif not assigned_list:
+            continue
+        subject_list.append(_format_subject_offering_entry(c, is_major, assigned_list, block_map.get(c.block_id)))
 
-        block = block_map.get(c.block_id)
-
-        profs = [
-            {
-                "offering_id": off.id,
-                "faculty_id": fac.id,
-                "faculty_name": f"{fac.first_name} {fac.last_name}".strip(),
-                "faculty_email": fac.email,
-                "faculty_type": fac.type,
-            }
-            for off, fac in assigned_list
-        ]
-        prog_name = block.program_name if block else (c.program_code or "")
-        prog_code = (block.program.code if (block and block.program) else None) or prog_name
-
-        subject_list.append({
-            "curriculum_id": c.id,
-            "code": c.code,
-            "name": c.name,
-            "units": c.units,
-            "lec_units": c.lec_units,
-            "lab_units": c.lab_units,
-            "type": c.type,
-            "is_major": is_major,
-            "year_level": c.year_level or "",
-            "semester_term": c.semester_term or "",
-            "program_code": prog_code,
-            "program_name": prog_name,
-            "status": "assigned" if is_assigned else "unassigned",
-            "assigned_professors": profs,
-            "professor_name": profs[0]["faculty_name"] if profs else "Unassigned",
-        })
-
-    # Sort: unassigned first, then by code
     subject_list.sort(key=lambda s: (0 if s["status"] == "unassigned" else 1, s["code"]))
 
     total = len(subject_list)
-    assigned_count = len([s for s in subject_list if s["status"] == "assigned"])
+    assigned_count = sum(1 for s in subject_list if s["status"] == "assigned")
     unassigned_count = total - assigned_count
-    all_major_assigned = len([s for s in subject_list if s["is_major"] and s["status"] == "unassigned"]) == 0
+    all_major_assigned = not any(s["is_major"] and s["status"] == "unassigned" for s in subject_list)
 
     curriculum_courses = [
         {
@@ -255,12 +253,8 @@ def get_active_term_assigned_subjects(
     ]
 
     return {
-        "active_semester": {
-            "id": semester.id,
-            "academic_year": semester.academic_year,
-            "term": semester.term
-        },
-        "department": {"id": dept.id, "name": dept.name, "code": dept.code},
+        "active_semester": semester_meta,
+        "department": dept_meta,
         "curriculum_courses": curriculum_courses,
         "summary": {
             "total": total,
@@ -421,19 +415,11 @@ def delete_subject_offering(
     # The same scope that governs assigning governs unassigning. Without this a
     # coordinator could drop a chair's major-subject load by id -- the screen
     # never offers it, but the endpoint would.
-    expected = ROLE_SUBJECT_SCOPE.get(str(current_user.role))
-    # SubjectOffering carries no `curriculum` relationship, so look it up.
     curriculum = db.query(models.Curriculum).filter(
         models.Curriculum.id == offering.curriculum_id
     ).first()
-    if expected is not None and curriculum is not None and bool(curriculum.is_major) is not expected:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"{curriculum.code} is a {SCOPE_LABEL[bool(curriculum.is_major)][:-1]}. "
-                f"Your role assigns {SCOPE_LABEL[expected]} only."
-            )
-        )
+    if curriculum is not None:
+        _assert_role_subject_scope(curriculum, current_user)
 
     db.delete(offering)
     db.commit()

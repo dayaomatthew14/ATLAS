@@ -134,7 +134,7 @@ export default function DashboardHome() {
         : 'No academic term activated yet',
       icon: Calendar,
       to: null,
-      statusLabel: Boolean(activeSemester) ? 'Configured' : 'Pending',
+      statusLabel: activeSemester ? 'Configured' : 'Pending',
     },
     {
       id: 'curriculum',

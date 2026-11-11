@@ -38,7 +38,6 @@ file. Check which database you are attached to in the banner before passing
 """
 
 import argparse
-import os
 import sys
 
 from app import database, models

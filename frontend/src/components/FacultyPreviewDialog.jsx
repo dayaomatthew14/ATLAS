@@ -1,4 +1,4 @@
-import { BookOpen, CalendarRange, Clock, AlertTriangle, Users, GraduationCap, Activity, Layers } from 'lucide-react';
+import { BookOpen, CalendarRange, Clock, AlertTriangle, Users, GraduationCap, Activity } from 'lucide-react';
 import Dialog from './ui/Dialog';
 import Button from './ui/Button';
 import { LoadStatusBadge } from './ui/Badge';

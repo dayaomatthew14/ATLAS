@@ -264,7 +264,6 @@ body {
 }
 
 /* Classes: #FBBF24 with authentic ombre gradient effect (aligned with other boxes, pure yellow) */
-.stat-card-ombre,
 .stat-card-classes {
   background: linear-gradient(135deg, rgba(251, 191, 36, 0.42) 0%, rgba(251, 191, 36, 0.72) 48%, rgba(251, 191, 36, 0.92) 100%);
   border: 1px solid rgba(202, 138, 4, 0.32);
@@ -314,20 +313,6 @@ body {
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   backdrop-filter: blur(16px) saturate(140%);
-}
-
-/* Weekly Schedule Overview — Uxintace Palette Design System (#0F2A1D, #375534, #6B9071, #AEC3B0, #E3EED4) */
-.schedule-card-ux {
-  background: linear-gradient(165deg, #FFFFFF 0%, #F9FBF8 100%);
-  border: 1px solid rgba(174, 195, 176, 0.45);
-  box-shadow: 0 2px 8px -2px rgba(15, 42, 29, 0.05);
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.schedule-card-ux:hover {
-  border-color: #6B9071;
-  background: linear-gradient(165deg, #FFFFFF 0%, #F4F7F2 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px -6px rgba(15, 42, 29, 0.10);
 }
 
 /*
@@ -476,16 +461,10 @@ body {
   box-shadow: var(--shadow-float);
 }
 
-/* Icons and chevrons that travel a little with their parent's hover. The
-   movement points the way the click goes, which is why the chevron goes right
-   and the upload arrow goes up. */
-.lift .travel-x,
-.group:hover .travel-x {
-  transition: transform var(--dur-overlay) var(--ease-emphasis);
-}
-.lift:hover .travel-x { transform: translateX(3px); }
+/* Icons that travel slightly with their parent's hover. The upload arrow
+   goes up. */
 .lift:hover .travel-y { transform: translateY(-2px); }
-.travel-x, .travel-y { transition: transform var(--dur-overlay) var(--ease-emphasis); }
+.travel-y { transition: transform var(--dur-overlay) var(--ease-emphasis); }
 
 /* Entrance, two intensities.
    `.rise` is for cards and tiles: scale and overshoot, per the Standard motion
@@ -548,7 +527,6 @@ body {
   .lift:hover,
   .lift:focus-visible,
   .lift:active { transform: none; }
-  .lift:hover .travel-x,
   .lift:hover .travel-y { transform: none; }
   .rise,
   .rise-flat { animation: none; }
@@ -587,27 +565,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .cell-in { animation-name: auth-fade; }
   .bar-grow { animation: none; }
-}
-
-/* --- Progress meter ------------------------------------------------------
-   A readiness bar that fills from empty on arrival. The growth is the whole
-   point: "4 of 5" as a static bar is a fact, but a bar that fills shows you
-   how much of the way along you are before you have read the number.
-
-   The target width comes in as `--meter` from the markup, so the resting state
-   and the animation's end state are the same value and cannot drift. */
-@keyframes meter-grow {
-  from { width: 0; }
-  to   { width: var(--meter, 0%); }
-}
-.meter-fill {
-  width: var(--meter, 0%);
-  animation: meter-grow 900ms var(--ease-emphasis) backwards;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* The bar still shows the proportion; it just arrives at it. */
-  .meter-fill { animation: none; }
 }
 
 /* --- Rise from the bottom edge -------------------------------------------
@@ -1096,25 +1053,6 @@ body {
     transparent 6px
   );
   opacity: 0.35;
-}
-
-/* The single pulse when the stepper moves to a block. Nothing else in the
-   system pulses, which is what makes it readable as "this one". */
-@keyframes lens-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-.lens-current {
-  animation: lens-pulse 150ms var(--ease-standard) 2;
-  outline: 2px solid var(--sem-conflict);
-  outline-offset: 2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Hold the end state instead of pulsing. */
-  .lens-current {
-    animation: none;
-    outline-color: var(--atlas-green-700);
-  }
 }
 
 /* Print-only elements stay hidden on screen. */

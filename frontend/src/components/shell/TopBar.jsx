@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { Menu, ChevronDown } from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';

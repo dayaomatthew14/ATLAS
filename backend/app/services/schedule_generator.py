@@ -673,115 +673,161 @@ def generate_schedules(
                     "part_type": "combined", "reason": reason_msg
                 })
 
-        # Step 4c: Schedule paired items consecutively on the same day pair
-        for _kind, off_l, off_b, c_lec, c_lab in paired_items:
-            lec_slots = lecture_slots_for(c_lec)
-            lec_hours = get_duration_hours(lec_slots[0][0], lec_slots[0][1]) * 2
-            lab_hours = get_duration_hours(LAB_SLOTS[0][0], LAB_SLOTS[0][1]) * 2
-
-            warn_l, conf_l = _calculate_workload_warnings(
-                semester=semester, f_obj=f_obj, pid=pid, c=c_lec, part_type='lecture',
-                proposed_hours_total=lec_hours, current_hours=faculty_hours_used[pid]
-            )
-            if warn_l: bumped_warnings.append(warn_l)
-            if conf_l: pending_conflicts.append(conf_l)
-
-            warn_b, conf_b = _calculate_workload_warnings(
-                semester=semester, f_obj=f_obj, pid=pid, c=c_lab, part_type='lab',
-                proposed_hours_total=lab_hours, current_hours=faculty_hours_used[pid] + lec_hours
-            )
-            if warn_b: bumped_warnings.append(warn_b)
-            if conf_b: pending_conflicts.append(conf_b)
-
-            placed = _place_consecutive_lec_lab_slot(
-                semester_id=semester_id,
-                lec_curriculum_id=c_lec.id,
-                lab_curriculum_id=c_lab.id,
-                faculty_id=pid,
-                day_pairs_to_try=[MW_PAIR, TTH_PAIR, FS_PAIR],
-                lecture_slots=lec_slots,
-                lab_slots=LAB_SLOTS,
-                rooms_by_type=rooms_by_type,
-                all_unavails=all_unavails,
-                all_schedules=all_schedules
-            )
-
-            if placed:
-                s1, s2, s3, s4 = placed
-                pending_schedules.extend([s1, s2, s3, s4])
-                all_schedules.extend([s1, s2, s3, s4])
-                scheduled_offerings.add((pid, c_lec.id))
-                scheduled_offerings.add((pid, c_lab.id))
-                faculty_hours_used[pid] += (lec_hours + lab_hours)
-                generated_count += 4
-            else:
-                reason_msg = f"{c_lec.code} and {c_lab.code} could not be scheduled consecutively due to faculty availability or schedule conflict."
-                conf_rec = models.Conflict(
-                    faculty_id=pid, curriculum_id=c_lec.id, conflict_type="unplaced_consecutive",
-                    reason=reason_msg
-                )
-                pending_conflicts.append(conf_rec)
-                unplaced.append({
-                    "faculty": pid, "curriculum_id": c_lec.id, "subject": c_lec.code,
-                    "part_type": "consecutive_lec_lab", "reason": reason_msg
-                })
+        # Step 4b: Schedule paired items consecutively on the same day pair
+        generated_count += _schedule_paired_offerings(
+            paired_items=paired_items, semester=semester, semester_id=semester_id,
+            f_obj=f_obj, pid=pid, rooms_by_type=rooms_by_type,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            pending_schedules=pending_schedules, pending_conflicts=pending_conflicts,
+            scheduled_offerings=scheduled_offerings, faculty_hours_used=faculty_hours_used,
+            bumped_warnings=bumped_warnings, unplaced=unplaced,
+        )
 
         # Step 4c: Standalone offerings (lecture only or lab only)
-        for off in offs:
-            if off.id in used_off_ids:
-                continue
-            c = off_currs.get(off.id)
-            if not c:
-                continue
-            if (pid, c.id) in scheduled_offerings:
-                continue
+        generated_count += _schedule_standalone_offerings(
+            offs=offs, used_off_ids=used_off_ids, off_currs=off_currs,
+            semester=semester, semester_id=semester_id, f_obj=f_obj, pid=pid,
+            rooms_by_type=rooms_by_type, all_unavails=all_unavails, all_schedules=all_schedules,
+            pending_schedules=pending_schedules, pending_conflicts=pending_conflicts,
+            scheduled_offerings=scheduled_offerings, faculty_hours_used=faculty_hours_used,
+            bumped_warnings=bumped_warnings, unplaced=unplaced,
+        )
 
-            is_lab = c.type == 'lab' or (c.lab_units or 0) > 0 or (c.code and c.code.upper().endswith('B'))
-            part_type = 'lab' if is_lab else 'lecture'
-            day_pairs_to_try = [TTH_PAIR, MW_PAIR, FS_PAIR] if is_lab else [MW_PAIR, TTH_PAIR, FS_PAIR]
-            slots = LAB_SLOTS if is_lab else lecture_slots_for(c)
+    return _commit_generation_results(
+        db=db, pending_schedules=pending_schedules, pending_conflicts=pending_conflicts,
+        generated_count=generated_count, unplaced=unplaced,
+        skipped_gened=skipped_gened, bumped_warnings=bumped_warnings,
+    )
 
-            proposed_hours_total = get_duration_hours(slots[0][0], slots[0][1]) * 2
-            warn, conf = _calculate_workload_warnings(
-                semester=semester, f_obj=f_obj, pid=pid, c=c, part_type=part_type,
-                proposed_hours_total=proposed_hours_total, current_hours=faculty_hours_used[pid]
+
+def _schedule_paired_offerings(
+    *, paired_items, semester, semester_id, f_obj, pid, rooms_by_type,
+    all_unavails, all_schedules, pending_schedules, pending_conflicts,
+    scheduled_offerings, faculty_hours_used, bumped_warnings, unplaced,
+) -> int:
+    """Place consecutive lecture+lab pairs on shared day pairs, returning count of created slots."""
+    added = 0
+    for _kind, _off_l, _off_b, c_lec, c_lab in paired_items:
+        lec_slots = lecture_slots_for(c_lec)
+        lec_hours = get_duration_hours(lec_slots[0][0], lec_slots[0][1]) * 2
+        lab_hours = get_duration_hours(LAB_SLOTS[0][0], LAB_SLOTS[0][1]) * 2
+
+        warn_l, conf_l = _calculate_workload_warnings(
+            semester=semester, f_obj=f_obj, pid=pid, c=c_lec, part_type='lecture',
+            proposed_hours_total=lec_hours, current_hours=faculty_hours_used[pid],
+        )
+        if warn_l:
+            bumped_warnings.append(warn_l)
+        if conf_l:
+            pending_conflicts.append(conf_l)
+
+        warn_b, conf_b = _calculate_workload_warnings(
+            semester=semester, f_obj=f_obj, pid=pid, c=c_lab, part_type='lab',
+            proposed_hours_total=lab_hours, current_hours=faculty_hours_used[pid] + lec_hours,
+        )
+        if warn_b:
+            bumped_warnings.append(warn_b)
+        if conf_b:
+            pending_conflicts.append(conf_b)
+
+        placed = _place_consecutive_lec_lab_slot(
+            semester_id=semester_id, lec_curriculum_id=c_lec.id, lab_curriculum_id=c_lab.id,
+            faculty_id=pid, day_pairs_to_try=[MW_PAIR, TTH_PAIR, FS_PAIR],
+            lecture_slots=lec_slots, lab_slots=LAB_SLOTS, rooms_by_type=rooms_by_type,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+        )
+        if placed:
+            s1, s2, s3, s4 = placed
+            pending_schedules.extend([s1, s2, s3, s4])
+            all_schedules.extend([s1, s2, s3, s4])
+            scheduled_offerings.add((pid, c_lec.id))
+            scheduled_offerings.add((pid, c_lab.id))
+            faculty_hours_used[pid] += (lec_hours + lab_hours)
+            added += 4
+        else:
+            reason_msg = f"{c_lec.code} and {c_lab.code} could not be scheduled consecutively due to faculty availability or schedule conflict."
+            pending_conflicts.append(
+                models.Conflict(
+                    faculty_id=pid, curriculum_id=c_lec.id, conflict_type="unplaced_consecutive",
+                    reason=reason_msg,
+                )
             )
-            if warn: bumped_warnings.append(warn)
-            if conf: pending_conflicts.append(conf)
+            unplaced.append({
+                "faculty": pid, "curriculum_id": c_lec.id, "subject": c_lec.code,
+                "part_type": "consecutive_lec_lab", "reason": reason_msg,
+            })
+    return added
 
-            if part_type == 'lecture':
-                placed_pair = _place_lecture_slot(
-                    semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
-                    day_pairs_to_try=day_pairs_to_try, slots=slots,
-                    all_unavails=all_unavails, all_schedules=all_schedules
-                )
-            else:
-                placed_pair = _place_lab_slot(
-                    semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
-                    day_pairs_to_try=day_pairs_to_try, slots=slots,
-                    rooms_by_type=rooms_by_type, all_unavails=all_unavails, all_schedules=all_schedules
-                )
 
-            if placed_pair:
-                sched1, sched2 = placed_pair
-                pending_schedules.extend([sched1, sched2])
-                all_schedules.extend([sched1, sched2])
-                scheduled_offerings.add((pid, c.id))
-                faculty_hours_used[pid] += proposed_hours_total
-                generated_count += 2
-            else:
-                reason_msg = f"{c.code} could not be scheduled due to faculty availability or schedule conflict."
-                conf_rec = models.Conflict(
+def _schedule_standalone_offerings(
+    *, offs, used_off_ids, off_currs, semester, semester_id, f_obj, pid,
+    rooms_by_type, all_unavails, all_schedules, pending_schedules, pending_conflicts,
+    scheduled_offerings, faculty_hours_used, bumped_warnings, unplaced,
+) -> int:
+    """Place remaining standalone lecture or lab offerings, returning count of created slots."""
+    added = 0
+    for off in offs:
+        if off.id in used_off_ids:
+            continue
+        c = off_currs.get(off.id)
+        if not c or (pid, c.id) in scheduled_offerings:
+            continue
+
+        is_lab = c.type == 'lab' or (c.lab_units or 0) > 0 or (c.code and c.code.upper().endswith('B'))
+        part_type = 'lab' if is_lab else 'lecture'
+        day_pairs_to_try = [TTH_PAIR, MW_PAIR, FS_PAIR] if is_lab else [MW_PAIR, TTH_PAIR, FS_PAIR]
+        slots = LAB_SLOTS if is_lab else lecture_slots_for(c)
+
+        proposed_hours_total = get_duration_hours(slots[0][0], slots[0][1]) * 2
+        warn, conf = _calculate_workload_warnings(
+            semester=semester, f_obj=f_obj, pid=pid, c=c, part_type=part_type,
+            proposed_hours_total=proposed_hours_total, current_hours=faculty_hours_used[pid],
+        )
+        if warn:
+            bumped_warnings.append(warn)
+        if conf:
+            pending_conflicts.append(conf)
+
+        if part_type == 'lecture':
+            placed_pair = _place_lecture_slot(
+                semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
+                day_pairs_to_try=day_pairs_to_try, slots=slots,
+                all_unavails=all_unavails, all_schedules=all_schedules,
+            )
+        else:
+            placed_pair = _place_lab_slot(
+                semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
+                day_pairs_to_try=day_pairs_to_try, slots=slots,
+                rooms_by_type=rooms_by_type, all_unavails=all_unavails, all_schedules=all_schedules,
+            )
+
+        if placed_pair:
+            sched1, sched2 = placed_pair
+            pending_schedules.extend([sched1, sched2])
+            all_schedules.extend([sched1, sched2])
+            scheduled_offerings.add((pid, c.id))
+            faculty_hours_used[pid] += proposed_hours_total
+            added += 2
+        else:
+            reason_msg = f"{c.code} could not be scheduled due to faculty availability or schedule conflict."
+            pending_conflicts.append(
+                models.Conflict(
                     faculty_id=pid, curriculum_id=c.id, conflict_type=f"unplaced_{part_type}",
-                    reason=reason_msg
+                    reason=reason_msg,
                 )
-                pending_conflicts.append(conf_rec)
-                unplaced.append({
-                    "faculty": pid, "curriculum_id": c.id, "subject": c.code,
-                    "part_type": part_type, "reason": reason_msg
-                })
+            )
+            unplaced.append({
+                "faculty": pid, "curriculum_id": c.id, "subject": c.code,
+                "part_type": part_type, "reason": reason_msg,
+            })
+    return added
 
-    # Commit schedules and conflict records
+
+def _commit_generation_results(
+    *, db, pending_schedules, pending_conflicts, generated_count,
+    unplaced, skipped_gened, bumped_warnings,
+) -> dict:
+    """Persist generated schedules/conflicts and attach conflict IDs to unplaced entries."""
     try:
         if pending_schedules:
             db.add_all(pending_schedules)
@@ -790,13 +836,11 @@ def generate_schedules(
         if pending_schedules or pending_conflicts:
             db.commit()
 
-        # Attach conflict IDs after commit
         for item in unplaced:
             for conf in pending_conflicts:
                 if conf.faculty_id == item.get("faculty") and conf.curriculum_id == item.get("curriculum_id"):
                     item["conflict_id"] = conf.id
                     break
-
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
@@ -805,5 +849,5 @@ def generate_schedules(
         "generated": generated_count,
         "unplaced": unplaced,
         "skipped_gened": skipped_gened,
-        "bumped_warnings": bumped_warnings
+        "bumped_warnings": bumped_warnings,
     }

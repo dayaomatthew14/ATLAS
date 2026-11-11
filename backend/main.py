@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
-import secrets
 from fastapi.staticfiles import StaticFiles
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))

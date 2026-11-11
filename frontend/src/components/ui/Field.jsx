@@ -1,7 +1,8 @@
 import React from 'react';
 import { Lock } from 'lucide-react';
 import { focusRing } from './tokens';
-import { useValidationPopup, ValidationErrorBadge, ValidationPopup } from './ValidationPopup';
+import { ValidationErrorBadge, ValidationPopup } from './ValidationPopup';
+import { useValidationPopup } from './useValidationPopup';
 
 /**
  * ATLAS form field. Phase 1 §1.2.

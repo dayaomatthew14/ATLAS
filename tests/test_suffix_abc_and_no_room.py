@@ -1,6 +1,4 @@
 import unittest
-from datetime import time
-from typing import cast
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app import models

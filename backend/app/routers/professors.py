@@ -140,16 +140,6 @@ def _unit_load(db: Session, faculty_id: int, semester) -> int:
     return sum(row[0] or 0 for row in total)
 
 
-def resolve_user_department(db: Session, current_user: models.User):
-    """Return the Department for a user's department code/name, or None."""
-    if not current_user.department:
-        return None
-    return db.query(models.Department).filter(
-        (models.Department.code == current_user.department) |
-        (models.Department.name == current_user.department)
-    ).first()
-
-
 def assert_faculty_in_scope(db: Session, current_user: models.User, faculty: models.Faculty):
     """
     Reject access to a faculty record outside the caller's department.
@@ -162,7 +152,7 @@ def assert_faculty_in_scope(db: Session, current_user: models.User, faculty: mod
     if current_user.role not in SCOPED_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    dept = resolve_user_department(db, current_user)
+    dept = auth.resolve_user_department(db, current_user)
     if not dept or faculty.department_id != dept.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -186,7 +176,7 @@ def get_professors(
     if current_user.role in SCOPED_ROLES:
         # Fail closed. This previously fell back to returning every faculty
         # member in the university when the department could not be resolved.
-        dept = resolve_user_department(db, current_user)
+        dept = auth.resolve_user_department(db, current_user)
         if not dept:
             return []
         query = query.filter(models.Faculty.department_id == dept.id)
@@ -268,11 +258,8 @@ def create_professor(
     if faculty_data.get('type') == 'full_time' and (not faculty_data.get('max_units') or faculty_data.get('max_units') == 0):
         faculty_data['max_units'] = 24 if faculty_data.get('load_unit') == 'hrs' else 18
     
-    if current_user.role in ['dean', 'program_chair']:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
+    if current_user.role in ('dean', 'program_chair'):
+        dept = auth.resolve_user_department(db, current_user)
         if dept:
             faculty_data['department_id'] = dept.id
             
@@ -313,7 +300,7 @@ def update_professor(
     # A scoped user must not be able to move a faculty member into another
     # department, which would put the record permanently out of their reach.
     if current_user.role in SCOPED_ROLES and 'department_id' in update_data:
-        dept = resolve_user_department(db, current_user)
+        dept = auth.resolve_user_department(db, current_user)
         if not dept or update_data['department_id'] != dept.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -241,7 +241,7 @@ class TestLabLecHandling(unittest.TestCase):
     def test_curriculum_rbac_admin_only_modifications_suite(self):
         import asyncio
         from fastapi import HTTPException
-        from backend.app.routers.curriculum import create_curriculum_block, update_curriculum_block_status, create_curriculum_item, update_curriculum_item, delete_curriculum_item
+        from backend.app.routers.curriculum import create_curriculum_block, update_curriculum_block_status, update_curriculum_item
 
         db = setup_test_db()
         dept = models.Department(name="College of Computer Studies", code="CAST")

@@ -12,7 +12,7 @@ import { api } from '../../utils/api';
 import Button from '../../components/ui/Button';
 import useCountUp from '../../components/ui/useCountUp';
 import { pluralize, focusRing } from '../../components/ui/tokens';
-import { isDean, getDepartment } from '../../utils/session';
+import { getDepartment } from '../../utils/session';
 
 const STAT_VARIANTS = {
   classes: {
@@ -117,8 +117,6 @@ export default function AdminOverview() {
 
   const pending = users.filter((u) => u.is_verified === false);
   const chairsCount = users.filter((u) => u.role === 'program_chair').length;
-  const deansCount = users.filter((u) => u.role === 'dean').length;
-  const adminsCount = users.filter((u) => u.role === 'admin').length;
 
   const deptCode = getDepartment();
   const collegeName = colleges[0]?.name || deptCode || 'College';

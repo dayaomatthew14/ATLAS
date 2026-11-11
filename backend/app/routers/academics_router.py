@@ -115,16 +115,13 @@ def _seeded_colleges(db: Session):
 
 
 def _require_admin_or_dean(db: Session, current_user: models.User, department_id: Optional[int] = None) -> None:
-    if current_user.role not in ["admin", "dean"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can manage the academic structure."
-        )
+    auth.require_roles(
+        current_user,
+        ("admin", "dean"),
+        detail="Only administrators can manage the academic structure.",
+    )
     if current_user.department and department_id is not None:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
+        dept = auth.resolve_user_department(db, current_user)
         if not dept or dept.id != department_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

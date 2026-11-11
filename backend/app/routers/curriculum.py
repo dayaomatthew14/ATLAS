@@ -41,12 +41,8 @@ def get_curriculum_blocks(
             # All non-admin/dean roles only see PUBLISHED curricula
             query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
 
-        user_dept = getattr(current_user, 'department', None)
-        if user_dept:
-            dept = db.query(models.Department).filter(
-                (models.Department.code == user_dept) | 
-                (models.Department.name == user_dept)
-            ).first()
+        if getattr(current_user, 'department', None):
+            dept = auth.resolve_user_department(db, current_user)
             if dept:
                 query = query.filter(models.CurriculumBlock.department_id == dept.id)
             else:
@@ -80,10 +76,7 @@ def get_curriculum_blocks(
             if current_user.role not in ['admin', 'dean'] and b_status != 'PUBLISHED':
                 continue
             if current_user.role in ['dean', 'program_chair']:
-                dept = db.query(models.Department).filter(
-                    (models.Department.code == current_user.department) | 
-                    (models.Department.name == current_user.department)
-                ).first()
+                dept = auth.resolve_user_department(db, current_user)
                 if dept and block.department_id != dept.id:
                     continue
 
@@ -220,10 +213,7 @@ def get_curriculum(
     
     if current_user.role in ['dean', 'program_chair'] and current_user.department:
         # Filter curriculum by the user's department
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
+        dept = auth.resolve_user_department(db, current_user)
         if dept:
             query = query.filter(models.Curriculum.department_id == dept.id)
         else:
@@ -268,10 +258,7 @@ def create_curriculum_item(
             if blk:
                 curriculum_item.department_id = int(blk.department_id) # type: ignore
         if not curriculum_item.department_id and current_user.role == 'dean':
-            dept = db.query(models.Department).filter(
-                (models.Department.code == current_user.department) | 
-                (models.Department.name == current_user.department)
-            ).first()
+            dept = auth.resolve_user_department(db, current_user)
             if dept:
                 curriculum_item.department_id = int(dept.id) # type: ignore
         if not curriculum_item.department_id:
@@ -528,10 +515,7 @@ async def delete_curriculum_course(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     if current_user.role == 'dean':
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
+        dept = auth.resolve_user_department(db, current_user)
         dept_id = dept.id if dept else None
         db.query(models.Curriculum).filter(
             models.Curriculum.program_code == course_name,

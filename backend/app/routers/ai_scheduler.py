@@ -151,13 +151,8 @@ def get_conflicts(
     # Scope to the caller's department. Without this, a chair saw every
     # department's conflicts. Resolve the department through curriculum_id
     # directly, or through the linked schedule for overlap conflicts.
-    if current_user.role in ['program_chair', 'coordinator']:
-        if not current_user.department:
-            return []
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
+    if current_user.role in ('program_chair', 'coordinator'):
+        dept = auth.resolve_user_department(db, current_user)
         if not dept:
             return []
 
@@ -259,15 +254,10 @@ def get_global_schedule(
         models.Schedule.semester_id == semester_id
     )
 
-    if current_user.role in ['program_chair', 'coordinator', 'faculty', 'student']:
+    if current_user.role in ('program_chair', 'coordinator', 'faculty', 'student'):
         # Fail closed. Previously an unresolvable department left the query
         # unfiltered, exposing the whole university's schedule.
-        if not current_user.department:
-            return []
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) |
-            (models.Department.name == current_user.department)
-        ).first()
+        dept = auth.resolve_user_department(db, current_user)
         if not dept:
             return []
         query = query.filter(models.Curriculum.department_id == dept.id)
@@ -334,11 +324,8 @@ def solve_conflict(
     subj_code = c_obj.code if c_obj else "Subject"
 
     dept_id: Optional[int] = cast(Optional[int], f_obj.department_id) if f_obj else None
-    if not dept_id and current_user.department:
-        dept = db.query(models.Department).filter(
-            (models.Department.code == current_user.department) | 
-            (models.Department.name == current_user.department)
-        ).first()
+    if not dept_id:
+        dept = auth.resolve_user_department(db, current_user)
         if dept:
             dept_id = cast(int, dept.id)
 
@@ -350,7 +337,6 @@ def solve_conflict(
         target_sched = s2 or s1
         if target_sched:
             curr_item = db.query(models.Curriculum).filter(models.Curriculum.id == target_sched.curriculum_id).first()
-            is_lec = (curr_item and curr_item.type == 'lecture') or (req.part_type == 'lecture')
             
             from ..services.schedule_generator import TIMESLOTS, DAYS, is_prof_conflict
             all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == target_sched.semester_id).all()

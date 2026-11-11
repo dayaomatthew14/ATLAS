@@ -5,12 +5,8 @@ import openpyxl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.app import models, schemas, auth
-from backend.app.services.schedule_generator import generate_schedules, is_room_conflict, check_overlap
-from backend.app.routers import (
-    auth_router, curriculum, rooms, users, schedules,
-    semesters, ai_scheduler, logs, ai_rules,
-    notifications_router, conflicts, subject_offerings, professors
-)
+from backend.app.services.schedule_generator import generate_schedules
+from backend.app.routers import curriculum
 
 def _standard_lecture_hours_per_week():
     """Weekly hours one generated standard lecture carries (80 min x 2 = 2.67)."""

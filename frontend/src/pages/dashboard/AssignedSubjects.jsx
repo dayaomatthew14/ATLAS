@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -6,13 +6,8 @@ import {
   UserCheck,
   UserX,
   Search,
-  Filter,
   RefreshCw,
-  UserPlus,
   Trash2,
-  Calendar,
-  GraduationCap,
-  Users
 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';

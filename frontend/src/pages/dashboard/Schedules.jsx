@@ -1,31 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, AlertTriangle, Sparkles, MapPin, User, Trash2, RotateCcw, X, Download, LayoutGrid, LayoutList, FileText, FileSpreadsheet, Table as TableIcon, Clock, Calendar, ChevronDown, Check } from 'lucide-react';
+import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, LayoutGrid, LayoutList, Calendar, ChevronDown, Check } from 'lucide-react';
 import Modal from '../../components/Modal';
-import AtlasDialog from '../../components/ui/Dialog';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
 import AtlasButton from '../../components/ui/Button';
 import ConflictLens from '../../components/ui/ConflictLens';
-// Badge, ConfirmDialog, restrictionReason and the admin check left with the
-// publish control — they had no other consumer on this screen.
-import Badge from '../../components/ui/Badge';
 import { PageHeader } from '../../components/ui/Page';
 import { focusRing, pluralize } from '../../components/ui/tokens';
 import {
-  useValidationPopup,
   ValidationErrorBadge,
   ValidationPopup,
-  ValidationAnchor,
 } from '../../components/ui/ValidationPopup';
-import { canEditSchedules, getDepartment } from '../../utils/session';
+import { useValidationPopup } from '../../components/ui/useValidationPopup';
+import { canEditSchedules } from '../../utils/session';
 import {
   ALLOWED_DAY_ABBR,
   validateSectionName,
   validateTimeOrder,
   parseErrorResponse,
 } from '../../utils/validation';
+import {
+  getFacultyColor,
+  DAY_ORDER,
+  DAY_LABEL,
+  ACADEMIC_PERIODS,
+  to12h,
+  minutesOf,
+  durationHours,
+  dayKey,
+  formatSubjectCode,
+  isLabSession,
+  sortForExport,
+} from '../../utils/scheduleHelpers';
+import ClassCard from '../../components/schedules/ClassCard';
+import ScheduleHoverPopover from '../../components/schedules/ScheduleHoverPopover';
+import ConflictResolutionDialog from '../../components/schedules/ConflictResolutionDialog';
+import GenerateScheduleModal from '../../components/schedules/GenerateScheduleModal';
+import ExportScheduleDialog from '../../components/schedules/ExportScheduleDialog';
+import { ClearSchedulesDialog, UndoBackupToast } from '../../components/schedules/ClearSchedulesDialog';
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -74,534 +88,12 @@ function ScheduleField({ id, label, required = false, error, className = '', chi
   );
 }
 
-/**
- * Faculty identity colours — Uxintace Palette Design System
- * (#0F2A1D, #375534, #6B9071, #AEC3B0, #E3EED4).
- *
- * Each variant provides a harmonious palette configuration matching the modern
- * timetable card UI (solid left accent strip, pastel background fill, dark header text,
- * and accent-tinted time label).
- */
-const FACULTY_COLOR_PALETTES = [
-  {
-    name: 'deep-pine',
-    accent: '#0F2A1D',
-    bg: '#EAF0EB',
-    border: 'rgba(15, 42, 29, 0.22)',
-    title: '#0F2A1D',
-    time: '#2B4D39',
-    meta: '#446450',
-    dot: 'bg-[#0F2A1D]',
-    badgeBg: '#DCE8DE',
-    badgeText: '#0F2A1D',
-    text: 'text-[#0F2A1D]',
-  },
-  {
-    name: 'hunter-green',
-    accent: '#375534',
-    bg: '#E7EFE5',
-    border: 'rgba(55, 85, 52, 0.22)',
-    title: '#1B3618',
-    time: '#375534',
-    meta: '#4D6B4A',
-    dot: 'bg-[#375534]',
-    badgeBg: '#D9E8D6',
-    badgeText: '#1B3618',
-    text: 'text-[#1B3618]',
-  },
-  {
-    name: 'sage-green',
-    accent: '#6B9071',
-    bg: '#EFF5EE',
-    border: 'rgba(107, 144, 113, 0.25)',
-    title: '#1D3B24',
-    time: '#4F7556',
-    meta: '#5A8062',
-    dot: 'bg-[#6B9071]',
-    badgeBg: '#E0EDE0',
-    badgeText: '#1D3B24',
-    text: 'text-[#1D3B24]',
-  },
-  {
-    name: 'soft-pistachio',
-    accent: '#476949',
-    bg: '#E3EED4',
-    border: 'rgba(71, 105, 73, 0.22)',
-    title: '#1A331C',
-    time: '#375534',
-    meta: '#4E6C4F',
-    dot: 'bg-[#476949]',
-    badgeBg: '#D5E4C3',
-    badgeText: '#1A331C',
-    text: 'text-[#1A331C]',
-  },
-  {
-    name: 'light-celadon',
-    accent: '#527A5F',
-    bg: '#E8F2EC',
-    border: 'rgba(82, 122, 95, 0.22)',
-    title: '#133521',
-    time: '#3D654D',
-    meta: '#4F775F',
-    dot: 'bg-[#527A5F]',
-    badgeBg: '#DAEAE0',
-    badgeText: '#133521',
-    text: 'text-[#133521]',
-  },
-  {
-    name: 'olive-moss',
-    accent: '#4A5E33',
-    bg: '#EFF3E8',
-    border: 'rgba(74, 94, 51, 0.22)',
-    title: '#1E2C11',
-    time: '#4A5E33',
-    meta: '#5E7245',
-    dot: 'bg-[#4A5E33]',
-    badgeBg: '#E2EAC7',
-    badgeText: '#1E2C11',
-    text: 'text-[#1E2C11]',
-  },
-  {
-    name: 'dark-spruce',
-    accent: '#1F4332',
-    bg: '#E5ECE7',
-    border: 'rgba(31, 67, 50, 0.22)',
-    title: '#0E271C',
-    time: '#2B5541',
-    meta: '#426B57',
-    dot: 'bg-[#1F4332]',
-    badgeBg: '#D4E2D8',
-    badgeText: '#0E271C',
-    text: 'text-[#0E271C]',
-  },
-  {
-    name: 'eucalyptus',
-    accent: '#3E6652',
-    bg: '#E9F2ED',
-    border: 'rgba(62, 102, 82, 0.22)',
-    title: '#163828',
-    time: '#3E6652',
-    meta: '#527A66',
-    dot: 'bg-[#3E6652]',
-    badgeBg: '#DAE9E0',
-    badgeText: '#163828',
-    text: 'text-[#163828]',
-  },
-];
-
-const getFacultyColor = (profName) => {
-  if (!profName) return FACULTY_COLOR_PALETTES[0];
-  let hash = 0;
-  for (let i = 0; i < profName.length; i++) {
-    hash = profName.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % FACULTY_COLOR_PALETTES.length;
-  return FACULTY_COLOR_PALETTES[index];
-};
-
-const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const DAY_LABEL = {
-  Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday',
-  Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday',
-};
-
-/**
- * Standard Academic Periods for the Structured Timetable Matrix.
- * Covers 7:30 AM to 7:30 PM with clean institutional slot thresholds.
- */
-const ACADEMIC_PERIODS = [
-  { id: 'p1', num: '1', title: 'Period 1', time: '07:30 – 09:00', thresholdStart: 0, thresholdEnd: 525 },
-  { id: 'p2', num: '2', title: 'Period 2', time: '09:00 – 10:30', thresholdStart: 525, thresholdEnd: 605 },
-  { id: 'p3', num: '3', title: 'Period 3', time: '10:30 – 12:00', thresholdStart: 605, thresholdEnd: 685 },
-  { id: 'p4', num: '4', title: 'Midday', time: '12:00 – 01:30', thresholdStart: 685, thresholdEnd: 795, isMidday: true },
-  { id: 'p5', num: '5', title: 'Period 5', time: '01:30 – 03:00', thresholdStart: 795, thresholdEnd: 885 },
-  { id: 'p6', num: '6', title: 'Period 6', time: '03:00 – 04:30', thresholdStart: 885, thresholdEnd: 975 },
-  { id: 'p7', num: '7', title: 'Period 7', time: '04:30 – 06:00', thresholdStart: 975, thresholdEnd: 1055 },
-  { id: 'p8', num: '8', title: 'Period 8', time: '06:00 – 07:30', thresholdStart: 1055, thresholdEnd: 1440 },
-];
-
-/** "13:30" -> "1:30 PM". The grid had this inline three times over. */
-const to12h = (t) => {
-  if (!t) return '';
-  const [h, m] = String(t).split(':');
-  const hr = parseInt(h, 10);
-  if (Number.isNaN(hr)) return '';
-  return `${hr % 12 || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`;
-};
-
-const minutesOf = (t) => {
-  const [h, m] = String(t || '0:0').split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
-};
-
-const durationHours = (s) => Math.max(0, (minutesOf(s.end_time) - minutesOf(s.start_time)) / 60);
-
-/** The API writes either "Mon" or "Monday" depending on the path that saved it. */
-const dayKey = (value) => {
-  const head = String(value || '').slice(0, 3).toLowerCase();
-  return DAY_ORDER.find((d) => d.toLowerCase() === head) || '';
-};
-
-const formatSubjectCode = (sched) => {
-  if (!sched || !sched.subject_code) return '';
-  const rawCode = sched.subject_code;
-  const abMatch = rawCode.match(/^(.*?)[_\-\s]*A\/B$/i);
-  if (abMatch) {
-    const baseCode = abMatch[1].trim();
-    const isLec = sched.part_type === 'lecture';
-    return isLec ? `${baseCode}A` : `${baseCode}B`;
-  }
-  return rawCode;
-};
-
-const isLabSession = (sched) => {
-  if (!sched) return false;
-  if (sched.part_type === 'lab') return true;
-  if (sched.curriculum?.type === 'lab') return true;
-  const rawCode = sched.subject_code || sched.code || sched.curriculum?.code || '';
-  if (rawCode.toUpperCase().endsWith('B')) return true;
-  const dur = durationHours(sched);
-  if (dur >= 2.0 && sched.curriculum?.lab_units > 0) return true;
-  return false;
-};
-
-
-/**
- * Calculates column positions and widths for overlapping timetable events
- * so simultaneous classes sit side-by-side cleanly without obscuring each other.
- */
-const computeEventLayout = (scheds) => {
-  if (!scheds || scheds.length === 0) return new Map();
-
-  const sorted = [...scheds].sort((a, b) => {
-    const startA = minutesOf(a.start_time);
-    const startB = minutesOf(b.start_time);
-    if (startA !== startB) return startA - startB;
-    return (minutesOf(b.end_time) - startB) - (minutesOf(a.end_time) - startA);
-  });
-
-  const layout = new Map();
-  const clusters = [];
-  let currentCluster = [];
-  let clusterEnd = -1;
-
-  for (const item of sorted) {
-    const start = minutesOf(item.start_time);
-    const end = minutesOf(item.end_time);
-
-    if (start < clusterEnd) {
-      currentCluster.push(item);
-      clusterEnd = Math.max(clusterEnd, end);
-    } else {
-      if (currentCluster.length > 0) clusters.push(currentCluster);
-      currentCluster = [item];
-      clusterEnd = end;
-    }
-  }
-  if (currentCluster.length > 0) clusters.push(currentCluster);
-
-  for (const cluster of clusters) {
-    const cols = [];
-    for (const item of cluster) {
-      const start = minutesOf(item.start_time);
-      let placed = false;
-      for (let c = 0; c < cols.length; c++) {
-        if (cols[c] <= start) {
-          cols[c] = minutesOf(item.end_time);
-          layout.set(item.id, { colIndex: c, totalCols: 1 });
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        layout.set(item.id, { colIndex: cols.length, totalCols: 1 });
-        cols.push(minutesOf(item.end_time));
-      }
-    }
-    const totalCols = Math.max(1, cols.length);
-    for (const item of cluster) {
-      const curr = layout.get(item.id);
-      if (curr) curr.totalCols = totalCols;
-    }
-  }
-
-  return layout;
-};
-
-/**
- * The exported file's columns, in order.
- *
- * One list drives both the preview table and the file itself, so the preview
- * cannot drift from what is actually written — which is the only thing that
- * makes a preview worth showing.
- */
-const EXPORT_COLUMNS = [
-  { key: 'faculty', label: 'Professor', value: (s) => s.faculty_name || 'TBA' },
-  { key: 'code', label: 'Subject Code', value: (s) => formatSubjectCode(s) },
-  { key: 'name', label: 'Subject Name', value: (s) => s.subject_name || '' },
-  { key: 'section', label: 'Section', value: (s) => s.section || '—' },
-  { key: 'day', label: 'Day', value: (s) => DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '' },
-  { key: 'start', label: 'Start Time', value: (s) => to12h(s.start_time) },
-  { key: 'end', label: 'End Time', value: (s) => to12h(s.end_time) },
-];
-
-/**
- * Official Excel export format.
- */
-const EXPORT_FORMATS = [
-  {
-    id: 'excel',
-    ext: 'xlsx',
-    label: 'Excel Workbook',
-    tag: 'Official Format',
-    tagClass: 'bg-emerald-50 text-emerald-800 border-emerald-200/80',
-    iconColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    icon: FileSpreadsheet,
-    sub: 'Styled .xlsx spreadsheet with green header, auto-fit columns & frozen panes',
-  },
-];
-
-const htmlEscape = (v) =>
-  String(v ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-
-/**
- * A Word document, built as HTML with institutional DLSAU styling.
- */
-const buildWordHtml = (rows, opts = {}) => {
-  const dept = opts.dept || opts.title || (getDepartment() || 'All Departments');
-  const term = opts.term || 'Active Term';
-  const scope = opts.scope || 'All Faculty Members';
-  const dateStr = opts.dateStr || new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
-
-  return `
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8">
-<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
-<style>
-  @page { size: 29.7cm 21cm; margin: 1.2cm 1.5cm; mso-page-orientation: landscape; }
-  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 9.5pt; color: #0f172a; margin: 0; padding: 0; }
-  
-  .banner { background-color: #05301F; color: #ffffff; padding: 14pt 18pt; border-bottom: 3.5pt solid #C8A227; margin-bottom: 12pt; }
-  .univ-title { font-size: 10pt; font-weight: bold; letter-spacing: 1.5pt; text-transform: uppercase; color: #C8A227; margin: 0 0 3pt; }
-  .doc-title { font-size: 16pt; font-weight: bold; color: #ffffff; margin: 0 0 3pt; }
-  .sub-title { font-size: 8.5pt; color: #D0DFD6; margin: 0; }
-
-  .summary-bar { width: 100%; border-collapse: collapse; margin-bottom: 12pt; background: #F2F7F4; border: 1pt solid #C8D9CF; }
-  .summary-bar td { padding: 6pt 10pt; font-size: 8.5pt; color: #1E293B; border-right: 1pt solid #DDE7E1; vertical-align: middle; }
-  .summary-bar td:last-child { border-right: none; }
-  .summary-label { font-weight: bold; color: #05301F; }
-
-  table.data-table { border-collapse: collapse; width: 100%; margin-bottom: 18pt; }
-  table.data-table th, table.data-table td { border: 0.5pt solid #D5DFD9; padding: 5.5pt 6.5pt; font-size: 8.5pt; vertical-align: top; }
-  table.data-table th { background: #05301F; color: #ffffff; font-weight: bold; font-size: 8pt; text-transform: uppercase; border-bottom: 2pt solid #C8A227; text-align: center; }
-  table.data-table th.left, table.data-table td.left { text-align: left; }
-  table.data-table th.center, table.data-table td.center { text-align: center; }
-  table.data-table tr.alt td { background: #F4F8F5; }
-  .prof-name { font-weight: bold; color: #0F172A; }
-  .subj-code { font-weight: bold; color: #05301F; }
-  
-  .signatures { width: 100%; border-collapse: collapse; margin-top: 24pt; page-break-inside: avoid; }
-  .signatures td { width: 50%; padding: 10pt 24pt; vertical-align: top; font-size: 9pt; color: #1E293B; }
-  .sig-line { border-bottom: 1pt solid #0F172A; width: 85%; margin-top: 36pt; margin-bottom: 4pt; }
-  .sig-title { font-weight: bold; color: #05301F; font-size: 9pt; }
-  .sig-meta { color: #64748B; font-size: 8pt; }
-</style>
-</head>
-<body>
-  <div class="banner">
-    <div class="univ-title">De La Salle Araneta University</div>
-    <div class="doc-title">Official Class Timetable &amp; Faculty Load</div>
-    <div class="sub-title">Automated Timetable &amp; Load Allocation System (ATLAS)</div>
-  </div>
-
-  <table class="summary-bar">
-    <tr>
-      <td><span class="summary-label">Department:</span> ${htmlEscape(dept)}</td>
-      <td><span class="summary-label">Academic Term:</span> ${htmlEscape(term)}</td>
-      <td><span class="summary-label">Faculty Scope:</span> ${htmlEscape(scope)}</td>
-      <td><span class="summary-label">Total Classes:</span> ${rows.length} scheduled</td>
-      <td><span class="summary-label">Generated:</span> ${htmlEscape(dateStr)}</td>
-    </tr>
-  </table>
-
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th class="left">Professor</th>
-        <th class="center">Subject Code</th>
-        <th class="left">Subject Name</th>
-        <th class="center">Section</th>
-        <th class="center">Day</th>
-        <th class="center">Start Time</th>
-        <th class="center">End Time</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.map((s, i) => `
-        <tr${i % 2 ? ' class="alt"' : ''}>
-          <td class="left prof-name">${htmlEscape(s.faculty_name || 'TBA')}</td>
-          <td class="center subj-code">${htmlEscape(formatSubjectCode(s))}</td>
-          <td class="left">${htmlEscape(s.subject_name || '')}</td>
-          <td class="center">${htmlEscape(s.section || '—')}</td>
-          <td class="center font-bold">${htmlEscape(DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '—')}</td>
-          <td class="center">${htmlEscape(to12h(s.start_time))}</td>
-          <td class="center">${htmlEscape(to12h(s.end_time))}</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>
-
-  <table class="signatures">
-    <tr>
-      <td>
-        <div style="font-weight: bold; color: #05301F;">Certified Correct:</div>
-        <div class="sig-line"></div>
-        <div class="sig-title">Program Chair</div>
-        <div class="sig-meta">Date: ________________________</div>
-      </td>
-      <td>
-        <div style="font-weight: bold; color: #05301F;">Approved by:</div>
-        <div class="sig-line"></div>
-        <div class="sig-title">Dean / Vice Chancellor for Academic Affairs</div>
-        <div class="sig-meta">Date: ________________________</div>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`.trim();
-};
-
-/** Professor, then the week in order, then time of day. How you would read it. */
-const sortForExport = (rows) =>
-  [...rows].sort(
-    (a, b) =>
-      String(a.faculty_name || '').localeCompare(String(b.faculty_name || ''))
-      || DAY_ORDER.indexOf(dayKey(a.day_of_week)) - DAY_ORDER.indexOf(dayKey(b.day_of_week))
-      || minutesOf(a.start_time) - minutesOf(b.start_time)
-      || String(a.subject_code || '').localeCompare(String(b.subject_code || ''))
-  );
-
-/**
- * One class, in the by-professor board.
- *
- * Laid out to be read rather than to fit: the subject name wraps in full
- * instead of truncating, the time range gets its own line at full weight, and
- * room and section sit under a rule rather than sharing a row. It is the same
- * class the grid renders, given the space to say what it is.
- */
-function ClassCard({ sched, color, dayLabel, lensDim, lensLit, canManage, onDelete }) {
-  const code = formatSubjectCode(sched);
-  const label =
-    `${code}, ${sched.subject_name}, ${dayLabel} ` +
-    `${to12h(sched.start_time)} to ${to12h(sched.end_time)}` +
-    (sched.section ? `, Section ${sched.section}` : '') +
-    (canManage ? '. Press Delete to remove this class.' : '');
-
-  return (
-    <div
-      role="button"
-      tabIndex={lensDim ? -1 : 0}
-      aria-hidden={lensDim || undefined}
-      aria-label={label}
-      onKeyDown={(e) => {
-        if ((e.key === 'Delete' || e.key === 'Backspace') && canManage) {
-          e.preventDefault();
-          onDelete(sched);
-        }
-      }}
-      style={{
-        backgroundColor: color.bg,
-        borderColor: color.border,
-      }}
-      className={`print-block group relative rounded-2xl border p-4 shadow-xs hover:shadow-lg transition-all duration-200 overflow-hidden
-                  focus-visible:outline-none
-                  focus-visible:ring-2 focus-visible:ring-[#375534] focus-visible:ring-offset-2
-                  ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''}`}
-    >
-      {/* The solid left accent bar from Image 1 */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-[5px] rounded-l-md pointer-events-none transition-all group-hover:w-[6px]"
-        style={{ backgroundColor: color.accent }}
-      />
-
-      {lensLit && (
-        <span className="absolute top-2 right-2 text-rose-600 font-extrabold text-sm z-10" aria-hidden="true">▲</span>
-      )}
-
-      {/* Header: Code badge, Section & Delete action */}
-      <div className="flex items-start justify-between gap-2 pl-1.5">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span
-            className="font-mono text-caption font-bold px-2 py-0.5 rounded shadow-2xs"
-            style={{ backgroundColor: color.badgeBg, color: color.badgeText }}
-          >
-            {code}
-          </span>
-          <span
-            className={`font-mono text-[9.5px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs ${
-              isLabSession(sched)
-                ? 'bg-amber-100 text-amber-900 border border-amber-300/80'
-                : 'bg-emerald-100 text-emerald-900 border border-emerald-300/80'
-            }`}
-          >
-            {isLabSession(sched) ? 'LAB' : 'LEC'}
-          </span>
-          {sched.section && (
-            <span className="font-mono text-caption font-semibold text-[#375534]">
-              Sec {sched.section}
-            </span>
-          )}
-        </div>
-        {canManage && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(sched);
-            }}
-            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 -m-1 shrink-0 text-slate-400
-                       hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all no-print"
-            aria-label={`Delete ${code} on ${dayLabel}`}
-            title="Delete this class"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Subject Title */}
-      <h4
-        className="mt-2 pl-1.5 font-ui text-body font-bold leading-snug break-words"
-        style={{ color: color.title }}
-      >
-        {sched.subject_name}
-      </h4>
-
-      {/* Footer: Time range */}
-      <div className="mt-3 pt-2.5 border-t border-[#AEC3B0]/30 pl-1.5 flex items-center">
-        <span
-          className="font-data text-caption font-bold tabular-nums whitespace-nowrap"
-          style={{ color: color.time }}
-        >
-          {to12h(sched.start_time)} – {to12h(sched.end_time)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export default function Schedules() {
   const { addToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [formConflicts, setFormConflicts] = useState([]);
   // A room clash does not stop a save; a faculty or section clash does.
   const blockingFormConflicts = formConflicts.filter((c) => c.severity !== 'advisory');
-  const advisoryFormConflicts = formConflicts.filter((c) => c.severity === 'advisory');
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
 
@@ -980,7 +472,6 @@ export default function Schedules() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   // 'all' or 'filtered'. Only meaningful while a professor filter is active.
   const [exportScope, setExportScope] = useState('all');
-  const [exportFormat] = useState('excel');
   const [isExporting, setIsExporting] = useState(false);
 
   const openExport = () => {
@@ -2084,111 +1575,17 @@ export default function Schedules() {
           )}
         </div>
 
-        {/* Floating Hover Preview Popover for Week Grid Class */}
-        {hoveredSchedule && (
-          <div
-            style={getPopoverStyle(hoveredSchedule.rect)}
-            onMouseEnter={handlePopoverMouseEnter}
-            onMouseLeave={handlePopoverMouseLeave}
-            className="no-print pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-[#AEC3B0]/60 overflow-hidden transition-all duration-150 animate-in fade-in zoom-in-95 z-50"
-          >
-            {/* Top Accent Stripe */}
-            <div
-              className="h-1.5 w-full shrink-0"
-              style={{ backgroundColor: hoveredSchedule.color.accent }}
-            />
-
-            <div className="p-4 space-y-3">
-              {/* Badges & Conflict Row */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span
-                  className="text-[11px] font-mono font-bold px-2 py-0.5 rounded shadow-2xs"
-                  style={{
-                    backgroundColor: hoveredSchedule.color.badgeBg,
-                    color: hoveredSchedule.color.badgeText,
-                  }}
-                >
-                  {formatSubjectCode(hoveredSchedule.sched)}
-                </span>
-                {hoveredSchedule.sched.section && (
-                  <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[#E3EED4] text-[#0F2A1D]">
-                    Sec {hoveredSchedule.sched.section}
-                  </span>
-                )}
-                {hoveredSchedule.inConflict && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-700 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                    Conflict
-                  </span>
-                )}
-              </div>
-
-              {/* Subject Title */}
-              <h4 className="font-ui text-xs font-bold text-[#0F2A1D] leading-snug break-words">
-                {hoveredSchedule.sched.subject_name}
-              </h4>
-
-              {/* Metadata details */}
-              <div className="border-t border-[#E8EFE8] pt-2.5 space-y-2 text-xs">
-                {/* Day & Time & Duration */}
-                <div className="flex items-start gap-2 text-[#0F2A1D]">
-                  <Clock className="w-3.5 h-3.5 text-[#375534] shrink-0 mt-0.5" />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-[#0F2A1D]">
-                      {DAY_LABEL[hoveredSchedule.day] || hoveredSchedule.day}
-                    </span>
-                    <span className="font-data font-medium text-[#375534] tabular-nums">
-                      {to12h(hoveredSchedule.sched.start_time)} – {to12h(hoveredSchedule.sched.end_time)}
-                      {(() => {
-                        const d = durationHours(hoveredSchedule.sched);
-                        return d > 0 ? (
-                          <span className="ml-1 text-[11px] font-semibold text-[#6B9071]">
-                            ({d === 1 ? '1 hr' : `${d} hrs`})
-                          </span>
-                        ) : null;
-                      })()}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Faculty */}
-                <div className="flex items-center gap-2 text-[#0F2A1D]">
-                  <User className="w-3.5 h-3.5 text-[#375534] shrink-0" />
-                  <span className="font-medium truncate">
-                    {hoveredSchedule.sched.faculty_name || 'Unassigned Professor'}
-                  </span>
-                </div>
-
-                {/* Section */}
-                {hoveredSchedule.sched.section && (
-                  <div className="flex items-center gap-2 text-[#0F2A1D]">
-                    <Users className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
-                    <span className="font-medium truncate">
-                      Section {hoveredSchedule.sched.section}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Delete button (if can manage) */}
-              {canManageSchedules && (
-                <div className="pt-2 border-t border-[#E8EFE8]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleDeleteSchedule(hoveredSchedule.sched);
-                      setHoveredSchedule(null);
-                    }}
-                    className="w-full py-1.5 px-3 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Schedule</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <ScheduleHoverPopover
+          hoveredSchedule={hoveredSchedule}
+          getPopoverStyle={getPopoverStyle}
+          onMouseEnter={handlePopoverMouseEnter}
+          onMouseLeave={handlePopoverMouseLeave}
+          canManageSchedules={canManageSchedules}
+          onDeleteSchedule={(sched) => {
+            handleDeleteSchedule(sched);
+            setHoveredSchedule(null);
+          }}
+        />
         <div className="print-footer mt-4 pt-2 font-ui text-caption">
           Generated {new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
           {' · '}
@@ -2216,40 +1613,10 @@ export default function Schedules() {
         onFilterCause={setLensCauseFilter}
       />
 
-      {/* Conflict Resolution Summary Dialog */}
-      <AtlasDialog
-        isOpen={Boolean(resolutionModalData)}
+      <ConflictResolutionDialog
+        data={resolutionModalData}
         onClose={() => setResolutionModalData(null)}
-        title={resolutionModalData?.title || 'Conflict Resolved'}
-        description={resolutionModalData?.message || 'The conflict has been resolved successfully.'}
-        size="confirm"
-        icon={Check}
-        dismissible={true}
-        footer={
-          <AtlasButton
-            onClick={() => setResolutionModalData(null)}
-          >
-            Done
-          </AtlasButton>
-        }
-      >
-        <div className="space-y-4 font-ui">
-          <div className="p-4 rounded-panel bg-emerald-50 border border-emerald-200/70 text-emerald-950 text-sm">
-            <p className="font-semibold text-emerald-950 mb-1.5 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />
-              What was done
-            </p>
-            <p className="text-emerald-900/90 leading-relaxed text-caption sm:text-body">
-              {resolutionModalData?.details || resolutionModalData?.message}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-panel bg-slate-50 border border-slate-200 text-xs text-slate-600">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-            <span>This resolution has been recorded in the system <strong>Activity Log</strong>.</span>
-          </div>
-        </div>
-      </AtlasDialog>
+      />
 
       <Modal
         isOpen={isModalOpen}
@@ -2497,561 +1864,58 @@ export default function Schedules() {
         </form>
       </Modal>
 
-      <Modal
+      <GenerateScheduleModal
         isOpen={isGenerateModalOpen}
         onClose={() => setIsGenerateModalOpen(false)}
-        title="AI Schedule Generation"
-      >
-        <form noValidate onSubmit={handleGenerateSubmit} className="space-y-6">
-          {!generationResults ? (
-            <>
-              <ValidationAnchor
-                error={genErrors.semester}
-                label="Academic Term"
-                errorId="gen-semester-error"
-              >
-                {({ badge }) => (
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2 min-h-5">
-                      <p className="font-ui text-micro uppercase text-atlas-slate">Academic term</p>
-                      {badge}
-                    </div>
-                    {(() => {
-                      const activeSem = semesters.find(s => s.is_active) || (selectedGenSemester ? semesters.find(s => s.id === Number(selectedGenSemester)) : null);
-                      return (
-                        <div className={`p-4 rounded-panel border flex items-center justify-between gap-3 ${
-                          genErrors.semester ? 'bg-red-50/70 border-sem-conflict' : 'bg-atlas-100/70 border-atlas-700/20'
-                        }`}>
-                          <div className="min-w-0">
-                            <p className="font-ui text-body text-atlas-ink">
-                              {activeSem
-                                ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}`
-                                : 'No active term configured'}
-                            </p>
-                            <p className="font-ui text-caption text-atlas-slate mt-0.5">
-                              The term this generation writes into.
-                            </p>
-                          </div>
-                          {activeSem && <Badge status="approved" label="Active" />}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-              </ValidationAnchor>
+        onSubmit={handleGenerateSubmit}
+        semesters={semesters}
+        selectedGenSemester={selectedGenSemester}
+        genErrors={genErrors}
+        setGenErrors={setGenErrors}
+        formatSemesterTerm={formatSemesterTerm}
+        unassignedOfferingsData={unassignedOfferingsData}
+        onReviewAssigned={() => {
+          setIsGenerateModalOpen(false);
+          navigate('/dashboard/assigned-subjects');
+        }}
+        allTeachers={allTeachers}
+        selectedGenProfessors={selectedGenProfessors}
+        setSelectedGenProfessors={setSelectedGenProfessors}
+        isGenerating={isGenerating}
+        generationResults={generationResults}
+        onCloseAndClearResults={() => {
+          setIsGenerateModalOpen(false);
+          setGenerationResults(null);
+        }}
+        onSolveConflict={handleSolveConflict}
+      />
 
-              {unassignedOfferingsData.unassigned > 0 && (
-                <div className="p-4 rounded-panel bg-amber-50/80 border border-amber-300 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-ui text-sm font-bold text-amber-950">
-                      Notice: {unassignedOfferingsData.unassigned} unassigned major {unassignedOfferingsData.unassigned === 1 ? 'subject' : 'subjects'}
-                    </p>
-                    <p className="font-ui text-xs text-amber-800 mt-1 leading-relaxed">
-                      Unassigned subjects will be skipped until assigned to a professor. You can still proceed to generate schedules for the selected professors below.
-                    </p>
-                    <div className="mt-2.5">
-                      <AtlasButton
-                        size="small"
-                        variant="secondary"
-                        className="bg-white border-amber-300 text-amber-900 hover:bg-amber-100"
-                        onClick={() => {
-                          setIsGenerateModalOpen(false);
-                          navigate('/dashboard/assigned-subjects');
-                        }}
-                      >
-                        Review Assigned Subjects
-                      </AtlasButton>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <ValidationAnchor
-                error={genErrors.professors || genErrors.submit}
-                label="Professors to Schedule"
-                errorId="gen-professors-error"
-              >
-                {({ badge }) => (
-                  <fieldset>
-                    <div className="flex items-center justify-between gap-3 mb-2 min-h-5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <legend className="font-ui text-micro uppercase text-atlas-slate">
-                          Professors to schedule
-                        </legend>
-                        {badge}
-                      </div>
-                      <AtlasButton
-                        size="row"
-                        variant="ghost"
-                        onClick={() => {
-                          const next = selectedGenProfessors.length === allTeachers.length ? [] : allTeachers.map(t => t.id);
-                          setSelectedGenProfessors(next);
-                          setGenErrors((prev) => ({
-                            ...prev,
-                            professors: next.length === 0 ? 'Select at least one professor to schedule.' : undefined,
-                            submit: undefined,
-                          }));
-                        }}
-                      >
-                        {selectedGenProfessors.length === allTeachers.length ? 'Clear all' : 'Select all'}
-                      </AtlasButton>
-                    </div>
-                    <div className={`rounded-panel border max-h-60 overflow-y-auto divide-y divide-atlas-line ${
-                      (genErrors.professors || genErrors.submit) ? 'border-sem-conflict' : 'border-atlas-line'
-                    }`}>
-                      {allTeachers.map(prof => {
-                        const checked = selectedGenProfessors.includes(prof.id);
-                        return (
-                          <label
-                            key={prof.id}
-                            className={`flex items-center gap-3 px-4 py-3 cursor-pointer
-                                        transition-colors duration-state ease-standard ${
-                              checked ? 'bg-atlas-100/60' : 'hover:bg-atlas-50'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...selectedGenProfessors, prof.id]
-                                  : selectedGenProfessors.filter(id => id !== prof.id);
-                                setSelectedGenProfessors(next);
-                                setGenErrors((prev) => ({
-                                  ...prev,
-                                  professors: next.length === 0 ? 'Select at least one professor to schedule.' : undefined,
-                                  submit: undefined,
-                                }));
-                              }}
-                              className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
-                            />
-                            <span className="font-ui text-body text-atlas-ink">{prof.name}</span>
-                          </label>
-                        );
-                      })}
-                      {allTeachers.length === 0 && (
-                        <p className="p-6 text-center font-ui text-body text-atlas-slate">No professors found.</p>
-                      )}
-                    </div>
-                    <p className="font-ui text-caption text-atlas-slate mt-2 tabular-nums">
-                      {pluralize(selectedGenProfessors.length, 'professor')} selected
-                    </p>
-                  </fieldset>
-                )}
-              </ValidationAnchor>
-
-              <div className="pt-5 flex justify-end items-center gap-3 border-t border-white/45">
-                <AtlasButton variant="ghost" onClick={() => setIsGenerateModalOpen(false)} disabled={isGenerating}>
-                  Cancel
-                </AtlasButton>
-                <AtlasButton
-                  type="submit"
-                  icon={Sparkles}
-                  loading={isGenerating}
-                  disabled={isGenerating}
-                >
-                  {isGenerating ? 'Generating…' : 'Generate Schedule'}
-                </AtlasButton>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col gap-5 rise">
-              {/* The three outcomes, side by side, so "12 generated" is not read
-                  without "3 unplaced" beside it. */}
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: 'Generated', value: generationResults.generated, tone: 'good' },
-                  { label: 'Unplaced', value: generationResults.unplaced_count,
-                    tone: generationResults.unplaced_count > 0 ? 'conflict' : 'default' },
-                  { label: 'Skipped GenEd', value: generationResults.skipped_gened, tone: 'default' },
-                ].map((s) => (
-                  <div key={s.label} className="glass sheen rounded-panel surface px-4 py-3.5 text-center">
-                    <p className="font-ui text-micro uppercase text-atlas-slate">{s.label}</p>
-                    <p className={`font-display text-page tabular-nums mt-1 leading-none ${
-                      s.tone === 'good' ? 'text-atlas-700'
-                      : s.tone === 'conflict' ? 'text-sem-conflict'
-                      : 'text-atlas-ink'
-                    }`}>
-                      {s.value}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              {generationResults.unplaced_items?.length > 0 && (
-                <div>
-                  {/* The second "Auto-Solve All" was here. Same removal
-                      reasoning as the panel's: it looped a resolver that
-                      force-placed on failure, so one click could double-book
-                      an entire term and report success. Unplaced subjects are
-                      resolved one at a time below. */}
-                  <p className="font-ui text-micro uppercase text-sem-conflict mb-2">
-                    Unplaced ({generationResults.unplaced_items.length})
-                  </p>
-                  <ul className="rounded-panel border border-sem-conflict/25 divide-y divide-sem-conflict/15 max-h-60 overflow-y-auto">
-                    {generationResults.unplaced_items.map((item, idx) => (
-                      <li key={idx} className="flex items-center justify-between gap-3 px-4 py-3 bg-sem-conflict-bg/40">
-                        <span className="flex items-center gap-3 min-w-0">
-                          <span className="font-data text-table text-sem-conflict shrink-0">{item.subject}</span>
-                          <span className="min-w-0">
-                            {item.section && item.section.trim() !== '' && (
-                              <span className="block font-ui text-body text-atlas-ink">{item.section}</span>
-                            )}
-                            <span className="block font-ui text-caption text-atlas-slate">{item.reason}</span>
-                          </span>
-                        </span>
-                        <AtlasButton
-                          size="row"
-                          variant="destructive"
-                          icon={Sparkles}
-                          onClick={() => handleSolveConflict(item)}
-                          className="shrink-0"
-                        >
-                          Resolve
-                        </AtlasButton>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {generationResults.workload_warnings?.length > 0 && (
-                <div>
-                  <p className="font-ui text-micro uppercase text-sem-warning mb-2">
-                    Teaching load warnings ({generationResults.workload_warnings.length})
-                  </p>
-                  <ul className="rounded-panel border border-sem-warning/30 divide-y divide-sem-warning/20 max-h-48 overflow-y-auto">
-                    {generationResults.workload_warnings.map((warn, idx) => (
-                      <li key={idx} className="flex items-start justify-between gap-3 px-4 py-3 bg-sem-warning-bg/50">
-                        <span className="min-w-0">
-                          <span className="block font-ui text-body text-atlas-ink">
-                            {warn.faculty_name}
-                            <span className="font-ui text-caption text-atlas-slate ml-2">
-                              {warn.employment_type || 'Full-Time'}
-                            </span>
-                          </span>
-                          <span className="block font-ui text-caption text-atlas-slate mt-0.5 tabular-nums">
-                            {warn.required_hours != null
-                              ? `${warn.current_hours} of ${warn.required_hours} required hrs/week`
-                              : `${warn.current_hours} hrs/week, part-time ceiling ${warn.part_time_ceiling_hours}`}
-                            {' · '}
-                            {warn.subject_code} adds {warn.additional_hours} hrs
-                            {warn.overload_hours != null ? ` · ${warn.overload_hours} hrs overload` : ''}
-                          </span>
-                        </span>
-                        <Badge status="review" label="Needs approval" className="shrink-0" />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="pt-4 flex justify-center border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsGenerateModalOpen(false);
-                    setGenerationResults(null);
-                  }}
-                  className="h-10 px-4 rounded-control glass font-ui font-medium text-body text-atlas-700 hover:bg-white/90 transition-colors duration-state ease-standard"
-                >
-                  Close & View Schedule
-                </button>
-              </div>
-            </div>
-          )}
-        </form>
-      </Modal>
-      {/* Export preview. Everything the file will contain, before it is written:
-          the same rows, the same columns, in the same order. */}
-      <AtlasDialog
+      <ExportScheduleDialog
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
-        title="Export Schedule to Excel"
-        description="Download an official Excel workbook (.xlsx) formatted with DLSAU institutional styling."
-        size="wide"
-        icon={FileSpreadsheet}
-        dismissible={!isExporting}
-        footer={
-          <>
-            <AtlasButton
-              variant="ghost"
-              onClick={() => setIsExportOpen(false)}
-              disabled={isExporting}
-            >
-              Cancel
-            </AtlasButton>
-            <AtlasButton
-              onClick={handleDownload}
-              disabled={exportRows.length === 0 || isExporting}
-              loading={isExporting}
-              icon={FileSpreadsheet}
-            >
-              Download Excel (.xlsx)
-            </AtlasButton>
-          </>
-        }
-      >
-        <div className="space-y-6">
-          {/* File summary pill & info */}
-          <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-white/70 border border-emerald-900/10 shadow-xs">
-            <div className="min-w-0">
-              <span className="font-ui text-caption font-bold text-slate-700 tracking-wider uppercase block">
-                Target File
-              </span>
-              <p className="font-data text-table font-bold text-emerald-950 mt-0.5 break-all">
-                {exportFileName}
-              </p>
-              <p className="font-ui text-caption text-slate-600 mt-0.5 font-medium">
-                Official DLSAU Excel spreadsheet with green header &amp; auto-fit columns
-              </p>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="text-right px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/60">
-                <span className="font-ui text-micro font-bold uppercase text-emerald-800 tracking-wider block">
-                  Total Rows
-                </span>
-                <span className="font-display text-lead font-extrabold text-emerald-950 tabular-nums">
-                  {exportRows.length} {exportRows.length === 1 ? 'class' : 'classes'}
-                </span>
-              </div>
-              <div className="text-right px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/60">
-                <span className="font-ui text-micro font-bold uppercase text-slate-600 tracking-wider block">
-                  Semester
-                </span>
-                <span className="font-ui text-body font-bold text-slate-800">
-                  {exportTerm
-                    ? `${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}`
-                    : 'Active Term'}
-                </span>
-              </div>
-            </div>
-          </div>
+        onDownload={handleDownload}
+        isExporting={isExporting}
+        exportRows={exportRows}
+        exportFileName={exportFileName}
+        exportTerm={exportTerm}
+        formatSemesterTerm={formatSemesterTerm}
+        selectedProfessorFilter={selectedProfessorFilter}
+        globalSchedules={globalSchedules}
+        exportScope={exportScope}
+        setExportScope={setExportScope}
+      />
 
-          {/* Document Format Display */}
-          <div>
-            <span className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase block mb-2.5">
-              Document Format
-            </span>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-emerald-700/30 bg-emerald-50/60 shadow-xs">
-              <div className="flex items-center gap-3.5">
-                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border bg-emerald-100 text-emerald-800 border-emerald-200 shadow-2xs">
-                  <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
-                </span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-ui text-body font-bold text-slate-900">
-                      Excel Workbook (.xlsx)
-                    </span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-100 text-emerald-800 border-emerald-300">
-                      Official Export
-                    </span>
-                  </div>
-                  <p className="font-ui text-caption text-slate-600 mt-0.5 font-medium">
-                    Institutional spreadsheet layout with DLSAU forest-green header, auto-fit columns &amp; frozen panes
-                  </p>
-                </div>
-              </div>
-              <div className="self-end sm:self-auto flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/80 border border-emerald-200 text-emerald-800 font-ui text-caption font-bold">
-                <Check className="w-3.5 h-3.5 text-emerald-700 stroke-[3]" />
-                <span>Selected</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Scope Selector */}
-          {selectedProfessorFilter ? (
-            <fieldset>
-              <legend className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase mb-2">
-                Faculty Scope
-              </legend>
-              <div className="flex flex-col sm:flex-row gap-3">
-                {[
-                  {
-                    id: 'filtered',
-                    label: selectedProfessorFilter,
-                    count: globalSchedules.filter((s) => s.faculty_name === selectedProfessorFilter).length,
-                    desc: 'Export timetable for this faculty member only',
-                  },
-                  {
-                    id: 'all',
-                    label: 'All Professors',
-                    count: globalSchedules.length,
-                    desc: 'Export the complete departmental schedule',
-                  },
-                ].map((opt) => (
-                  <label
-                    key={opt.id}
-                    className={`flex-1 flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      exportScope === opt.id
-                        ? 'bg-emerald-50/70 border-emerald-700/40 ring-1 ring-emerald-700/20'
-                        : 'bg-white border-slate-200/90 hover:border-slate-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="export-scope"
-                      className="sr-only"
-                      checked={exportScope === opt.id}
-                      onChange={() => setExportScope(opt.id)}
-                    />
-                    <span
-                      aria-hidden="true"
-                      className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                        exportScope === opt.id
-                          ? 'border-emerald-700 bg-emerald-700'
-                          : 'border-slate-300 bg-white'
-                      }`}
-                    >
-                      {exportScope === opt.id && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block font-ui text-body font-bold text-slate-900 truncate">
-                        {opt.label}
-                      </span>
-                      <span className="block font-ui text-caption text-slate-600 font-medium">
-                        {opt.desc} ({opt.count} {opt.count === 1 ? 'class' : 'classes'})
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          ) : (
-            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200/70 text-slate-700 font-ui text-caption font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-700" />
-              Including all scheduled faculty members and classes in your department.
-            </div>
-          )}
-
-          {/* Preview Section */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-ui text-caption font-bold text-slate-800 tracking-wider uppercase">
-                Document Preview ({exportRows.length} {exportRows.length === 1 ? 'row' : 'rows'})
-              </span>
-              <span className="font-ui text-caption text-slate-500 font-medium">
-                Scroll to view complete dataset
-              </span>
-            </div>
-            <div className="border border-slate-200/90 rounded-2xl overflow-hidden bg-white shadow-2xs">
-              <div className="max-h-[38vh] overflow-auto">
-                <table className="w-full text-left border-collapse">
-                  <caption className="sr-only">
-                    Preview of the exported schedule, {exportRows.length} rows
-                  </caption>
-                  <thead className="sticky top-0 bg-[#05301F] text-white z-10">
-                    <tr>
-                      {EXPORT_COLUMNS.map((col) => (
-                        <th
-                          key={col.key}
-                          scope="col"
-                          className="px-3.5 py-3 font-ui text-caption font-bold tracking-wider uppercase whitespace-nowrap border-b-2 border-[#C8A227]"
-                        >
-                          {col.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-ui">
-                    {exportRows.map((s, idx) => (
-                      <tr
-                        key={s.id || idx}
-                        className={`hover:bg-emerald-50/40 transition-colors ${
-                          idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'
-                        }`}
-                      >
-                        {EXPORT_COLUMNS.map((col) => (
-                          <td
-                            key={col.key}
-                            className={`px-3.5 py-2.5 text-caption whitespace-nowrap ${
-                              col.key === 'faculty'
-                                ? 'font-bold text-slate-900'
-                                : col.key === 'code'
-                                ? 'font-bold text-emerald-950 font-data'
-                                : 'text-slate-700 font-medium'
-                            }`}
-                          >
-                            {col.value(s) || <span className="text-slate-300">—</span>}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {exportRows.length === 0 && (
-                <div className="p-10 text-center text-slate-500">
-                  <p className="font-ui text-body font-bold text-slate-800">
-                    No classes match your selection
-                  </p>
-                  <p className="font-ui text-caption text-slate-500 mt-1">
-                    Try adjusting your filters or generating a schedule first.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </AtlasDialog>
-
-      <Modal
+      <ClearSchedulesDialog
         isOpen={isClearConfirmOpen}
         onClose={() => setIsClearConfirmOpen(false)}
-        title="Clear All Schedules"
-      >
-        <div className="space-y-4">
-          <p className="text-sm font-bold text-slate-700">
-            Are you sure you want to delete all generated schedules for this semester?
-          </p>
-          <p className="text-xs text-slate-500 font-medium">
-            You will be able to restore them immediately using the Undo button after clearing.
-          </p>
-          <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsClearConfirmOpen(false)}
-              className="h-10 px-4 rounded-control font-ui font-medium text-body text-atlas-slate hover:text-atlas-ink transition-colors duration-state ease-standard"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleClearAllSchedules}
-              className="h-10 px-4 rounded-control glass font-ui font-medium text-body text-sem-conflict !border-sem-conflict/40 hover:bg-sem-conflict-bg/80 transition-colors duration-state ease-standard"
-            >
-              Yes, Clear All
-            </button>
-          </div>
-        </div>
-      </Modal>
+        onConfirm={handleClearAllSchedules}
+      />
 
-      {undoBackup && (
-        <div className="fixed bottom-6 right-6 z-[250] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 rise-bottom border border-slate-800">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-400" />
-            <span className="text-sm font-bold">{undoBackup.label}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleRestoreSchedules}
-              className="h-9 px-4 rounded-control font-ui font-medium text-table text-atlas-900 bg-white hover:bg-atlas-100 transition-colors duration-state ease-standard flex items-center gap-1.5"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Undo / Restore
-            </button>
-            <button
-              type="button"
-              onClick={() => setUndoBackup(null)}
-              className="text-slate-400 hover:text-white p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      <UndoBackupToast
+        undoBackup={undoBackup}
+        onRestore={handleRestoreSchedules}
+        onDismiss={() => setUndoBackup(null)}
+      />
     </>
   );
 }
