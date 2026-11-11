@@ -167,17 +167,15 @@ def get_active_term_assigned_subjects(
         models.Curriculum.block_id.in_(block_ids)
     ).all()
 
-    # 5. Filter subjects matching the active semester term (both Major and Gen Ed)
+    # 5. Filter major subjects matching the active semester term.
+    # General Education subjects remain excluded unless explicitly assigned to a
+    # professor for this semester (via Faculty -> Handled Subjects).
     sem_term_norm = normalize_term(semester.term)
-    term_subjects = [
-        c for c in all_block_subjects
-        if normalize_term(c.semester_term) == sem_term_norm
-    ]
 
-    # 6. Retrieve subject offerings for these curriculum items in the target semester
-    term_curr_ids = [c.id for c in term_subjects]
+    # 6. Retrieve subject offerings for published block items in the target semester
+    all_curr_ids = [c.id for c in all_block_subjects]
     offerings_by_curr = {}
-    if term_curr_ids:
+    if all_curr_ids:
         raw_offerings = db.query(
             models.SubjectOffering,
             models.Faculty
@@ -185,7 +183,7 @@ def get_active_term_assigned_subjects(
             models.Faculty, models.SubjectOffering.faculty_id == models.Faculty.id
         ).filter(
             models.SubjectOffering.semester_id == semester.id,
-            models.SubjectOffering.curriculum_id.in_(term_curr_ids)
+            models.SubjectOffering.curriculum_id.in_(all_curr_ids)
         ).all()
 
         for off, fac in raw_offerings:
@@ -193,10 +191,19 @@ def get_active_term_assigned_subjects(
 
     # 7. Build subject list
     subject_list = []
-    for c in term_subjects:
+    for c in all_block_subjects:
+        is_major = is_major_subject(c)
         assigned_list = offerings_by_curr.get(c.id, [])
-        block = block_map.get(c.block_id)
         is_assigned = len(assigned_list) > 0
+
+        if is_major:
+            if normalize_term(c.semester_term) != sem_term_norm:
+                continue
+        else:
+            if not is_assigned:
+                continue
+
+        block = block_map.get(c.block_id)
 
         profs = [
             {
@@ -219,7 +226,7 @@ def get_active_term_assigned_subjects(
             "lec_units": c.lec_units,
             "lab_units": c.lab_units,
             "type": c.type,
-            "is_major": is_major_subject(c),
+            "is_major": is_major,
             "year_level": c.year_level or "",
             "semester_term": c.semester_term or "",
             "program_code": prog_code,

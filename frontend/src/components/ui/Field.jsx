@@ -1,6 +1,7 @@
 import React from 'react';
-import { AlertTriangle, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { focusRing } from './tokens';
+import { useValidationPopup, ValidationErrorBadge, ValidationPopup } from './ValidationPopup';
 
 /**
  * ATLAS form field. Phase 1 §1.2.
@@ -37,6 +38,11 @@ export function Field({
   const id = providedId || autoId;
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
+  const anchorRef = React.useRef(null);
+  const { popupRef, isOpen, open, dismiss, toggle, anchorHandlers } = useValidationPopup({
+    anchorRef,
+    error,
+  });
 
   const describedBy = [hint ? hintId : null, error ? errorId : null]
     .filter(Boolean)
@@ -48,26 +54,43 @@ export function Field({
         htmlFor={id}
         className="font-ui text-caption font-bold uppercase tracking-wider text-black flex items-center gap-2"
       >
-        {label}
+        <span>{label}</span>
         {/* The word, not an asterisk — an asterisk is not announced usefully. */}
         {required && <span className="text-black/60 normal-case font-normal">Required</span>}
         {readOnlyReason && <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
+        <ValidationErrorBadge
+          error={error}
+          label={label}
+          onOpen={() => open({ focusControl: false })}
+          onToggle={toggle}
+          className="ml-auto"
+        />
       </label>
 
-      {children({ id, describedBy, invalid: Boolean(error) })}
+      <div ref={anchorRef} className="relative" {...anchorHandlers}>
+        {children({ id, describedBy, invalid: Boolean(error) })}
+      </div>
 
-      {hint && !error && (
+      {hint && (
         <p id={hintId} className="font-ui text-caption font-medium text-black/80">
           {hint}
         </p>
       )}
 
       {error && (
-        <p id={errorId} className="font-ui text-caption text-sem-conflict flex items-start gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-          <span>{error}</span>
-        </p>
+        <span id={errorId} className="sr-only">
+          {error}
+        </span>
       )}
+
+      <ValidationPopup
+        anchorRef={anchorRef}
+        popupRef={popupRef}
+        isOpen={isOpen}
+        error={error}
+        label={label}
+        onDismiss={dismiss}
+      />
     </div>
   );
 }
@@ -163,6 +186,11 @@ export function RadioGroup({ label, hint, error, required, name, value, onChange
   const groupId = React.useId();
   const hintId = `${groupId}-hint`;
   const errorId = `${groupId}-error`;
+  const anchorRef = React.useRef(null);
+  const { popupRef, isOpen, open, dismiss, toggle, anchorHandlers } = useValidationPopup({
+    anchorRef,
+    error,
+  });
 
   return (
     <fieldset
@@ -170,12 +198,19 @@ export function RadioGroup({ label, hint, error, required, name, value, onChange
       aria-describedby={[hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined}
       aria-invalid={Boolean(error) || undefined}
     >
-      <legend className="font-ui text-caption font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2 mb-1.5">
-        {label}
+      <legend className="font-ui text-caption font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2 mb-1.5 w-full">
+        <span>{label}</span>
         {required && <span className="text-atlas-disabled normal-case font-normal">Required</span>}
+        <ValidationErrorBadge
+          error={error}
+          label={label}
+          onOpen={() => open({ focusControl: false })}
+          onToggle={toggle}
+          className="ml-auto"
+        />
       </legend>
 
-      <div className="flex flex-col gap-2">
+      <div ref={anchorRef} className="relative flex flex-col gap-2" {...anchorHandlers}>
         {options.map((o) => (
           <label
             key={o.value}
@@ -199,15 +234,22 @@ export function RadioGroup({ label, hint, error, required, name, value, onChange
         ))}
       </div>
 
-      {hint && !error && (
+      {hint && (
         <p id={hintId} className="font-ui text-caption text-atlas-slate">{hint}</p>
       )}
       {error && (
-        <p id={errorId} className="font-ui text-caption text-sem-conflict flex items-start gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-          <span>{error}</span>
-        </p>
+        <span id={errorId} className="sr-only">
+          {error}
+        </span>
       )}
+      <ValidationPopup
+        anchorRef={anchorRef}
+        popupRef={popupRef}
+        isOpen={isOpen}
+        error={error}
+        label={label}
+        onDismiss={dismiss}
+      />
     </fieldset>
   );
 }

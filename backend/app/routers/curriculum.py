@@ -402,6 +402,20 @@ def delete_curriculum_item(
     
     return None
 
+def _validate_excel_upload(file: UploadFile, contents: bytes):
+    filename = (file.filename or "").lower()
+    if filename and not (filename.endswith(".xlsx") or filename.endswith(".xlsm")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported file type. Upload an Excel workbook (.xlsx or .xlsm) only.",
+        )
+    if not contents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded Excel file is empty (0 bytes).",
+        )
+
+
 @router.post("/import", response_model=schemas.ImportResponse)
 async def import_curriculum(
     file: UploadFile = File(...),
@@ -414,6 +428,7 @@ async def import_curriculum(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     contents = await file.read()
+    _validate_excel_upload(file, contents)
     return await process_curriculum_import(
         contents, department_id, program_code, dry_run, db, current_user, mapping, selected_sheet
     )
@@ -500,6 +515,7 @@ async def get_excel_headers(
     if current_user.role not in ['admin', 'dean']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only System Administrators and Deans can preview Excel headers")
     contents = await file.read()
+    _validate_excel_upload(file, contents)
     try:
         return parse_excel_headers(contents)
     except Exception as e:

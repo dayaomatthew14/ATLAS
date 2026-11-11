@@ -301,6 +301,15 @@ def update_professor(
 
     update_data = faculty.model_dump(exclude_unset=True)
 
+    effective_type = update_data.get('type', db_faculty.type)
+    effective_unit = update_data.get('load_unit', db_faculty.load_unit or 'units')
+    effective_max = update_data.get('max_units', db_faculty.max_units)
+    if 'max_units' in update_data or 'type' in update_data or 'load_unit' in update_data:
+        try:
+            schemas.validate_faculty_load_bounds(effective_max, effective_type, effective_unit)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
     # A scoped user must not be able to move a faculty member into another
     # department, which would put the record permanently out of their reach.
     if current_user.role in SCOPED_ROLES and 'department_id' in update_data:

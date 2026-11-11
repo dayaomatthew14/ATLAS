@@ -13,7 +13,19 @@ import ConflictLens from '../../components/ui/ConflictLens';
 import Badge from '../../components/ui/Badge';
 import { PageHeader } from '../../components/ui/Page';
 import { focusRing, pluralize } from '../../components/ui/tokens';
+import {
+  useValidationPopup,
+  ValidationErrorBadge,
+  ValidationPopup,
+  ValidationAnchor,
+} from '../../components/ui/ValidationPopup';
 import { canEditSchedules, getDepartment } from '../../utils/session';
+import {
+  ALLOWED_DAY_ABBR,
+  validateSectionName,
+  validateTimeOrder,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 const formatSemesterTerm = (term) => {
   if (!term) return '';
@@ -22,6 +34,45 @@ const formatSemesterTerm = (term) => {
   if (term === '3rd semester') return '3rd Semester';
   return term;
 };
+
+function ScheduleField({ id, label, required = false, error, className = '', children }) {
+  const anchorRef = React.useRef(null);
+  const { popupRef, isOpen, open, dismiss, toggle, anchorHandlers } = useValidationPopup({
+    anchorRef,
+    error,
+  });
+  const errorId = id ? `${id}-error` : undefined;
+
+  return (
+    <div ref={anchorRef} className={className} {...anchorHandlers}>
+      <div className="flex items-center justify-between gap-2 mb-1 min-h-5">
+        <label htmlFor={id} className="block text-sm font-medium text-gray-700">
+          {label} {required && <span className="text-red-600">*</span>}
+        </label>
+        <ValidationErrorBadge
+          error={error}
+          label={label}
+          onOpen={() => open({ focusControl: false })}
+          onToggle={toggle}
+        />
+      </div>
+      {typeof children === 'function' ? children({ id, errorId }) : children}
+      {error && errorId && (
+        <span id={errorId} className="sr-only">
+          {error}
+        </span>
+      )}
+      <ValidationPopup
+        anchorRef={anchorRef}
+        popupRef={popupRef}
+        isOpen={isOpen}
+        error={error}
+        label={label}
+        onDismiss={dismiss}
+      />
+    </div>
+  );
+}
 
 /**
  * Faculty identity colours — Uxintace Palette Design System
@@ -1096,8 +1147,15 @@ export default function Schedules() {
 
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedGenSemester) return addToast('Select a semester', 'error');
-    if (selectedGenProfessors.length === 0) return addToast('Select at least one professor', 'error');
+    const nextGenErrors = {};
+    if (!selectedGenSemester) {
+      nextGenErrors.semester = 'No active academic term configured. Activate a semester first.';
+    }
+    if (selectedGenProfessors.length === 0) {
+      nextGenErrors.professors = 'Select at least one professor to schedule.';
+    }
+    setGenErrors(nextGenErrors);
+    if (Object.keys(nextGenErrors).length > 0) return;
 
     setIsGenerating(true);
     try {
@@ -1110,7 +1168,9 @@ export default function Schedules() {
       fetchGlobalSchedules(selectedGenSemester);
       fetchActiveConflicts();
     } catch (e) {
-      addToast(e.message || 'Generation failed', 'error');
+      const parsed = parseErrorResponse(e, 'Generation failed');
+      setGenErrors({ submit: parsed.message });
+      addToast(parsed.message || 'Generation failed', 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -1136,6 +1196,80 @@ export default function Schedules() {
     end_time: '08:30',
     section: ''
   });
+  const [formErrors, setFormErrors] = useState({});
+  const [genErrors, setGenErrors] = useState({});
+
+  const validateScheduleField = (field, data) => {
+    if (field === 'subject_id') {
+      return data.subject_id ? '' : 'Please select a subject.';
+    }
+    if (field === 'faculty_id') {
+      return data.faculty_id ? '' : 'Please select a professor.';
+    }
+    if (field === 'day_of_week') {
+      return ALLOWED_DAY_ABBR.includes(data.day_of_week)
+        ? ''
+        : 'Select a valid day from Monday to Saturday (Mon–Sat).';
+    }
+    if (field === 'section') {
+      return validateSectionName(data.section, { required: false });
+    }
+    if (field === 'start_time') {
+      return data.start_time ? '' : 'Select a start time.';
+    }
+    if (field === 'end_time') {
+      if (!data.end_time) return 'Select an end time.';
+      if (!data.start_time) return '';
+      return validateTimeOrder(data.start_time, data.end_time, { contextLabel: 'Schedule' });
+    }
+    return '';
+  };
+
+  const validateScheduleForm = () => {
+    const errors = {};
+    ['subject_id', 'faculty_id', 'section', 'day_of_week', 'start_time', 'end_time'].forEach((f) => {
+      const msg = validateScheduleField(f, formData);
+      if (msg) errors[f] = msg;
+    });
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const updateScheduleField = (field, value) => {
+    const next = { ...formData, [field]: value };
+    setFormData(next);
+    setFormErrors((prev) => {
+      const updated = { ...prev };
+      if (field === 'section') {
+        const msg = validateSectionName(value, { required: false });
+        if (value.trim() && msg) updated.section = msg;
+        else if (prev.section) updated.section = msg || undefined;
+      } else if (field === 'start_time' || field === 'end_time') {
+        if (field === 'start_time') {
+          updated.start_time = validateScheduleField('start_time', next) || undefined;
+        }
+        if (next.start_time && next.end_time) {
+          updated.end_time = validateTimeOrder(next.start_time, next.end_time, { contextLabel: 'Schedule' }) || undefined;
+        } else if (prev.end_time || field === 'end_time') {
+          updated.end_time = validateScheduleField('end_time', next) || undefined;
+        }
+      } else if (prev[field]) {
+        updated[field] = validateScheduleField(field, next) || undefined;
+      }
+      return updated;
+    });
+  };
+
+  const handleScheduleBlur = (field) => {
+    const msg = validateScheduleField(field, formData);
+    setFormErrors((prev) => {
+      const updated = { ...prev, [field]: msg || undefined };
+      if (field === 'start_time' && formData.end_time) {
+        updated.end_time = validateScheduleField('end_time', formData) || undefined;
+      }
+      return updated;
+    });
+  };
 
   const fetchDropdownData = async () => {
     try {
@@ -1158,11 +1292,16 @@ export default function Schedules() {
   const handleOpenModal = () => {
     fetchDropdownData();
     setAiSuggestions([]);
+    setFormErrors({});
     setIsModalOpen(true);
   };
 
   const handleGetSuggestions = async () => {
     if (!formData.subject_id) {
+      setFormErrors((prev) => ({
+        ...prev,
+        subject_id: 'Select a subject first before requesting AI suggestions.',
+      }));
       addToast('Please select a subject first', 'error');
       return;
     }
@@ -1199,6 +1338,7 @@ export default function Schedules() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validateScheduleForm()) return;
     if (!activeSemesterId) {
       addToast('No active semester found', 'error');
       return;
@@ -1212,14 +1352,36 @@ export default function Schedules() {
         day_of_week: formData.day_of_week,
         start_time: formData.start_time,
         end_time: formData.end_time,
-        section: formData.section
+        section: formData.section.trim()
       };
       await api.post('/schedules', submissionData);
       fetchSchedules();
       setIsModalOpen(false);
+      setFormErrors({});
       addToast('Schedule created successfully', 'success');
     } catch (error) {
-      addToast(error.message || 'Failed to create schedule', 'error');
+      const parsed = parseErrorResponse(error, 'Failed to create schedule', {
+        curriculum_id: 'subject_id',
+        faculty_id: 'faculty_id',
+        day_of_week: 'day_of_week',
+        start_time: 'start_time',
+        end_time: 'end_time',
+        section: 'section',
+      });
+      const nextFields = { ...parsed.fields };
+      if (!Object.keys(nextFields).length) {
+        if (/unassigned/i.test(parsed.message)) {
+          nextFields.subject_id = parsed.message;
+        } else if (/professor|not assigned/i.test(parsed.message)) {
+          nextFields.faculty_id = parsed.message;
+        } else if (/end time|start time/i.test(parsed.message)) {
+          nextFields.end_time = parsed.message;
+        }
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Failed to create schedule', 'error');
     }
   };
 
@@ -1377,6 +1539,7 @@ export default function Schedules() {
                       className="no-print"
                       onClick={() => {
                         fetchGenerateData();
+                        setGenErrors({});
                         setIsGenerateModalOpen(true);
                         setGenerationResults(null);
                       }}
@@ -2047,7 +2210,7 @@ export default function Schedules() {
         conflicts={lensConflicts}
         onClose={() => { setIsLensOpen(false); setLensCauseFilter(null); }}
         onResolve={handleSolveConflict}
-        onRegenerate={() => { setIsLensOpen(false); setIsGenerateModalOpen(true); }}
+        onRegenerate={() => { setIsLensOpen(false); setGenErrors({}); setIsGenerateModalOpen(true); }}
         resolvingId={resolvingId}
         causeFilter={lensCauseFilter}
         onFilterCause={setLensCauseFilter}
@@ -2093,7 +2256,7 @@ export default function Schedules() {
         onClose={() => setIsModalOpen(false)}
         title="Create New Schedule"
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form noValidate onSubmit={handleSubmit} className="space-y-4">
           {/* Blocking and advisory are reported differently, because they ask
               different things of the user: a faculty or section clash has to be
               resolved here, while a shared room is a note for the Registrar. */}
@@ -2115,76 +2278,151 @@ export default function Schedules() {
           )}
 
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">Subject</label>
-            <select
-              required
-              className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-              value={formData.subject_id}
-              onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
-            >
-              <option value="">Select Subject</option>
-              {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-            </select>
-          </div>
+          <ScheduleField
+            id="schedule-subject-id"
+            label="Subject"
+            required
+            error={formErrors.subject_id}
+            className="mb-4"
+          >
+            {({ id, errorId }) => (
+              <select
+                id={id}
+                required
+                aria-invalid={Boolean(formErrors.subject_id)}
+                aria-describedby={formErrors.subject_id ? errorId : undefined}
+                className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
+                  formErrors.subject_id ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
+                }`}
+                value={formData.subject_id}
+                onChange={(e) => updateScheduleField('subject_id', e.target.value)}
+                onBlur={() => handleScheduleBlur('subject_id')}
+              >
+                <option value="">Select Subject</option>
+                {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+              </select>
+            )}
+          </ScheduleField>
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Professor</label>
-              <select
-                required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.faculty_id}
-                onChange={(e) => setFormData({ ...formData, faculty_id: e.target.value })}
-              >
-                <option value="">Select Professor</option>
-                {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Section (Optional)</label>
-              <input
-                type="text"
-                placeholder="e.g. 1A, CS-3A"
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.section}
-                onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-              />
-            </div>
+            <ScheduleField
+              id="schedule-faculty-id"
+              label="Professor"
+              required
+              error={formErrors.faculty_id}
+            >
+              {({ id, errorId }) => (
+                <select
+                  id={id}
+                  required
+                  aria-invalid={Boolean(formErrors.faculty_id)}
+                  aria-describedby={formErrors.faculty_id ? errorId : undefined}
+                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
+                    formErrors.faculty_id ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
+                  }`}
+                  value={formData.faculty_id}
+                  onChange={(e) => updateScheduleField('faculty_id', e.target.value)}
+                  onBlur={() => handleScheduleBlur('faculty_id')}
+                >
+                  <option value="">Select Professor</option>
+                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+            </ScheduleField>
+
+            <ScheduleField
+              id="schedule-section"
+              label="Section (Optional)"
+              error={formErrors.section}
+            >
+              {({ id, errorId }) => (
+                <input
+                  id={id}
+                  type="text"
+                  placeholder="e.g. 1A, CS-3A"
+                  aria-invalid={Boolean(formErrors.section)}
+                  aria-describedby={formErrors.section ? errorId : undefined}
+                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
+                    formErrors.section ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
+                  }`}
+                  value={formData.section}
+                  onChange={(e) => updateScheduleField('section', e.target.value)}
+                  onBlur={() => handleScheduleBlur('section')}
+                />
+              )}
+            </ScheduleField>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Day</label>
-              <select
-                required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.day_of_week}
-                onChange={(e) => setFormData({ ...formData, day_of_week: e.target.value })}
-              >
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Start Time</label>
-              <input
-                type="time"
-                required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.start_time}
-                onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">End Time</label>
-              <input
-                type="time"
-                required
-                className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm"
-                value={formData.end_time}
-                onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-              />
-            </div>
+            <ScheduleField
+              id="schedule-day-of-week"
+              label="Day"
+              required
+              error={formErrors.day_of_week}
+            >
+              {({ id, errorId }) => (
+                <select
+                  id={id}
+                  required
+                  aria-invalid={Boolean(formErrors.day_of_week)}
+                  aria-describedby={formErrors.day_of_week ? errorId : undefined}
+                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
+                    formErrors.day_of_week ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
+                  }`}
+                  value={formData.day_of_week}
+                  onChange={(e) => updateScheduleField('day_of_week', e.target.value)}
+                  onBlur={() => handleScheduleBlur('day_of_week')}
+                >
+                  {ALLOWED_DAY_ABBR.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
+            </ScheduleField>
+
+            <ScheduleField
+              id="schedule-start-time"
+              label="Start Time"
+              required
+              error={formErrors.start_time}
+            >
+              {({ id, errorId }) => (
+                <input
+                  id={id}
+                  type="time"
+                  required
+                  aria-invalid={Boolean(formErrors.start_time)}
+                  aria-describedby={formErrors.start_time ? errorId : undefined}
+                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
+                    formErrors.start_time ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
+                  }`}
+                  value={formData.start_time}
+                  onChange={(e) => updateScheduleField('start_time', e.target.value)}
+                  onBlur={() => handleScheduleBlur('start_time')}
+                />
+              )}
+            </ScheduleField>
+
+            <ScheduleField
+              id="schedule-end-time"
+              label="End Time"
+              required
+              error={formErrors.end_time}
+            >
+              {({ id, errorId }) => (
+                <input
+                  id={id}
+                  type="time"
+                  required
+                  aria-invalid={Boolean(formErrors.end_time)}
+                  aria-describedby={formErrors.end_time ? errorId : undefined}
+                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
+                    formErrors.end_time ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
+                  }`}
+                  value={formData.end_time}
+                  onChange={(e) => updateScheduleField('end_time', e.target.value)}
+                  onBlur={() => handleScheduleBlur('end_time')}
+                />
+              )}
+            </ScheduleField>
           </div>
 
           <div className="pt-4 flex justify-between items-center">
@@ -2231,13 +2469,22 @@ export default function Schedules() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setFormData({
-                        ...formData,
-                        faculty_id: sug.faculty_id.toString(),
-                        day_of_week: sug.day_of_week,
-                        start_time: sug.start_time,
-                        end_time: sug.end_time
-                      })}
+                      onClick={() => {
+                        setFormData({
+                          ...formData,
+                          faculty_id: sug.faculty_id.toString(),
+                          day_of_week: sug.day_of_week,
+                          start_time: sug.start_time,
+                          end_time: sug.end_time
+                        });
+                        setFormErrors((prev) => ({
+                          ...prev,
+                          faculty_id: undefined,
+                          day_of_week: undefined,
+                          start_time: undefined,
+                          end_time: undefined,
+                        }));
+                      }}
                       className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 text-xs font-bold rounded shadow-sm hover:bg-indigo-50"
                     >
                       Apply
@@ -2255,30 +2502,43 @@ export default function Schedules() {
         onClose={() => setIsGenerateModalOpen(false)}
         title="AI Schedule Generation"
       >
-        <form onSubmit={handleGenerateSubmit} className="space-y-6">
+        <form noValidate onSubmit={handleGenerateSubmit} className="space-y-6">
           {!generationResults ? (
             <>
-              <div>
-                <p className="font-ui text-micro uppercase text-atlas-slate mb-2">Academic term</p>
-                {(() => {
-                  const activeSem = semesters.find(s => s.is_active) || (selectedGenSemester ? semesters.find(s => s.id === Number(selectedGenSemester)) : null);
-                  return (
-                    <div className="p-4 rounded-panel bg-atlas-100/70 border border-atlas-700/20 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-ui text-body text-atlas-ink">
-                          {activeSem
-                            ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}`
-                            : 'No active term configured'}
-                        </p>
-                        <p className="font-ui text-caption text-atlas-slate mt-0.5">
-                          The term this generation writes into.
-                        </p>
-                      </div>
-                      {activeSem && <Badge status="approved" label="Active" />}
+              <ValidationAnchor
+                error={genErrors.semester}
+                label="Academic Term"
+                errorId="gen-semester-error"
+              >
+                {({ badge }) => (
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2 min-h-5">
+                      <p className="font-ui text-micro uppercase text-atlas-slate">Academic term</p>
+                      {badge}
                     </div>
-                  );
-                })()}
-              </div>
+                    {(() => {
+                      const activeSem = semesters.find(s => s.is_active) || (selectedGenSemester ? semesters.find(s => s.id === Number(selectedGenSemester)) : null);
+                      return (
+                        <div className={`p-4 rounded-panel border flex items-center justify-between gap-3 ${
+                          genErrors.semester ? 'bg-red-50/70 border-sem-conflict' : 'bg-atlas-100/70 border-atlas-700/20'
+                        }`}>
+                          <div className="min-w-0">
+                            <p className="font-ui text-body text-atlas-ink">
+                              {activeSem
+                                ? `${activeSem.academic_year} ${formatSemesterTerm(activeSem.term)}`
+                                : 'No active term configured'}
+                            </p>
+                            <p className="font-ui text-caption text-atlas-slate mt-0.5">
+                              The term this generation writes into.
+                            </p>
+                          </div>
+                          {activeSem && <Badge status="approved" label="Active" />}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </ValidationAnchor>
 
               {unassignedOfferingsData.unassigned > 0 && (
                 <div className="p-4 rounded-panel bg-amber-50/80 border border-amber-300 flex items-start gap-3">
@@ -2307,53 +2567,79 @@ export default function Schedules() {
                 </div>
               )}
 
-              <fieldset>
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <legend className="font-ui text-micro uppercase text-atlas-slate">
-                    Professors to schedule
-                  </legend>
-                  <AtlasButton
-                    size="row"
-                    variant="ghost"
-                    onClick={() => setSelectedGenProfessors(
-                      selectedGenProfessors.length === allTeachers.length ? [] : allTeachers.map(t => t.id)
-                    )}
-                  >
-                    {selectedGenProfessors.length === allTeachers.length ? 'Clear all' : 'Select all'}
-                  </AtlasButton>
-                </div>
-                <div className="rounded-panel border border-atlas-line max-h-60 overflow-y-auto divide-y divide-atlas-line">
-                  {allTeachers.map(prof => {
-                    const checked = selectedGenProfessors.includes(prof.id);
-                    return (
-                      <label
-                        key={prof.id}
-                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer
-                                    transition-colors duration-state ease-standard ${
-                          checked ? 'bg-atlas-100/60' : 'hover:bg-atlas-50'
-                        }`}
+              <ValidationAnchor
+                error={genErrors.professors || genErrors.submit}
+                label="Professors to Schedule"
+                errorId="gen-professors-error"
+              >
+                {({ badge }) => (
+                  <fieldset>
+                    <div className="flex items-center justify-between gap-3 mb-2 min-h-5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <legend className="font-ui text-micro uppercase text-atlas-slate">
+                          Professors to schedule
+                        </legend>
+                        {badge}
+                      </div>
+                      <AtlasButton
+                        size="row"
+                        variant="ghost"
+                        onClick={() => {
+                          const next = selectedGenProfessors.length === allTeachers.length ? [] : allTeachers.map(t => t.id);
+                          setSelectedGenProfessors(next);
+                          setGenErrors((prev) => ({
+                            ...prev,
+                            professors: next.length === 0 ? 'Select at least one professor to schedule.' : undefined,
+                            submit: undefined,
+                          }));
+                        }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedGenProfessors([...selectedGenProfessors, prof.id]);
-                            else setSelectedGenProfessors(selectedGenProfessors.filter(id => id !== prof.id));
-                          }}
-                          className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
-                        />
-                        <span className="font-ui text-body text-atlas-ink">{prof.name}</span>
-                      </label>
-                    );
-                  })}
-                  {allTeachers.length === 0 && (
-                    <p className="p-6 text-center font-ui text-body text-atlas-slate">No professors found.</p>
-                  )}
-                </div>
-                <p className="font-ui text-caption text-atlas-slate mt-2 tabular-nums">
-                  {pluralize(selectedGenProfessors.length, 'professor')} selected
-                </p>
-              </fieldset>
+                        {selectedGenProfessors.length === allTeachers.length ? 'Clear all' : 'Select all'}
+                      </AtlasButton>
+                    </div>
+                    <div className={`rounded-panel border max-h-60 overflow-y-auto divide-y divide-atlas-line ${
+                      (genErrors.professors || genErrors.submit) ? 'border-sem-conflict' : 'border-atlas-line'
+                    }`}>
+                      {allTeachers.map(prof => {
+                        const checked = selectedGenProfessors.includes(prof.id);
+                        return (
+                          <label
+                            key={prof.id}
+                            className={`flex items-center gap-3 px-4 py-3 cursor-pointer
+                                        transition-colors duration-state ease-standard ${
+                              checked ? 'bg-atlas-100/60' : 'hover:bg-atlas-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...selectedGenProfessors, prof.id]
+                                  : selectedGenProfessors.filter(id => id !== prof.id);
+                                setSelectedGenProfessors(next);
+                                setGenErrors((prev) => ({
+                                  ...prev,
+                                  professors: next.length === 0 ? 'Select at least one professor to schedule.' : undefined,
+                                  submit: undefined,
+                                }));
+                              }}
+                              className={`w-4 h-4 shrink-0 accent-[var(--atlas-green-700)] ${focusRing}`}
+                            />
+                            <span className="font-ui text-body text-atlas-ink">{prof.name}</span>
+                          </label>
+                        );
+                      })}
+                      {allTeachers.length === 0 && (
+                        <p className="p-6 text-center font-ui text-body text-atlas-slate">No professors found.</p>
+                      )}
+                    </div>
+                    <p className="font-ui text-caption text-atlas-slate mt-2 tabular-nums">
+                      {pluralize(selectedGenProfessors.length, 'professor')} selected
+                    </p>
+                  </fieldset>
+                )}
+              </ValidationAnchor>
 
               <div className="pt-5 flex justify-end items-center gap-3 border-t border-white/45">
                 <AtlasButton variant="ghost" onClick={() => setIsGenerateModalOpen(false)} disabled={isGenerating}>
@@ -2363,7 +2649,7 @@ export default function Schedules() {
                   type="submit"
                   icon={Sparkles}
                   loading={isGenerating}
-                  disabled={isGenerating || selectedGenProfessors.length === 0}
+                  disabled={isGenerating}
                 >
                   {isGenerating ? 'Generating…' : 'Generate Schedule'}
                 </AtlasButton>

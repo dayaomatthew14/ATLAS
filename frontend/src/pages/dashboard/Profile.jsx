@@ -6,6 +6,18 @@ import Button from '../../components/ui/Button';
 import { TextInput, SelectInput } from '../../components/ui/Field';
 import { Page, PageHeader, Panel } from '../../components/ui/Page';
 import { ROLE_LABELS, resolveDepartment, focusRing } from '../../components/ui/tokens';
+import { ValidationAnchor } from '../../components/ui/ValidationPopup';
+import {
+  ALLOWED_IMAGE_EXTENSIONS,
+  normalizeContactNumber,
+  validatePersonName,
+  hasImmediateNameIssue,
+  validateContactNumber,
+  hasImmediateContactIssue,
+  validateDateOfBirth,
+  validateFileUpload,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Profile.
@@ -60,6 +72,8 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({});
+  const [formErrors, setFormErrors] = useState({});
+  const [pictureError, setPictureError] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -91,40 +105,66 @@ export default function Profile() {
     }
   };
 
-  const handleSave = async () => {
-    if (!formData.first_name || !formData.first_name.trim()) {
-      addToast('First name is required', 'error');
-      return;
+  const validateProfileField = (field, value) => {
+    switch (field) {
+      case 'first_name':
+        return validatePersonName(value, 'First Name');
+      case 'last_name':
+        return validatePersonName(value, 'Last Name');
+      case 'contact_number':
+        return validateContactNumber(value, { required: false });
+      case 'date_of_birth':
+        return validateDateOfBirth(value);
+      default:
+        return '';
     }
-    const nameRegex = /^[A-Za-z\s.]+$/;
-    if (!nameRegex.test(formData.first_name)) {
-      addToast('First name can only contain letters, spaces, and periods', 'error');
-      return;
-    }
+  };
 
-    if (!formData.last_name || !formData.last_name.trim()) {
-      addToast('Last name is required', 'error');
-      return;
+  const handleFieldChange = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    let nextErr = '';
+    if ((field === 'first_name' || field === 'last_name') && hasImmediateNameIssue(value)) {
+      nextErr = validateProfileField(field, value);
+    } else if (field === 'contact_number' && hasImmediateContactIssue(value)) {
+      nextErr = validateProfileField(field, value);
+    } else if (field === 'date_of_birth' && value) {
+      nextErr = validateProfileField(field, value);
     }
-    if (!nameRegex.test(formData.last_name)) {
-      addToast('Last name can only contain letters, spaces, and periods', 'error');
-      return;
-    }
+    setFormErrors((prev) => ({ ...prev, [field]: nextErr || undefined }));
+  };
 
-    if (formData.contact_number) {
-      const phoneRegex = /^(09\d{9}|\+639\d{9})$/;
-      if (!phoneRegex.test(formData.contact_number)) {
-        addToast('Contact number must be a valid PH mobile number (e.g., 09123456789)', 'error');
-        return;
-      }
+  const handleFieldBlur = (field) => {
+    const err = validateProfileField(field, formData[field]);
+    setFormErrors((prev) => ({ ...prev, [field]: err || undefined }));
+  };
+
+  const handleSave = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
+
+    const errors = {
+      first_name: validateProfileField('first_name', formData.first_name) || undefined,
+      last_name: validateProfileField('last_name', formData.last_name) || undefined,
+      contact_number: validateProfileField('contact_number', formData.contact_number) || undefined,
+      date_of_birth: validateProfileField('date_of_birth', formData.date_of_birth) || undefined,
+    };
+    const hasErrors = Object.values(errors).some(Boolean);
+    setFormErrors(errors);
+    if (hasErrors) {
+      addToast('Please fix the highlighted profile fields before saving.', 'error');
+      return;
     }
 
     setIsSaving(true);
     try {
-      const cleanData = { ...formData };
-      if (cleanData.contact_number === '') cleanData.contact_number = null;
-      if (cleanData.sex === '') cleanData.sex = null;
-      if (cleanData.date_of_birth === '') cleanData.date_of_birth = null;
+      const compactPhone = normalizeContactNumber(formData.contact_number);
+      const cleanData = {
+        ...formData,
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        contact_number: compactPhone || null,
+        sex: formData.sex || null,
+        date_of_birth: formData.date_of_birth || null,
+      };
 
       await api.put(`/users/${user.id}`, cleanData);
       addToast('Profile updated successfully', 'success');
@@ -134,9 +174,14 @@ export default function Profile() {
       window.dispatchEvent(new Event('atlas_profile_updated'));
 
       setIsEditing(false);
+      setFormErrors({});
       fetchProfile();
-    } catch (e) {
-      addToast('Failed to update profile', 'error');
+    } catch (err) {
+      const parsed = parseErrorResponse(err, 'Failed to update profile.');
+      if (Object.keys(parsed.fields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...parsed.fields }));
+      }
+      addToast(parsed.message || 'Failed to update profile.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -145,8 +190,21 @@ export default function Profile() {
   const handlePictureClick = () => fileInputRef.current?.click();
 
   const handleFileChange = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
+
+    const fileErr = validateFileUpload(file, {
+      allowedExtensions: ALLOWED_IMAGE_EXTENSIONS,
+      maxMb: 5,
+      label: 'Profile picture',
+    });
+    if (fileErr) {
+      setPictureError(fileErr);
+      addToast(fileErr, 'error');
+      return;
+    }
+    setPictureError('');
 
     const formDataObj = new FormData();
     formDataObj.append('file', file);
@@ -158,7 +216,9 @@ export default function Profile() {
       window.dispatchEvent(new Event('atlas_profile_updated'));
       addToast('Profile picture updated', 'success');
     } catch (err) {
-      addToast('Failed to upload picture', 'error');
+      const parsed = parseErrorResponse(err, 'Failed to upload picture.');
+      setPictureError(parsed.message);
+      addToast(parsed.message, 'error');
     }
   };
 
@@ -186,15 +246,39 @@ export default function Profile() {
         actions={
           isEditing ? (
             <>
-              <Button variant="ghost" icon={X} onClick={() => setIsEditing(false)} disabled={isSaving}>
+              <Button
+                variant="ghost"
+                icon={X}
+                onClick={() => {
+                  setIsEditing(false);
+                  setFormErrors({});
+                  setPictureError('');
+                  setFormData({
+                    first_name: user.first_name || '',
+                    last_name: user.last_name || '',
+                    contact_number: user.contact_number || '',
+                    sex: user.sex || '',
+                    date_of_birth: user.date_of_birth || '',
+                  });
+                }}
+                disabled={isSaving}
+              >
                 Cancel
               </Button>
-              <Button icon={Save} onClick={handleSave} loading={isSaving}>
+              <Button type="submit" form="profile-form" icon={Save} loading={isSaving}>
                 Save Changes
               </Button>
             </>
           ) : (
-            <Button variant="secondary" icon={Pencil} onClick={() => setIsEditing(true)}>
+            <Button
+              variant="secondary"
+              icon={Pencil}
+              onClick={() => {
+                setFormErrors({});
+                setPictureError('');
+                setIsEditing(true);
+              }}
+            >
               Edit Profile
             </Button>
           )
@@ -203,42 +287,50 @@ export default function Profile() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Panel className="rise" bodyClassName="p-6 flex flex-col items-center text-center">
-          <button
-            type="button"
-            onClick={isEditing ? handlePictureClick : undefined}
-            aria-label={isEditing ? 'Upload a profile picture' : undefined}
-            disabled={!isEditing}
-            className={`relative w-32 h-32 rounded-full overflow-hidden bg-atlas-100 border border-white/70
-                        flex items-center justify-center group
-                        ${isEditing ? `cursor-pointer lift ${focusRing}` : 'cursor-default'}`}
+          <ValidationAnchor
+            error={pictureError}
+            label="Profile Picture"
+            showBadge
+            badgeClassName="top-1 right-1"
+            className="inline-flex justify-center"
           >
-            {user.profile_picture ? (
-              <img
-                src={getProfilePictureUrl(user.profile_picture)}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="font-display text-page text-atlas-700">{initials}</span>
-            )}
+            <button
+              type="button"
+              onClick={isEditing ? handlePictureClick : undefined}
+              aria-label={isEditing ? 'Upload a profile picture' : undefined}
+              disabled={!isEditing}
+              className={`relative w-32 h-32 rounded-full overflow-hidden bg-atlas-100 flex items-center justify-center group ${
+                pictureError ? 'border-2 border-sem-conflict ring-4 ring-sem-conflict/15' : 'border border-white/70'
+              } ${isEditing ? `cursor-pointer lift ${focusRing}` : 'cursor-default'}`}
+            >
+              {user.profile_picture ? (
+                <img
+                  src={getProfilePictureUrl(user.profile_picture)}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="font-display text-page text-atlas-700">{initials}</span>
+              )}
 
-            {isEditing && (
-              <span
-                className="absolute inset-0 bg-atlas-900/65 backdrop-blur-[2px] flex flex-col items-center justify-center
-                           gap-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100
-                           transition-opacity duration-state ease-standard"
-              >
-                <Camera className="w-6 h-6 text-white" aria-hidden="true" />
-                <span className="font-ui text-caption text-white">Change</span>
-              </span>
-            )}
-          </button>
+              {isEditing && (
+                <span
+                  className="absolute inset-0 bg-atlas-900/65 backdrop-blur-[2px] flex flex-col items-center justify-center
+                             gap-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100
+                             transition-opacity duration-state ease-standard"
+                >
+                  <Camera className="w-6 h-6 text-white" aria-hidden="true" />
+                  <span className="font-ui text-caption text-white">Change</span>
+                </span>
+              )}
+            </button>
+          </ValidationAnchor>
           <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
             className="hidden"
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,.gif,.webp"
           />
 
           <h2 className="font-display text-section text-atlas-ink mt-4">
@@ -278,23 +370,29 @@ export default function Profile() {
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {isEditing ? (
-              <>
+              <form id="profile-form" noValidate onSubmit={handleSave} className="contents">
                 <TextInput
                   label="First name"
                   required
+                  placeholder="e.g. Juan"
                   value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  error={formErrors.first_name}
+                  onChange={(e) => handleFieldChange('first_name', e.target.value)}
+                  onBlur={() => handleFieldBlur('first_name')}
                 />
                 <TextInput
                   label="Last name"
                   required
+                  placeholder="e.g. Dela Cruz"
                   value={formData.last_name}
-                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  error={formErrors.last_name}
+                  onChange={(e) => handleFieldChange('last_name', e.target.value)}
+                  onBlur={() => handleFieldBlur('last_name')}
                 />
                 <SelectInput
                   label="Sex"
                   value={formData.sex}
-                  onChange={(e) => setFormData({ ...formData, sex: e.target.value })}
+                  onChange={(e) => handleFieldChange('sex', e.target.value)}
                   options={[
                     { value: '', label: 'Prefer not to say' },
                     { value: 'Male', label: 'Male' },
@@ -306,15 +404,20 @@ export default function Profile() {
                   label="Date of birth"
                   type="date"
                   value={formData.date_of_birth}
-                  onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
+                  error={formErrors.date_of_birth}
+                  onChange={(e) => handleFieldChange('date_of_birth', e.target.value)}
+                  onBlur={() => handleFieldBlur('date_of_birth')}
                 />
                 <TextInput
                   label="Contact number"
-                  hint="Philippine mobile, e.g. 09123456789"
+                  hint="Optional — Philippine mobile, e.g. 09123456789"
+                  placeholder="09123456789"
                   value={formData.contact_number}
-                  onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
+                  error={formErrors.contact_number}
+                  onChange={(e) => handleFieldChange('contact_number', e.target.value)}
+                  onBlur={() => handleFieldBlur('contact_number')}
                 />
-              </>
+              </form>
             ) : (
               <>
                 <ReadField label="First name" value={user.first_name} />

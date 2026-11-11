@@ -102,6 +102,17 @@ def update_semester(
             '3rd Semester': '3rd semester'
         }
         update_data['term'] = term_mapping.get(update_data['term'], update_data['term'])
+
+    target_ay = update_data.get('academic_year', db_semester.academic_year)
+    target_term = update_data.get('term', db_semester.term)
+    if 'academic_year' in update_data or 'term' in update_data:
+        existing_sem = db.query(models.Semester).filter(
+            models.Semester.id != semester_id,
+            models.Semester.academic_year == target_ay,
+            models.Semester.term == target_term,
+        ).first()
+        if existing_sem:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Semester already exists")
         
     for key, value in update_data.items():
         setattr(db_semester, key, value)

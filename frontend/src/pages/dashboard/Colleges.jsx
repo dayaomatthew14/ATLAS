@@ -10,6 +10,12 @@ import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, SelectInput } from '../../components/ui/Field';
 import { DEPARTMENTS, pluralize } from '../../components/ui/tokens';
 import { isDean, getDepartment } from '../../utils/session';
+import {
+  validateProgramCode,
+  hasImmediateAlnumCodeIssue,
+  validateEntityTitle,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Colleges & Programmes.
@@ -53,6 +59,7 @@ export default function Colleges() {
 
   const [assignTarget, setAssignTarget] = useState(null);
   const [assignProgramId, setAssignProgramId] = useState('');
+  const [assignError, setAssignError] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
 
   const fetchAll = useCallback(async () => {
@@ -99,23 +106,57 @@ export default function Colleges() {
     setIsFormOpen(true);
   };
 
+  const validateProgramField = (field, value) => {
+    switch (field) {
+      case 'code': {
+        const baseErr = validateProgramCode(value);
+        if (baseErr) return baseErr;
+        const normalized = String(value || '').trim().toUpperCase();
+        const clash = allPrograms.find(
+          (p) => p.code.toUpperCase() === normalized && p.id !== editing?.id
+        );
+        if (clash) return `${clash.code} is already used by ${clash.name}.`;
+        return '';
+      }
+      case 'name':
+        return validateEntityTitle(value, {
+          label: 'Program name',
+          minLength: 3,
+          maxLength: 255,
+          allowDigitsOnly: false,
+          example: 'BS Computer Science',
+        });
+      case 'department_id':
+        return value ? '' : 'Choose a college.';
+      default:
+        return '';
+    }
+  };
+
   const validate = () => {
     const errors = {};
-    const code = form.code.trim();
-    if (code.length < 2) errors.code = 'Enter a program code, such as BSCS.';
-    else if (!/^[A-Za-z0-9]+$/.test(code)) errors.code = 'Use letters and numbers only.';
-    else {
-      const clash = allPrograms.find(
-        (p) => p.code.toUpperCase() === code.toUpperCase() && p.id !== editing?.id
-      );
-      // Caught here as well as server-side, because the codes print on
-      // timetables where there is no context to tell two the same apart.
-      if (clash) errors.code = `${clash.code} is already used by ${clash.name}.`;
-    }
-    if (form.name.trim().length < 3) errors.name = 'Enter the full program name.';
-    if (!form.department_id) errors.department_id = 'Choose a college.';
+    ['code', 'name', 'department_id'].forEach((field) => {
+      const msg = validateProgramField(field, form[field]);
+      if (msg) errors[field] = msg;
+    });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const updateProgramField = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    let msg = '';
+    if (field === 'code' && hasImmediateAlnumCodeIssue(value)) {
+      msg = validateProgramCode(value);
+    } else if (formErrors[field]) {
+      msg = validateProgramField(field, value);
+    }
+    setFormErrors((prev) => ({ ...prev, [field]: msg || undefined }));
+  };
+
+  const handleProgramBlur = (field) => {
+    const msg = validateProgramField(field, form[field]);
+    setFormErrors((prev) => ({ ...prev, [field]: msg || undefined }));
   };
 
   const handleSubmit = async (e) => {
@@ -138,7 +179,15 @@ export default function Colleges() {
       setIsFormOpen(false);
       fetchAll();
     } catch (err) {
-      addToast(err.message || 'Could not save the program.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not save the program.');
+      const nextFields = { ...parsed.fields };
+      if (!nextFields.code && /already in use|already exists/i.test(parsed.message)) {
+        nextFields.code = parsed.message;
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Could not save the program.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -163,16 +212,23 @@ export default function Colleges() {
   };
 
   const confirmAssign = async () => {
-    if (!assignTarget || !assignProgramId) return;
+    if (!assignTarget) return;
+    if (!assignProgramId) {
+      setAssignError('Please select a program to assign this curriculum to.');
+      return;
+    }
     setIsAssigning(true);
     try {
       const res = await api.post(`/colleges/blocks/${assignTarget.id}/assign/${assignProgramId}`, {});
       addToast(res.message || 'Curriculum assigned.', 'success');
       setAssignTarget(null);
       setAssignProgramId('');
+      setAssignError('');
       fetchAll();
     } catch (err) {
-      addToast(err.message || 'Could not assign the curriculum.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not assign the curriculum.');
+      setAssignError(parsed.message);
+      addToast(parsed.message || 'Could not assign the curriculum.', 'error');
     } finally {
       setIsAssigning(false);
     }
@@ -378,7 +434,7 @@ export default function Colleges() {
                   <Button
                     size="row"
                     variant="secondary"
-                    onClick={() => { setAssignTarget(block); setAssignProgramId(''); }}
+                    onClick={() => { setAssignTarget(block); setAssignProgramId(''); setAssignError(''); }}
                   >
                     Assign
                   </Button>
@@ -403,15 +459,16 @@ export default function Colleges() {
           </>
         }
       >
-        <form id="program-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <form id="program-form" noValidate onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <TextInput
             label="Program code"
             required
-            hint="Printed on timetables — keep it unique"
+            hint="Letters and numbers only (printed on timetables)"
             placeholder="BSCS"
             value={form.code}
             error={formErrors.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
+            onChange={(e) => updateProgramField('code', e.target.value)}
+            onBlur={() => handleProgramBlur('code')}
           />
           <SelectInput
             label="College"
@@ -419,7 +476,8 @@ export default function Colleges() {
             disabled={deanMode}
             value={form.department_id}
             error={formErrors.department_id}
-            onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+            onChange={(e) => updateProgramField('department_id', e.target.value)}
+            onBlur={() => handleProgramBlur('department_id')}
             options={collegeOptions}
           />
           <div className="md:col-span-2">
@@ -429,7 +487,8 @@ export default function Colleges() {
               placeholder="BS Computer Science"
               value={form.name}
               error={formErrors.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              onChange={(e) => updateProgramField('name', e.target.value)}
+              onBlur={() => handleProgramBlur('name')}
             />
           </div>
         </form>
@@ -445,25 +504,38 @@ export default function Colleges() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setAssignTarget(null)} disabled={isAssigning}>Cancel</Button>
-            <Button onClick={confirmAssign} loading={isAssigning} disabled={!assignProgramId}>
+            <Button type="submit" form="assign-curriculum-form" loading={isAssigning}>
               Assign Curriculum
             </Button>
           </>
         }
       >
-        <SelectInput
-          label="Program"
-          required
-          value={assignProgramId}
-          onChange={(e) => setAssignProgramId(e.target.value)}
-          options={[
-            { value: '', label: 'Choose a program…' },
-            ...colleges.map((c) => ({
-              group: `${c.code} — ${c.name}`,
-              options: c.programs.map((p) => ({ value: String(p.id), label: `${p.code} · ${p.name}` })),
-            })),
-          ]}
-        />
+        <form
+          id="assign-curriculum-form"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            confirmAssign();
+          }}
+        >
+          <SelectInput
+            label="Program"
+            required
+            value={assignProgramId}
+            error={assignError}
+            onChange={(e) => {
+              setAssignProgramId(e.target.value);
+              if (assignError) setAssignError('');
+            }}
+            options={[
+              { value: '', label: 'Choose a program…' },
+              ...colleges.map((c) => ({
+                group: `${c.code} — ${c.name}`,
+                options: c.programs.map((p) => ({ value: String(p.id), label: `${p.code} · ${p.name}` })),
+              })),
+            ]}
+          />
+        </form>
       </Dialog>
 
       <ConfirmDialog

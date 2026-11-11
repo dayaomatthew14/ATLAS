@@ -2,24 +2,22 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { LogIn, Key, User, UserPlus, Phone, Mail, ShieldCheck, Eye, EyeOff, AlertCircle, RefreshCw, Send, CheckCircle2, Building, ChevronDown, Check, ArrowLeft } from 'lucide-react';
 import { api } from '../utils/api';
+import { useValidationPopup, ValidationErrorBadge, ValidationPopup } from '../components/ui/ValidationPopup';
 import { saveSession, getLandingView } from '../utils/session';
-
-// Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
-const MIN_PASSWORD_LENGTH = 12;
-
-/**
- * Human names. Keep in sync with NAME_PATTERN in backend/app/schemas.py.
- *
- * This was `^[A-Za-z\s]+$` -- letters and spaces only -- which made the form
- * stricter than the server it posts to and refused several kinds of real name:
- * O'Brien, Dela Cruz-Santos and "Jr." were all rejected here while the API
- * would have accepted them. Worse, neither side allowed an accented letter, so
- * Peña and Muñoz -- among the most common surnames in the Philippines -- could
- * not be registered at all.
- *
- * Must begin with a letter, so a name cannot be punctuation on its own.
- */
-const NAME_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ\s.\-']*$/;
+import {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_BYTES,
+  normalizeContactNumber,
+  validatePersonName,
+  validateContactNumber,
+  validateEmailAddress,
+  validatePasswordValue,
+  validateConfirmPasswordValue,
+  validateOtpCode,
+  validateDepartmentSelection,
+  hasImmediateCharacterIssue,
+  parseApiValidationError,
+} from '../utils/authValidation';
 
 /**
  * The college code out of a department option value.
@@ -57,6 +55,172 @@ const SCENE_BLOCKS = [
   { left: '90%', top: '84%', w: '7%',  h: '5%',  tone: 'var(--dept-coed)',  delay: '7.5s'  },
 ];
 
+function AuthTextField({
+  id,
+  name,
+  icon: Icon,
+  type = 'text',
+  placeholder,
+  value,
+  onChange,
+  onBlur,
+  label,
+  hasError,
+  extraProps = {},
+}) {
+  const anchorRef = useRef(null);
+  const { popupRef, isOpen, open, dismiss, toggle, anchorHandlers } = useValidationPopup({
+    anchorRef,
+    error: hasError,
+  });
+
+  return (
+    <div ref={anchorRef} className="text-left" {...anchorHandlers}>
+      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-5">
+        <label htmlFor={id} className="block text-caption font-semibold text-atlas-slate">
+          {label}
+        </label>
+        <ValidationErrorBadge
+          error={hasError}
+          label={label}
+          onOpen={() => open({ focusControl: false })}
+          onToggle={toggle}
+        />
+      </div>
+      <div className="relative group">
+        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+          <Icon
+            aria-hidden="true"
+            className={`h-4 w-4 transition-colors duration-state ease-standard ${
+              hasError ? 'text-sem-conflict' : 'text-atlas-disabled group-focus-within:text-atlas-700'
+            }`}
+          />
+        </div>
+        <input
+          id={id}
+          name={name}
+          type={type}
+          aria-required="true"
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          aria-invalid={hasError ? 'true' : undefined}
+          aria-describedby={hasError ? `${id}-error` : undefined}
+          {...extraProps}
+          className={`block w-full pl-10 pr-3.5 py-2.5 bg-white/70 border rounded-field outline-none text-body text-atlas-ink
+            placeholder:text-atlas-disabled placeholder:font-normal
+            transition-[border-color,box-shadow,background-color] duration-state ease-standard
+            ${hasError
+              ? 'border-sem-conflict focus:border-sem-conflict focus:ring-4 focus:ring-sem-conflict/15 focus:bg-white'
+              : 'border-atlas-control hover:border-atlas-700/60 focus:border-atlas-700 focus:ring-4 focus:ring-atlas-700/15 focus:bg-white'}
+          `}
+          placeholder={placeholder}
+        />
+      </div>
+      {hasError && (
+        <span id={`${id}-error`} className="sr-only">
+          {hasError}
+        </span>
+      )}
+      <ValidationPopup
+        anchorRef={anchorRef}
+        popupRef={popupRef}
+        isOpen={isOpen}
+        error={hasError}
+        label={label}
+        onDismiss={dismiss}
+      />
+    </div>
+  );
+}
+
+function AuthPasswordField({
+  id,
+  name,
+  value,
+  onChange,
+  onBlur,
+  onKeyUp,
+  label,
+  placeholder = '••••••••',
+  showPassword,
+  onToggleShowPassword,
+  hasError,
+}) {
+  const anchorRef = useRef(null);
+  const { popupRef, isOpen, open, dismiss, toggle, anchorHandlers } = useValidationPopup({
+    anchorRef,
+    error: hasError,
+  });
+
+  return (
+    <div ref={anchorRef} className="text-left" {...anchorHandlers}>
+      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-5">
+        <label htmlFor={id} className="block text-caption font-semibold text-atlas-slate">
+          {label}
+        </label>
+        <ValidationErrorBadge
+          error={hasError}
+          label={label}
+          onOpen={() => open({ focusControl: false })}
+          onToggle={toggle}
+        />
+      </div>
+      <div className="relative group">
+        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+          <Key
+            aria-hidden="true"
+            className={`h-4 w-4 transition-colors duration-state ease-standard ${
+              hasError ? 'text-sem-conflict' : 'text-atlas-disabled group-focus-within:text-atlas-700'
+            }`}
+          />
+        </div>
+        <input
+          id={id}
+          name={name}
+          type={showPassword ? 'text' : 'password'}
+          aria-required="true"
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          onKeyUp={onKeyUp}
+          aria-invalid={hasError ? 'true' : undefined}
+          aria-describedby={hasError ? `${id}-error` : undefined}
+          className={`block w-full pl-10 pr-10 py-2.5 bg-white/70 border rounded-field outline-none text-body text-atlas-ink
+            placeholder:text-atlas-disabled placeholder:font-normal
+            transition-[border-color,box-shadow,background-color] duration-state ease-standard
+            ${hasError
+              ? 'border-sem-conflict focus:border-sem-conflict focus:ring-4 focus:ring-sem-conflict/15 focus:bg-white'
+              : 'border-atlas-control hover:border-atlas-700/60 focus:border-atlas-700 focus:ring-4 focus:ring-atlas-700/15 focus:bg-white'}
+          `}
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          onClick={onToggleShowPassword}
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
+          className="absolute inset-y-0 right-0 pr-3 flex items-center text-atlas-disabled hover:text-atlas-700 transition-colors duration-state ease-standard focus:outline-none focus-visible:text-atlas-700"
+        >
+          {showPassword ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
+        </button>
+      </div>
+      {hasError && (
+        <span id={`${id}-error`} className="sr-only">
+          {hasError}
+        </span>
+      )}
+      <ValidationPopup
+        anchorRef={anchorRef}
+        popupRef={popupRef}
+        isOpen={isOpen}
+        error={hasError}
+        label={label}
+        onDismiss={dismiss}
+      />
+    </div>
+  );
+}
+
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -79,6 +243,7 @@ export default function Login() {
 
   // Validation Errors
   const [fieldErrors, setFieldErrors] = useState({});
+  const [touchedFields, setTouchedFields] = useState({});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,54 +260,78 @@ export default function Login() {
     }
   };
 
-  // Validation Rules
-  const validateField = (name, value) => {
-    let err = '';
-    if (name === 'firstName' || name === 'lastName') {
-      if (!NAME_PATTERN.test(value)) {
-        err = "Enter a name using letters, spaces, hyphens, apostrophes or periods.";
-      }
-    } else if (name === 'confirmPassword') {
-      // Checked as a field, like every other one. This used to surface only as
-      // a banner at the top of the form on submit, which is the one place the
-      // user is not looking when they mistype the second password box.
-      if (value !== password) err = "Both passwords must match.";
-    } else if (name === 'contactNumber') {
-      if (!/^(09\d{9}|\+639\d{9})$/.test(value)) err = "Enter a valid PH number: 09XXXXXXXXX or +639XXXXXXXXX.";
-    } else if (name === 'email') {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) err = "Enter a valid email address.";
-    } else if (name === 'password') {
-      if (/^\s|\s$/.test(value)) err = "Password cannot start or end with spaces.";
-      // The length rule applies only where a password is being SET. Enforcing
-      // it on the sign-in form told every existing user whose password predates
-      // the policy that their correct password was invalid.
-      else if (mode !== 'login' && value.length < MIN_PASSWORD_LENGTH) {
-        err = `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`;
-      }
-    } else if (name === 'department') {
-      if (!value) err = "Please select a department.";
+  const switchMode = (nextMode, { keepAlerts = false } = {}) => {
+    setMode(nextMode);
+    setFieldErrors({});
+    setTouchedFields({});
+    if (!keepAlerts) {
+      setError('');
+      setSuccess('');
     }
+  };
 
+  // Validation Rules
+  const getFieldError = (name, value, overrides = {}) => {
+    if (name === 'firstName') return validatePersonName(value, 'First Name');
+    if (name === 'lastName') return validatePersonName(value, 'Last Name');
+    if (name === 'contactNumber') return validateContactNumber(value);
+    if (name === 'email') return validateEmailAddress(value);
+    if (name === 'password') {
+      return validatePasswordValue(value, { enforcePolicy: mode !== 'login' });
+    }
+    if (name === 'confirmPassword') {
+      const targetPassword = overrides.password !== undefined ? overrides.password : password;
+      return validateConfirmPasswordValue(value, targetPassword);
+    }
+    if (name === 'department') return validateDepartmentSelection(value);
+    if (name === 'otp') return validateOtpCode(value);
+    return '';
+  };
+
+  const validateField = (name, value, overrides = {}) => {
+    const err = getFieldError(name, value, overrides);
     setFieldErrors(prev => ({ ...prev, [name]: err }));
     return err === '';
   };
 
-  const handleBlur = (e) => {
-    const { name, value } = e.target;
-    if (value) validateField(name, value);
+  const validateFields = (entries) => {
+    const nextErrors = {};
+    const nextTouched = {};
+    let allValid = true;
+    for (const [name, value] of entries) {
+      nextTouched[name] = true;
+      const err = getFieldError(name, value);
+      if (err) allValid = false;
+      nextErrors[name] = err;
+    }
+    setTouchedFields(prev => ({ ...prev, ...nextTouched }));
+    setFieldErrors(prev => ({ ...prev, ...nextErrors }));
+    return allValid;
   };
 
-  const validateAll = () => {
-    const isFirstNameValid = validateField('firstName', firstName);
-    const isLastNameValid = validateField('lastName', lastName);
-    const isContactValid = validateField('contactNumber', contactNumber);
-    const isEmailValid = validateField('email', email);
-    const isPasswordValid = validateField('password', password);
-    const isConfirmValid = validateField('confirmPassword', confirmPassword);
-    const isDepartmentValid = validateField('department', department);
+  const handleFieldChange = (name, setter) => (nextValue) => {
+    setter(nextValue);
+    if (error && typeof error === 'string') {
+      setError('');
+    }
 
-    return isFirstNameValid && isLastNameValid && isContactValid && isEmailValid
-      && isPasswordValid && isConfirmValid && isDepartmentValid;
+    if (touchedFields[name] || fieldErrors[name] || hasImmediateCharacterIssue(name, nextValue)) {
+      validateField(name, nextValue);
+    }
+
+    if (
+      name === 'password' &&
+      mode !== 'login' &&
+      (confirmPassword || touchedFields.confirmPassword || fieldErrors.confirmPassword)
+    ) {
+      validateField('confirmPassword', confirmPassword, { password: nextValue });
+    }
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    setTouchedFields(prev => ({ ...prev, [name]: true }));
+    validateField(name, value);
   };
 
   const handleSubmit = async (e) => {
@@ -153,16 +342,8 @@ export default function Login() {
 
     try {
       if (mode === 'login') {
-        setFieldErrors({});
-        if (!email || !email.trim()) {
-          setError('Please enter your email address.');
-          setFieldErrors(prev => ({ ...prev, email: 'Email address is required' }));
-          setLoading(false);
-          return;
-        }
-        if (!password) {
-          setError('Please enter your password.');
-          setFieldErrors(prev => ({ ...prev, password: 'Password is required' }));
+        if (!validateFields([['email', email], ['password', password]])) {
+          setError('Please fix the highlighted fields below.');
           setLoading(false);
           return;
         }
@@ -180,13 +361,24 @@ export default function Login() {
         }
       }
       else if (mode === 'register') {
-        if (!validateAll()) {
+        if (
+          !validateFields([
+            ['firstName', firstName],
+            ['lastName', lastName],
+            ['department', department],
+            ['contactNumber', contactNumber],
+            ['email', email],
+            ['password', password],
+            ['confirmPassword', confirmPassword],
+          ])
+        ) {
+          setError('Please fix the highlighted fields below before completing registration.');
           setLoading(false);
           return;
         }
 
-        // Format contact number to E.164 for Twilio
-        let formattedContact = contactNumber;
+        // Normalize spaces/hyphens and format contact number to E.164 for Twilio
+        let formattedContact = normalizeContactNumber(contactNumber);
         if (formattedContact.startsWith('09')) {
           formattedContact = '+63' + formattedContact.substring(1);
         }
@@ -224,10 +416,15 @@ export default function Login() {
               : 'email';
           setSuccess(`A verification code has been sent to your ${where}. Please confirm before logging in.`);
         }
-        setMode('verify');
+        switchMode('verify', { keepAlerts: true });
       }
       else if (mode === 'verify') {
-        await api.post('/auth/verify-email', { email, otp });
+        if (!validateFields([['email', email], ['otp', otp]])) {
+          setError('Please fix the highlighted fields below.');
+          setLoading(false);
+          return;
+        }
+        await api.post('/auth/verify-email', { email: email.trim().toLowerCase(), otp: otp.trim() });
 
         // Verification confirms the address; it is not a sign-in. Signing the
         // user straight in used to mean the password they had just chosen was
@@ -237,64 +434,65 @@ export default function Login() {
         setPassword('');
         setConfirmPassword('');
         setOtp('');
-        setMode('login');
         setSuccess('Your account is verified. Sign in to continue.');
+        switchMode('login', { keepAlerts: true });
       }
       else if (mode === 'forgot_email') {
+        if (!validateFields([['email', email]])) {
+          setError('Please enter a valid email address.');
+          setLoading(false);
+          return;
+        }
         const response = await api.post('/auth/forgot-password', { email: email.trim().toLowerCase() });
         setSuccess(response.msg);
-        setMode('forgot_otp');
+        switchMode('forgot_otp', { keepAlerts: true });
       }
       else if (mode === 'forgot_otp') {
-        // HEU-10: this step used to advance on any input at all, so a wrong
-        // code was only discovered after the user had chosen and re-typed a new
-        // password. There is no endpoint that checks a reset code on its own,
-        // so validate the shape here and let the reset call be the authority —
-        // but at least stop accepting obviously wrong input.
-        const code = (otp || '').trim();
-        if (!/^\d{6}$/.test(code)) {
+        if (!validateFields([['otp', otp]])) {
           setError('Enter the 6-digit code from your email.');
-          setFieldErrors((prev) => ({ ...prev, otp: 'The code is 6 digits.' }));
           setLoading(false);
           return;
         }
         setError('');
-        setMode('forgot_reset');
+        switchMode('forgot_reset', { keepAlerts: true });
       }
       else if (mode === 'forgot_reset') {
-        if (!validateField('password', password)) {
+        if (!validateFields([['password', password], ['confirmPassword', confirmPassword]])) {
+          setError('Please fix the highlighted fields below.');
           setLoading(false);
           return;
         }
-        if (password !== confirmPassword) {
-          setError('Passwords do not match.');
-          setLoading(false);
-          return;
-        }
-        await api.post('/auth/reset-password', { email: email.trim().toLowerCase(), otp, new_password: password });
+        await api.post('/auth/reset-password', {
+          email: email.trim().toLowerCase(),
+          otp: otp.trim(),
+          new_password: password,
+        });
+        setPassword('');
+        setConfirmPassword('');
+        setOtp('');
         setSuccess('Password reset successfully! You can now log in.');
-        setMode('login');
+        switchMode('login', { keepAlerts: true });
       }
     } catch (err) {
-      let detailMsg = '';
-      const rawDetail = err.response?.data?.detail;
-      if (typeof rawDetail === 'string') {
-        detailMsg = rawDetail;
-      } else if (Array.isArray(rawDetail)) {
-        detailMsg = rawDetail.map(d => (typeof d === 'string' ? d : d.msg || d.detail || JSON.stringify(d))).join(', ');
-      } else if (rawDetail && typeof rawDetail === 'object') {
-        detailMsg = rawDetail.message || rawDetail.detail || JSON.stringify(rawDetail);
-      } else {
-        detailMsg = err.message || 'An error occurred. Please try again.';
+      const parsed = parseApiValidationError(
+        err.response?.data?.detail,
+        err.message || 'An error occurred. Please try again.'
+      );
+      const detailMsg = parsed.message;
+      if (Object.keys(parsed.fields).length > 0) {
+        setFieldErrors(prev => ({ ...prev, ...parsed.fields }));
       }
 
       if (mode === 'login' && err.response?.status === 401) {
         setError('Incorrect password. Please double-check your password and try again.');
-        setFieldErrors(prev => ({ ...prev, password: 'Incorrect password' }));
+        setFieldErrors(prev => ({
+          ...prev,
+          password: 'Incorrect password. Check Caps Lock or reset your password.',
+        }));
       } else if (mode === 'login' && err.response?.status === 403) {
         if (detailMsg.toLowerCase().includes('verified') || detailMsg.toLowerCase().includes('otp')) {
           setError('Account not verified. Please check your email for the verification OTP.');
-          setMode('verify');
+          switchMode('verify', { keepAlerts: true });
         } else {
           setError(detailMsg || 'Access denied. You are not authorized to log in.');
         }
@@ -302,7 +500,7 @@ export default function Login() {
         setError(
           <div className="flex flex-col space-y-2">
             <span>No account found for this email address.</span>
-            <button type="button" onClick={() => { setError(''); setMode('register'); }} className="text-sem-conflict font-bold underline underline-offset-4 decoration-sem-conflict/40 hover:decoration-sem-conflict text-left">
+            <button type="button" onClick={() => switchMode('register')} className="text-sem-conflict font-bold underline underline-offset-4 decoration-sem-conflict/40 hover:decoration-sem-conflict text-left">
               Create a new account instead?
             </button>
           </div>
@@ -324,15 +522,15 @@ export default function Login() {
    * route is the one thing that cannot help, so they get to pick the other one.
    */
   const handleResend = async (channel = 'auto') => {
-    if (!email) {
-      setError('Please enter your email first.');
+    if (!validateFields([['email', email]])) {
+      setError('Please enter a valid email address first.');
       return;
     }
     setLoading(true);
     setError('');
     setSuccess('');
     try {
-      const response = await api.post('/auth/resend-verification', { email, channel });
+      const response = await api.post('/auth/resend-verification', { email: email.trim().toLowerCase(), channel });
       const ch = response.channels || {};
       setSuccess(
         ch.sms && !ch.email ? 'A code has been sent by text message.'
@@ -347,52 +545,21 @@ export default function Login() {
     }
   };
 
-  const renderField = (name, icon, type, placeholder, value, setter, label, extraProps = {}) => {
-    const Icon = icon;
-    const hasError = fieldErrors[name];
-    return (
-      <div className="text-left">
-        <label htmlFor={`auth-${name}`} className="block text-caption font-semibold text-atlas-slate mb-1.5">
-          {label}
-        </label>
-        <div className="relative group">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-            <Icon
-              aria-hidden="true"
-              className={`h-4 w-4 transition-colors duration-state ease-standard ${
-                hasError ? 'text-sem-conflict' : 'text-atlas-disabled group-focus-within:text-atlas-700'
-              }`}
-            />
-          </div>
-          <input
-            id={`auth-${name}`}
-            name={name}
-            type={type}
-            required
-            value={value}
-            onChange={(e) => setter(e.target.value)}
-            onBlur={handleBlur}
-            aria-invalid={hasError ? 'true' : undefined}
-            aria-describedby={hasError ? `auth-${name}-error` : undefined}
-            {...extraProps}
-            className={`block w-full pl-10 pr-3.5 py-2.5 bg-white/70 border rounded-field outline-none text-body text-atlas-ink
-              placeholder:text-atlas-disabled placeholder:font-normal
-              transition-[border-color,box-shadow,background-color] duration-state ease-standard
-              ${hasError
-                ? 'border-sem-conflict focus:border-sem-conflict focus:ring-4 focus:ring-sem-conflict/15 focus:bg-white'
-                : 'border-atlas-control hover:border-atlas-700/60 focus:border-atlas-700 focus:ring-4 focus:ring-atlas-700/15 focus:bg-white'}
-            `}
-            placeholder={placeholder}
-          />
-        </div>
-        {hasError && (
-          <p id={`auth-${name}-error`} className="text-caption text-sem-conflict font-medium mt-1.5">
-            {hasError}
-          </p>
-        )}
-      </div>
-    );
-  };
+  const renderField = (name, icon, type, placeholder, value, setter, label, extraProps = {}) => (
+    <AuthTextField
+      id={`auth-${name}`}
+      name={name}
+      icon={icon}
+      type={type}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => handleFieldChange(name, setter)(e.target.value)}
+      onBlur={handleBlur}
+      label={label}
+      hasError={fieldErrors[name]}
+      extraProps={extraProps}
+    />
+  );
 
 function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -425,18 +592,43 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen]);
 
+  const {
+    popupRef,
+    isOpen: isErrorOpen,
+    open: openErrorPopup,
+    dismiss: dismissErrorPopup,
+    toggle: toggleErrorPopup,
+    anchorHandlers,
+  } = useValidationPopup({
+    anchorRef: dropdownRef,
+    error: isOpen ? '' : hasError,
+  });
+
   const selectedOption = options.find(opt => opt.value === value);
+  const errorId = `${labelId}-error`;
 
   return (
-    <div className="text-left relative" ref={dropdownRef}>
-      <label id={labelId} className="block text-caption font-semibold text-atlas-slate mb-1.5">{label}</label>
+    <div className="text-left relative" ref={dropdownRef} {...anchorHandlers}>
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <label id={labelId} className="block text-caption font-semibold text-atlas-slate truncate">{label}</label>
+        <ValidationErrorBadge
+          error={hasError}
+          label={label}
+          onOpen={() => openErrorPopup({ focusControl: false })}
+          onToggle={toggleErrorPopup}
+        />
+      </div>
       <div className="relative">
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => {
+            dismissErrorPopup();
+            setIsOpen(!isOpen);
+          }}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           aria-labelledby={labelId}
+          aria-describedby={hasError ? errorId : undefined}
           className={`w-full pl-10 pr-9 py-2.5 bg-white/70 border rounded-field outline-none text-left flex items-center justify-between
             transition-[border-color,box-shadow,background-color] duration-state ease-standard ${
             hasError
@@ -500,18 +692,32 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
           </div>
         )}
       </div>
-      {hasError && <p className="text-caption text-sem-conflict font-medium mt-1.5">{hasError}</p>}
+      {hasError && <span id={errorId} className="sr-only">{hasError}</span>}
+      <ValidationPopup
+        anchorRef={dropdownRef}
+        popupRef={popupRef}
+        isOpen={isErrorOpen && !isOpen}
+        error={hasError}
+        label={label}
+        onDismiss={dismissErrorPopup}
+      />
     </div>
   );
 }
 
   const renderSelectField = (name, icon, value, setter, label, options) => {
+    const handleSelect = (nextValue) => {
+      setTouchedFields(prev => ({ ...prev, [name]: true }));
+      setter(nextValue);
+      validateField(name, nextValue);
+      if (error && typeof error === 'string') setError('');
+    };
     return (
       <CustomSelectInput
         key={name}
         icon={icon}
         value={value}
-        setter={setter}
+        setter={handleSelect}
         label={label}
         options={options}
         hasError={fieldErrors[name]}
@@ -519,59 +725,21 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
     );
   };
 
-  const renderPasswordField = (name, value, setter, label, placeholder = "••••••••") => {
-    const hasError = fieldErrors[name];
-    return (
-      <div className="text-left">
-        <label htmlFor={`auth-${name}`} className="block text-caption font-semibold text-atlas-slate mb-1.5">
-          {label}
-        </label>
-        <div className="relative group">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-            <Key
-              aria-hidden="true"
-              className={`h-4 w-4 transition-colors duration-state ease-standard ${
-                hasError ? 'text-sem-conflict' : 'text-atlas-disabled group-focus-within:text-atlas-700'
-              }`}
-            />
-          </div>
-          <input
-            id={`auth-${name}`}
-            name={name}
-            type={showPassword ? "text" : "password"}
-            required
-            value={value}
-            onChange={(e) => setter(e.target.value)}
-            onBlur={handleBlur}
-            onKeyUp={handleKeyUp}
-            aria-invalid={hasError ? 'true' : undefined}
-            aria-describedby={hasError ? `auth-${name}-error` : undefined}
-            className={`block w-full pl-10 pr-10 py-2.5 bg-white/70 border rounded-field outline-none text-body text-atlas-ink
-              placeholder:text-atlas-disabled placeholder:font-normal
-              transition-[border-color,box-shadow,background-color] duration-state ease-standard
-              ${hasError
-                ? 'border-sem-conflict focus:border-sem-conflict focus:ring-4 focus:ring-sem-conflict/15 focus:bg-white'
-                : 'border-atlas-control hover:border-atlas-700/60 focus:border-atlas-700 focus:ring-4 focus:ring-atlas-700/15 focus:bg-white'}
-            `}
-            placeholder={placeholder}
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            className="absolute inset-y-0 right-0 pr-3 flex items-center text-atlas-disabled hover:text-atlas-700 transition-colors duration-state ease-standard focus:outline-none focus-visible:text-atlas-700"
-          >
-            {showPassword ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
-          </button>
-        </div>
-        {hasError && (
-          <p id={`auth-${name}-error`} className="text-caption text-sem-conflict font-medium mt-1.5">
-            {hasError}
-          </p>
-        )}
-      </div>
-    );
-  };
+  const renderPasswordField = (name, value, setter, label, placeholder = "••••••••") => (
+    <AuthPasswordField
+      id={`auth-${name}`}
+      name={name}
+      value={value}
+      onChange={(e) => handleFieldChange(name, setter)(e.target.value)}
+      onBlur={handleBlur}
+      onKeyUp={handleKeyUp}
+      label={label}
+      placeholder={placeholder}
+      showPassword={showPassword}
+      onToggleShowPassword={() => setShowPassword(!showPassword)}
+      hasError={fieldErrors[name]}
+    />
+  );
 
   const title =
     mode === 'login' ? 'ATLAS' :
@@ -660,7 +828,7 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                   replays the entrance instead of swapping the fields in
                   place. It is the cheapest honest signal that the form
                   became a different form. */}
-              <form key={mode} onSubmit={handleSubmit} className="auth-stagger space-y-4">
+              <form key={mode} onSubmit={handleSubmit} noValidate className="auth-stagger space-y-4">
                 {/* Sign-out could not reach the server. The session cookie is
                     HttpOnly, so nothing in the browser can clear it -- saying
                     so is the only honest option on a shared machine, where the
@@ -719,7 +887,7 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                       </label>
                       <button
                         type="button"
-                        onClick={() => setMode('forgot_email')}
+                        onClick={() => switchMode('forgot_email')}
                         className="text-caption font-semibold text-atlas-700 hover:text-atlas-800 underline-offset-4 hover:underline transition-colors duration-state ease-standard"
                       >
                         Forgot password?
@@ -759,6 +927,9 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                       {renderPasswordField('password', password, setPassword, 'Password')}
                       {renderPasswordField('confirmPassword', confirmPassword, setConfirmPassword, 'Confirm Password')}
                     </div>
+                    <p className="text-[11px] text-atlas-slate text-left -mt-1.5">
+                      Use {MIN_PASSWORD_LENGTH}–{MAX_PASSWORD_BYTES} characters with no spaces at the start or end.
+                    </p>
                   </>
                 )}
 
@@ -803,6 +974,9 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                   <>
                     {renderPasswordField('password', password, setPassword, 'New Password')}
                     {renderPasswordField('confirmPassword', confirmPassword, setConfirmPassword, 'Confirm Password')}
+                    <p className="text-[11px] text-atlas-slate text-left -mt-1.5">
+                      Use {MIN_PASSWORD_LENGTH}–{MAX_PASSWORD_BYTES} characters with no spaces at the start or end.
+                    </p>
                   </>
                 )}
 
@@ -839,15 +1013,7 @@ function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError
                   {mode === 'login' ? "First time using ATLAS? " : "Already have an account? "}
                   <button
                     type="button"
-                    onClick={() => {
-                      if (mode === 'login') {
-                        setMode('register');
-                      } else {
-                        setMode('login');
-                        setError('');
-                        setSuccess('');
-                      }
-                    }}
+                    onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
                     className="font-semibold text-atlas-700 hover:text-atlas-800 underline underline-offset-4 decoration-atlas-700/30 hover:decoration-atlas-800 transition-colors duration-state ease-standard"
                   >
                     {mode === 'login' ? 'Create an account' : 'Return to login'}

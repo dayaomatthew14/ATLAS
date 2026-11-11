@@ -9,6 +9,11 @@ import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, SelectInput } from '../../components/ui/Field';
 import Badge from '../../components/ui/Badge';
 import { pluralize } from '../../components/ui/tokens';
+import {
+  validateAcademicYear,
+  hasImmediateAcademicYearIssue,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Terms. Phase 2 Screen 7.
@@ -104,14 +109,22 @@ export default function AcademicSemesters() {
     setIsFormOpen(true);
   };
 
+  const validateSemesterField = (field, value) => {
+    if (field === 'academic_year') {
+      return validateAcademicYear(value, { label: 'Academic year', required: true, allowAyPrefix: false });
+    }
+    if (field === 'term') {
+      return value ? '' : 'Select a term.';
+    }
+    return '';
+  };
+
   const validate = () => {
     const errors = {};
-    if (!/^\d{4}-\d{4}$/.test(form.academic_year.trim())) {
-      errors.academic_year = 'Use the format 2026-2027.';
-    } else {
-      const [from, to] = form.academic_year.split('-').map(Number);
-      if (to !== from + 1) errors.academic_year = 'The second year must follow the first, as in 2026-2027.';
-    }
+    const ayErr = validateSemesterField('academic_year', form.academic_year);
+    const termErr = validateSemesterField('term', form.term);
+    if (ayErr) errors.academic_year = ayErr;
+    if (termErr) errors.term = termErr;
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -134,7 +147,15 @@ export default function AcademicSemesters() {
       // Renaming the active term changes what the context bar should read.
       if (editing?.is_active) notifyTermChanged();
     } catch (err) {
-      addToast(err.message || 'Could not save the term.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not save the term.');
+      const nextFields = { ...parsed.fields };
+      if (!nextFields.academic_year && /already exists/i.test(parsed.message)) {
+        nextFields.academic_year = `${payload.academic_year} (${termLabel(payload.term)}) already exists.`;
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Could not save the term.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -258,21 +279,39 @@ export default function AcademicSemesters() {
           </>
         }
       >
-        <form id="term-form" onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <form id="term-form" noValidate onSubmit={handleSubmit} className="flex flex-col gap-5">
           <TextInput
             label="Academic year"
             required
             placeholder="2026-2027"
-            hint="Two consecutive years, as in 2026-2027"
+            hint="Two consecutive 4-digit years, as in 2026-2027"
             value={form.academic_year}
             error={formErrors.academic_year}
-            onChange={(e) => setForm({ ...form, academic_year: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm({ ...form, academic_year: val });
+              const err = hasImmediateAcademicYearIssue(val)
+                ? validateSemesterField('academic_year', val)
+                : (formErrors.academic_year ? validateSemesterField('academic_year', val) : '');
+              setFormErrors((prev) => ({ ...prev, academic_year: err || undefined }));
+            }}
+            onBlur={() => setFormErrors((prev) => ({
+              ...prev,
+              academic_year: validateSemesterField('academic_year', form.academic_year) || undefined,
+            }))}
           />
           <SelectInput
             label="Term"
             required
             value={form.term}
-            onChange={(e) => setForm({ ...form, term: e.target.value })}
+            error={formErrors.term}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm({ ...form, term: val });
+              if (formErrors.term || formErrors.academic_year) {
+                setFormErrors((prev) => ({ ...prev, term: undefined }));
+              }
+            }}
             options={TERM_OPTIONS}
           />
         </form>

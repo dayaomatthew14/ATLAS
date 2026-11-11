@@ -148,22 +148,22 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         models.Base.metadata.drop_all(self.engine)
 
     def test_assigned_subjects_active_term_summary(self):
-        """Only 1st term subjects are included for active term (CS101, CS102, GE101, PEED1, not CS201)."""
+        """Only active-term major subjects are included by default (CS101, CS102); unassigned GenEd and 2nd-term subjects are excluded."""
         res = get_active_term_assigned_subjects(self.db, self.user)
 
         self.assertEqual(res["active_semester"]["id"], 1)
         self.assertEqual(res["active_semester"]["term"], "1st")
-        self.assertEqual(res["summary"]["total"], 4)
+        self.assertEqual(res["summary"]["total"], 2)
         self.assertEqual(res["summary"]["assigned"], 0)
-        self.assertEqual(res["summary"]["unassigned"], 4)
+        self.assertEqual(res["summary"]["unassigned"], 2)
         self.assertFalse(res["summary"]["all_assigned"])
 
         # Codes present
         codes = [s["code"] for s in res["subjects"]]
         self.assertIn("CS101", codes)
         self.assertIn("CS102", codes)
-        self.assertIn("GE101", codes)
-        self.assertIn("PEED1", codes)
+        self.assertNotIn("GE101", codes)  # Unassigned GenEd excluded
+        self.assertNotIn("PEED1", codes)  # Unassigned GenEd prefix excluded
         self.assertNotIn("CS201", codes)  # 2nd term subject excluded
 
         # Curriculum courses and program name match the curriculum block
@@ -173,7 +173,7 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.assertEqual(res["subjects"][0]["program_name"], "BS Computer Science")
 
     def test_assigning_professor_updates_status(self):
-        """Assigning a professor to CS101 updates counts to 1 assigned, 3 unassigned."""
+        """Assigning a professor to CS101 updates counts to 1 assigned, 1 unassigned."""
         offering = models.SubjectOffering(
             faculty_id=1,
             curriculum_id=101,
@@ -184,9 +184,9 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.db.commit()
 
         res = get_active_term_assigned_subjects(self.db, self.user)
-        self.assertEqual(res["summary"]["total"], 4)
+        self.assertEqual(res["summary"]["total"], 2)
         self.assertEqual(res["summary"]["assigned"], 1)
-        self.assertEqual(res["summary"]["unassigned"], 3)
+        self.assertEqual(res["summary"]["unassigned"], 1)
         self.assertFalse(res["summary"]["all_assigned"])
 
         cs101 = next(s for s in res["subjects"] if s["code"] == "CS101")
@@ -251,21 +251,41 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("not assigned", ctx.exception.detail.lower())
 
-    def test_gen_ed_subjects_included_in_assigned_subjects(self):
-        """GenEd subjects must appear in assigned subjects with is_major=False and be assignable."""
+    def test_gen_ed_appears_only_when_assigned_to_professor(self):
+        """GenEd subjects stay hidden until assigned in Faculty handled subjects, and hide again when unassigned."""
+        from backend.app.routers.subject_offerings import create_subject_offering, delete_subject_offering
+
+        # Initially unassigned -> neither GE101 nor PEED1 appears
         res = get_active_term_assigned_subjects(self.db, self.user)
         codes = [s["code"] for s in res["subjects"]]
+        self.assertEqual(codes, ["CS101", "CS102"])
+        self.assertEqual(res["summary"]["total"], 2)
 
-        self.assertIn("CS101", codes)
-        self.assertIn("CS102", codes)
-        self.assertIn("GE101", codes)
-        self.assertIn("PEED1", codes)
-        self.assertEqual(res["summary"]["total"], 4)
+        # Assign GE101 to Faculty 1 (simulating Faculty -> Handled Subjects)
+        off = create_subject_offering(
+            schemas.SubjectOfferingCreate(faculty_id=1, curriculum_id=104, semester_id=1),
+            self.db,
+            self.user,
+        )
 
-        ge101 = next(s for s in res["subjects"] if s["code"] == "GE101")
+        res_after_assign = get_active_term_assigned_subjects(self.db, self.user)
+        codes_after = [s["code"] for s in res_after_assign["subjects"]]
+        self.assertIn("GE101", codes_after)
+        self.assertNotIn("PEED1", codes_after)  # Unassigned GenEd remains hidden
+        self.assertEqual(res_after_assign["summary"]["total"], 3)
+        self.assertEqual(res_after_assign["summary"]["assigned"], 1)
+        self.assertEqual(res_after_assign["summary"]["unassigned"], 2)
+
+        ge101 = next(s for s in res_after_assign["subjects"] if s["code"] == "GE101")
         self.assertFalse(ge101["is_major"])
-        cs101 = next(s for s in res["subjects"] if s["code"] == "CS101")
-        self.assertTrue(cs101["is_major"])
+        self.assertEqual(ge101["status"], "assigned")
+        self.assertEqual(ge101["professor_name"], "Alan Turing")
+
+        # Unassign GE101 -> removed from Assigned Subjects again
+        delete_subject_offering(off.id, self.db, self.user)
+        res_after_unassign = get_active_term_assigned_subjects(self.db, self.user)
+        self.assertNotIn("GE101", [s["code"] for s in res_after_unassign["subjects"]])
+        self.assertEqual(res_after_unassign["summary"]["total"], 2)
 
     def test_gen_ed_subjects_do_not_block_scheduling(self):
         """When all major subjects are assigned, unassigned GenEd subjects do not block all_assigned."""
@@ -275,9 +295,9 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         self.db.commit()
 
         res = get_active_term_assigned_subjects(self.db, self.user)
-        self.assertEqual(res["summary"]["total"], 4)
+        self.assertEqual(res["summary"]["total"], 2)
         self.assertEqual(res["summary"]["assigned"], 2)
-        self.assertEqual(res["summary"]["unassigned"], 2)
+        self.assertEqual(res["summary"]["unassigned"], 0)
         self.assertTrue(res["summary"]["all_assigned"])
 
     def test_user_can_assign_gen_ed_subject_and_override(self):
@@ -294,6 +314,10 @@ class AssignedSubjectsWorkflowTest(unittest.TestCase):
         off2 = create_subject_offering(data2, self.db, self.user)
         self.assertEqual(off2.faculty_id, 2)
         self.assertEqual(off2.id, off1.id)  # Overridden existing offering
+
+        res = get_active_term_assigned_subjects(self.db, self.user)
+        ge101 = next(s for s in res["subjects"] if s["code"] == "GE101")
+        self.assertEqual(ge101["professor_name"], "Ada Lovelace")
 
     def test_manual_schedule_allowed_for_gen_ed_without_offering(self):
         """Manual schedule creation for GenEd subjects does not require a chair SubjectOffering."""

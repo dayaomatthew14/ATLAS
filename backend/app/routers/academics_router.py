@@ -8,16 +8,40 @@ data, and letting a chair invent a college is exactly how the `DEPT_{id}`
 sprawl happened.
 """
 
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
-from .. import models, database, auth
+from .. import models, database, auth, schemas
 from ..academics import COLLEGE_CODES
 from ..routers.logs import log_activity
 
 router = APIRouter(prefix="/api/colleges", tags=["Academics"])
+
+
+def _validate_program_code(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError("Program Code is required (e.g., BSCS).")
+    if re.search(r"\s", trimmed):
+        raise ValueError("Program Code cannot contain spaces (e.g., use BSCS instead of BS CS).")
+    syms = re.findall(r"[^A-Za-z0-9]", trimmed)
+    if syms:
+        sample = "".join(dict.fromkeys(syms))[:5]
+        raise ValueError(
+            f"Program Code cannot contain symbols like '{sample}'. Use letters and numbers only (e.g., BSCS)."
+        )
+    if not re.search(r"[A-Za-z]", trimmed):
+        raise ValueError("Program Code must contain at least one letter (e.g., BSCS).")
+    if len(trimmed) < 2:
+        raise ValueError("Program Code must be at least 2 characters (e.g., BSCS).")
+    if len(trimmed) > 20:
+        raise ValueError("Program Code must be at most 20 characters.")
+    return trimmed.upper()
 
 
 class ProgramOut(BaseModel):
@@ -38,15 +62,39 @@ class CollegeOut(BaseModel):
 
 
 class ProgramCreate(BaseModel):
-    code: str = Field(min_length=2, max_length=20)
-    name: str = Field(min_length=3, max_length=255)
+    code: str
+    name: str
     department_id: int
+
+    @field_validator("code")
+    @classmethod
+    def check_code(cls, v):
+        return _validate_program_code(v)
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, v):
+        return schemas.validate_entity_title(
+            v, label="Program Name", min_len=3, max_len=255, example="BS Computer Science"
+        )
 
 
 class ProgramUpdate(BaseModel):
-    code: Optional[str] = Field(default=None, min_length=2, max_length=20)
-    name: Optional[str] = Field(default=None, min_length=3, max_length=255)
+    code: Optional[str] = None
+    name: Optional[str] = None
     department_id: Optional[int] = None
+
+    @field_validator("code")
+    @classmethod
+    def check_code(cls, v):
+        return _validate_program_code(v)
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, v):
+        return schemas.validate_entity_title(
+            v, label="Program Name", min_len=3, max_len=255, example="BS Computer Science"
+        )
 
 
 def _seeded_colleges(db: Session):

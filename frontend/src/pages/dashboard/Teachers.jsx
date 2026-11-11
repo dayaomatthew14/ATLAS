@@ -13,7 +13,15 @@ import UnavailabilityGrid from '../../components/ui/UnavailabilityGrid';
 import FacultyPreviewDialog from '../../components/FacultyPreviewDialog';
 import { blocksToCells, cellsToBlocks } from '../../utils/availability';
 import { restrictionReason, pluralize, focusRing } from '../../components/ui/tokens';
+import { ValidationAnchor } from '../../components/ui/ValidationPopup';
 import { canManageFaculty as canManageFacultyRole, getRole, ROLES } from '../../utils/session';
+import {
+  validatePersonName,
+  hasImmediateNameIssue,
+  validateIntegerRange,
+  validateTimeOrder,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Row controls need a border you can actually see.
@@ -56,31 +64,26 @@ const ROW_CONTROL = '!bg-white !border-atlas-control hover:!bg-atlas-50';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-/** Field-level validators, so an error can sit under the input it belongs to. */
-const validateName = (value) => {
-  const v = String(value || '').trim();
-  if (!v) return 'Enter the faculty member’s full name.';
-  if (!/^[A-Za-z\s.'-]+$/.test(v)) return 'Letters, spaces, periods, apostrophes and hyphens only.';
-  if (v.split(/\s+/).length < 2) return 'Include a surname as well as a first name.';
-  return undefined;
-};
+/** Field-level diagnostic validators, so errors appear directly under the field they belong to. */
+const validateName = (value) =>
+  validatePersonName(value, 'Full name', { required: true, requireFullName: true }) || undefined;
 
 /**
- * Subject units are optional, because they no longer govern anything a chair
- * can be held to. Teaching load is REG. HOURS against the term's required
- * figure; this field is curriculum bookkeeping. Demanding it before a faculty
- * member could be saved asked for a number that changes no outcome.
+ * Subject units are optional, because teaching load is REG. HOURS against the
+ * term's required figure; this field is curriculum bookkeeping.
  */
 const validateUnits = (value, unitType = 'units', facultyType = 'full_time') => {
-  if (value === '' || value === null || value === undefined) return undefined;
-  const n = Number(value);
   const isHrs = unitType === 'hrs';
-  const label = isHrs ? 'hours' : 'units';
   const max = isHrs ? (facultyType === 'part_time' ? 20 : 30) : (facultyType === 'part_time' ? 12 : 18);
-  if (Number.isNaN(n)) return `Enter a number of ${label}, or leave it blank.`;
-  if (!Number.isInteger(n)) return `${isHrs ? 'Hours' : 'Units'} must be a whole number.`;
-  if (n < 1 || n > max) return `Enter a value between 1 and ${max}, or leave it blank.`;
-  return undefined;
+  return (
+    validateIntegerRange(value, {
+      label: isHrs ? 'Maximum teaching hours' : 'Maximum subject units',
+      min: 1,
+      max,
+      required: false,
+      blankHint: ', or leave it blank',
+    }) || undefined
+  );
 };
 
 /**
@@ -412,7 +415,6 @@ export default function Teachers() {
     setSelectedTeacherForSubjects(teacher);
     setIsSubjectModalOpen(true);
     setCourseCodeFilter('All');
-    setSemesterFilter('1st');
     setSubjectSearchQuery('');
     setHasPublishedCurriculum(true);
     setIsLoadingSubjects(true);
@@ -420,6 +422,9 @@ export default function Teachers() {
       const semData = await api.get('/semesters');
       const active = semData.find(s => s.is_active);
       setActiveSemester(active || null);
+
+      const rawTerm = String(active?.term || '').trim().toLowerCase();
+      setSemesterFilter(rawTerm.startsWith('2') ? '2nd' : rawTerm.startsWith('3') ? '3rd' : '1st');
 
       if (active) {
         const offerings = await api.get(`/subject-offerings?semester_id=${active.id}`).catch(() => []);
@@ -701,6 +706,9 @@ export default function Teachers() {
       ...prev,
       [day]: existing.map((r) => (r.id === rangeId ? { ...r, ...updates } : r)),
     }));
+    if (formErrors.unavailability) {
+      setFormErrors((prev) => ({ ...prev, unavailability: undefined }));
+    }
   };
 
   const handleOpenModal = (teacher = null) => {
@@ -758,26 +766,18 @@ export default function Teachers() {
       setSelectedDays([]);
       setCustomRanges({});
     }
+    setFormErrors({});
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingTeacher(null);
+    setFormErrors({});
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Validate against the fields themselves. These used to be absent
-    // entirely — a blank name posted and came back a 422 the user had to
-    // interpret from a toast (ux-guidelines: Error Placement, Inline Validation).
-    const errors = {
-      name: validateName(formData.name),
-      max_units: validateUnits(formData.max_units, formData.load_unit, formData.type),
-    };
-    setFormErrors(errors);
-    if (errors.name || errors.max_units) return;
 
     // Construct unavailability array for submission
     const finalUnavailability = [];
@@ -793,33 +793,40 @@ export default function Teachers() {
       });
     });
 
-    // Validate times (end must be after start)
+    let unavailErr;
     for (const u of finalUnavailability) {
-      if (u.end_time <= u.start_time) {
-        addToast(
-          `Unavailable time on ${u.day_of_week} must end after it starts (${formatTime(u.start_time)} to ${formatTime(u.end_time)}).`,
-          'error'
-        );
-        return;
+      const timeErr = validateTimeOrder(u.start_time, u.end_time, { contextLabel: `Unavailable time on ${u.day_of_week}` });
+      if (timeErr) {
+        unavailErr = timeErr;
+        break;
+      }
+    }
+    if (!unavailErr) {
+      for (const day of selectedDays) {
+        const daySlots = finalUnavailability.filter((u) => u.day_of_week === day);
+        for (let i = 0; i < daySlots.length && !unavailErr; i++) {
+          for (let j = i + 1; j < daySlots.length; j++) {
+            const a = daySlots[i];
+            const b = daySlots[j];
+            if (a.start_time < b.end_time && a.end_time > b.start_time) {
+              unavailErr = `Unavailable times on ${day} overlap (${formatTime(a.start_time)}–${formatTime(a.end_time)} and ${formatTime(b.start_time)}–${formatTime(b.end_time)}).`;
+              break;
+            }
+          }
+        }
+        if (unavailErr) break;
       }
     }
 
-    // Validate against overlapping slots on the same day
-    for (const day of selectedDays) {
-      const daySlots = finalUnavailability.filter((u) => u.day_of_week === day);
-      for (let i = 0; i < daySlots.length; i++) {
-        for (let j = i + 1; j < daySlots.length; j++) {
-          const a = daySlots[i];
-          const b = daySlots[j];
-          if (a.start_time < b.end_time && a.end_time > b.start_time) {
-            addToast(
-              `Unavailable times on ${day} overlap (${formatTime(a.start_time)}–${formatTime(a.end_time)} and ${formatTime(b.start_time)}–${formatTime(b.end_time)}).`,
-              'error'
-            );
-            return;
-          }
-        }
-      }
+    const errors = {
+      name: validateName(formData.name),
+      max_units: validateUnits(formData.max_units, formData.load_unit, formData.type),
+      unavailability: unavailErr,
+    };
+    setFormErrors(errors);
+    if (errors.name || errors.max_units || errors.unavailability) {
+      if (errors.unavailability) addToast(errors.unavailability, 'error');
+      return;
     }
 
     setIsSavingTeacher(true);
@@ -831,12 +838,21 @@ export default function Teachers() {
 
     // Field names must match schemas.FacultyCreate / FacultyUpdate. `faculty_type`
     // was silently dropped by the API, so the employment type never saved.
-    const defaultVal = formData.load_unit === 'hrs' ? 24 : 18;
+    const defaultVal = formData.load_unit === 'hrs'
+      ? (formData.type === 'part_time' ? 16 : 24)
+      : (formData.type === 'part_time' ? 12 : 18);
+    const emailSlug = formData.name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim()
+      .replace(/\s+/g, '.') || 'faculty';
     const submissionData = {
       first_name,
       last_name,
-      email: editingTeacher?.email || `${formData.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().replace(/\s+/g, '.')}@dlsau.edu.ph`,
-      max_units: parseInt(formData.max_units) || defaultVal,
+      email: editingTeacher?.email || `${emailSlug}@dlsau.edu.ph`,
+      max_units: parseInt(formData.max_units, 10) || defaultVal,
       load_unit: formData.load_unit || 'units',
       type: formData.type,
     };
@@ -869,7 +885,18 @@ export default function Teachers() {
       handleCloseModal();
       addToast(`${formData.name.trim()} ${editingTeacher ? 'updated' : 'added'}.`, 'success');
     } catch (error) {
-      addToast(error.message || 'Error saving teacher', 'error');
+      const parsed = parseErrorResponse(error, 'Error saving faculty member.', {
+        first_name: 'name',
+        last_name: 'name',
+        max_units: 'max_units',
+        day_of_week: 'unavailability',
+        start_time: 'unavailability',
+        end_time: 'unavailability',
+      });
+      if (Object.keys(parsed.fields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...parsed.fields }));
+      }
+      addToast(parsed.message || 'Error saving faculty member.', 'error');
     } finally {
       setIsSavingTeacher(false);
     }
@@ -1225,8 +1252,12 @@ export default function Teachers() {
                 value={formData.name}
                 error={formErrors.name}
                 onChange={(e) => {
-                  setFormData({ ...formData, name: e.target.value });
-                  if (formErrors.name) setFormErrors({ ...formErrors, name: undefined });
+                  const val = e.target.value;
+                  setFormData({ ...formData, name: val });
+                  setFormErrors((prev) => ({
+                    ...prev,
+                    name: hasImmediateNameIssue(val) ? validateName(val) : undefined,
+                  }));
                 }}
                 onBlur={() => setFormErrors((prev) => ({ ...prev, name: validateName(formData.name) }))}
               />
@@ -1237,7 +1268,15 @@ export default function Teachers() {
               required
               name="faculty-type"
               value={formData.type}
-              onChange={(v) => setFormData({ ...formData, type: v })}
+              onChange={(v) => {
+                setFormData({ ...formData, type: v });
+                setFormErrors((prev) => ({
+                  ...prev,
+                  max_units: formErrors.max_units || formData.max_units !== ''
+                    ? validateUnits(formData.max_units, formData.load_unit, v)
+                    : undefined,
+                }));
+              }}
               options={[
                 {
                   value: 'full_time',
@@ -1336,10 +1375,23 @@ export default function Teachers() {
               something already on screen.
               The tint is the conflict token, matching the day marks in the
               table, so "unavailable" looks the same wherever it appears. */}
-          <fieldset className="pt-2">
-            <legend className="font-ui text-micro uppercase text-atlas-slate mb-3">
-              Unavailable hours
-            </legend>
+          <ValidationAnchor
+            error={formErrors.unavailability}
+            label="Unavailable Hours"
+            errorId="teacher-unavailability-error"
+          >
+            {({ badge }) => (
+              <fieldset
+                className="pt-2"
+                aria-invalid={formErrors.unavailability ? 'true' : undefined}
+                aria-describedby={formErrors.unavailability ? 'teacher-unavailability-error' : undefined}
+              >
+                <div className="flex items-center justify-between gap-2 mb-3 min-h-5">
+                  <legend className="font-ui text-micro uppercase text-atlas-slate">
+                    Unavailable hours
+                  </legend>
+                  {badge}
+                </div>
 
             <div className="flex flex-wrap gap-2">
               {DAYS.map((day) => {
@@ -1394,7 +1446,13 @@ export default function Teachers() {
                     size="row"
                     variant="destructive"
                     icon={Trash2}
-                    onClick={() => { setSelectedDays([]); setCustomRanges({}); }}
+                    onClick={() => {
+                      setSelectedDays([]);
+                      setCustomRanges({});
+                      if (formErrors.unavailability) {
+                        setFormErrors((prev) => ({ ...prev, unavailability: undefined }));
+                      }
+                    }}
                   >
                     Clear all
                   </AtlasButton>
@@ -1515,7 +1573,10 @@ export default function Teachers() {
                 })}
               </div>
             )}
-          </fieldset>
+
+              </fieldset>
+            )}
+          </ValidationAnchor>
 
           {/* The submit and cancel buttons now live in the Dialog's own footer,
               so they sit outside the scrolling body and stay reachable on a

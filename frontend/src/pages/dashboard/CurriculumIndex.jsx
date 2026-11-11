@@ -10,6 +10,11 @@ import { TextInput, SelectInput } from '../../components/ui/Field';
 import CurriculumImportWizard from '../../components/ui/CurriculumImportWizard';
 import { DEPARTMENTS, focusRing, pluralize } from '../../components/ui/tokens';
 import { canManageCurriculum } from '../../utils/session';
+import {
+  validateAcademicYear,
+  hasImmediateAcademicYearIssue,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Curriculum — index.
@@ -180,18 +185,39 @@ export default function CurriculumIndex() {
     setIsImportSetupOpen(true);
   };
 
+  const validateCurriculumField = (field, value, formState) => {
+    const program = programs.find((p) => String(p.id) === String(formState.program_id));
+    if (field === 'program_id') {
+      return program ? '' : 'Choose a programme.';
+    }
+    if (field === 'academic_year') {
+      const ayErr = validateAcademicYear(value, { label: 'Academic year', required: true, allowAyPrefix: false });
+      if (ayErr) return ayErr;
+      const ay = String(value || '').trim();
+      if (program && blocks.some((b) => b.program_id === program.id && (b.academic_year || '').includes(ay))) {
+        return `${program.code} already has a ${ay} curriculum. Delete it first, or pick a different year.`;
+      }
+      return '';
+    }
+    return '';
+  };
+
+  const validateCurriculumForm = (formState) => {
+    const errors = {};
+    const progErr = validateCurriculumField('program_id', formState.program_id, formState);
+    const ayErr = validateCurriculumField('academic_year', formState.academic_year, formState);
+    if (progErr) errors.program_id = progErr;
+    if (ayErr) errors.academic_year = ayErr;
+    return errors;
+  };
+
   const startImport = (e) => {
     e.preventDefault();
-    const errors = {};
-    const p = programs.find((x) => String(x.id) === String(importForm.program_id));
-    const ay = importForm.academic_year.trim();
-    if (!p) errors.program_id = 'Choose a programme.';
-    if (!/^\d{4}-\d{4}$/.test(ay)) errors.academic_year = 'Use the format 2026-2027.';
-    else if (p && blocks.some((b) => b.program_id === p.id && (b.academic_year || '').includes(ay))) {
-      errors.academic_year = `${p.code} already has a ${ay} curriculum. Delete it first, or import a different year.`;
-    }
+    const errors = validateCurriculumForm(importForm);
     setImportErrors(errors);
     if (Object.keys(errors).length) return;
+    const p = programs.find((x) => String(x.id) === String(importForm.program_id));
+    const ay = importForm.academic_year.trim();
     setIsImportSetupOpen(false);
     setImportTarget({ program: p, academicYear: `AY ${ay}` });
   };
@@ -204,20 +230,12 @@ export default function CurriculumIndex() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    const errors = {};
-    const program = programs.find((p) => String(p.id) === String(newForm.program_id));
-    const ay = newForm.academic_year.trim();
-    if (!program) errors.program_id = 'Choose a programme.';
-    if (!/^\d{4}-\d{4}$/.test(ay)) errors.academic_year = 'Use the format 2026-2027.';
-    else {
-      const [from, to] = ay.split('-').map(Number);
-      if (to !== from + 1) errors.academic_year = 'The second year must follow the first.';
-      else if (program && blocks.some((b) => b.program_id === program.id && (b.academic_year || '').includes(ay))) {
-        errors.academic_year = `${program.code} already has a ${ay} curriculum.`;
-      }
-    }
+    const errors = validateCurriculumForm(newForm);
     setNewErrors(errors);
     if (Object.keys(errors).length) return;
+
+    const program = programs.find((p) => String(p.id) === String(newForm.program_id));
+    const ay = newForm.academic_year.trim();
 
     setIsSaving(true);
     try {
@@ -235,7 +253,11 @@ export default function CurriculumIndex() {
       if (created?.id) navigate(`/dashboard/curriculum/${created.id}`);
       else load();
     } catch (err) {
-      addToast(err.message || 'Could not create the curriculum.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not create the curriculum.');
+      if (Object.keys(parsed.fields).length > 0) {
+        setNewErrors((prev) => ({ ...prev, ...parsed.fields }));
+      }
+      addToast(parsed.message || 'Could not create the curriculum.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -493,13 +515,28 @@ export default function CurriculumIndex() {
           </>
         }
       >
-        <form id="import-setup-form" onSubmit={startImport} className="flex flex-col gap-5">
+        <form id="import-setup-form" noValidate onSubmit={startImport} className="flex flex-col gap-5">
           <SelectInput
             label="Programme"
             required
             value={importForm.program_id}
             error={importErrors.program_id}
-            onChange={(e) => setImportForm({ ...importForm, program_id: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              const next = { ...importForm, program_id: val };
+              setImportForm(next);
+              setImportErrors((prev) => ({
+                ...prev,
+                program_id: undefined,
+                academic_year: next.academic_year && prev.academic_year
+                  ? validateCurriculumField('academic_year', next.academic_year, next) || undefined
+                  : prev.academic_year,
+              }));
+            }}
+            onBlur={() => setImportErrors((prev) => ({
+              ...prev,
+              program_id: validateCurriculumField('program_id', importForm.program_id, importForm) || undefined,
+            }))}
             options={[
               { value: '', label: 'Choose a programme…' },
               ...colleges.map((c) => ({
@@ -512,10 +549,22 @@ export default function CurriculumIndex() {
             label="Academic year"
             required
             placeholder="2026-2027"
-            hint="The year this curriculum takes effect"
+            hint="Two consecutive years without AY prefix, as in 2026-2027"
             value={importForm.academic_year}
             error={importErrors.academic_year}
-            onChange={(e) => setImportForm({ ...importForm, academic_year: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              const next = { ...importForm, academic_year: val };
+              setImportForm(next);
+              const err = hasImmediateAcademicYearIssue(val) || importErrors.academic_year
+                ? validateCurriculumField('academic_year', val, next)
+                : '';
+              setImportErrors((prev) => ({ ...prev, academic_year: err || undefined }));
+            }}
+            onBlur={() => setImportErrors((prev) => ({
+              ...prev,
+              academic_year: validateCurriculumField('academic_year', importForm.academic_year, importForm) || undefined,
+            }))}
           />
         </form>
       </Dialog>
@@ -660,13 +709,28 @@ export default function CurriculumIndex() {
           </>
         }
       >
-        <form id="new-curriculum-form" onSubmit={handleCreate} className="flex flex-col gap-5">
+        <form id="new-curriculum-form" noValidate onSubmit={handleCreate} className="flex flex-col gap-5">
           <SelectInput
             label="Programme"
             required
             value={newForm.program_id}
             error={newErrors.program_id}
-            onChange={(e) => setNewForm({ ...newForm, program_id: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              const next = { ...newForm, program_id: val };
+              setNewForm(next);
+              setNewErrors((prev) => ({
+                ...prev,
+                program_id: undefined,
+                academic_year: next.academic_year && prev.academic_year
+                  ? validateCurriculumField('academic_year', next.academic_year, next) || undefined
+                  : prev.academic_year,
+              }));
+            }}
+            onBlur={() => setNewErrors((prev) => ({
+              ...prev,
+              program_id: validateCurriculumField('program_id', newForm.program_id, newForm) || undefined,
+            }))}
             options={[
               { value: '', label: 'Choose a programme…' },
               ...colleges.map((c) => ({
@@ -679,10 +743,22 @@ export default function CurriculumIndex() {
             label="Academic year"
             required
             placeholder="2026-2027"
-            hint="Two consecutive years"
+            hint="Two consecutive years without AY prefix, as in 2026-2027"
             value={newForm.academic_year}
             error={newErrors.academic_year}
-            onChange={(e) => setNewForm({ ...newForm, academic_year: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              const next = { ...newForm, academic_year: val };
+              setNewForm(next);
+              const err = hasImmediateAcademicYearIssue(val) || newErrors.academic_year
+                ? validateCurriculumField('academic_year', val, next)
+                : '';
+              setNewErrors((prev) => ({ ...prev, academic_year: err || undefined }));
+            }}
+            onBlur={() => setNewErrors((prev) => ({
+              ...prev,
+              academic_year: validateCurriculumField('academic_year', newForm.academic_year, newForm) || undefined,
+            }))}
           />
         </form>
       </Dialog>

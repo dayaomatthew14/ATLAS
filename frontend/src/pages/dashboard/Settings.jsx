@@ -7,6 +7,14 @@ import Button from '../../components/ui/Button';
 import { Field } from '../../components/ui/Field';
 import { focusRing } from '../../components/ui/tokens';
 import { landingViewsFor, getLandingView } from '../../utils/session';
+import {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_BYTES,
+  validatePasswordValue,
+  hasImmediatePasswordIssue,
+  validateConfirmPasswordValue,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Settings.
@@ -19,9 +27,6 @@ import { landingViewsFor, getLandingView } from '../../utils/session';
  * worse than an absent one, because the user believes the system is configured.
  * Only controls with a real effect remain; see the cleanup notes for the list.
  */
-
-// Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
-const MIN_PASSWORD_LENGTH = 12;
 
 const DENSITIES = [
   { value: 'comfortable', label: 'Comfortable', hint: 'Taller rows, easier to scan' },
@@ -48,22 +53,27 @@ function Section({ title, description, children, footer }) {
 }
 
 /** Password field with a reveal toggle that reports its own state. */
-function PasswordInput({ label, hint, value, onChange, autoComplete }) {
+function PasswordInput({ label, hint, error, required = false, value, onChange, onBlur, autoComplete }) {
   const [visible, setVisible] = useState(false);
   return (
-    <Field label={label} hint={hint}>
-      {({ id, describedBy }) => (
+    <Field label={label} hint={hint} error={error} required={required}>
+      {({ id, describedBy, invalid }) => (
         <div className="relative">
           <input
             id={id}
             type={visible ? 'text' : 'password'}
             value={value}
             onChange={onChange}
+            onBlur={onBlur}
             autoComplete={autoComplete}
+            required={required}
             aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
             className={`w-full h-10 pl-3 pr-11 rounded-field font-ui text-body text-atlas-ink
-                        bg-white/70 backdrop-blur-sm border border-atlas-control placeholder:text-atlas-disabled
-                        hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing}`}
+                        backdrop-blur-sm border placeholder:text-atlas-disabled
+                        hover:border-atlas-slate transition-colors duration-state ease-standard ${focusRing} ${
+                          invalid ? 'border-sem-conflict bg-sem-conflict-bg' : 'bg-white/70 border-atlas-control'
+                        }`}
           />
           <button
             type="button"
@@ -92,6 +102,25 @@ export default function Settings() {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordErrors, setPasswordErrors] = useState({});
+
+  const validatePasswordField = (field, values = { oldPassword, newPassword, confirmPassword }) => {
+    if (field === 'old_password') {
+      return values.oldPassword ? '' : 'Current password is required.';
+    }
+    if (field === 'new_password') {
+      const policyErr = validatePasswordValue(values.newPassword, { enforcePolicy: true, label: 'New password' });
+      if (policyErr) return policyErr;
+      if (values.oldPassword && values.newPassword === values.oldPassword) {
+        return 'New password must be different from your current password.';
+      }
+      return '';
+    }
+    if (field === 'confirm_password') {
+      return validateConfirmPasswordValue(values.confirmPassword, values.newPassword);
+    }
+    return '';
+  };
 
   // Only the start pages this role can open — Schedule is not one of them for
   // an administrator, and a radio that lands on a 403 is worse than no radio.
@@ -103,20 +132,14 @@ export default function Settings() {
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      addToast('Fill in all three password fields.', 'error');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      addToast('The new passwords do not match.', 'error');
-      return;
-    }
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      addToast(`Your new password must be at least ${MIN_PASSWORD_LENGTH} characters.`, 'error');
-      return;
-    }
-    if (newPassword !== newPassword.trim()) {
-      addToast('Your new password cannot start or end with a space.', 'error');
+    const errs = {
+      old_password: validatePasswordField('old_password') || undefined,
+      new_password: validatePasswordField('new_password') || undefined,
+      confirm_password: validatePasswordField('confirm_password') || undefined,
+    };
+    setPasswordErrors(errs);
+    if (Object.values(errs).some(Boolean)) {
+      addToast('Fix the highlighted password fields before saving.', 'error');
       return;
     }
 
@@ -130,8 +153,17 @@ export default function Settings() {
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setPasswordErrors({});
     } catch (err) {
-      addToast(err.message || 'Could not update your password.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not update your password.');
+      const nextFields = { ...parsed.fields };
+      if (!nextFields.old_password && /incorrect current password|wrong password/i.test(parsed.message)) {
+        nextFields.old_password = parsed.message;
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setPasswordErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Could not update your password.', 'error');
     } finally {
       setIsSavingPassword(false);
     }
@@ -244,24 +276,73 @@ export default function Settings() {
             </Button>
           }
         >
-          <form id="password-form" onSubmit={handleChangePassword} className="flex flex-col gap-5">
+          <form id="password-form" noValidate onSubmit={handleChangePassword} className="flex flex-col gap-5">
             <PasswordInput
               label="Current password"
+              required
               value={oldPassword}
-              onChange={(e) => setOldPassword(e.target.value)}
+              error={passwordErrors.old_password}
+              onChange={(e) => {
+                const v = e.target.value;
+                setOldPassword(v);
+                setPasswordErrors((prev) => ({
+                  ...prev,
+                  old_password: undefined,
+                  new_password: newPassword && newPassword === v
+                    ? 'New password must be different from your current password.'
+                    : (prev.new_password && prev.new_password.includes('different from') ? undefined : prev.new_password),
+                }));
+              }}
+              onBlur={() => setPasswordErrors((prev) => ({
+                ...prev,
+                old_password: validatePasswordField('old_password') || undefined,
+              }))}
               autoComplete="current-password"
             />
             <PasswordInput
               label="New password"
-              hint={`At least ${MIN_PASSWORD_LENGTH} characters`}
+              required
+              hint={`Use ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_BYTES} characters with no spaces at the start or end.`}
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              error={passwordErrors.new_password}
+              onChange={(e) => {
+                const v = e.target.value;
+                setNewPassword(v);
+                const imm = hasImmediatePasswordIssue(v)
+                  ? validatePasswordField('new_password', { oldPassword, newPassword: v, confirmPassword })
+                  : (oldPassword && v === oldPassword ? 'New password must be different from your current password.' : '');
+                setPasswordErrors((prev) => ({
+                  ...prev,
+                  new_password: imm || undefined,
+                  confirm_password: confirmPassword
+                    ? (validateConfirmPasswordValue(confirmPassword, v) || undefined)
+                    : prev.confirm_password,
+                }));
+              }}
+              onBlur={() => setPasswordErrors((prev) => ({
+                ...prev,
+                new_password: validatePasswordField('new_password') || undefined,
+              }))}
               autoComplete="new-password"
             />
             <PasswordInput
               label="Confirm new password"
+              required
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              error={passwordErrors.confirm_password}
+              onChange={(e) => {
+                const v = e.target.value;
+                setConfirmPassword(v);
+                const mismatch = v && v !== newPassword ? validateConfirmPasswordValue(v, newPassword) : '';
+                setPasswordErrors((prev) => ({
+                  ...prev,
+                  confirm_password: mismatch || undefined,
+                }));
+              }}
+              onBlur={() => setPasswordErrors((prev) => ({
+                ...prev,
+                confirm_password: validatePasswordField('confirm_password') || undefined,
+              }))}
               autoComplete="new-password"
             />
           </form>

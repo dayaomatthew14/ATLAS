@@ -12,6 +12,11 @@ import {
   canEditRoom, canAddRooms, canManageDepartmentLabs,
   isDepartmentRoomType, DEPARTMENT_ROOM_TYPES, getDepartment, isAdmin as isAdminRole,
 } from '../../utils/session';
+import {
+  validateEntityTitle,
+  validateIntegerRange,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Rooms. Phase 2 Screen 3.
@@ -165,19 +170,67 @@ export default function Rooms() {
     setIsFormOpen(true);
   };
 
+  const validateRoomField = (field, value, state = form) => {
+    switch (field) {
+      case 'name':
+        return validateEntityTitle(value, {
+          label: 'Room name',
+          minLength: 1,
+          maxLength: 100,
+          allowDigitsOnly: true,
+          example: 'LSB-204',
+        });
+      case 'building':
+        return validateEntityTitle(value, {
+          label: 'Building',
+          minLength: 2,
+          maxLength: 100,
+          allowDigitsOnly: false,
+          example: 'LSB Building',
+        });
+      case 'capacity':
+        return validateIntegerRange(value, {
+          label: 'Capacity',
+          min: 1,
+          max: 200,
+          required: true,
+        });
+      case 'owner':
+        if (isAdmin && state.owner !== SHARED && !isDepartmentRoomType(state.type)) {
+          return 'Only laboratories can be assigned to a college.';
+        }
+        return '';
+      default:
+        return '';
+    }
+  };
+
   const validate = () => {
     const errors = {};
-    if (!form.name.trim()) errors.name = 'Enter a room name.';
-    if (!form.building.trim()) errors.building = 'Enter a building.';
-    const cap = Number(form.capacity);
-    if (!form.capacity || Number.isNaN(cap) || cap < 1 || cap > 200) {
-      errors.capacity = 'Enter a capacity between 1 and 200.';
-    }
-    if (isAdmin && form.owner !== SHARED && !isDepartmentRoomType(form.type)) {
-      errors.owner = 'Only laboratories can be assigned to a college.';
-    }
+    ['name', 'building', 'capacity', 'owner'].forEach((field) => {
+      const msg = validateRoomField(field, form[field], form);
+      if (msg) errors[field] = msg;
+    });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const updateRoomField = (field, value) => {
+    const next = { ...form, [field]: value };
+    setForm(next);
+    if (formErrors[field]) {
+      const msg = validateRoomField(field, value, next);
+      setFormErrors((prev) => ({ ...prev, [field]: msg || undefined }));
+    }
+    if (field === 'type' && formErrors.owner) {
+      const ownerMsg = validateRoomField('owner', next.owner, next);
+      setFormErrors((prev) => ({ ...prev, owner: ownerMsg || undefined }));
+    }
+  };
+
+  const handleRoomBlur = (field) => {
+    const msg = validateRoomField(field, form[field], form);
+    setFormErrors((prev) => ({ ...prev, [field]: msg || undefined }));
   };
 
   const handleSubmit = async (e) => {
@@ -214,7 +267,21 @@ export default function Rooms() {
       setIsFormOpen(false);
       fetchRooms();
     } catch (error) {
-      addToast(error.message || 'Could not save the room.', 'error');
+      const parsed = parseErrorResponse(error, 'Could not save the room.', {
+        name: 'name',
+        building: 'building',
+        capacity: 'capacity',
+        type: 'type',
+        department_id: 'owner',
+      });
+      const nextFields = { ...parsed.fields };
+      if (!nextFields.name && /already exists in this building/i.test(parsed.message)) {
+        nextFields.name = `Room "${payload.name}" already exists in ${payload.building}.`;
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Could not save the room.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -491,7 +558,7 @@ export default function Rooms() {
           </>
         }
       >
-        <form id="room-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <form id="room-form" noValidate onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <TextInput
             label="Room name"
             required
@@ -499,7 +566,8 @@ export default function Rooms() {
             placeholder="LSB-204"
             value={form.name}
             error={formErrors.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) => updateRoomField('name', e.target.value)}
+            onBlur={() => handleRoomBlur('name')}
           />
           <TextInput
             label="Building"
@@ -508,7 +576,8 @@ export default function Rooms() {
             list="building-options"
             value={form.building}
             error={formErrors.building}
-            onChange={(e) => setForm({ ...form, building: e.target.value })}
+            onChange={(e) => updateRoomField('building', e.target.value)}
+            onBlur={() => handleRoomBlur('building')}
           />
           <datalist id="building-options">
             {buildings.map((b) => <option key={b} value={b} />)}
@@ -518,13 +587,15 @@ export default function Rooms() {
             label="Capacity"
             required
             suffix="students"
-            hint="1–200"
+            hint="Whole number from 1–200"
             min={1}
             max={200}
+            step={1}
             placeholder="45"
             value={form.capacity}
             error={formErrors.capacity}
-            onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+            onChange={(e) => updateRoomField('capacity', e.target.value)}
+            onBlur={() => handleRoomBlur('capacity')}
           />
 
           <div className="md:col-span-2">
@@ -533,7 +604,7 @@ export default function Rooms() {
               required
               name="room-type"
               value={form.type}
-              onChange={(v) => setForm({ ...form, type: v })}
+              onChange={(v) => updateRoomField('type', v)}
               hint={
                 isAdmin
                   ? 'Determines which subjects can be scheduled here'
@@ -556,7 +627,8 @@ export default function Rooms() {
                     ? 'A shared laboratory is one the Registrar assigns; a college-run one is that college’s to manage.'
                     : 'Lecture halls are always shared campus space.'
                 }
-                onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                onChange={(e) => updateRoomField('owner', e.target.value)}
+                onBlur={() => handleRoomBlur('owner')}
                 disabled={!isDepartmentRoomType(form.type)}
                 options={[
                   { value: SHARED, label: 'Shared campus room' },

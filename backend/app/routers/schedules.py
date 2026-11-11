@@ -156,6 +156,13 @@ def update_schedule(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule is locked and cannot be modified")
                 
     update_data = schedule.model_dump(exclude_unset=True)
+    effective_start = update_data.get('start_time', db_schedule.start_time)
+    effective_end = update_data.get('end_time', db_schedule.end_time)
+    if effective_start is not None and effective_end is not None and effective_end <= effective_start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Schedule end time ({effective_end.strftime('%I:%M %p')}) must be after start time ({effective_start.strftime('%I:%M %p')}).",
+        )
     for key, value in update_data.items():
         setattr(db_schedule, key, value)
         

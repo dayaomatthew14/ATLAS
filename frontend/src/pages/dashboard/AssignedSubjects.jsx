@@ -19,6 +19,8 @@ import { useToast } from '../../components/ToastProvider';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/Modal';
 import { focusRing } from '../../components/ui/tokens';
+import { ValidationAnchor } from '../../components/ui/ValidationPopup';
+import { parseErrorResponse } from '../../utils/validation';
 
 const formatYearLevel = (val) => {
   if (!val) return '—';
@@ -44,7 +46,6 @@ export default function AssignedSubjects() {
 
   // Filter states
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned'
-  const [scopeFilter, setScopeFilter] = useState('all'); // 'all' | 'major' | 'gened'
   const [courseFilter, setCourseFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [professorFilter, setProfessorFilter] = useState('all'); // 'all' | professor_name
@@ -55,6 +56,7 @@ export default function AssignedSubjects() {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [selectedProfId, setSelectedProfId] = useState('');
+  const [assignError, setAssignError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Confirmation modal for Gen Ed subject assignment / override
@@ -141,10 +143,6 @@ export default function AssignedSubjects() {
   const filteredSubjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return (data.subjects || []).filter(sub => {
-      // 0. Scope filter (Major vs Gen Ed)
-      if (scopeFilter === 'major' && !sub.is_major) return false;
-      if (scopeFilter === 'gened' && sub.is_major) return false;
-
       // 1. Status filter
       if (statusFilter === 'assigned' && sub.status !== 'assigned') return false;
       if (statusFilter === 'unassigned' && sub.status !== 'unassigned') return false;
@@ -178,11 +176,12 @@ export default function AssignedSubjects() {
 
       return true;
     });
-  }, [data.subjects, scopeFilter, statusFilter, courseFilter, yearFilter, professorFilter, searchQuery]);
+  }, [data.subjects, statusFilter, courseFilter, yearFilter, professorFilter, searchQuery]);
 
   // Open assignment modal for a subject
   const handleOpenAssignModal = (subject) => {
     setSelectedSubject(subject);
+    setAssignError('');
     if (subject.assigned_professors?.length > 0) {
       setSelectedProfId(String(subject.assigned_professors[0].faculty_id));
     } else {
@@ -212,12 +211,15 @@ export default function AssignedSubjects() {
 
       addToast(`Assigned professor to ${subject.code}.`, 'success');
       setAssignModalOpen(false);
+      setAssignError('');
       setConfirmOverrideModalOpen(false);
       setPendingOverrideData(null);
       fetchAssignedSubjects();
     } catch (err) {
       console.error(err);
-      addToast(err.message || 'Failed to assign professor.', 'error');
+      const parsed = parseErrorResponse(err, 'Failed to assign professor.');
+      setAssignError(parsed.message);
+      addToast(parsed.message || 'Failed to assign professor.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -228,10 +230,11 @@ export default function AssignedSubjects() {
     e.preventDefault();
     if (!selectedSubject) return;
     if (!selectedProfId) {
-      addToast('Please select a professor to assign.', 'error');
+      setAssignError('Please select a professor to assign.');
       return;
     }
     if (!data.active_semester) {
+      setAssignError('No active semester configured.');
       addToast('No active semester configured.', 'error');
       return;
     }
@@ -288,7 +291,7 @@ export default function AssignedSubjects() {
             </span>
             <span className="text-slate-400">·</span>
             <span className="font-ui text-xs font-semibold text-slate-500">
-              Major & General Education Subjects · Active Term
+              Major Subjects & Assigned Gen Ed · Active Term
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -325,7 +328,7 @@ export default function AssignedSubjects() {
               {summary.total}
             </p>
             <p className="font-ui text-xs text-slate-500 mt-1">
-              Active term subjects (Major & Gen Ed)
+              Major subjects & assigned Gen Ed
             </p>
           </div>
           <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
@@ -438,12 +441,11 @@ export default function AssignedSubjects() {
           </div>
 
           {/* Quick Clear Filters if active */}
-          {(statusFilter !== 'all' || scopeFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || searchQuery) && (
+          {(statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || searchQuery) && (
             <button
               type="button"
               onClick={() => {
                 setStatusFilter('all');
-                setScopeFilter('all');
                 setCourseFilter('all');
                 setYearFilter('all');
                 setProfessorFilter('all');
@@ -457,22 +459,7 @@ export default function AssignedSubjects() {
         </div>
 
         {/* Dropdowns & Search */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
-          {/* Category / Scope Filter */}
-          <div>
-            <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Category
-            </label>
-            <select
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value)}
-              className={`w-full h-9 px-3 rounded-lg bg-white border border-slate-300 font-ui text-xs text-slate-800 focus:outline-hidden ${focusRing}`}
-            >
-              <option value="all">All Categories</option>
-              <option value="major">Major Subjects</option>
-              <option value="gened">General Education (Gen Ed)</option>
-            </select>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
 
           {/* Course / Program Filter */}
           <div>
@@ -579,7 +566,7 @@ export default function AssignedSubjects() {
                     <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-slate-800">No subjects found</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {searchQuery || statusFilter !== 'all' || courseFilter !== 'all' || professorFilter !== 'all'
+                      {searchQuery || statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all'
                         ? 'Try clearing or adjusting your filters.'
                         : 'No major curriculum subjects found for the active term.'}
                     </p>
@@ -735,7 +722,7 @@ export default function AssignedSubjects() {
         title={selectedSubject?.status === 'assigned' ? 'Change Assigned Professor' : 'Assign Professor'}
       >
         {selectedSubject && (
-          <form onSubmit={handleSaveAssignment} className="space-y-5">
+          <form noValidate onSubmit={handleSaveAssignment} className="space-y-5">
             {/* Subject Context Box */}
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
               <div className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center shrink-0 border ${
@@ -773,29 +760,54 @@ export default function AssignedSubjects() {
             </div>
 
             {/* Professor Selection */}
-            <div>
-              <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                Select Professor
-              </label>
-              <select
-                value={selectedProfId}
-                onChange={(e) => setSelectedProfId(e.target.value)}
-                required
-                className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-900 focus:outline-hidden ${focusRing}`}
-              >
-                <option value="">-- Choose a Professor --</option>
-                {allProfessors.map((prof) => (
-                  <option key={prof.id} value={prof.id}>
-                    {prof.name} ({prof.type === 'full_time' ? 'Full-Time' : 'Part-Time'}, max {prof.max_units}u)
-                  </option>
-                ))}
-              </select>
-              {allProfessors.length === 0 && (
-                <p className="text-xs text-amber-700 mt-1.5">
-                  No professors found in this department. Please add professors under Faculty first.
-                </p>
+            <ValidationAnchor
+              error={assignError}
+              label="Select Professor"
+              errorId="assign-professor-error"
+            >
+              {({ badge }) => (
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5 min-h-5">
+                    <label
+                      htmlFor="assign-professor-select"
+                      className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-700"
+                    >
+                      Select Professor <span className="text-red-600">*</span>
+                    </label>
+                    {badge}
+                  </div>
+                  <select
+                    id="assign-professor-select"
+                    value={selectedProfId}
+                    onChange={(e) => {
+                      setSelectedProfId(e.target.value);
+                      if (assignError) setAssignError('');
+                    }}
+                    onBlur={() => {
+                      if (!selectedProfId) setAssignError('Please select a professor to assign.');
+                    }}
+                    required
+                    aria-invalid={Boolean(assignError)}
+                    aria-describedby={assignError ? 'assign-professor-error' : undefined}
+                    className={`w-full h-10 px-3 rounded-lg bg-white border font-ui text-sm text-slate-900 focus:outline-hidden ${focusRing} ${
+                      assignError ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-slate-300'
+                    }`}
+                  >
+                    <option value="">-- Choose a Professor --</option>
+                    {allProfessors.map((prof) => (
+                      <option key={prof.id} value={prof.id}>
+                        {prof.name} ({prof.type === 'full_time' ? 'Full-Time' : 'Part-Time'}, max {prof.max_units}u)
+                      </option>
+                    ))}
+                  </select>
+                  {allProfessors.length === 0 && (
+                    <p className="text-xs text-amber-700 mt-1.5">
+                      No professors found in this department. Please add professors under Faculty first.
+                    </p>
+                  )}
+                </div>
               )}
-            </div>
+            </ValidationAnchor>
 
             {/* Actions */}
             <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-200">
@@ -810,7 +822,6 @@ export default function AssignedSubjects() {
               <Button
                 type="submit"
                 loading={isSubmitting}
-                disabled={!selectedProfId}
               >
                 Save Assignment
               </Button>

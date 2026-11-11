@@ -8,6 +8,13 @@ import Badge from '../../components/ui/Badge';
 import Dialog, { ConfirmDialog } from '../../components/ui/Dialog';
 import { TextInput, NumberInput, SelectInput } from '../../components/ui/Field';
 import { pluralize } from '../../components/ui/tokens';
+import {
+  validateCourseCode,
+  hasImmediateCourseCodeIssue,
+  validateEntityTitle,
+  validateIntegerRange,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Curriculum — one programme, one academic year.
@@ -179,23 +186,54 @@ export default function CurriculumDetail() {
     setIsFormOpen(true);
   };
 
+  const validateSubjectField = (field, value) => {
+    switch (field) {
+      case 'code': {
+        const baseErr = validateCourseCode(value, { label: 'Course code', required: true });
+        if (baseErr) return baseErr;
+        const normalized = String(value || '').trim().toUpperCase();
+        const clash = subjects.find(
+          (s) => (s.code || '').toUpperCase() === normalized && s.id !== editing?.id
+        );
+        if (clash) return `${clash.code} already exists in this curriculum.`;
+        return '';
+      }
+      case 'name':
+        return validateEntityTitle(value, {
+          label: 'Course title',
+          minLength: 2,
+          maxLength: 255,
+          allowDigitsOnly: false,
+          example: 'Introduction to Computing',
+        });
+      case 'pre_requisite':
+        return String(value || '').trim().length > 100
+          ? 'Prerequisite must be at most 100 characters.'
+          : '';
+      case 'lec_units':
+        return validateIntegerRange(value, { label: 'Lecture units', min: 0, max: 12, required: true });
+      case 'lab_units':
+        return validateIntegerRange(value, { label: 'Laboratory units', min: 0, max: 12, required: true });
+      case 'units':
+        return validateIntegerRange(value, { label: 'Total units', min: 0, max: 24, required: true });
+      default:
+        return '';
+    }
+  };
+
   const validate = () => {
     const errors = {};
-    const code = form.code.trim();
-    if (!code) errors.code = 'Enter a course code.';
-    else {
-      const clash = subjects.find(
-        (s) => (s.code || '').toUpperCase() === code.toUpperCase() && s.id !== editing?.id
-      );
-      if (clash) errors.code = `${clash.code} already exists in this curriculum.`;
-    }
-    if (!form.name.trim()) errors.name = 'Enter the course title.';
-    const lec = Number(form.lec_units), lab = Number(form.lab_units), units = Number(form.units);
-    if (Number.isNaN(lec) || lec < 0) errors.lec_units = 'Enter 0 or more.';
-    if (Number.isNaN(lab) || lab < 0) errors.lab_units = 'Enter 0 or more.';
-    if (Number.isNaN(units) || units < 0) errors.units = 'Enter 0 or more.';
+    ['code', 'name', 'pre_requisite', 'lec_units', 'lab_units', 'units'].forEach((field) => {
+      const msg = validateSubjectField(field, form[field]);
+      if (msg) errors[field] = msg;
+    });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const handleSubjectBlur = (field) => {
+    const msg = validateSubjectField(field, form[field]);
+    setFormErrors((prev) => ({ ...prev, [field]: msg || undefined }));
   };
 
   const handleSubmit = async (e) => {
@@ -240,7 +278,15 @@ export default function CurriculumDetail() {
       setIsFormOpen(false);
       load();
     } catch (err) {
-      addToast(err.message || 'Could not save the subject.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not save the subject.');
+      const nextFields = { ...parsed.fields };
+      if (!nextFields.code && /already exist/i.test(parsed.message)) {
+        nextFields.code = parsed.message;
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setFormErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Could not save the subject.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -480,7 +526,7 @@ export default function CurriculumDetail() {
           </>
         }
       >
-        <form id="subject-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <form id="subject-form" noValidate onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <TextInput
             label="Course code"
             required
@@ -488,14 +534,33 @@ export default function CurriculumDetail() {
             placeholder="CC101A/B"
             value={form.code}
             error={formErrors.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm({ ...form, code: val });
+              const err = hasImmediateCourseCodeIssue(val) || formErrors.code
+                ? validateSubjectField('code', val)
+                : '';
+              setFormErrors((prev) => ({ ...prev, code: err || undefined }));
+            }}
+            onBlur={() => handleSubjectBlur('code')}
           />
           <TextInput
             label="Prerequisite"
             hint="Leave empty for none"
             placeholder="CC102A/B"
             value={form.pre_requisite}
-            onChange={(e) => setForm({ ...form, pre_requisite: e.target.value })}
+            error={formErrors.pre_requisite}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm({ ...form, pre_requisite: val });
+              if (formErrors.pre_requisite) {
+                setFormErrors((prev) => ({
+                  ...prev,
+                  pre_requisite: validateSubjectField('pre_requisite', val) || undefined,
+                }));
+              }
+            }}
+            onBlur={() => handleSubjectBlur('pre_requisite')}
           />
           <div className="md:col-span-2">
             <TextInput
@@ -504,7 +569,17 @@ export default function CurriculumDetail() {
               placeholder="Introduction to Computing"
               value={form.name}
               error={formErrors.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value;
+                setForm({ ...form, name: val });
+                if (formErrors.name) {
+                  setFormErrors((prev) => ({
+                    ...prev,
+                    name: validateSubjectField('name', val) || undefined,
+                  }));
+                }
+              }}
+              onBlur={() => handleSubjectBlur('name')}
             />
           </div>
 
@@ -524,31 +599,53 @@ export default function CurriculumDetail() {
           />
 
           <NumberInput
-            label="Lecture units" min={0} max={12}
+            label="Lecture units" min={0} max={12} step={1}
             value={form.lec_units}
             error={formErrors.lec_units}
             onChange={(e) => {
               const lec = e.target.value;
-              // Total follows the split unless it has been set by hand, which
-              // is how the curriculum sheets read: Lec + Lab = Units.
-              setForm({ ...form, lec_units: lec, units: String((Number(lec) || 0) + (Number(form.lab_units) || 0)) });
+              const nextUnits = String((Number(lec) || 0) + (Number(form.lab_units) || 0));
+              setForm({ ...form, lec_units: lec, units: nextUnits });
+              setFormErrors((prev) => ({
+                ...prev,
+                lec_units: prev.lec_units ? (validateSubjectField('lec_units', lec) || undefined) : undefined,
+                units: prev.units ? (validateSubjectField('units', nextUnits) || undefined) : undefined,
+              }));
             }}
+            onBlur={() => handleSubjectBlur('lec_units')}
           />
           <NumberInput
-            label="Laboratory units" min={0} max={12}
+            label="Laboratory units" min={0} max={12} step={1}
             value={form.lab_units}
             error={formErrors.lab_units}
             onChange={(e) => {
               const lab = e.target.value;
-              setForm({ ...form, lab_units: lab, units: String((Number(form.lec_units) || 0) + (Number(lab) || 0)) });
+              const nextUnits = String((Number(form.lec_units) || 0) + (Number(lab) || 0));
+              setForm({ ...form, lab_units: lab, units: nextUnits });
+              setFormErrors((prev) => ({
+                ...prev,
+                lab_units: prev.lab_units ? (validateSubjectField('lab_units', lab) || undefined) : undefined,
+                units: prev.units ? (validateSubjectField('units', nextUnits) || undefined) : undefined,
+              }));
             }}
+            onBlur={() => handleSubjectBlur('lab_units')}
           />
           <NumberInput
-            label="Total units" required min={0} max={24}
+            label="Total units" required min={0} max={24} step={1}
             hint="Follows Lec + Lab; override if the sheet differs"
             value={form.units}
             error={formErrors.units}
-            onChange={(e) => setForm({ ...form, units: e.target.value })}
+            onChange={(e) => {
+              const val = e.target.value;
+              setForm({ ...form, units: val });
+              if (formErrors.units) {
+                setFormErrors((prev) => ({
+                  ...prev,
+                  units: validateSubjectField('units', val) || undefined,
+                }));
+              }
+            }}
+            onBlur={() => handleSubjectBlur('units')}
           />
           <SelectInput
             label="Classification"

@@ -10,6 +10,20 @@ import { TextInput, SelectInput } from '../../components/ui/Field';
 import Badge, { DepartmentMark } from '../../components/ui/Badge';
 import { ROLE_LABELS, focusRing, pluralize } from '../../components/ui/tokens';
 import { isDean, getDepartment } from '../../utils/session';
+import {
+  MIN_PASSWORD_LENGTH,
+  MAX_PASSWORD_BYTES,
+  normalizeContactNumber,
+  validatePersonName,
+  hasImmediateNameIssue,
+  validateContactNumber,
+  hasImmediateContactIssue,
+  validateEmailAddress,
+  hasImmediateEmailIssue,
+  validatePasswordValue,
+  hasImmediatePasswordIssue,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Users. Phase 2 Screen 4.
@@ -58,9 +72,6 @@ const EMPTY_NEW_USER = {
   first_name: '', last_name: '', email: '', contact_number: '',
   role: 'program_chair', department: '', password: '',
 };
-
-// Keep in sync with MIN_PASSWORD_LENGTH in backend/app/schemas.py
-const MIN_PASSWORD_LENGTH = 12;
 
 const ROLE_OPTIONS = [
   { value: 'program_chair', label: 'Program Chair' },
@@ -178,30 +189,75 @@ export default function UserManagement() {
     setEditErrors({});
   };
 
-  /** Shared by both dialogs: the API enforces these, so catch them first. */
+  /** Shared diagnostic validator used on blur, submit, and live character checks. */
+  const validateUserField = (field, value, f, { requireEmail = false, requirePassword = false } = {}) => {
+    switch (field) {
+      case 'first_name':
+        return validatePersonName(value, 'First Name');
+      case 'last_name':
+        return validatePersonName(value, 'Last Name');
+      case 'contact_number':
+        return validateContactNumber(value, { required: false });
+      case 'email': {
+        if (!requireEmail) return '';
+        const baseErr = validateEmailAddress(value);
+        if (baseErr) return baseErr;
+        if (users.some((u) => (u.email || '').toLowerCase() === String(value || '').trim().toLowerCase())) {
+          return 'That email already has an account.';
+        }
+        return '';
+      }
+      case 'password':
+        return requirePassword ? validatePasswordValue(value, { enforcePolicy: true, label: 'Temporary password' }) : '';
+      case 'department':
+        if (f?.role !== 'admin' && !value) {
+          return 'Choose a college for this role.';
+        }
+        return '';
+      default:
+        return '';
+    }
+  };
+
   const validatePerson = (f, { requireEmail = false, requirePassword = false } = {}) => {
     const e = {};
-    const namePattern = /^[A-Za-z\s.\-']+$/;
-    if (!f.first_name.trim()) e.first_name = 'Enter a first name.';
-    else if (!namePattern.test(f.first_name.trim())) e.first_name = 'Letters, spaces, hyphens and apostrophes only.';
-    if (!f.last_name.trim()) e.last_name = 'Enter a last name.';
-    else if (!namePattern.test(f.last_name.trim())) e.last_name = 'Letters, spaces, hyphens and apostrophes only.';
-    // The contact number carries the SMS verification code, so a wrong one is
-    // silent: the code simply never arrives.
-    const c = (f.contact_number || '').trim();
-    if (c && !/^(09\d{9}|\+639\d{9})$/.test(c)) {
-      e.contact_number = 'Use 09XXXXXXXXX or +639XXXXXXXXX.';
-    }
-    if (requireEmail) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) e.email = 'Enter a valid email address.';
-      else if (users.some((u) => (u.email || '').toLowerCase() === f.email.trim().toLowerCase())) {
-        e.email = 'That email already has an account.';
-      }
-    }
-    if (requirePassword && f.password.length < MIN_PASSWORD_LENGTH) {
-      e.password = `At least ${MIN_PASSWORD_LENGTH} characters.`;
-    }
+    const fields = ['first_name', 'last_name', 'contact_number', 'department'];
+    if (requireEmail) fields.push('email');
+    if (requirePassword) fields.push('password');
+    fields.forEach((field) => {
+      const msg = validateUserField(field, f[field], f, { requireEmail, requirePassword });
+      if (msg) e[field] = msg;
+    });
     return e;
+  };
+
+  const updateUserField = (setter, errSetter, f, field, value, opts = {}) => {
+    const next = { ...f, [field]: value };
+    if (field === 'role' && value === 'admin') {
+      next.department = '';
+    }
+    setter(next);
+
+    let msg = '';
+    if ((field === 'first_name' || field === 'last_name') && hasImmediateNameIssue(value)) {
+      msg = validateUserField(field, value, next, opts);
+    } else if (field === 'contact_number' && hasImmediateContactIssue(value)) {
+      msg = validateUserField(field, value, next, opts);
+    } else if (field === 'email' && opts.requireEmail && hasImmediateEmailIssue(value)) {
+      msg = validateEmailAddress(value);
+    } else if (field === 'password' && opts.requirePassword && hasImmediatePasswordIssue(value)) {
+      msg = validateUserField(field, value, next, opts);
+    }
+    errSetter((prev) => ({
+      ...prev,
+      [field]: msg || undefined,
+      ...(field === 'role' && value === 'admin' ? { department: undefined } : {}),
+    }));
+  };
+
+  const handleUserBlur = (errSetter, f, field, opts = {}) => {
+    const msg = validateUserField(field, f[field], f, opts);
+    errSetter((prev) => ({ ...prev, [field]: msg || undefined }));
   };
 
   const saveEdit = async (e) => {
@@ -212,18 +268,23 @@ export default function UserManagement() {
     if (Object.keys(errs).length) return;
     setIsSaving(true);
     try {
+      const compactPhone = normalizeContactNumber(editForm.contact_number);
       await api.put(`/users/${editing.id}`, {
         first_name: editForm.first_name.trim(),
         last_name: editForm.last_name.trim(),
-        contact_number: editForm.contact_number.trim() || null,
+        contact_number: compactPhone || null,
         role: editForm.role,
-        department: editForm.department,
+        department: editForm.role === 'admin' ? null : editForm.department,
       });
       addToast(`${displayName(editing)} updated.`, 'success');
       setEditing(null);
       fetchUsers();
     } catch (err) {
-      addToast(err.message || 'Could not update the user.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not update the user.');
+      if (Object.keys(parsed.fields).length > 0) {
+        setEditErrors((prev) => ({ ...prev, ...parsed.fields }));
+      }
+      addToast(parsed.message || 'Could not update the user.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -232,21 +293,17 @@ export default function UserManagement() {
   const handleCreate = async (e) => {
     e.preventDefault();
     const errs = validatePerson(newUser, { requireEmail: true, requirePassword: true });
-    if (!newUser.department && newUser.role !== 'admin') {
-      // An account with no college cannot see or generate anything, so it is
-      // required for the roles that work inside one.
-      errs.department = 'Choose a college.';
-    }
     setNewUserErrors(errs);
     if (Object.keys(errs).length) return;
 
     setIsCreating(true);
     try {
+      const compactPhone = normalizeContactNumber(newUser.contact_number);
       const created = await api.post('/users', {
         first_name: newUser.first_name.trim(),
         last_name: newUser.last_name.trim(),
         email: newUser.email.trim().toLowerCase(),
-        contact_number: newUser.contact_number.trim() || null,
+        contact_number: compactPhone || null,
         role: newUser.role,
         department: newUser.role === 'admin' ? null : newUser.department,
         password: newUser.password,
@@ -257,9 +314,18 @@ export default function UserManagement() {
       );
       setIsCreateOpen(false);
       setNewUser(EMPTY_NEW_USER);
+      setNewUserErrors({});
       fetchUsers();
     } catch (err) {
-      addToast(err.message || 'Could not create the account.', 'error');
+      const parsed = parseErrorResponse(err, 'Could not create the account.');
+      const nextFields = { ...parsed.fields };
+      if (!nextFields.email && /already\s+(registered|exists|has an account)/i.test(parsed.message)) {
+        nextFields.email = parsed.message;
+      }
+      if (Object.keys(nextFields).length > 0) {
+        setNewUserErrors((prev) => ({ ...prev, ...nextFields }));
+      }
+      addToast(parsed.message || 'Could not create the account.', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -511,20 +577,24 @@ export default function UserManagement() {
           </>
         }
       >
-        <form id="user-create-form" onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <form id="user-create-form" noValidate onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <TextInput
             label="First name"
             required
+            placeholder="e.g. Juan"
             value={newUser.first_name}
             error={newUserErrors.first_name}
-            onChange={(e) => setNewUser({ ...newUser, first_name: e.target.value })}
+            onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'first_name', e.target.value, { requireEmail: true, requirePassword: true })}
+            onBlur={() => handleUserBlur(setNewUserErrors, newUser, 'first_name', { requireEmail: true, requirePassword: true })}
           />
           <TextInput
             label="Last name"
             required
+            placeholder="e.g. Dela Cruz"
             value={newUser.last_name}
             error={newUserErrors.last_name}
-            onChange={(e) => setNewUser({ ...newUser, last_name: e.target.value })}
+            onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'last_name', e.target.value, { requireEmail: true, requirePassword: true })}
+            onBlur={() => handleUserBlur(setNewUserErrors, newUser, 'last_name', { requireEmail: true, requirePassword: true })}
           />
           <div className="md:col-span-2">
             <TextInput
@@ -535,22 +605,24 @@ export default function UserManagement() {
               placeholder="name@dlsau.edu.ph"
               value={newUser.email}
               error={newUserErrors.email}
-              onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+              onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'email', e.target.value, { requireEmail: true, requirePassword: true })}
+              onBlur={() => handleUserBlur(setNewUserErrors, newUser, 'email', { requireEmail: true, requirePassword: true })}
             />
           </div>
           <TextInput
             label="Contact number"
-            hint="Optional"
+            hint="Optional — e.g. 09171234567"
             placeholder="09171234567"
             value={newUser.contact_number}
             error={newUserErrors.contact_number}
-            onChange={(e) => setNewUser({ ...newUser, contact_number: e.target.value })}
+            onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'contact_number', e.target.value, { requireEmail: true, requirePassword: true })}
+            onBlur={() => handleUserBlur(setNewUserErrors, newUser, 'contact_number', { requireEmail: true, requirePassword: true })}
           />
           <SelectInput
             label="Role"
             required
             value={newUser.role}
-            onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+            onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'role', e.target.value, { requireEmail: true, requirePassword: true })}
             options={availableRoleOptions}
             disabled={deanMode}
           />
@@ -558,11 +630,18 @@ export default function UserManagement() {
             <SelectInput
               label="College"
               required={newUser.role !== 'admin'}
-              disabled={deanMode}
-              hint={`Locked to your college (${deptCode || 'your department'}).`}
+              disabled={deanMode || newUser.role === 'admin'}
+              hint={
+                deanMode
+                  ? `Locked to your college (${deptCode || 'your department'}).`
+                  : newUser.role === 'admin'
+                    ? 'Administrators oversee all colleges.'
+                    : 'Choose the college this user manages'
+              }
               value={newUser.department}
               error={newUserErrors.department}
-              onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
+              onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'department', e.target.value, { requireEmail: true, requirePassword: true })}
+              onBlur={() => handleUserBlur(setNewUserErrors, newUser, 'department', { requireEmail: true, requirePassword: true })}
               options={departmentOptions}
             />
           </div>
@@ -571,10 +650,11 @@ export default function UserManagement() {
               label="Temporary password"
               required
               type="text"
-              hint={`At least ${MIN_PASSWORD_LENGTH} characters. Give it to them directly and ask them to change it.`}
+              hint={`Use ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_BYTES} characters with no leading or trailing spaces.`}
               value={newUser.password}
               error={newUserErrors.password}
-              onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+              onChange={(e) => updateUserField(setNewUser, setNewUserErrors, newUser, 'password', e.target.value, { requireEmail: true, requirePassword: true })}
+              onBlur={() => handleUserBlur(setNewUserErrors, newUser, 'password', { requireEmail: true, requirePassword: true })}
             />
           </div>
         </form>
@@ -593,44 +673,58 @@ export default function UserManagement() {
           </>
         }
       >
-        <form id="user-edit-form" onSubmit={saveEdit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <form id="user-edit-form" noValidate onSubmit={saveEdit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <TextInput
             label="First name"
             required
+            placeholder="e.g. Juan"
             value={editForm.first_name}
             error={editErrors.first_name}
-            onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+            onChange={(e) => updateUserField(setEditForm, setEditErrors, editForm, 'first_name', e.target.value)}
+            onBlur={() => handleUserBlur(setEditErrors, editForm, 'first_name')}
           />
           <TextInput
             label="Last name"
             required
+            placeholder="e.g. Dela Cruz"
             value={editForm.last_name}
             error={editErrors.last_name}
-            onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+            onChange={(e) => updateUserField(setEditForm, setEditErrors, editForm, 'last_name', e.target.value)}
+            onBlur={() => handleUserBlur(setEditErrors, editForm, 'last_name')}
           />
           <TextInput
             label="Contact number"
-            hint="Receives the SMS verification code"
+            hint="Optional — receives the SMS verification code (e.g. 09171234567)"
             placeholder="09171234567"
             value={editForm.contact_number}
             error={editErrors.contact_number}
-            onChange={(e) => setEditForm({ ...editForm, contact_number: e.target.value })}
+            onChange={(e) => updateUserField(setEditForm, setEditErrors, editForm, 'contact_number', e.target.value)}
+            onBlur={() => handleUserBlur(setEditErrors, editForm, 'contact_number')}
           />
           <SelectInput
             label="Role"
             required
             value={editForm.role}
-            onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+            onChange={(e) => updateUserField(setEditForm, setEditErrors, editForm, 'role', e.target.value)}
             options={availableRoleOptions}
             disabled={deanMode}
           />
           <div className="md:col-span-2">
             <SelectInput
               label="College"
-              disabled={deanMode}
-              hint={`College is fixed to ${deptCode || 'your department'}.`}
+              required={editForm.role !== 'admin'}
+              disabled={deanMode || editForm.role === 'admin'}
+              hint={
+                deanMode
+                  ? `College is fixed to ${deptCode || 'your department'}.`
+                  : editForm.role === 'admin'
+                    ? 'Administrators oversee all colleges.'
+                    : 'Choose the college this user manages'
+              }
               value={editForm.department}
-              onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+              error={editErrors.department}
+              onChange={(e) => updateUserField(setEditForm, setEditErrors, editForm, 'department', e.target.value)}
+              onBlur={() => handleUserBlur(setEditErrors, editForm, 'department')}
               options={departmentOptions}
             />
           </div>

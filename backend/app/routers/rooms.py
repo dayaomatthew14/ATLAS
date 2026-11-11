@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, cast
 from .. import models, schemas, database, auth
 from .logs import log_activity
 
@@ -145,7 +145,7 @@ def create_room(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Only laboratories can be assigned to a college. Lecture rooms are shared."
                 )
-            owner_id = dept.id
+            owner_id = cast(int, dept.id)
     else:
         # A department creates laboratories, and only for itself.
         if room.type not in LAB_TYPES:
@@ -163,7 +163,7 @@ def create_room(
                 detail="Your account is not assigned to a college, so a laboratory has no owner. Ask an administrator to set one."
             )
         # `room.department_id` from the payload is ignored here on purpose.
-        owner_id = dept.id
+        owner_id = cast(int, dept.id)
 
     db_room = db.query(models.Room).filter(
         models.Room.name == room.name,
@@ -224,6 +224,17 @@ def update_room(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="A college laboratory cannot be changed into a lecture room. Ask an administrator."
             )
+
+    target_name = update_data.get('name', db_room.name)
+    target_building = update_data.get('building', db_room.building)
+    if 'name' in update_data or 'building' in update_data:
+        dup_room = db.query(models.Room).filter(
+            models.Room.id != room_id,
+            models.Room.name == target_name,
+            models.Room.building == target_building,
+        ).first()
+        if dup_room:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Room already exists in this building")
 
     for key, value in update_data.items():
         setattr(db_room, key, value)

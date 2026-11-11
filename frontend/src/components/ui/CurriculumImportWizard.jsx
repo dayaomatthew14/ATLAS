@@ -2,8 +2,17 @@ import React from 'react';
 import { Upload, FileSpreadsheet, AlertTriangle, Check } from 'lucide-react';
 import Button from './Button';
 import Dialog from './Dialog';
+import { ValidationAnchor } from './ValidationPopup';
 import { focusRing, pluralize } from './tokens';
 import { api } from '../../utils/api';
+import {
+  ALLOWED_EXCEL_EXTENSIONS,
+  validateFileUpload,
+  validateCourseCode,
+  validateEntityTitle,
+  validateIntegerRange,
+  parseErrorResponse,
+} from '../../utils/validation';
 
 /**
  * Curriculum import. Phase 2 Screen 5 — audit finding FLOW-01.
@@ -85,6 +94,16 @@ export default function CurriculumImportWizard({
 
   const handleFile = async (f) => {
     if (!f) return;
+    const fileErr = validateFileUpload(f, {
+      allowedExtensions: ALLOWED_EXCEL_EXTENSIONS,
+      maxMb: 15,
+      label: 'Excel workbook',
+    });
+    if (fileErr) {
+      setError(fileErr);
+      return;
+    }
+    setError('');
     setFile(f);
     setStep(1);
   };
@@ -114,7 +133,27 @@ export default function CurriculumImportWizard({
     setRows((prev) => prev.map((r) => (r._key === key ? { ...r, ...patch } : r)));
 
   const commit = async () => {
-    setBusy(true); setError('');
+    setError('');
+    const rowProblems = [];
+    for (let i = 0; i < included.length; i += 1) {
+      const r = included[i];
+      const codeErr = validateCourseCode(r.code, { label: 'Course code', required: true });
+      const nameErr = validateEntityTitle(r.name, { label: 'Course title', minLength: 2, maxLength: 255 });
+      const unitsErr = validateIntegerRange(r.units, { label: 'Units', min: 0, max: 24, required: true });
+      const lecErr = validateIntegerRange(r.lec_units ?? 0, { label: 'Lec units', min: 0, max: 12, required: true });
+      const labErr = validateIntegerRange(r.lab_units ?? 0, { label: 'Lab units', min: 0, max: 12, required: true });
+      const firstIssue = codeErr || nameErr || unitsErr || lecErr || labErr;
+      if (firstIssue) {
+        rowProblems.push(`${r.code || `Row ${i + 1}`}: ${firstIssue}`);
+        break;
+      }
+    }
+    if (rowProblems.length > 0) {
+      setError(rowProblems[0]);
+      return;
+    }
+
+    setBusy(true);
     // The dry run already resolved the target department server-side (a chair
     // is pinned to their own; an admin falls back to the first). Prefer that
     // over the caller's hint, which is undefined when no block is selected.
@@ -163,7 +202,8 @@ export default function CurriculumImportWizard({
       onImported({ ...res, block_id: blockId });
       close();
     } catch (e) {
-      setError(e.message || 'Could not commit the import.');
+      const parsed = parseErrorResponse(e, 'Could not commit the import.');
+      setError(parsed.message || 'Could not commit the import.');
     } finally {
       setBusy(false);
     }
@@ -216,21 +256,22 @@ export default function CurriculumImportWizard({
         ))}
       </ol>
 
-      {error && (
-        <p className="mb-4 p-3 rounded-field bg-sem-conflict-bg font-ui text-body text-sem-conflict flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
-          {error}
-        </p>
-      )}
-
       {/* ---- Step 1: Upload -------------------------------------------- */}
       {step === 0 && (
-        <div>
+        <ValidationAnchor
+          error={error}
+          label="Excel Workbook"
+          errorId="curriculum-upload-error"
+          showBadge
+        >
           <label
             htmlFor="curriculum-file"
+            aria-describedby={error ? 'curriculum-upload-error' : undefined}
             className={`flex flex-col items-center justify-center gap-3 p-10 rounded-panel border-2
-                        border-dashed border-atlas-control cursor-pointer hover:bg-white/85
-                        transition-colors duration-state ease-standard ${focusRing}`}
+                        border-dashed cursor-pointer hover:bg-white/85
+                        transition-colors duration-state ease-standard ${focusRing} ${
+                          error ? 'border-sem-conflict bg-sem-conflict-bg/30' : 'border-atlas-control'
+                        }`}
           >
             <Upload className="w-6 h-6 text-atlas-slate" aria-hidden="true" />
             <span className="font-ui text-body text-atlas-ink">Choose an Excel workbook</span>
@@ -240,11 +281,20 @@ export default function CurriculumImportWizard({
             id="curriculum-file"
             type="file"
             accept=".xlsx,.xlsm"
+            aria-invalid={error ? 'true' : undefined}
             className="sr-only"
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
-        </div>
+        </ValidationAnchor>
       )}
+
+      {step > 0 && (
+        <ValidationAnchor
+          error={error}
+          label="Import Notice"
+          errorId="curriculum-step-error"
+          showBadge
+        >
 
       {/* ---- Step 2: What was detected ---------------------------------- */}
       {step === 1 && (
@@ -354,6 +404,8 @@ export default function CurriculumImportWizard({
             </p>
           )}
         </div>
+      )}
+        </ValidationAnchor>
       )}
     </Dialog>
   );
