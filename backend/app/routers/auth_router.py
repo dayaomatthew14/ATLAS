@@ -48,7 +48,7 @@ VERIFICATION_OTP_TTL = timedelta(hours=24)
 # Sign-in throttling. High enough that a person mistyping their password a few
 # times is unaffected, low enough that guessing is not a practical strategy.
 MAX_LOGIN_ATTEMPTS = 8
-LOGIN_LOCKOUT = timedelta(minutes=15)
+LOGIN_LOCKOUT = timedelta(seconds=30)
 
 
 def _naive_utc_now():
@@ -185,11 +185,17 @@ def login_for_access_token(
     # a wait rather than another guess.
     locked_until = _as_naive(user.login_locked_until)
     if locked_until and _naive_utc_now() < locked_until:
-        remaining = int((locked_until - _naive_utc_now()).total_seconds() // 60) + 1
+        remaining = max(
+            1,
+            min(
+                int(LOGIN_LOCKOUT.total_seconds()),
+                int((locked_until - _naive_utc_now()).total_seconds()) + 1,
+            ),
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
-                f"Too many failed sign-in attempts. Try again in {remaining} minute"
+                f"Too many failed sign-in attempts. Try again in {remaining} second"
                 f"{'s' if remaining != 1 else ''}, or reset your password."
             ),
         )
@@ -216,7 +222,7 @@ def login_for_access_token(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=(
                     f"Too many failed sign-in attempts. Try again in "
-                    f"{int(LOGIN_LOCKOUT.total_seconds() // 60)} minutes, or reset your password."
+                    f"{int(LOGIN_LOCKOUT.total_seconds())} seconds, or reset your password."
                 ),
             )
         db.commit()
