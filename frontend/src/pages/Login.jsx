@@ -19,7 +19,7 @@ import {
 } from '../utils/authValidation';
 import AuthBackdrop from '../components/auth/AuthBackdrop';
 import {
-  ROLE_OPTIONS,
+  SELF_REGISTRATION_ROLE,
   DEPARTMENT_OPTIONS,
   AUTH_TITLES,
   AUTH_SUBTITLES,
@@ -28,6 +28,7 @@ import {
 import {
   AuthTextField,
   AuthPasswordField,
+  AuthStaticField,
   CustomSelectInput,
 } from '../components/auth/AuthFields';
 
@@ -46,7 +47,7 @@ export default function Login() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
-  const [role, setRole] = useState('program_chair');
+  const role = SELF_REGISTRATION_ROLE.value;
   const [department, setDepartment] = useState('');
   const [otp, setOtp] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -523,7 +524,12 @@ export default function Login() {
                       {renderField('lastName', User, 'text', 'Dela Cruz', lastName, setLastName, 'Last Name')}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      {renderSelectField('role', ShieldCheck, role, setRole, 'User Role', ROLE_OPTIONS)}
+                      <AuthStaticField
+                        id="auth-role"
+                        icon={ShieldCheck}
+                        label="User Role"
+                        value={SELF_REGISTRATION_ROLE.label}
+                      />
                       {renderSelectField('department', Building, department, setDepartment, 'Department / College', DEPARTMENT_OPTIONS)}
                     </div>
                     {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}

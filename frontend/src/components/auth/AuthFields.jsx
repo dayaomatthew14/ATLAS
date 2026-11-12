@@ -176,6 +176,32 @@ export function AuthPasswordField({
 }
 
 /**
+ * Fixed non-interactive display field matching AuthTextField/CustomSelectInput dimensions.
+ */
+export function AuthStaticField({ id, icon: Icon, label, value }) {
+  const labelId = `${id}-label`;
+  return (
+    <div className="text-left select-none">
+      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-5">
+        <span id={labelId} className="block text-caption font-semibold text-atlas-slate truncate">
+          {label}
+        </span>
+      </div>
+      <div
+        id={id}
+        aria-labelledby={labelId}
+        className="relative flex items-center w-full pl-10 pr-3.5 py-2.5 bg-atlas-50/60 border border-atlas-control/80 rounded-field text-body font-medium text-atlas-ink cursor-default select-none pointer-events-none"
+      >
+        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center">
+          <Icon aria-hidden="true" className="h-4 w-4 text-atlas-700" />
+        </div>
+        <span className="truncate">{value}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Accessible custom listbox selector used on the authentication/registration card.
  */
 export function CustomSelectInput({ icon: Icon, value, setter, label, options, hasError }) {
@@ -221,7 +247,7 @@ export function CustomSelectInput({ icon: Icon, value, setter, label, options, h
 
   return (
     <div className="text-left relative" ref={dropdownRef} {...anchorHandlers}>
-      <div className="flex items-center justify-between gap-2 mb-1.5">
+      <div className="flex items-center justify-between gap-2 mb-1.5 min-h-5">
         <label id={labelId} className="block text-caption font-semibold text-atlas-slate truncate">{label}</label>
         <ValidationErrorBadge
           error={hasError}

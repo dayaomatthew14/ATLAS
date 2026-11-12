@@ -1,10 +1,11 @@
 /**
- * College/role choices and normalization helpers for the Login/Registration page.
+ * College choices and normalization helpers for the Login/Registration page.
  */
 
-export const ROLE_OPTIONS = [
-  { value: 'program_chair', label: 'Program Chair' },
-];
+export const SELF_REGISTRATION_ROLE = {
+  value: 'program_chair',
+  label: 'Program Chair',
+};
 
 export const DEPARTMENT_OPTIONS = [
   { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science' },
