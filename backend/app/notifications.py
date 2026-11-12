@@ -7,15 +7,51 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
-load_dotenv()
+_BACKEND_ENV = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+_ENV_MTIME = None
 
 logger = logging.getLogger(__name__)
 
-# Email Config
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+
+def _refresh_env_from_dotenv():
+    """Reload backend/.env when it changes so local config edits take effect immediately."""
+    global _ENV_MTIME
+    if not os.path.exists(_BACKEND_ENV):
+        return
+    try:
+        mtime = os.path.getmtime(_BACKEND_ENV)
+    except OSError:
+        return
+    if _ENV_MTIME is None or mtime != _ENV_MTIME:
+        load_dotenv(_BACKEND_ENV, override=(os.getenv("ENV") != "production"))
+        _ENV_MTIME = mtime
+
+
+_refresh_env_from_dotenv()
+
+
+def _smtp_config():
+    _refresh_env_from_dotenv()
+    server = os.getenv("SMTP_SERVER") or "smtp.gmail.com"
+    try:
+        port = int(os.getenv("SMTP_PORT") or 587)
+    except ValueError:
+        port = 587
+    username = (os.getenv("SMTP_USERNAME") or "").strip()
+    password = (os.getenv("SMTP_PASSWORD") or "").strip()
+    return server, port, username, password
+
+
+def _textbee_config():
+    _refresh_env_from_dotenv()
+    return (
+        (os.getenv("TEXTBEE_API_KEY") or "").strip(),
+        (os.getenv("TEXTBEE_DEVICE_ID") or "").strip(),
+    )
+
+
+# Backward-compatible module constants populated from the initial environment.
+SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD = _smtp_config()
 
 # SMS goes through TextBee. Twilio's SDK and configuration used to sit here --
 # imported, three variables read, and never once used to send anything. Keeping
@@ -23,8 +59,7 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 # fix the gateway that is actually in service.
 
 # TextBee Config
-TEXTBEE_API_KEY = os.getenv("TEXTBEE_API_KEY")
-TEXTBEE_DEVICE_ID = os.getenv("TEXTBEE_DEVICE_ID")
+TEXTBEE_API_KEY, TEXTBEE_DEVICE_ID = _textbee_config()
 
 # A transport that never answers would otherwise hold the request thread open
 # for as long as the peer keeps the socket alive, and OTP delivery sits inside
@@ -78,12 +113,13 @@ def textbee_device_status() -> dict:
     `{"known": False}` and must never block a send: a working gateway that this
     function cannot parse is far more likely than a real outage.
     """
-    if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
+    api_key, device_id = _textbee_config()
+    if not api_key or not device_id:
         return {"known": False}
 
-    url = f"https://api.textbee.dev/api/v1/gateway/devices/{TEXTBEE_DEVICE_ID}"
+    url = f"https://api.textbee.dev/api/v1/gateway/devices/{device_id}"
     try:
-        res = requests.get(url, headers={"x-api-key": TEXTBEE_API_KEY}, timeout=HTTP_TIMEOUT_SECONDS)
+        res = requests.get(url, headers={"x-api-key": api_key}, timeout=HTTP_TIMEOUT_SECONDS)
         snippet = " ".join((res.text or "").split())[:300]
         if res.status_code != 200:
             logger.warning("[TEXTBEE] Could not read device status (HTTP %s): %s", res.status_code, snippet)
@@ -147,13 +183,14 @@ def send_textbee_otp(to_phone: str, otp: str, purpose: str = "Verification"):
     either way, because it is the only thing that distinguishes accepted-and-
     sent from accepted-and-queued-for-a-phone-that-is-switched-off.
     """
-    if not TEXTBEE_API_KEY or not TEXTBEE_DEVICE_ID:
+    api_key, device_id = _textbee_config()
+    if not api_key or not device_id:
         logger.warning("[WARNING] TextBee credentials missing. Could not send %s OTP to %s", purpose, to_phone)
         return False
 
-    url = f"https://api.textbee.dev/api/v1/gateway/devices/{TEXTBEE_DEVICE_ID}/send-sms"
+    url = f"https://api.textbee.dev/api/v1/gateway/devices/{device_id}/send-sms"
     headers = {
-        "x-api-key": TEXTBEE_API_KEY,
+        "x-api-key": api_key,
         "Content-Type": "application/json"
     }
     data = {
@@ -212,12 +249,14 @@ def configured_transports() -> dict:
     Read at call time rather than at import, so a server that reloads after an
     edit to .env reports what is true now.
     """
+    _server, _port, smtp_user, smtp_pass = _smtp_config()
+    textbee_key, textbee_device = _textbee_config()
     return {
         "SendGrid": bool(os.getenv("SENDGRID_API_KEY")),
         "Resend": bool(os.getenv("RESEND_API_KEY")),
         "Google Apps Script": bool(os.getenv("GOOGLE_SCRIPT_URL")),
-        "SMTP": bool(SMTP_USERNAME and SMTP_PASSWORD),
-        "SMS (TextBee)": bool(TEXTBEE_API_KEY and TEXTBEE_DEVICE_ID),
+        "SMTP": bool(smtp_user and smtp_pass),
+        "SMS (TextBee)": bool(textbee_key and textbee_device),
     }
 
 
@@ -438,6 +477,30 @@ def send_email_via_http(to_email: str, subject: str, body: str) -> bool:
 
     return False
 
+def _send_smtp_message(to_email: str, subject: str, body: str, context: str) -> bool:
+    smtp_server, smtp_port, smtp_user, smtp_pass = _smtp_config()
+    if not smtp_user or not smtp_pass:
+        logger.error("[ERROR] No email transport configured; %s for %s was not sent.", context, to_email)
+        return False
+
+    msg = MIMEMultipart()
+    msg['From'] = f"ATLAS System <{smtp_user}>"
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=HTTP_TIMEOUT_SECONDS)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        logger.error("[ERROR] Failed to send email to %s: %s", to_email, e)
+        return False
+
+
 def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
     """
     Deliver an OTP by email. Returns whether it was actually sent.
@@ -457,27 +520,10 @@ def send_email_otp(to_email: str, otp: str, purpose: str = "Verification"):
     if send_email_via_http(to_email, subject, body):
         return True
 
-    if not SMTP_USERNAME or not SMTP_PASSWORD:
-        logger.error("[ERROR] No email transport configured; %s code for %s was not sent.", purpose.lower(), to_email)
-        return False
-
-    msg = MIMEMultipart()
-    msg['From'] = f"ATLAS System <{SMTP_USERNAME}>"
-    msg['To'] = to_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-
-    try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
+    if _send_smtp_message(to_email, subject, body, f"{purpose.lower()} code"):
         logger.info("[SUCCESS] Sent %s email to %s", purpose, to_email)
         return True
-    except Exception as e:
-        logger.error("[ERROR] Failed to send email to %s: %s", to_email, e)
-        return False
+    return False
 
 # `send_sms_otp` was removed. It printed the code and returned True without
 # sending anything, and nothing called it -- the SMS path is send_textbee_otp.
@@ -489,30 +535,9 @@ def send_email_notification(to_email: str, subject: str, body: str):
         logger.info("[DEVELOPMENT] Email to %s: %s\n%s", to_email, subject, body)
         print(f"\n[DEVELOPMENT] Email to {to_email}: {subject}\n{body}\n")
 
-
     # Try HTTP delivery (works around cloud provider SMTP port blocks)
     if send_email_via_http(to_email, subject, body):
         return True
 
-    if not SMTP_USERNAME or not SMTP_PASSWORD:
-        logger.error("[ERROR] No email transport configured; notification to %s was not sent.", to_email)
-        return False
-
-
-    msg = MIMEMultipart()
-    msg['From'] = f"ATLAS System <{SMTP_USERNAME}>"
-    msg['To'] = to_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-    
-    try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        return True
-    except Exception as e:
-        logger.error("[ERROR] Failed to send email to %s: %s", to_email, e)
-        return False
+    return _send_smtp_message(to_email, subject, body, "notification")
 
