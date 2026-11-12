@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, LayoutGrid, LayoutList, Calendar, ChevronDown, Check } from 'lucide-react';
-import Modal from '../../components/Modal';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
@@ -9,11 +8,6 @@ import AtlasButton from '../../components/ui/Button';
 import ConflictLens from '../../components/ui/ConflictLens';
 import { PageHeader } from '../../components/ui/Page';
 import { focusRing, pluralize } from '../../components/ui/tokens';
-import {
-  ValidationErrorBadge,
-  ValidationPopup,
-} from '../../components/ui/ValidationPopup';
-import { useValidationPopup } from '../../components/ui/useValidationPopup';
 import { canEditSchedules } from '../../utils/session';
 import {
   ALLOWED_DAY_ABBR,
@@ -33,12 +27,14 @@ import {
   formatSubjectCode,
   isLabSession,
   sortForExport,
+  filterActiveTermSubjects,
 } from '../../utils/scheduleHelpers';
 import ClassCard from '../../components/schedules/ClassCard';
 import ScheduleHoverPopover from '../../components/schedules/ScheduleHoverPopover';
 import ConflictResolutionDialog from '../../components/schedules/ConflictResolutionDialog';
 import GenerateScheduleModal from '../../components/schedules/GenerateScheduleModal';
 import ExportScheduleDialog from '../../components/schedules/ExportScheduleDialog';
+import CreateScheduleModal from '../../components/schedules/CreateScheduleModal';
 import { ClearSchedulesDialog, UndoBackupToast } from '../../components/schedules/ClearSchedulesDialog';
 
 const formatSemesterTerm = (term) => {
@@ -48,45 +44,6 @@ const formatSemesterTerm = (term) => {
   if (term === '3rd semester') return '3rd Semester';
   return term;
 };
-
-function ScheduleField({ id, label, required = false, error, className = '', children }) {
-  const anchorRef = React.useRef(null);
-  const { popupRef, isOpen, open, dismiss, toggle, anchorHandlers } = useValidationPopup({
-    anchorRef,
-    error,
-  });
-  const errorId = id ? `${id}-error` : undefined;
-
-  return (
-    <div ref={anchorRef} className={className} {...anchorHandlers}>
-      <div className="flex items-center justify-between gap-2 mb-1 min-h-5">
-        <label htmlFor={id} className="block text-sm font-medium text-gray-700">
-          {label} {required && <span className="text-red-600">*</span>}
-        </label>
-        <ValidationErrorBadge
-          error={error}
-          label={label}
-          onOpen={() => open({ focusControl: false })}
-          onToggle={toggle}
-        />
-      </div>
-      {typeof children === 'function' ? children({ id, errorId }) : children}
-      {error && errorId && (
-        <span id={errorId} className="sr-only">
-          {error}
-        </span>
-      )}
-      <ValidationPopup
-        anchorRef={anchorRef}
-        popupRef={popupRef}
-        isOpen={isOpen}
-        error={error}
-        label={label}
-        onDismiss={dismiss}
-      />
-    </div>
-  );
-}
 
 export default function Schedules() {
   const { addToast } = useToast();
@@ -674,19 +631,23 @@ export default function Schedules() {
   // fed them) used to sit here. Nothing rendered any of it — this screen shows
   // a week grid — so it was ~40 lines of unreachable date arithmetic.
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState([]);
-  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
-  const [subjects, setSubjects] = useState([]);
-  const [teachers, setTeachers] = useState([]);
-  const [formData, setFormData] = useState({
+  const INITIAL_SCHEDULE_FORM = {
     subject_id: '',
     faculty_id: '',
     day_of_week: 'Mon',
     start_time: '07:30',
     end_time: '08:30',
-    section: ''
-  });
+    section: '',
+  };
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
+  const [isLoadingDropdowns, setIsLoadingDropdowns] = useState(false);
+  const [isSubmittingSchedule, setIsSubmittingSchedule] = useState(false);
+  const [subjects, setSubjects] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [formData, setFormData] = useState(INITIAL_SCHEDULE_FORM);
   const [formErrors, setFormErrors] = useState({});
   const [genErrors, setGenErrors] = useState({});
 
@@ -763,21 +724,81 @@ export default function Schedules() {
   };
 
   const fetchDropdownData = async () => {
+    setIsLoadingDropdowns(true);
     try {
-      const [subjectsData, teachersData] = await Promise.all([
+      let currentSem =
+        semesters.find((s) => s.id === activeSemesterId) ||
+        semesters.find((s) => s.is_active) ||
+        null;
+      if (!currentSem) {
+        const semList = await api.get('/semesters').catch(() => []);
+        if (Array.isArray(semList) && semList.length > 0) {
+          currentSem = semList.find((s) => s.is_active) || semList[0] || null;
+        }
+      }
+      const semId = currentSem?.id || activeSemesterId;
+
+      const [curriculumData, blocksData, offeringsData, teachersData] = await Promise.all([
         api.get('/curriculum').catch(() => []),
-        api.get('/professors').catch(() => [])
+        api.get('/curriculum/blocks').catch(() => []),
+        semId
+          ? api.get('/subject-offerings', { params: { semester_id: semId } }).catch(() => [])
+          : Promise.resolve([]),
+        api.get('/professors').catch(() => []),
       ]);
-      const formattedTeachers = (teachersData || []).map(t => ({
+
+      const activeTermSubjects = filterActiveTermSubjects(
+        curriculumData,
+        blocksData,
+        currentSem,
+        offeringsData
+      );
+      const formattedTeachers = (Array.isArray(teachersData) ? teachersData : []).map((t) => ({
         ...t,
-        name: `${t.first_name} ${t.last_name}`
+        name: `${t.first_name} ${t.last_name}`,
       }));
-      setSubjects(subjectsData || []);
+
+      setSubjects(activeTermSubjects);
       setTeachers(formattedTeachers);
+      setFormData((prev) =>
+        prev.subject_id && !activeTermSubjects.some((s) => String(s.id) === String(prev.subject_id))
+          ? { ...prev, subject_id: '' }
+          : prev
+      );
     } catch (error) {
       console.error('Error fetching dropdown data');
       addToast('Failed to fetch required data', 'error');
+    } finally {
+      setIsLoadingDropdowns(false);
     }
+  };
+
+  const handleSelectSubject = (subjectId) => {
+    const chosen = subjects.find((s) => String(s.id) === String(subjectId));
+    const next = { ...formData, subject_id: subjectId };
+    let matchedProfessor = false;
+    if (chosen?.assigned_offerings?.length === 1) {
+      const assignedId = String(chosen.assigned_offerings[0].faculty_id);
+      const teacherExists = teachers.some((t) => String(t.id) === assignedId);
+      const currentAlreadyAssigned = chosen.assigned_offerings.some(
+        (o) => String(o.faculty_id) === String(formData.faculty_id)
+      );
+      if (teacherExists && (!formData.faculty_id || !currentAlreadyAssigned)) {
+        next.faculty_id = assignedId;
+        matchedProfessor = true;
+      }
+    }
+    setFormData(next);
+    setFormErrors((prev) => {
+      const updated = { ...prev };
+      if (prev.subject_id) {
+        updated.subject_id = validateScheduleField('subject_id', next) || undefined;
+      }
+      if (matchedProfessor) {
+        updated.faculty_id = undefined;
+      }
+      return updated;
+    });
   };
 
   const handleOpenModal = () => {
@@ -834,6 +855,7 @@ export default function Schedules() {
       addToast('No active semester found', 'error');
       return;
     }
+    setIsSubmittingSchedule(true);
     try {
       const submissionData = {
         semester_id: activeSemesterId,
@@ -848,6 +870,9 @@ export default function Schedules() {
       await api.post('/schedules', submissionData);
       fetchSchedules();
       setIsModalOpen(false);
+      setFormData(INITIAL_SCHEDULE_FORM);
+      setFormConflicts([]);
+      setAiSuggestions([]);
       setFormErrors({});
       addToast('Schedule created successfully', 'success');
     } catch (error) {
@@ -873,6 +898,8 @@ export default function Schedules() {
         setFormErrors((prev) => ({ ...prev, ...nextFields }));
       }
       addToast(parsed.message || 'Failed to create schedule', 'error');
+    } finally {
+      setIsSubmittingSchedule(false);
     }
   };
 
@@ -1618,251 +1645,46 @@ export default function Schedules() {
         onClose={() => setResolutionModalData(null)}
       />
 
-      <Modal
+      <CreateScheduleModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Create New Schedule"
-      >
-        <form noValidate onSubmit={handleSubmit} className="space-y-4">
-          {/* Blocking and advisory are reported differently, because they ask
-              different things of the user: a faculty or section clash has to be
-              resolved here, while a shared room is a note for the Registrar. */}
-          {blockingFormConflicts.length > 0 && (
-            <div className="rounded-panel bg-sem-conflict-bg border border-sem-conflict/30 p-3.5 flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-sem-conflict shrink-0 mt-0.5" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="font-ui text-caption font-semibold text-sem-conflict">
-                  {blockingFormConflicts[0].type === 'Teacher'
-                    ? 'This professor is already teaching then'
-                    : 'This section already has a class then'}
-                </p>
-                <p className="font-ui text-caption text-sem-conflict/90 mt-0.5 leading-relaxed">
-                  Two classes cannot share {blockingFormConflicts[0].type === 'Teacher' ? 'a professor' : 'a section'} at
-                  the same time. Change the time, or the {blockingFormConflicts[0].type === 'Teacher' ? 'professor' : 'section'}.
-                </p>
-              </div>
-            </div>
-          )}
-
-
-          <ScheduleField
-            id="schedule-subject-id"
-            label="Subject"
-            required
-            error={formErrors.subject_id}
-            className="mb-4"
-          >
-            {({ id, errorId }) => (
-              <select
-                id={id}
-                required
-                aria-invalid={Boolean(formErrors.subject_id)}
-                aria-describedby={formErrors.subject_id ? errorId : undefined}
-                className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
-                  formErrors.subject_id ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
-                }`}
-                value={formData.subject_id}
-                onChange={(e) => updateScheduleField('subject_id', e.target.value)}
-                onBlur={() => handleScheduleBlur('subject_id')}
-              >
-                <option value="">Select Subject</option>
-                {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-              </select>
-            )}
-          </ScheduleField>
-
-          <div className="grid grid-cols-2 gap-4">
-            <ScheduleField
-              id="schedule-faculty-id"
-              label="Professor"
-              required
-              error={formErrors.faculty_id}
-            >
-              {({ id, errorId }) => (
-                <select
-                  id={id}
-                  required
-                  aria-invalid={Boolean(formErrors.faculty_id)}
-                  aria-describedby={formErrors.faculty_id ? errorId : undefined}
-                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
-                    formErrors.faculty_id ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
-                  }`}
-                  value={formData.faculty_id}
-                  onChange={(e) => updateScheduleField('faculty_id', e.target.value)}
-                  onBlur={() => handleScheduleBlur('faculty_id')}
-                >
-                  <option value="">Select Professor</option>
-                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              )}
-            </ScheduleField>
-
-            <ScheduleField
-              id="schedule-section"
-              label="Section (Optional)"
-              error={formErrors.section}
-            >
-              {({ id, errorId }) => (
-                <input
-                  id={id}
-                  type="text"
-                  placeholder="e.g. 1A, CS-3A"
-                  aria-invalid={Boolean(formErrors.section)}
-                  aria-describedby={formErrors.section ? errorId : undefined}
-                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
-                    formErrors.section ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
-                  }`}
-                  value={formData.section}
-                  onChange={(e) => updateScheduleField('section', e.target.value)}
-                  onBlur={() => handleScheduleBlur('section')}
-                />
-              )}
-            </ScheduleField>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <ScheduleField
-              id="schedule-day-of-week"
-              label="Day"
-              required
-              error={formErrors.day_of_week}
-            >
-              {({ id, errorId }) => (
-                <select
-                  id={id}
-                  required
-                  aria-invalid={Boolean(formErrors.day_of_week)}
-                  aria-describedby={formErrors.day_of_week ? errorId : undefined}
-                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
-                    formErrors.day_of_week ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
-                  }`}
-                  value={formData.day_of_week}
-                  onChange={(e) => updateScheduleField('day_of_week', e.target.value)}
-                  onBlur={() => handleScheduleBlur('day_of_week')}
-                >
-                  {ALLOWED_DAY_ABBR.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              )}
-            </ScheduleField>
-
-            <ScheduleField
-              id="schedule-start-time"
-              label="Start Time"
-              required
-              error={formErrors.start_time}
-            >
-              {({ id, errorId }) => (
-                <input
-                  id={id}
-                  type="time"
-                  required
-                  aria-invalid={Boolean(formErrors.start_time)}
-                  aria-describedby={formErrors.start_time ? errorId : undefined}
-                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
-                    formErrors.start_time ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
-                  }`}
-                  value={formData.start_time}
-                  onChange={(e) => updateScheduleField('start_time', e.target.value)}
-                  onBlur={() => handleScheduleBlur('start_time')}
-                />
-              )}
-            </ScheduleField>
-
-            <ScheduleField
-              id="schedule-end-time"
-              label="End Time"
-              required
-              error={formErrors.end_time}
-            >
-              {({ id, errorId }) => (
-                <input
-                  id={id}
-                  type="time"
-                  required
-                  aria-invalid={Boolean(formErrors.end_time)}
-                  aria-describedby={formErrors.end_time ? errorId : undefined}
-                  className={`block w-full px-3 py-2 bg-white border rounded-md shadow-sm text-sm ${
-                    formErrors.end_time ? 'border-sem-conflict ring-1 ring-sem-conflict/20' : 'border-gray-300'
-                  }`}
-                  value={formData.end_time}
-                  onChange={(e) => updateScheduleField('end_time', e.target.value)}
-                  onBlur={() => handleScheduleBlur('end_time')}
-                />
-              )}
-            </ScheduleField>
-          </div>
-
-          <div className="pt-4 flex justify-between items-center">
-            <button
-              type="button"
-              onClick={handleGetSuggestions}
-              disabled={isFetchingSuggestions}
-              className="px-4 py-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md shadow-sm flex items-center transition-colors disabled:opacity-50"
-            >
-              <Sparkles className={`w-4 h-4 mr-2 ${isFetchingSuggestions ? 'animate-spin' : ''}`} />
-              {isFetchingSuggestions ? 'Analyzing...' : 'Get AI Suggestions'}
-            </button>
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md shadow-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className={`px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm ${blockingFormConflicts.length > 0 ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-700 hover:bg-green-800'
-                  }`}
-              >
-                {blockingFormConflicts.length > 0 ? 'Save Anyway' : 'Save Schedule'}
-              </button>
-            </div>
-          </div>
-
-          {/* AI Suggestions Panel */}
-          {aiSuggestions.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center">
-                <Sparkles className="w-4 h-4 text-indigo-500 mr-2" />
-                Recommended Assignments
-              </h4>
-              <div className="space-y-3">
-                {aiSuggestions.map((sug, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg hover:border-indigo-300 transition-colors">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{sug.faculty_name}</p>
-                      <p className="text-xs font-medium text-indigo-600 mt-0.5">{sug.day_of_week} • {sug.start_time} - {sug.end_time} • {sug.confidence}% Match</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData({
-                          ...formData,
-                          faculty_id: sug.faculty_id.toString(),
-                          day_of_week: sug.day_of_week,
-                          start_time: sug.start_time,
-                          end_time: sug.end_time
-                        });
-                        setFormErrors((prev) => ({
-                          ...prev,
-                          faculty_id: undefined,
-                          day_of_week: undefined,
-                          start_time: undefined,
-                          end_time: undefined,
-                        }));
-                      }}
-                      className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 text-xs font-bold rounded shadow-sm hover:bg-indigo-50"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </form>
-      </Modal>
+        onSubmit={handleSubmit}
+        currentSemester={
+          semesters.find((s) => s.id === activeSemesterId) ||
+          semesters.find((s) => s.is_active) ||
+          null
+        }
+        formatSemesterTerm={formatSemesterTerm}
+        subjects={subjects}
+        teachers={teachers}
+        isLoadingDropdowns={isLoadingDropdowns}
+        formData={formData}
+        formErrors={formErrors}
+        blockingFormConflicts={blockingFormConflicts}
+        onSelectSubject={handleSelectSubject}
+        onFieldChange={updateScheduleField}
+        onFieldBlur={handleScheduleBlur}
+        onGetSuggestions={handleGetSuggestions}
+        isFetchingSuggestions={isFetchingSuggestions}
+        aiSuggestions={aiSuggestions}
+        onApplySuggestion={(sug) => {
+          setFormData({
+            ...formData,
+            faculty_id: sug.faculty_id.toString(),
+            day_of_week: sug.day_of_week,
+            start_time: sug.start_time,
+            end_time: sug.end_time,
+          });
+          setFormErrors((prev) => ({
+            ...prev,
+            faculty_id: undefined,
+            day_of_week: undefined,
+            start_time: undefined,
+            end_time: undefined,
+          }));
+        }}
+        isSubmitting={isSubmittingSchedule}
+      />
 
       <GenerateScheduleModal
         isOpen={isGenerateModalOpen}

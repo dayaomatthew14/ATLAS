@@ -523,15 +523,14 @@ export default function Login() {
                       {renderField('firstName', User, 'text', 'Juan', firstName, setFirstName, 'First Name')}
                       {renderField('lastName', User, 'text', 'Dela Cruz', lastName, setLastName, 'Last Name')}
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <AuthStaticField
-                        id="auth-role"
-                        icon={ShieldCheck}
-                        label="User Role"
-                        value={SELF_REGISTRATION_ROLE.label}
-                      />
-                      {renderSelectField('department', Building, department, setDepartment, 'Department / College', DEPARTMENT_OPTIONS)}
-                    </div>
+                    <AuthStaticField
+                      id="auth-role"
+                      icon={ShieldCheck}
+                      label="User Role"
+                      value={SELF_REGISTRATION_ROLE.label}
+                      badge="Fixed Role"
+                    />
+                    {renderSelectField('department', Building, department, setDepartment, 'Department / College', DEPARTMENT_OPTIONS)}
                     {renderField('contactNumber', Phone, 'tel', '0912 345 6789', contactNumber, setContactNumber, 'Contact Number')}
                     {renderField('email', Mail, 'email', 'name@dlsau.edu.ph', email, setEmail, 'Email Address')}
                     <div className="grid grid-cols-2 gap-4">

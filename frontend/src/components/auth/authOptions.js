@@ -8,17 +8,72 @@ export const SELF_REGISTRATION_ROLE = {
 };
 
 export const DEPARTMENT_OPTIONS = [
-  { value: 'CAST - Computer Engineering & Computer Science', label: 'CAST — Computer Eng & Computer Science' },
-  { value: 'CAST - Psychology', label: 'CAST — Psychology' },
-  { value: 'COED - Education Programs', label: 'COED — Education Programs' },
-  { value: 'CBMA - Accountancy', label: 'CBMA — Accountancy' },
-  { value: 'CBMA - Business Administration', label: 'CBMA — Business Administration' },
-  { value: 'CBMA - Hospitality & Tourism Management', label: 'CBMA — Hospitality & Tourism Management' },
-  { value: 'CVMAS - Agriculture', label: 'CVMAS — Agriculture' },
-  { value: 'CVMAS - Food Technology', label: 'CVMAS — Food Technology' },
-  { value: 'CVMAS - Basic Veterinary Science', label: 'CVMAS — Basic Veterinary Science' },
-  { value: 'CVMAS - Veterinary Paraclinical', label: 'CVMAS — Veterinary Paraclinical' },
-  { value: 'CVMAS - Veterinary Clinical', label: 'CVMAS — Veterinary Clinical' },
+  {
+    value: 'CAST - Computer Engineering & Computer Science',
+    college: 'CAST',
+    program: 'Computer Engineering & Computer Science',
+    label: 'CAST — Computer Eng & Computer Science',
+  },
+  {
+    value: 'CAST - Psychology',
+    college: 'CAST',
+    program: 'Psychology',
+    label: 'CAST — Psychology',
+  },
+  {
+    value: 'CBMA - Accountancy',
+    college: 'CBMA',
+    program: 'Accountancy',
+    label: 'CBMA — Accountancy',
+  },
+  {
+    value: 'CBMA - Business Administration',
+    college: 'CBMA',
+    program: 'Business Administration',
+    label: 'CBMA — Business Administration',
+  },
+  {
+    value: 'CBMA - Hospitality & Tourism Management',
+    college: 'CBMA',
+    program: 'Hospitality & Tourism Management',
+    label: 'CBMA — Hospitality & Tourism Management',
+  },
+  {
+    value: 'COED - Education Programs',
+    college: 'COED',
+    program: 'Education Programs',
+    label: 'COED — Education Programs',
+  },
+  {
+    value: 'CVMAS - Agriculture',
+    college: 'CVMAS',
+    program: 'Agriculture',
+    label: 'CVMAS — Agriculture',
+  },
+  {
+    value: 'CVMAS - Food Technology',
+    college: 'CVMAS',
+    program: 'Food Technology',
+    label: 'CVMAS — Food Technology',
+  },
+  {
+    value: 'CVMAS - Basic Veterinary Science',
+    college: 'CVMAS',
+    program: 'Basic Veterinary Science',
+    label: 'CVMAS — Basic Veterinary Science',
+  },
+  {
+    value: 'CVMAS - Veterinary Paraclinical',
+    college: 'CVMAS',
+    program: 'Veterinary Paraclinical',
+    label: 'CVMAS — Veterinary Paraclinical',
+  },
+  {
+    value: 'CVMAS - Veterinary Clinical',
+    college: 'CVMAS',
+    program: 'Veterinary Clinical',
+    label: 'CVMAS — Veterinary Clinical',
+  },
 ];
 
 export const AUTH_TITLES = {

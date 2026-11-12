@@ -130,6 +130,97 @@ export const DAY_LABEL = {
   Sat: 'Saturday',
 };
 
+export const YEAR_LEVEL_LABEL = {
+  1: '1st Year',
+  2: '2nd Year',
+  3: '3rd Year',
+  4: '4th Year',
+  5: '5th Year',
+  6: '6th Year',
+};
+
+/**
+ * Normalize semester term values ('1st', '2nd', '3rd semester', 'Summer', etc.)
+ * into canonical keys ('1st' | '2nd' | '3rd' | '') matching backend logic.
+ */
+export const normalizeTermKey = (term) => {
+  const s = String(term ?? '').trim().toLowerCase();
+  if (!s) return '';
+  if (s.startsWith('1') || s.includes('first')) return '1st';
+  if (s.startsWith('2') || s.includes('second')) return '2nd';
+  if (s.startsWith('3') || s.includes('third') || s.includes('summer')) return '3rd';
+  return s;
+};
+
+/**
+ * Filter curriculum subjects to PUBLISHED blocks matching the active semester's
+ * term, attach program/year grouping metadata and current-term faculty offerings,
+ * and sort deterministically by Program -> Year Level -> Subject Code.
+ */
+export const filterActiveTermSubjects = (
+  curriculumList,
+  blocksList,
+  activeSemester,
+  offeringsList = []
+) => {
+  const curriculum = Array.isArray(curriculumList) ? curriculumList : [];
+  const blocks = Array.isArray(blocksList) ? blocksList : [];
+  const offerings = Array.isArray(offeringsList) ? offeringsList : [];
+
+  const blockById = new Map();
+  const publishedBlockIds = new Set();
+  for (const b of blocks) {
+    if (!b || b.id == null) continue;
+    blockById.set(b.id, b);
+    if (String(b.status || 'PUBLISHED').toUpperCase() === 'PUBLISHED') {
+      publishedBlockIds.add(b.id);
+    }
+  }
+
+  const offeringsByCurriculum = new Map();
+  for (const off of offerings) {
+    if (!off || off.curriculum_id == null) continue;
+    const key = Number(off.curriculum_id);
+    if (!offeringsByCurriculum.has(key)) offeringsByCurriculum.set(key, []);
+    offeringsByCurriculum.get(key).push({
+      id: off.id,
+      faculty_id: off.faculty_id,
+      faculty_name: off.faculty_name || '',
+    });
+  }
+
+  const hasBlocks = blockById.size > 0;
+  const activeTermKey = normalizeTermKey(activeSemester?.term);
+
+  return curriculum
+    .filter((s) => {
+      if (!s) return false;
+      if (hasBlocks && !publishedBlockIds.has(s.block_id)) return false;
+      if (activeTermKey && normalizeTermKey(s.semester_term) !== activeTermKey) return false;
+      return true;
+    })
+    .map((s) => {
+      const block = blockById.get(s.block_id);
+      const programName = block?.program_name || s.program_code || 'Curriculum';
+      const yearNum = Number.parseInt(String(s.year_level || '').trim(), 10);
+      const yearLabel = YEAR_LEVEL_LABEL[yearNum] || (s.year_level ? `Year ${s.year_level}` : 'General');
+      return {
+        ...s,
+        program_name: programName,
+        year_label: yearLabel,
+        year_sort: Number.isNaN(yearNum) ? 99 : yearNum,
+        group_label: `${programName} · ${yearLabel}`,
+        assigned_offerings: offeringsByCurriculum.get(Number(s.id)) || [],
+      };
+    })
+    .sort(
+      (a, b) =>
+        String(a.program_name).localeCompare(String(b.program_name)) ||
+        a.year_sort - b.year_sort ||
+        String(a.code || '').localeCompare(String(b.code || ''))
+    );
+};
+
 /**
  * Standard Academic Periods for the Structured Timetable Matrix.
  * Covers 7:30 AM to 7:30 PM with clean institutional slot thresholds.
