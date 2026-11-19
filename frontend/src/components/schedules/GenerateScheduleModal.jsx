@@ -254,8 +254,12 @@ export default function GenerateScheduleModal({
                         </span>
                       </span>
                       <Badge
-                        status={warn.overload_approved ? 'approved' : 'review'}
-                        label={warn.overload_approved ? 'Dean Approved' : 'For Dean Approval'}
+                        status="review"
+                        label={
+                          warn.required_hours != null
+                            ? `+${warn.overload_hours ?? 0}h Overload`
+                            : 'Exceeds Cap'
+                        }
                         className="shrink-0"
                       />
                     </li>

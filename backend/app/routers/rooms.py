@@ -196,8 +196,15 @@ def update_room(
         )
 
     if current_user.role == 'admin':
-        # Reassigning ownership, including handing a laboratory back to the
-        # shared pool by passing null.
+        # Enforce the same rule as POST /api/rooms: only laboratories can belong
+        # to a college; lecture rooms must remain shared (department_id = None).
+        effective_type = update_data.get('type', db_room.type)
+        effective_dept = update_data.get('department_id', db_room.department_id)
+        if effective_dept is not None and effective_type not in LAB_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only laboratories can be assigned to a college. Lecture rooms are shared.",
+            )
         if 'department_id' in update_data and update_data['department_id'] is not None:
             dept = db.query(models.Department).filter(
                 models.Department.id == update_data['department_id']

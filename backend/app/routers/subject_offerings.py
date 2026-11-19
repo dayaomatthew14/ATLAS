@@ -5,6 +5,7 @@ from .. import auth, models, schemas
 from ..services import faculty_load
 from ..database import get_db
 from ..auth import get_current_user
+from .logs import log_activity
 
 router = APIRouter(
     prefix="/api/subject-offerings",
@@ -104,7 +105,7 @@ def _resolve_offerings_department(
     db: Session, current_user: models.User, department_id: Optional[int]
 ) -> Optional[models.Department]:
     """Resolve target department for subject-offering queries."""
-    if current_user.role in ('program_chair', 'coordinator'):
+    if current_user.department or current_user.role in ('program_chair', 'coordinator', 'dean'):
         return auth.resolve_user_department(db, current_user)
     if department_id:
         return db.query(models.Department).filter(models.Department.id == department_id).first()
@@ -147,16 +148,26 @@ def _format_subject_offering_entry(
             "faculty_email": fac.email,
             "faculty_type": faculty_load.normalise_employment_type(fac.type),
             "faculty_type_label": faculty_load.employment_type_label(fac.type),
+            "enrolled_students": off.enrolled_students,
+            "ct_tier": faculty_load.normalise_ct_tier(enrolled_students=off.enrolled_students),
         }
         for off, fac in assigned_list
     ]
     is_assigned = len(assigned_list) > 0
+    primary_off = assigned_list[0][0] if is_assigned else None
+    enrolled_students = primary_off.enrolled_students if primary_off else None
+    ct_tier = faculty_load.normalise_ct_tier(enrolled_students=enrolled_students)
+    is_ct = ct_tier != faculty_load.CT_TIER_REGULAR
+
     prog_name = block.program_name if block else (curriculum_item.program_code or "")
     prog_code = (block.program.code if (block and block.program) else None) or prog_name
-    req_mins = faculty_load.subject_required_minutes(curriculum_item)
-    req_hrs = faculty_load.subject_required_hours(curriculum_item)
+    reg_mins = faculty_load.subject_required_minutes(curriculum_item, ct_tier=faculty_load.CT_TIER_REGULAR)
+    reg_hrs = faculty_load.round_hours(reg_mins / 60.0)
+    req_mins = faculty_load.subject_required_minutes(curriculum_item, enrolled_students=enrolled_students)
+    req_hrs = faculty_load.round_hours(req_mins / 60.0)
     return {
         "curriculum_id": curriculum_item.id,
+        "offering_id": primary_off.id if primary_off else None,
         "code": curriculum_item.code,
         "name": curriculum_item.name,
         "units": curriculum_item.units,
@@ -164,6 +175,14 @@ def _format_subject_offering_entry(
         "lab_units": curriculum_item.lab_units,
         "type": curriculum_item.type,
         "is_combined_c": faculty_load.is_combined_c_subject(curriculum_item),
+        "enrolled_students": enrolled_students,
+        "ct_tier": ct_tier,
+        "is_ct": is_ct,
+        "ct_label": faculty_load.ct_tier_label(ct_tier=ct_tier),
+        "ct_short_label": faculty_load.ct_tier_short_label(ct_tier=ct_tier),
+        "regular_minutes": reg_mins,
+        "regular_hours": reg_hrs,
+        "regular_hours_label": faculty_load.format_minutes_label(reg_mins),
         "required_minutes": req_mins,
         "required_hours": req_hrs,
         "required_hours_label": faculty_load.format_minutes_label(req_mins),
@@ -248,6 +267,7 @@ def get_active_term_assigned_subjects(
     total = len(subject_list)
     assigned_count = sum(1 for s in subject_list if s["status"] == "assigned")
     unassigned_count = total - assigned_count
+    ct_count = sum(1 for s in subject_list if s.get("is_ct"))
     all_major_assigned = not any(s["is_major"] and s["status"] == "unassigned" for s in subject_list)
 
     curriculum_courses = [
@@ -268,6 +288,7 @@ def get_active_term_assigned_subjects(
             "total": total,
             "assigned": assigned_count,
             "unassigned": unassigned_count,
+            "ct_count": ct_count,
             "all_assigned": all_major_assigned
         },
         "subjects": subject_list
@@ -281,7 +302,7 @@ def get_assigned_subjects(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin', 'dean']:
         raise HTTPException(status_code=403, detail="Not authorized")
     return get_active_term_assigned_subjects(db, current_user, semester_id, department_id)
 
@@ -301,7 +322,7 @@ def get_subject_offerings(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin', 'dean']:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     query = db.query(
@@ -320,7 +341,7 @@ def get_subject_offerings(
         models.SubjectOffering.semester_id == semester_id
     )
 
-    if current_user.role in ['program_chair', 'coordinator']:
+    if current_user.department or current_user.role in ['program_chair', 'coordinator', 'dean']:
         query = query.filter(
             (models.Department.code == current_user.department) | 
             (models.Department.name == current_user.department)
@@ -338,6 +359,8 @@ def get_subject_offerings(
             "curriculum_id": offering.curriculum_id,
             "semester_id": offering.semester_id,
             "assigned_by": offering.assigned_by,
+            "enrolled_students": offering.enrolled_students,
+            "credited_hours_override": offering.credited_hours_override,
             "created_at": offering.created_at,
             "faculty_name": f"{fname} {lname}",
             "subject_code": scode,
@@ -351,8 +374,12 @@ def create_subject_offering(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin', 'dean']:
         raise HTTPException(status_code=403, detail="Not authorized")
+
+    sem_row = db.query(models.Semester).filter(models.Semester.id == offering.semester_id).first()
+    if not sem_row:
+        raise HTTPException(status_code=404, detail="Semester not found")
 
     faculty_mem = db.query(models.Faculty).filter(models.Faculty.id == offering.faculty_id).first()
     if not faculty_mem:
@@ -361,6 +388,18 @@ def create_subject_offering(
     curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == offering.curriculum_id).first()
     if not curriculum:
         raise HTTPException(status_code=404, detail="Curriculum subject not found")
+
+    # Enforce college ownership for scoped callers (fail closed)
+    if current_user.department or current_user.role in ('program_chair', 'coordinator', 'dean'):
+        caller_dept = auth.resolve_user_department(db, current_user)
+        if not caller_dept or curriculum.department_id != caller_dept.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot assign subjects outside your college."
+            )
+
+    from .schedules import _assert_term_not_published
+    _assert_term_not_published(db, offering.semester_id, curriculum.department_id)
 
     # Before the duplicate check, not after: a coordinator reaching for a major
     # subject should be told it is out of their scope whether or not somebody
@@ -389,9 +428,32 @@ def create_subject_offering(
         models.SubjectOffering.semester_id == offering.semester_id
     ).first()
 
+    enrolled_val = offering.enrolled_students
+    if enrolled_val is None and offering.ct_tier is not None:
+        enrolled_val = faculty_load.students_for_ct_tier(offering.ct_tier)
+    eff_tier = faculty_load.normalise_ct_tier(ct_tier=offering.ct_tier, enrolled_students=enrolled_val)
+    eff_hrs = (
+        faculty_load.subject_required_hours(curriculum, ct_tier=eff_tier)
+        if eff_tier != faculty_load.CT_TIER_REGULAR
+        else None
+    )
+
     if prior_offering:
+        old_faculty_id = prior_offering.faculty_id
         setattr(prior_offering, "faculty_id", offering.faculty_id)
         setattr(prior_offering, "assigned_by", current_user.id)
+        if offering.enrolled_students is not None or offering.ct_tier is not None:
+            setattr(prior_offering, "enrolled_students", enrolled_val)
+            setattr(prior_offering, "credited_hours_override", eff_hrs)
+        # Clean up orphaned draft/unlocked schedules belonging to the previous professor
+        if old_faculty_id and old_faculty_id != offering.faculty_id:
+            db.query(models.Schedule).filter(
+                models.Schedule.semester_id == offering.semester_id,
+                models.Schedule.curriculum_id == offering.curriculum_id,
+                models.Schedule.faculty_id == old_faculty_id,
+                (models.Schedule.status == 'draft') | (models.Schedule.status.is_(None)),
+                (models.Schedule.is_locked == False) | (models.Schedule.is_locked.is_(None)),  # noqa: E712
+            ).delete(synchronize_session=False)
         if current_user.role not in ('admin', 'dean'):
             setattr(faculty_mem, "overload_approved", False)
         db.commit()
@@ -402,7 +464,9 @@ def create_subject_offering(
         faculty_id=offering.faculty_id,
         curriculum_id=offering.curriculum_id,
         semester_id=offering.semester_id,
-        assigned_by=current_user.id
+        assigned_by=current_user.id,
+        enrolled_students=enrolled_val,
+        credited_hours_override=eff_hrs,
     )
     if current_user.role not in ('admin', 'dean'):
         setattr(faculty_mem, "overload_approved", False)
@@ -411,27 +475,150 @@ def create_subject_offering(
     db.refresh(new_offering)
     return new_offering
 
+
+@router.patch("/{offering_id}/ct")
+def update_subject_offering_ct(
+    offering_id: int,
+    payload: schemas.SubjectOfferingCTUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Update a SubjectOffering's Converted Tutorial (CT) tier / enrolled student count.
+    Synchronizes the CT enrollment metadata onto matching active-term schedules so
+    timetable displays and faculty load calculations immediately reflect the CT hours.
+    """
+    if current_user.role not in ['program_chair', 'coordinator', 'admin', 'dean']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    offering = db.query(models.SubjectOffering).filter(models.SubjectOffering.id == offering_id).first()
+    if not offering:
+        raise HTTPException(status_code=404, detail="Subject offering not found")
+
+    curriculum = db.query(models.Curriculum).filter(
+        models.Curriculum.id == offering.curriculum_id
+    ).first()
+    if not curriculum:
+        raise HTTPException(status_code=404, detail="Curriculum subject not found")
+
+    _assert_role_subject_scope(curriculum, current_user)
+
+    if current_user.department or current_user.role in ('program_chair', 'coordinator', 'dean'):
+        dept = auth.resolve_user_department(db, current_user)
+        if not dept or (curriculum.department_id and curriculum.department_id != dept.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot update Converted Tutorial status for a subject outside your department."
+            )
+
+    from .schedules import _assert_term_not_published
+    _assert_term_not_published(db, offering.semester_id, curriculum.department_id)
+
+    if payload.enrolled_students is not None:
+        enrolled_val = int(payload.enrolled_students)
+        ct_tier = faculty_load.normalise_ct_tier(enrolled_students=enrolled_val)
+        if ct_tier == faculty_load.CT_TIER_REGULAR:
+            enrolled_val = None
+    else:
+        ct_tier = faculty_load.normalise_ct_tier(ct_tier=payload.ct_tier)
+        enrolled_val = faculty_load.students_for_ct_tier(ct_tier)
+
+    is_ct = ct_tier != faculty_load.CT_TIER_REGULAR
+    req_mins = faculty_load.subject_required_minutes(curriculum, ct_tier=ct_tier)
+    req_hrs = faculty_load.round_hours(req_mins / 60.0)
+    reg_mins = faculty_load.subject_required_minutes(curriculum, ct_tier=faculty_load.CT_TIER_REGULAR)
+    reg_hrs = faculty_load.round_hours(reg_mins / 60.0)
+
+    setattr(offering, "enrolled_students", enrolled_val)
+    setattr(offering, "credited_hours_override", req_hrs if is_ct else None)
+
+    # Sync onto plotted schedules for this offering so cards/popovers/load stay aligned
+    matching_schedules = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == offering.semester_id,
+        models.Schedule.curriculum_id == offering.curriculum_id,
+        models.Schedule.faculty_id == offering.faculty_id,
+    ).all()
+    plotted_clock_mins = 0
+    for sched in matching_schedules:
+        setattr(sched, "enrolled_students", enrolled_val)
+        setattr(sched, "credited_hours_override", req_hrs if is_ct else None)
+        if sched.start_time and sched.end_time:
+            plotted_clock_mins += faculty_load.meeting_teaching_minutes(
+                sched.start_time, sched.end_time, sched.day_of_week
+            )
+
+    needs_reschedule = bool(matching_schedules and abs(plotted_clock_mins - req_mins) >= 5)
+
+    label = faculty_load.ct_tier_label(ct_tier=ct_tier)
+    hours_label = faculty_load.format_minutes_label(req_mins)
+    log_activity(
+        db,
+        current_user.id,  # type: ignore
+        "Update Converted Tutorial",
+        f"Set {curriculum.code} to {label} ({hours_label}/week)",
+        "success",
+        department_id=getattr(curriculum, "department_id", None),
+    )
+    db.commit()
+    db.refresh(offering)
+
+    return {
+        "offering_id": offering.id,
+        "curriculum_id": offering.curriculum_id,
+        "faculty_id": offering.faculty_id,
+        "semester_id": offering.semester_id,
+        "enrolled_students": offering.enrolled_students,
+        "ct_tier": ct_tier,
+        "is_ct": is_ct,
+        "ct_label": label,
+        "ct_short_label": faculty_load.ct_tier_short_label(ct_tier=ct_tier),
+        "regular_minutes": reg_mins,
+        "regular_hours": reg_hrs,
+        "regular_hours_label": faculty_load.format_minutes_label(reg_mins),
+        "required_minutes": req_mins,
+        "required_hours": req_hrs,
+        "required_hours_label": hours_label,
+        "plotted_schedules_count": len(matching_schedules),
+        "needs_reschedule": needs_reschedule,
+    }
+
 @router.delete("/{id}")
 def delete_subject_offering(
     id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ['program_chair', 'coordinator', 'admin']:
+    if current_user.role not in ['program_chair', 'coordinator', 'admin', 'dean']:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     offering = db.query(models.SubjectOffering).filter(models.SubjectOffering.id == id).first()
     if not offering:
         raise HTTPException(status_code=404, detail="Subject offering not found")
 
-    # The same scope that governs assigning governs unassigning. Without this a
-    # coordinator could drop a chair's major-subject load by id -- the screen
-    # never offers it, but the endpoint would.
+    # The same scope that governs assigning governs unassigning.
     curriculum = db.query(models.Curriculum).filter(
         models.Curriculum.id == offering.curriculum_id
     ).first()
     if curriculum is not None:
         _assert_role_subject_scope(curriculum, current_user)
+        if current_user.department or current_user.role in ('program_chair', 'coordinator', 'dean'):
+            dept = auth.resolve_user_department(db, current_user)
+            if not dept or curriculum.department_id != dept.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot remove a subject assignment outside your college."
+                )
+        from .schedules import _assert_term_not_published
+        _assert_term_not_published(db, offering.semester_id, curriculum.department_id)
+
+    # Clean up unlocked draft schedules for this unassigned offering so no orphaned plots remain
+    db.query(models.Schedule).filter(
+        models.Schedule.semester_id == offering.semester_id,
+        models.Schedule.curriculum_id == offering.curriculum_id,
+        models.Schedule.faculty_id == offering.faculty_id,
+        (models.Schedule.status == 'draft') | (models.Schedule.status == None),
+        (models.Schedule.is_locked == False) | (models.Schedule.is_locked == None),
+    ).delete(synchronize_session=False)
 
     db.delete(offering)
     db.commit()

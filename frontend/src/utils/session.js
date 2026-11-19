@@ -11,11 +11,12 @@
 
 export const ROLES = {
   ADMIN: 'admin',
+  DEAN: 'dean',
   PROGRAM_CHAIR: 'program_chair',
 };
 
 /** Every role that may sign in. Use this for router guards. */
-export const ALL_ROLES = [ROLES.ADMIN, ROLES.PROGRAM_CHAIR];
+export const ALL_ROLES = [ROLES.ADMIN, ROLES.DEAN, ROLES.PROGRAM_CHAIR];
 
 /**
  * Roles that plan, edit, or supervise departmental timetables.
@@ -23,7 +24,7 @@ export const ALL_ROLES = [ROLES.ADMIN, ROLES.PROGRAM_CHAIR];
 export const SCHEDULING_ROLES = [ROLES.PROGRAM_CHAIR];
 
 /** Administrative roles: institutional admin and college deans. */
-export const ADMIN_AND_DEAN_ROLES = [ROLES.ADMIN];
+export const ADMIN_AND_DEAN_ROLES = [ROLES.ADMIN, ROLES.DEAN];
 
 /**
  * Every localStorage key the app owns. Logout and the 401 handler each kept

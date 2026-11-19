@@ -208,7 +208,12 @@ export default function ConflictLens({
                         {current.faculty_name}
                       </span>
                     )}
-                    {Boolean(current?.conflict_type === 'overload' || current?.conflict_type === 'part_time_ceiling' || (current?.reason && current.reason.toLowerCase().includes('overload'))) && (
+                    {Boolean(
+                      current?.conflict_type === 'overload' ||
+                      current?.conflict_type === 'part_time_ceiling' ||
+                      /overload|part[- ]time/i.test(String(current?.type || '')) ||
+                      /overload|part[- ]time/i.test(String(current?.reason || ''))
+                    ) && (
                       <span className="font-ui text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300">
                         Overload
                       </span>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, ChevronDown, Check } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, ChevronDown, Check, Lock } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
@@ -148,12 +148,14 @@ export default function Schedules() {
   const { addToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [formConflicts, setFormConflicts] = useState([]);
-  // A room clash does not stop a save; a faculty clash does.
+  // A cohort overlap is advisory; a faculty / lunch / session-order clash is blocking.
   const blockingFormConflicts = formConflicts.filter((c) => c.severity !== 'advisory');
+  const advisoryFormConflicts = formConflicts.filter((c) => c.severity === 'advisory');
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [unassignedOfferingsData, setUnassignedOfferingsData] = useState({ unassigned: 0, total: 0 });
   // Whether the generator should put laboratory subjects in a room. Lecture
   // subjects never get one either way. Defaults on, which is what the generator
@@ -320,9 +322,12 @@ export default function Schedules() {
   const [undoBackup, setUndoBackup] = useState(null);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
 
-  const fetchActiveConflicts = async () => {
+  const fetchActiveConflicts = React.useCallback(async (semesterId = null) => {
     try {
-      const data = await api.get('/ai-scheduler/conflicts');
+      const targetSem = semesterId || activeSemesterId;
+      const data = await api.get('/ai-scheduler/conflicts', {
+        params: targetSem ? { semester_id: targetSem } : undefined,
+      });
       setActiveConflicts(Array.isArray(data) ? data : []);
       setConflictsUnavailable(false);
     } catch (e) {
@@ -334,7 +339,7 @@ export default function Schedules() {
       setActiveConflicts([]);
       setConflictsUnavailable(true);
     }
-  };
+  }, [activeSemesterId]);
 
   const handleSolveConflict = async (item) => {
     setResolvingId(item.conflict_id ?? item.id);
@@ -366,9 +371,12 @@ export default function Schedules() {
             i.conflict_id !== (item.conflict_id || item.id) &&
             !(i.faculty === (item.faculty || item.faculty_id) && i.curriculum_id === item.curriculum_id)
           );
+          const addedSlots = ['overload_approved', 'already_scheduled', 'admin_override'].includes(res.action_taken)
+            ? 0
+            : 2;
           return {
             ...prev,
-            generated: prev.generated + 2,
+            generated: prev.generated + addedSlots,
             unplaced_count: updatedItems.length,
             unplaced_items: updatedItems
           };
@@ -606,10 +614,11 @@ export default function Schedules() {
         setActiveSemesterId(active.id);
         fetchGlobalSchedules(active.id);
         fetchPublishState(active.id);
+        fetchActiveConflicts(active.id);
+      } else {
+        fetchActiveConflicts();
       }
     }).catch(console.error);
-
-    fetchActiveConflicts();
 
     api.get('/professors').then(data => {
       const formatted = (Array.isArray(data) ? data : []).map(t => ({
@@ -648,10 +657,28 @@ export default function Schedules() {
     }
 
     return [...boards.values()]
-      .map((board) => ({
-        ...board,
-        hours: board.classes.reduce((n, s) => n + durationHours(s), 0),
-      }))
+      .map((board) => {
+        // Compute effective credited hours matching faculty_load.py:
+        // CT subjects use credited_hours_override once per curriculum_id;
+        // regular subjects sum their plotted session durations.
+        const seenCtCurricula = new Set();
+        let totalHours = 0;
+        for (const s of board.classes) {
+          const isCt = Boolean(s.is_ct || (s.ct_tier && s.ct_tier !== 'regular'));
+          if (isCt && s.credited_hours_override != null && s.curriculum_id != null) {
+            if (!seenCtCurricula.has(s.curriculum_id)) {
+              seenCtCurricula.add(s.curriculum_id);
+              totalHours += Number(s.credited_hours_override) || 0;
+            }
+          } else {
+            totalHours += durationHours(s);
+          }
+        }
+        return {
+          ...board,
+          hours: Number(totalHours.toFixed(2)),
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [globalSchedules, selectedProfessorFilter]);
 
@@ -702,6 +729,8 @@ export default function Schedules() {
   };
 
   const canManageSchedules = canEditSchedules();
+  const isSchedulePublished = publishState.status === 'published';
+  const canMutateSchedules = canManageSchedules && !isSchedulePublished;
 
   // A month-grid calendar (monthNames, getDaysInMonth, getFirstDayOfMonth,
   // prevMonth, nextMonth, renderCalendarDays and the `currentDate` state that
@@ -711,6 +740,7 @@ export default function Schedules() {
   const INITIAL_SCHEDULE_FORM = {
     subject_id: '',
     faculty_id: '',
+    room_id: '',
     day_of_week: 'Mon',
     start_time: '07:30',
     end_time: '08:30',
@@ -724,6 +754,7 @@ export default function Schedules() {
   const [isSubmittingSchedule, setIsSubmittingSchedule] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [formData, setFormData] = useState(INITIAL_SCHEDULE_FORM);
   const [formErrors, setFormErrors] = useState({});
   const [genErrors, setGenErrors] = useState({});
@@ -808,13 +839,14 @@ export default function Schedules() {
       }
       const semId = currentSem?.id || activeSemesterId;
 
-      const [curriculumData, blocksData, offeringsData, teachersData] = await Promise.all([
+      const [curriculumData, blocksData, offeringsData, teachersData, roomsData] = await Promise.all([
         api.get('/curriculum').catch(() => []),
         api.get('/curriculum/blocks').catch(() => []),
         semId
           ? api.get('/subject-offerings', { params: { semester_id: semId } }).catch(() => [])
           : Promise.resolve([]),
         api.get('/professors').catch(() => []),
+        api.get('/rooms').catch(() => []),
       ]);
 
       const activeTermSubjects = filterActiveTermSubjects(
@@ -830,6 +862,7 @@ export default function Schedules() {
 
       setSubjects(activeTermSubjects);
       setTeachers(formattedTeachers);
+      setRooms(Array.isArray(roomsData) ? roomsData : []);
       setFormData((prev) =>
         prev.subject_id && !activeTermSubjects.some((s) => String(s.id) === String(prev.subject_id))
           ? { ...prev, subject_id: '' }
@@ -845,7 +878,15 @@ export default function Schedules() {
 
   const handleSelectSubject = (subjectId) => {
     const chosen = subjects.find((s) => String(s.id) === String(subjectId));
-    const next = { ...formData, subject_id: subjectId };
+    const chosenCodeUpper = String(chosen?.code || '').trim().toUpperCase();
+    const isLabOrCombined = Boolean(
+      chosen && (chosen.type === 'lab' || chosenCodeUpper.endsWith('B') || chosenCodeUpper.endsWith('C'))
+    );
+    const next = {
+      ...formData,
+      subject_id: subjectId,
+      room_id: isLabOrCombined ? formData.room_id : '',
+    };
     let matchedProfessor = false;
     if (chosen?.assigned_offerings?.length === 1) {
       const assignedId = String(chosen.assigned_offerings[0].faculty_id);
@@ -880,20 +921,23 @@ export default function Schedules() {
 
   const handleQuickAdd = React.useCallback(
     (facultyName, day, startStr, endStr) => {
-      const matchProf = teachers.find((t) => t.name === facultyName);
-      setFormData((prev) => ({
-        ...prev,
-        faculty_id: matchProf ? String(matchProf.id) : prev.faculty_id,
+      if (!canMutateSchedules) return;
+      const teacherPool = allTeachers.length > 0 ? allTeachers : teachers;
+      const matchProf = teacherPool.find((t) => t.name === facultyName);
+      setFormData({
+        ...INITIAL_SCHEDULE_FORM,
+        faculty_id: matchProf ? String(matchProf.id) : '',
         day_of_week: day,
         start_time: startStr,
         end_time: endStr,
-      }));
+      });
       fetchDropdownData();
       setAiSuggestions([]);
       setFormErrors({});
       setIsModalOpen(true);
     },
-    [teachers, fetchDropdownData]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canMutateSchedules, allTeachers, teachers, fetchDropdownData]
   );
 
   const handleGetSuggestions = async () => {
@@ -928,13 +972,25 @@ export default function Schedules() {
   // Real-time conflict check
   useEffect(() => {
     if (formData.subject_id && formData.start_time) {
-      const conflicts = detectConflicts({
-        ...formData,
-        teacher: teachers.find(t => t.id === parseInt(formData.faculty_id))?.name
-      }, schedules);
+      const selectedSub = subjects.find((s) => String(s.id) === String(formData.subject_id));
+      const pool = globalSchedules.length > 0 ? globalSchedules : schedules;
+      const conflicts = detectConflicts(
+        {
+          ...formData,
+          curriculum_id: formData.subject_id ? parseInt(formData.subject_id, 10) : undefined,
+          subject_code: selectedSub?.code,
+          type: selectedSub?.type,
+          block_id: selectedSub?.block_id,
+          year_level: selectedSub?.year_level,
+          teacher: teachers.find((t) => t.id === parseInt(formData.faculty_id, 10))?.name,
+        },
+        pool
+      );
       setFormConflicts(conflicts);
+    } else {
+      setFormConflicts([]);
     }
-  }, [formData, schedules, teachers]);
+  }, [formData, schedules, globalSchedules, teachers, subjects]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -945,10 +1001,15 @@ export default function Schedules() {
     }
     setIsSubmittingSchedule(true);
     try {
+      const selectedSub = subjects.find((s) => String(s.id) === String(formData.subject_id));
+      const codeUpper = String(selectedSub?.code || '').trim().toUpperCase();
+      const allowLabRoom = Boolean(
+        selectedSub && (selectedSub.type === 'lab' || codeUpper.endsWith('B') || codeUpper.endsWith('C'))
+      );
       const submissionData = {
         semester_id: activeSemesterId,
         curriculum_id: parseInt(formData.subject_id),
-        room_id: null,
+        room_id: allowLabRoom && formData.room_id ? parseInt(formData.room_id) : null,
         faculty_id: parseInt(formData.faculty_id),
         day_of_week: formData.day_of_week,
         start_time: formData.start_time,
@@ -957,6 +1018,8 @@ export default function Schedules() {
       };
       await api.post('/schedules', submissionData);
       fetchSchedules();
+      fetchGlobalSchedules(activeSemesterId);
+      fetchActiveConflicts();
       setIsModalOpen(false);
       setFormData(INITIAL_SCHEDULE_FORM);
       setFormConflicts([]);
@@ -990,9 +1053,16 @@ export default function Schedules() {
     }
   };
 
-  const fetchSchedules = React.useCallback(async () => {
+  const fetchSchedules = React.useCallback(async (semesterOverride = null) => {
+    const semId = semesterOverride || activeSemesterId;
+    if (!semId) {
+      setSchedules([]);
+      return;
+    }
     try {
-      const rawData = await api.get('/schedules');
+      const rawData = await api.get('/schedules', {
+        params: { semester_id: semId, limit: 1000 },
+      });
       const formattedData = Array.isArray(rawData) ? rawData.map(s => ({
         ...s,
         date: s.date ? new Date(s.date) : new Date()
@@ -1002,7 +1072,7 @@ export default function Schedules() {
       console.error('Failed to fetch schedules', error);
       setSchedules([]);
     }
-  }, []);
+  }, [activeSemesterId]);
 
   const handleDeleteSchedule = React.useCallback(
     async (sched) => {
@@ -1015,13 +1085,19 @@ export default function Schedules() {
           });
         }
         const semToFetch = selectedGenSemester || activeSemesterId;
-        if (semToFetch) fetchGlobalSchedules(semToFetch);
-        fetchSchedules();
+        if (semToFetch) {
+          fetchGlobalSchedules(semToFetch);
+          fetchSchedules(semToFetch);
+          fetchActiveConflicts(semToFetch);
+        } else {
+          fetchSchedules();
+          fetchActiveConflicts();
+        }
       } catch (e) {
         addToast(e.message || 'Failed to delete schedule', 'error');
       }
     },
-    [selectedGenSemester, activeSemesterId, fetchGlobalSchedules, fetchSchedules, addToast]
+    [selectedGenSemester, activeSemesterId, fetchGlobalSchedules, fetchSchedules, fetchActiveConflicts, addToast]
   );
 
   // `handleAutoResolveAll` was removed with the button that called it. It
@@ -1030,8 +1106,10 @@ export default function Schedules() {
   // success. `handleAIGeneration` was a one-line wrapper nothing referenced.
 
   useEffect(() => {
-    fetchSchedules();
-  }, [fetchSchedules]);
+    if (activeSemesterId) {
+      fetchSchedules(activeSemesterId);
+    }
+  }, [activeSemesterId, fetchSchedules]);
 
   /**
    * The conflict count had two competing sources: this button counted overlaps
@@ -1078,6 +1156,15 @@ export default function Schedules() {
     [activeConflicts, localOverlaps]
   );
   const activeConflictsCount = lensConflicts.length;
+
+  useEffect(() => {
+    if (searchParams.get('conflicts') === 'open' && lensConflicts.length > 0) {
+      setIsLensOpen(true);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('conflicts');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams, lensConflicts.length]);
 
   useEffect(() => {
     if (isLensOpen && lensConflicts.length === 0) {
@@ -1157,11 +1244,23 @@ export default function Schedules() {
                   </AtlasButton>
                 )}
 
+                {isSchedulePublished && (
+                  <span
+                    className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-ui text-xs font-bold"
+                    title="This term schedule is officially published. Ask an administrator to unpublish it before making edits."
+                  >
+                    <Lock className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+                    Published (Locked)
+                  </span>
+                )}
+
                 {canManageSchedules && (
                   <>
                     <AtlasButton
                       icon={Sparkles}
                       className="no-print"
+                      disabled={isSchedulePublished}
+                      title={isSchedulePublished ? 'Schedule is published and locked' : 'Auto-generate schedule'}
                       onClick={() => {
                         fetchGenerateData();
                         setGenErrors({});
@@ -1171,7 +1270,14 @@ export default function Schedules() {
                     >
                       Generate
                     </AtlasButton>
-                    <AtlasButton variant="secondary" icon={Plus} onClick={handleOpenModal} className="no-print">
+                    <AtlasButton
+                      variant="secondary"
+                      icon={Plus}
+                      disabled={isSchedulePublished}
+                      title={isSchedulePublished ? 'Schedule is published and locked' : 'Add a class manually'}
+                      onClick={handleOpenModal}
+                      className="no-print"
+                    >
                       Create
                     </AtlasButton>
                     {/* One button, not a menu. The format is chosen inside the
@@ -1182,8 +1288,9 @@ export default function Schedules() {
                     <AtlasButton
                       variant="destructive"
                       icon={Trash2}
+                      disabled={isSchedulePublished}
                       onClick={() => setIsClearConfirmOpen(true)}
-                      title="Clear all schedules for this semester"
+                      title={isSchedulePublished ? 'Schedule is published and locked' : 'Clear all schedules for this semester'}
                       className="no-print"
                     >
                       Clear all
@@ -1322,7 +1429,7 @@ export default function Schedules() {
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className="text-[10px] font-semibold font-data px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                                {pluralize(prof.count, 'class')}
+                                {pluralize(prof.count, 'class', 'classes')}
                               </span>
                               {isSelected && <Check className="w-3.5 h-3.5 text-[#046A38]" />}
                             </div>
@@ -1398,7 +1505,7 @@ export default function Schedules() {
                     board={board}
                     color={color}
                     hasClasses={hasClasses}
-                    canManageSchedules={canManageSchedules}
+                    canManageSchedules={canMutateSchedules}
                     conflictedCurriculumIds={conflictedCurriculumIds}
                     isLensOpen={isLensOpen}
                     onDeleteSchedule={handleDeleteSchedule}
@@ -1419,7 +1526,7 @@ export default function Schedules() {
           getPopoverStyle={getPopoverStyle}
           onMouseEnter={handlePopoverMouseEnter}
           onMouseLeave={handlePopoverMouseLeave}
-          canManageSchedules={canManageSchedules}
+          canManageSchedules={canMutateSchedules}
           onDeleteSchedule={(sched) => {
             handleDeleteSchedule(sched);
             setHoveredSchedule(null);
@@ -1446,7 +1553,13 @@ export default function Schedules() {
         conflicts={lensConflicts}
         onClose={() => { setIsLensOpen(false); setLensCauseFilter(null); }}
         onResolve={handleSolveConflict}
-        onRegenerate={() => { setIsLensOpen(false); setGenErrors({}); setIsGenerateModalOpen(true); }}
+        onRegenerate={() => {
+          setIsLensOpen(false);
+          fetchGenerateData();
+          setGenErrors({});
+          setGenerationResults(null);
+          setIsGenerateModalOpen(true);
+        }}
         resolvingId={resolvingId}
         causeFilter={lensCauseFilter}
         onFilterCause={setLensCauseFilter}
@@ -1469,10 +1582,12 @@ export default function Schedules() {
         formatSemesterTerm={formatSemesterTerm}
         subjects={subjects}
         teachers={teachers}
+        rooms={rooms}
         isLoadingDropdowns={isLoadingDropdowns}
         formData={formData}
         formErrors={formErrors}
         blockingFormConflicts={blockingFormConflicts}
+        advisoryFormConflicts={advisoryFormConflicts}
         onSelectSubject={handleSelectSubject}
         onFieldChange={updateScheduleField}
         onFieldBlur={handleScheduleBlur}

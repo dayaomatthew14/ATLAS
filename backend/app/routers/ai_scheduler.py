@@ -43,7 +43,7 @@ def generate_schedule(
     # administrator had no department of their own, so generating as an admin
     # silently built a schedule for whichever college happened to sort first.
     dept = None
-    if current_user.role in ['dean', 'program_chair']:
+    if current_user.role in ['dean', 'program_chair'] or (current_user.role == 'admin' and current_user.department):
         if not current_user.department:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -61,6 +61,9 @@ def generate_schedule(
     
     if not dept:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department not found")
+
+    from .schedules import _assert_term_not_published
+    _assert_term_not_published(db, semester_id, cast(int, dept.id))
          
     # Generate for the semester the caller actually asked for. This used to be
     # overwritten with whichever semester happened to be active, so the path
@@ -73,8 +76,11 @@ def generate_schedule(
         )
 
 
-    # Map input User IDs to Faculty IDs
-    faculty_records = db.query(models.Faculty).filter(models.Faculty.id.in_(request.faculty_ids)).all()
+    # Map input Faculty IDs strictly within the caller's department
+    faculty_records = db.query(models.Faculty).filter(
+        models.Faculty.id.in_(request.faculty_ids),
+        models.Faculty.department_id == dept.id,
+    ).all()
     resolved_faculty_ids = [cast(int, f.id) for f in faculty_records]
 
     # Run the generator with strict DLSAU workload limits (auto_bump_units=False)
@@ -131,27 +137,26 @@ def generate_schedule(
 def get_conflicts(
     skip: int = 0,
     limit: int = 100,
+    semester_id: Optional[int] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
     """
-    List unresolved conflicts for the caller's scope.
-
-    An empty list here means "nothing is wrong with this timetable", so it is
-    never used to report a failure to find out -- a blanket
-    `except Exception: return []` made a crashed query look like a clean
-    schedule. Unexpected errors propagate and the client shows the panel as
-    unavailable. The early returns below are genuine, known-empty cases.
+    List unresolved conflicts for the caller's scope (department and active semester).
     """
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair', 'coordinator']:
         return []
 
     query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
 
-    # Scope to the caller's department. Without this, a chair saw every
-    # department's conflicts. Resolve the department through curriculum_id
-    # directly, or through the linked schedule for overlap conflicts.
-    if current_user.role in ('program_chair', 'coordinator'):
+    target_sem_id = semester_id
+    if target_sem_id is None:
+        active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+        target_sem_id = active_sem.id if active_sem else None
+
+    # Scope to the caller's department whenever the user belongs to a college
+    # (including seeded College Deans whose role is 'admin' + department set).
+    if current_user.department or current_user.role in ('dean', 'program_chair', 'coordinator'):
         dept = auth.resolve_user_department(db, current_user)
         if not dept:
             return []
@@ -161,15 +166,27 @@ def get_conflicts(
                 models.Curriculum.department_id == dept.id
             ).all()
         ]
-        dept_schedule_ids = [
-            s.id for s in db.query(models.Schedule.id).filter(
-                models.Schedule.curriculum_id.in_(dept_curriculum_ids)
-            ).all()
-        ] if dept_curriculum_ids else []
+        sched_q = db.query(models.Schedule.id).filter(
+            models.Schedule.curriculum_id.in_(dept_curriculum_ids)
+        ) if dept_curriculum_ids else None
+        if sched_q is not None and target_sem_id is not None:
+            sched_q = sched_q.filter(models.Schedule.semester_id == target_sem_id)
+        dept_schedule_ids = [s.id for s in sched_q.all()] if sched_q is not None else []
 
         query = query.filter(
             models.Conflict.curriculum_id.in_(dept_curriculum_ids) |
             models.Conflict.schedule_id_1.in_(dept_schedule_ids)
+        )
+
+    if target_sem_id is not None:
+        sem_sched_ids = [
+            s.id for s in db.query(models.Schedule.id).filter(
+                models.Schedule.semester_id == target_sem_id
+            ).all()
+        ]
+        query = query.filter(
+            (models.Conflict.schedule_id_1 == None) |
+            models.Conflict.schedule_id_1.in_(sem_sched_ids)
         )
 
     conflicts = query.offset(skip).limit(limit).all()
@@ -225,7 +242,7 @@ def get_global_schedule(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair', 'coordinator']:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = db.query(
@@ -235,6 +252,11 @@ def get_global_schedule(
         models.Curriculum.code.label("subject_code"),
         models.Curriculum.name.label("subject_name"),
         models.Curriculum.type.label("curriculum_type"),
+        models.Curriculum.block_id.label("block_id"),
+        models.Curriculum.year_level.label("year_level"),
+        models.Curriculum.units.label("units"),
+        models.Curriculum.lec_units.label("lec_units"),
+        models.Curriculum.lab_units.label("lab_units"),
         models.Faculty.first_name,
         models.Faculty.last_name,
         models.Schedule.day_of_week,
@@ -243,18 +265,24 @@ def get_global_schedule(
         models.Schedule.section,
         models.Department.name.label("department_name"),
         models.Schedule.status,
-        models.Schedule.room_id
+        models.Schedule.room_id,
+        models.Room.name.label("room_name"),
+        models.Room.building.label("room_building"),
+        models.Schedule.enrolled_students.label("sched_enrolled_students"),
+        models.Schedule.credited_hours_override.label("sched_credited_hours_override"),
     ).join(
         models.Curriculum, models.Schedule.curriculum_id == models.Curriculum.id
     ).join(
         models.Faculty, models.Schedule.faculty_id == models.Faculty.id
     ).join(
         models.Department, models.Curriculum.department_id == models.Department.id
+    ).outerjoin(
+        models.Room, models.Schedule.room_id == models.Room.id
     ).filter(
         models.Schedule.semester_id == semester_id
     )
 
-    if current_user.role in ('program_chair', 'coordinator', 'faculty', 'student'):
+    if current_user.department or current_user.role in ('dean', 'program_chair', 'coordinator', 'faculty', 'student'):
         # Fail closed. Previously an unresolvable department left the query
         # unfiltered, exposing the whole university's schedule.
         dept = auth.resolve_user_department(db, current_user)
@@ -263,7 +291,20 @@ def get_global_schedule(
         query = query.filter(models.Curriculum.department_id == dept.id)
 
     schedules = query.all()
-    
+
+    from ..services import faculty_load
+    from types import SimpleNamespace
+
+    offerings = db.query(models.SubjectOffering).filter(
+        models.SubjectOffering.semester_id == semester_id
+    ).all()
+    offering_by_key = {
+        (o.curriculum_id, o.faculty_id): o for o in offerings
+    }
+    offering_by_curr = {}
+    for o in offerings:
+        offering_by_curr.setdefault(o.curriculum_id, o)
+
     import re
     response = []
     for s in schedules:
@@ -277,23 +318,65 @@ def get_global_schedule(
             else:
                 display_code = f"{base_code}B"
 
+        matched_off = (
+            offering_by_key.get((s.curriculum_id, s.faculty_id))
+            or offering_by_curr.get(s.curriculum_id)
+        )
+        enrolled_students = (
+            matched_off.enrolled_students
+            if matched_off is not None and matched_off.enrolled_students is not None
+            else s.sched_enrolled_students
+        )
+        ct_tier = faculty_load.normalise_ct_tier(enrolled_students=enrolled_students)
+        is_ct = ct_tier != "regular"
+        credited_override = (
+            matched_off.credited_hours_override
+            if matched_off is not None and matched_off.credited_hours_override is not None
+            else s.sched_credited_hours_override
+        )
+        if is_ct and credited_override is None:
+            curr_stub = SimpleNamespace(
+                code=s.subject_code,
+                type=s.curriculum_type,
+                units=s.units,
+                lec_units=s.lec_units,
+                lab_units=s.lab_units,
+            )
+            credited_override = faculty_load.subject_required_hours(
+                curr_stub, enrolled_students=enrolled_students
+            )
+
+        is_lab_or_comb = (
+            str(s.curriculum_type or "").lower() == "lab"
+            or raw_code.strip().upper().endswith(("B", "C"))
+        )
+        resolved_room = (s.room_name or "") if is_lab_or_comb else ""
+
         response.append({
             "id": s.id,
             # The conflict lens matches conflicts to blocks on curriculum_id.
             # Without it every block dims and none light up.
             "curriculum_id": s.curriculum_id,
             "faculty_id": s.faculty_id,
+            "block_id": s.block_id,
+            "year_level": s.year_level,
             "subject_code": display_code,
             "subject_name": s.subject_name,
+            "curriculum_type": s.curriculum_type,
             "faculty_name": f"{s.first_name} {s.last_name}",
-            "room_name": "TBA",
-            "room_building": "",
+            "room_id": s.room_id,
+            "room_name": resolved_room,
+            "room_building": (s.room_building or "") if resolved_room else "",
             "day_of_week": s.day_of_week,
             "start_time": s.start_time.strftime("%H:%M") if s.start_time else "00:00",
             "end_time": s.end_time.strftime("%H:%M") if s.end_time else "00:00",
             "section": s.section,
             "department_name": s.department_name,
-            "status": s.status
+            "status": s.status,
+            "enrolled_students": enrolled_students,
+            "ct_tier": ct_tier,
+            "is_ct": is_ct,
+            "credited_hours_override": credited_override,
         })
 
     return response
@@ -304,10 +387,10 @@ def solve_conflict(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'program_chair', 'coordinator']:
+    if current_user.role not in ['admin', 'dean', 'program_chair', 'coordinator']:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrators do not resolve conflicts. This is done by the program chair or coordinator."
+            detail="Not authorized to resolve conflicts."
         )
 
     conflict = None
@@ -323,11 +406,34 @@ def solve_conflict(
     fac_name = f"{f_obj.first_name} {f_obj.last_name}".strip() if f_obj else "Faculty member"
     subj_code = c_obj.code if c_obj else "Subject"
 
-    dept_id: Optional[int] = cast(Optional[int], f_obj.department_id) if f_obj else None
-    if not dept_id:
+    dept_id: Optional[int] = cast(Optional[int], c_obj.department_id) if c_obj else (
+        cast(Optional[int], f_obj.department_id) if f_obj else None
+    )
+    if current_user.department or current_user.role in ('dean', 'program_chair', 'coordinator'):
+        caller_dept = auth.resolve_user_department(db, current_user)
+        if not caller_dept:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your college scope could not be resolved.")
+        if dept_id is not None and int(dept_id) != int(caller_dept.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only resolve conflicts in your own college.")
+        dept_id = cast(int, caller_dept.id)
+    elif not dept_id:
         dept = auth.resolve_user_department(db, current_user)
         if dept:
             dept_id = cast(int, dept.id)
+
+    # Enforce published-term lock before mutating schedules
+    from .schedules import _assert_term_not_published
+    sem_to_check = req.semester_id
+    if not sem_to_check and conflict and conflict.schedule_id_1:
+        s_ref = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_1).first()
+        if s_ref:
+            sem_to_check = cast(Optional[int], s_ref.semester_id)
+    if not sem_to_check:
+        active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+        if active_sem:
+            sem_to_check = cast(int, active_sem.id)
+    if sem_to_check and dept_id:
+        _assert_term_not_published(db, sem_to_check, dept_id)
 
     # 1. Schedule-to-Schedule Overlap Conflict
     if conflict and conflict.schedule_id_1:
@@ -336,6 +442,11 @@ def solve_conflict(
 
         target_sched = s2 or s1
         if target_sched:
+            if target_sched.is_locked:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot relocate a locked schedule entry.",
+                )
             curr_item = db.query(models.Curriculum).filter(models.Curriculum.id == target_sched.curriculum_id).first()
             
             from ..services.schedule_generator import (

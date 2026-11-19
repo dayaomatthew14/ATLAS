@@ -148,12 +148,13 @@ def assert_faculty_in_scope(db: Session, current_user: models.User, faculty: mod
     """
     Reject access to a faculty record outside the caller's department.
 
-    Admins are unrestricted. Every other role is confined to its own department;
-    an unresolvable department fails closed rather than granting global access.
+    Unscoped system admins (department=None) are unrestricted. Every user with a
+    college assigned (including College Deans with role='admin' + department set)
+    is strictly confined to their own college; an unresolvable department fails closed.
     """
-    if current_user.role == 'admin':
+    if current_user.role == 'admin' and not current_user.department:
         return
-    if current_user.role not in SCOPED_ROLES:
+    if current_user.role not in SCOPED_ROLES and current_user.role != 'admin':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     dept = auth.resolve_user_department(db, current_user)
@@ -177,9 +178,9 @@ def get_professors(
 
     query = db.query(models.Faculty)
     
-    if current_user.role in SCOPED_ROLES:
-        # Fail closed. This previously fell back to returning every faculty
-        # member in the university when the department could not be resolved.
+    if current_user.department or current_user.role in SCOPED_ROLES:
+        # Fail closed. Confine every college-scoped user (including College Deans)
+        # to their own college.
         dept = auth.resolve_user_department(db, current_user)
         if not dept:
             return []
@@ -277,10 +278,16 @@ def create_professor(
     if current_user.role not in ('admin', 'dean', 'program_chair'):
         faculty_data['overload_approved'] = False
     
-    if current_user.role in ('dean', 'program_chair', 'admin'):
+    if current_user.department or current_user.role in SCOPED_ROLES:
         dept = auth.resolve_user_department(db, current_user)
-        if dept and not faculty_data.get('department_id'):
-            faculty_data['department_id'] = dept.id
+        if not dept:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your college could not be resolved.")
+        if faculty_data.get('department_id') and int(faculty_data['department_id']) != int(dept.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot create faculty in another college."
+            )
+        faculty_data['department_id'] = dept.id
             
     new_faculty = models.Faculty(**faculty_data)
     db.add(new_faculty)
@@ -326,7 +333,7 @@ def update_professor(
 
     # A scoped user must not be able to move a faculty member into another
     # department, which would put the record permanently out of their reach.
-    if current_user.role in SCOPED_ROLES and 'department_id' in update_data:
+    if (current_user.department or current_user.role in SCOPED_ROLES) and 'department_id' in update_data:
         dept = auth.resolve_user_department(db, current_user)
         if not dept or update_data['department_id'] != dept.id:
             raise HTTPException(
@@ -356,14 +363,18 @@ def update_overload_approval(
     """
     Update professor overload approval status.
     """
+    if current_user.role not in ('admin', 'dean', 'program_chair'):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update overload approval.")
+
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
 
+    assert_faculty_in_scope(db, current_user, db_faculty)
+
     db_faculty.overload_approved = bool(payload.approved)
     db.commit()
     db.refresh(db_faculty)
-    return serialise_faculty(db, db_faculty)
 
     fac_name = f"{db_faculty.first_name} {db_faculty.last_name}".strip()
     action_label = "Approved Overload" if payload.approved else "Revoked Overload Approval"

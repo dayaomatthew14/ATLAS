@@ -299,7 +299,7 @@ export default function CurriculumIndex() {
         </div>
         <div className="flex gap-2 shrink-0">
           <Button variant="secondary" icon={RefreshCw} onClick={load}>Refresh</Button>
-          <Button variant="secondary" icon={Upload} onClick={openImport} disabled={!programs.length}>
+          <Button variant="secondary" icon={Upload} onClick={() => openImport()} disabled={!programs.length}>
             Import Excel
           </Button>
           <Button icon={Plus} onClick={() => openNew()} disabled={!programs.length}>

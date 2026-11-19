@@ -55,6 +55,14 @@ const EMPTY_SUBJECT = {
   lec_units: '0', lab_units: '0', units: '3', pre_requisite: '', is_major: true,
 };
 
+const normalizeTermVal = (v) => {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s.startsWith('1') || s.includes('first')) return '1st';
+  if (s.startsWith('2') || s.includes('second')) return '2nd';
+  if (s.startsWith('3') || s.includes('third') || s.includes('summer')) return '3rd';
+  return s;
+};
+
 /** The sheets write "NONE" for no prerequisite; treat that as empty. */
 const cleanPrereq = (v) => {
   const t = (v || '').trim();
@@ -114,7 +122,7 @@ export default function CurriculumDetail() {
     const unfiled = [];
     for (const s of subjects) {
       const y = String(s.year_level ?? '').trim();
-      const t = String(s.semester_term ?? '').trim();
+      const t = normalizeTermVal(s.semester_term);
       if (!YEARS.includes(y) || !TERMS.some((x) => x.value === t)) { unfiled.push(s); continue; }
       if (!byYear.has(y)) byYear.set(y, new Map());
       const terms = byYear.get(y);
@@ -171,11 +179,12 @@ export default function CurriculumDetail() {
 
   const openEdit = (s) => {
     setEditing(s);
+    const normTerm = normalizeTermVal(s.semester_term);
     setForm({
       code: s.code || '',
       name: s.name || '',
       year_level: YEARS.includes(String(s.year_level)) ? String(s.year_level) : '1',
-      semester_term: TERMS.some((t) => t.value === s.semester_term) ? s.semester_term : '1st',
+      semester_term: TERMS.some((t) => t.value === normTerm) ? normTerm : '1st',
       lec_units: String(s.lec_units ?? 0),
       lab_units: String(s.lab_units ?? 0),
       units: String(s.units ?? 0),

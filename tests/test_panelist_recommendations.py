@@ -313,5 +313,721 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
                 # Must be after 12:00 PM (and after 13:00 PM lunch)
                 self.assertGreaterEqual(s.start_time, time(13, 0))
 
+    def test_converted_tutorial_hours_matrix(self):
+        """Verify all 6 subject types across Regular (13+), 9-12, 5-8, and 1-4 students."""
+        from types import SimpleNamespace
+        cases = [
+            # (subject, regular, ct_9_12, ct_5_8, ct_1_4)
+            (SimpleNamespace(code="COEP110B", type="lab", units=1, lec_units=0, lab_units=1), 4.0, 3.0, 2.0, 1.0),
+            (SimpleNamespace(code="COEP272B", type="lab", units=2, lec_units=0, lab_units=2), 8.0, 6.0, 4.0, 2.0),
+            (SimpleNamespace(code="CS101A", type="lecture", units=1, lec_units=1, lab_units=0), 1.33, 1.0, 1.0, 1.0),
+            (SimpleNamespace(code="CS102A", type="lecture", units=2, lec_units=2, lab_units=0), 2.67, 2.0, 1.5, 1.0),
+            (SimpleNamespace(code="CS103A", type="lecture", units=3, lec_units=3, lab_units=0), 4.0, 3.0, 2.0, 1.0),
+            (SimpleNamespace(code="COEC343C", type="combined", units=3, lec_units=2, lab_units=1), 4.0, 3.0, 2.0, 1.0),
+        ]
+        for subj, reg, h9_12, h5_8, h1_4 in cases:
+            self.assertAlmostEqual(subject_required_hours(subj), reg, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=13), reg, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=12), h9_12, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=9), h9_12, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=8), h5_8, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=5), h5_8, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=4), h1_4, places=2)
+            self.assertAlmostEqual(subject_required_hours(subj, enrolled_students=1), h1_4, places=2)
+
+    def test_converted_tutorial_recalculates_plotted_load_and_cascade(self):
+        """
+        Switching an assigned offering to CT immediately updates compute_reg_hours,
+        compute_assigned_hours, and the 40-hour work week cascade (office/consultation).
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models, schemas
+        from backend.app.services import faculty_load
+        from backend.app.routers.subject_offerings import update_subject_offering_ct
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="Computer Science", code="CAST")
+        db.add(dept)
+        sem = models.Semester(id=1, term="2nd", academic_year="2026-2027", is_active=True)
+        db.add(sem)
+        fac = models.Faculty(
+            id=1, first_name="Melanie", last_name="Asuncion",
+            email="masuncion@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        db.add(fac)
+        chair = models.User(
+            id=1, first_name="Chair", last_name="User",
+            email="chair@dlsau.edu.ph", password_hash="pw",
+            role="program_chair", department="CAST", is_verified=True
+        )
+        db.add(chair)
+
+        # Assign 6 x 3-unit Lecture subjects = 24.0 hrs/week in 2nd term (4.0h overload over 20.0h)
+        offerings = []
+        for idx in range(1, 7):
+            c = models.Curriculum(
+                id=idx, code=f"COEP30{idx}A", name=f"Course {idx}",
+                units=3, lec_units=3, lab_units=0, type="lecture", department_id=1
+            )
+            db.add(c)
+            off = models.SubjectOffering(id=idx, faculty_id=1, curriculum_id=idx, semester_id=1)
+            db.add(off)
+            offerings.append(off)
+            # Plotted 2 x 2h = 4h/week each
+            db.add(models.Schedule(
+                semester_id=1, curriculum_id=idx, faculty_id=1,
+                day_of_week="Mon", start_time=time(7, 30), end_time=time(9, 30), section=""
+            ))
+            db.add(models.Schedule(
+                semester_id=1, curriculum_id=idx, faculty_id=1,
+                day_of_week="Wed", start_time=time(7, 30), end_time=time(9, 30), section=""
+            ))
+        db.commit()
+
+        # Pre-enrollment (all regular): 24.0h -> OVERLOAD by 4.0h -> Office = 8.5 - 4.0 = 4.5h
+        pre_summary = faculty_load.summarise_many(db, [fac], semester=sem)[1]
+        self.assertEqual(pre_summary["reg_hours"], 24.0)
+        self.assertEqual(pre_summary["load_status"], "OVERLOAD")
+        self.assertEqual(pre_summary["work_week"]["office_hours"], 4.5)
+
+        # Post-enrollment: 2 subjects converted to CT (5-8 students -> 2.0h each, -4.0h total)
+        res1 = update_subject_offering_ct(1, schemas.SubjectOfferingCTUpdate(ct_tier="ct_5_8"), db, chair)
+        res2 = update_subject_offering_ct(2, schemas.SubjectOfferingCTUpdate(ct_tier="ct_5_8"), db, chair)
+        self.assertTrue(res1["is_ct"])
+        self.assertEqual(res1["required_hours"], 2.0)
+        self.assertEqual(res2["required_hours"], 2.0)
+
+        # Load drops from 24.0h -> 20.0h (REGULAR), Office hours automatically restore to 8.5h!
+        post_summary = faculty_load.summarise_many(db, [fac], semester=sem)[1]
+        self.assertEqual(post_summary["reg_hours"], 20.0)
+        self.assertEqual(post_summary["assigned_hours"], 20.0)
+        self.assertEqual(post_summary["load_status"], "REGULAR")
+        self.assertEqual(post_summary["work_week"]["office_hours"], 8.5)
+        self.assertEqual(post_summary["work_week"]["consultation_hours"], 6.0)
+        # Also verify needs_reschedule flag was returned because plotted block (4h) != CT (2h)
+        self.assertTrue(res1["needs_reschedule"])
+        self.assertEqual(res1["plotted_schedules_count"], 2)
+
+    def test_reassign_preserves_ct_and_cleans_orphan_schedules(self):
+        """
+        Reassigning a subject to another professor via create_subject_offering
+        must preserve enrolled_students/CT status and delete old professor's
+        orphaned draft schedules.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models, schemas
+        from backend.app.routers.subject_offerings import (
+            create_subject_offering,
+            update_subject_offering_ct,
+        )
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="Computer Science", code="CAST")
+        sem = models.Semester(id=1, term="2nd", academic_year="2026-2027", is_active=True)
+        block = models.CurriculumBlock(
+            id=1, department_id=1, program_name="BS Computer Science",
+            academic_year="2026-2027", status="PUBLISHED",
+        )
+        prof_a = models.Faculty(
+            id=1, first_name="Prof", last_name="Alpha",
+            email="alpha@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        prof_b = models.Faculty(
+            id=2, first_name="Prof", last_name="Beta",
+            email="beta@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        chair = models.User(
+            id=1, first_name="Chair", last_name="User",
+            email="chair@dlsau.edu.ph", password_hash="pw",
+            role="program_chair", department="CAST", is_verified=True
+        )
+        curr = models.Curriculum(
+            id=10, block_id=1, code="COEP301A", name="Embedded Systems",
+            units=3, lec_units=3, lab_units=0, type="lecture", department_id=1
+        )
+        db.add_all([dept, sem, block, prof_a, prof_b, chair, curr])
+        db.commit()
+
+        # Assign to Prof Alpha and set CT (5-8 students -> 2h)
+        off = create_subject_offering(
+            schemas.SubjectOfferingCreate(faculty_id=1, curriculum_id=10, semester_id=1),
+            db,
+            chair,
+        )
+        update_subject_offering_ct(off.id, schemas.SubjectOfferingCTUpdate(ct_tier="ct_5_8"), db, chair)
+
+        # Plot a draft schedule for Prof Alpha
+        db.add(models.Schedule(
+            semester_id=1, curriculum_id=10, faculty_id=1,
+            day_of_week="Mon", start_time=time(7, 30), end_time=time(9, 30),
+            section="", status="draft",
+        ))
+        db.commit()
+
+        # Reassign to Prof Beta
+        reassigned = create_subject_offering(
+            schemas.SubjectOfferingCreate(faculty_id=2, curriculum_id=10, semester_id=1),
+            db,
+            chair,
+        )
+        self.assertEqual(reassigned.faculty_id, 2)
+        self.assertEqual(reassigned.enrolled_students, 8)
+        self.assertEqual(reassigned.credited_hours_override, 2.0)
+
+        # Old professor's draft schedule was cleaned up
+        remaining_old = db.query(models.Schedule).filter(
+            models.Schedule.faculty_id == 1,
+            models.Schedule.curriculum_id == 10,
+        ).count()
+        self.assertEqual(remaining_old, 0)
+
+    def test_cohort_clash_prevention_in_generator(self):
+        """
+        Two different professors teaching two subjects in the SAME Program + Year Level
+        must NOT be auto-scheduled at overlapping times on the same day.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models
+        from backend.app.services.schedule_generator import generate_schedules
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="Computer Engineering", code="CAST")
+        sem = models.Semester(id=1, term="1st", academic_year="2026-2027", is_active=True)
+        block = models.CurriculumBlock(
+            id=1, department_id=1, program_name="BS Computer Engineering",
+            academic_year="2026-2027", status="PUBLISHED",
+        )
+        prof1 = models.Faculty(
+            id=1, first_name="Juan", last_name="DelaCruz",
+            email="juan@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        prof2 = models.Faculty(
+            id=2, first_name="Maria", last_name="Santos",
+            email="maria@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        c1 = models.Curriculum(
+            id=1, code="COEP101A", name="Intro to CpE",
+            units=3, lec_units=3, lab_units=0, type="lecture",
+            department_id=1, block_id=1, year_level="1", semester_term="1st",
+        )
+        c2 = models.Curriculum(
+            id=2, code="COEM102A", name="Calculus 1",
+            units=3, lec_units=3, lab_units=0, type="lecture",
+            department_id=1, block_id=1, year_level="1", semester_term="1st",
+        )
+        off1 = models.SubjectOffering(id=1, faculty_id=1, curriculum_id=1, semester_id=1)
+        off2 = models.SubjectOffering(id=2, faculty_id=2, curriculum_id=2, semester_id=1)
+        db.add_all([dept, sem, block, prof1, prof2, c1, c2, off1, off2])
+        db.commit()
+
+        result = generate_schedules(db, semester_id=1, faculty_ids=[1, 2], department_id=1)
+        self.assertGreaterEqual(result["generated"], 4)
+
+        all_scheds = db.query(models.Schedule).filter(models.Schedule.semester_id == 1).all()
+        s_c1 = [s for s in all_scheds if s.curriculum_id == 1]
+        s_c2 = [s for s in all_scheds if s.curriculum_id == 2]
+        self.assertTrue(len(s_c1) > 0 and len(s_c2) > 0)
+
+        for a in s_c1:
+            for b in s_c2:
+                if a.day_of_week == b.day_of_week:
+                    self.assertFalse(
+                        a.start_time < b.end_time and b.start_time < a.end_time,
+                        f"Cohort clash found on {a.day_of_week}: {a.start_time}-{a.end_time} vs {b.start_time}-{b.end_time}",
+                    )
+
+    def test_ct_paired_lecture_before_lab_order(self):
+        """
+        When paired A (Lecture) and B (Lab) subjects are converted to CT,
+        Lab must never be placed earlier than Lecture on a shared day.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models
+        from backend.app.services.schedule_generator import generate_schedules
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="Computer Science", code="CAST")
+        sem = models.Semester(id=1, term="1st", academic_year="2026-2027", is_active=True)
+        block = models.CurriculumBlock(
+            id=1, department_id=1, program_name="BS Computer Science",
+            academic_year="2026-2027", status="PUBLISHED",
+        )
+        prof = models.Faculty(
+            id=1, first_name="Anna", last_name="Reyes",
+            email="anna@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        lec = models.Curriculum(
+            id=1, code="COEP110A", name="Logic Circuits",
+            units=2, lec_units=2, lab_units=0, type="lecture",
+            department_id=1, block_id=1, year_level="2", semester_term="1st",
+        )
+        lab = models.Curriculum(
+            id=2, code="COEP110B", name="Logic Circuits Lab",
+            units=1, lec_units=0, lab_units=1, type="lab",
+            department_id=1, block_id=1, year_level="2", semester_term="1st",
+        )
+        off_l = models.SubjectOffering(
+            id=1, faculty_id=1, curriculum_id=1, semester_id=1,
+            enrolled_students=8, credited_hours_override=1.5,
+        )
+        off_b = models.SubjectOffering(
+            id=2, faculty_id=1, curriculum_id=2, semester_id=1,
+            enrolled_students=8, credited_hours_override=2.0,
+        )
+        db.add_all([dept, sem, block, prof, lec, lab, off_l, off_b])
+        db.commit()
+
+        result = generate_schedules(db, semester_id=1, faculty_ids=[1], department_id=1)
+        self.assertGreaterEqual(result["generated"], 2)
+
+        lec_scheds = db.query(models.Schedule).filter(models.Schedule.curriculum_id == 1).all()
+        lab_scheds = db.query(models.Schedule).filter(models.Schedule.curriculum_id == 2).all()
+        self.assertTrue(len(lec_scheds) > 0 and len(lab_scheds) > 0)
+
+        for lb in lab_scheds:
+            for lc in lec_scheds:
+                if lb.day_of_week == lc.day_of_week:
+                    self.assertGreaterEqual(
+                        lb.start_time,
+                        lc.end_time,
+                        f"CT Lab {lb.start_time} started before CT Lecture ended {lc.end_time} on {lb.day_of_week}",
+                    )
+
+    def test_registrar_proposal_excel_format_and_ct(self):
+        """
+        build_schedule_excel produces Sheet 1 'Registrar Proposal' matching university
+        grouping (BSCOE 1ST YEAR, MW 0730 - 0930, LASTNAME, FIRSTNAME, blank lecture rooms,
+        lab rooms preserved, total units summed) alongside Class Timetable & Weekly Grid.
+        """
+        from io import BytesIO
+        from types import SimpleNamespace
+        from openpyxl import load_workbook
+        from backend.app.services.schedule_io import build_schedule_excel
+
+        curr_lec = SimpleNamespace(
+            id=1, code="COEM111A", name="Calculus 1", units=3, lec_units=3, lab_units=0,
+            type="lecture", year_level="1",
+            block=SimpleNamespace(program_name="BS Computer Engineering", program_code="BSCOE"),
+        )
+        curr_lab = SimpleNamespace(
+            id=2, code="COEP110B", name="Programming Logic Lab", units=1, lec_units=0, lab_units=1,
+            type="lab", year_level="1",
+            block=SimpleNamespace(program_name="BS Computer Engineering", program_code="BSCOE"),
+        )
+        fac = SimpleNamespace(id=1, first_name="Melanie", last_name="Asuncion")
+        lab_room = SimpleNamespace(id=5, name="512", building="Lab")
+        lec_room = SimpleNamespace(id=6, name="ShouldStayBlank", building="Main")
+
+        scheds = [
+            SimpleNamespace(
+                id=1, curriculum_id=1, faculty_id=1, section="",
+                curriculum=curr_lec, faculty=fac, room=lec_room,
+                day_of_week="Mon", start_time=time(7, 30), end_time=time(9, 30),
+                enrolled_students=8, credited_hours_override=2.0,
+            ),
+            SimpleNamespace(
+                id=2, curriculum_id=1, faculty_id=1, section="",
+                curriculum=curr_lec, faculty=fac, room=lec_room,
+                day_of_week="Wed", start_time=time(7, 30), end_time=time(9, 30),
+                enrolled_students=8, credited_hours_override=2.0,
+            ),
+            SimpleNamespace(
+                id=3, curriculum_id=2, faculty_id=1, section="",
+                curriculum=curr_lab, faculty=fac, room=lab_room,
+                day_of_week="Thu", start_time=time(13, 0), end_time=time(17, 0),
+                enrolled_students=None, credited_hours_override=None,
+            ),
+        ]
+
+        proposal_subjects = [
+            {
+                "curriculum_id": 1,
+                "code": "COEM111A",
+                "name": "Calculus 1",
+                "units": 3,
+                "program_code": "BSCOE",
+                "program_name": "BS Computer Engineering",
+                "year_level": "1",
+                "curriculum": curr_lec,
+                "faculty": fac,
+                "enrolled_students": 8,
+            },
+            {
+                "curriculum_id": 2,
+                "code": "COEP110B",
+                "name": "Programming Logic Lab",
+                "units": 1,
+                "program_code": "BSCOE",
+                "program_name": "BS Computer Engineering",
+                "year_level": "1",
+                "curriculum": curr_lab,
+                "faculty": fac,
+                "enrolled_students": None,
+            },
+        ]
+
+        xlsx_buf, _filename = build_schedule_excel(
+            scheds,
+            term_label="A.Y. 2026-2027 · 1st Term",
+            proposal_subjects=proposal_subjects,
+        )
+        wb = load_workbook(xlsx_buf)
+        self.assertEqual(wb.sheetnames, ["Registrar Proposal", "Class Timetable", "Weekly Timetable Grid"])
+
+        ws1 = wb["Registrar Proposal"]
+        rows = list(ws1.iter_rows(values_only=True))
+        flat_text = [str(cell) for r in rows for cell in r if cell is not None]
+        self.assertIn("BSCOE 1ST YEAR", flat_text)
+        self.assertIn("MW 0730 - 0930", flat_text)
+        self.assertIn("ASUNCION, MELANIE", flat_text)
+        self.assertIn("512", flat_text)
+        self.assertNotIn("ShouldStayBlank", flat_text)
+        self.assertTrue(any("CT" in t for t in flat_text))
+
+        # Check total units row equals 4 (3 + 1)
+        total_unit_vals = [r[2] for r in rows if r[0] is None and r[1] is None and r[2] == 4]
+        self.assertEqual(len(total_unit_vals), 1)
+
+    def test_extreme_overload_total_hours_reflects_actual_sum(self):
+        """
+        Normal overload stays at 40.0h total work week, whereas extreme overload
+        (exceeding both Office and Consultation hours) reflects the true sum (>40h).
+        """
+        # 2nd term FT regular: base 20h, off-campus 5.5h, consult 6.0h, office 8.5h (total 40h)
+        normal = work_week_breakdown("2nd", "full_time_regular", actual_overload=6.0)
+        self.assertEqual(normal["total_hours"], 40.0)
+        self.assertEqual(normal["office_hours"], 2.5)
+
+        # Extreme overload: 20h overload -> exhausts 8.5h office + 6.0h consult
+        # excess_overload_hours = overload - allocated_office = 20.0 - 8.5 = 11.5h
+        # Actual total = 40.0h teaching + 5.5h off-campus + 0 consult + 0 office = 45.5h
+        extreme = work_week_breakdown("2nd", "full_time_regular", actual_overload=20.0)
+        self.assertEqual(extreme["teaching_hours"], 40.0)
+        self.assertEqual(extreme["office_hours"], 0.0)
+        self.assertEqual(extreme["consultation_hours"], 0.0)
+        self.assertEqual(extreme["excess_overload_hours"], 11.5)
+        self.assertEqual(extreme["total_hours"], 45.5)
+
+    def test_schedule_router_rejects_professor_overlap_and_published_edits(self):
+        """
+        POST /schedules must reject same-professor overlapping time slots (409) and
+        must reject edits once the department's term schedule is officially published (409).
+        """
+        from fastapi import HTTPException
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models, schemas
+        from backend.app.routers.schedules import create_schedule, delete_schedule
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="Computer Science", code="CAST")
+        sem = models.Semester(id=1, term="1st", academic_year="2026-2027", is_active=True)
+        prof = models.Faculty(
+            id=1, first_name="Jane", last_name="Doe",
+            email="jane@dlsau.edu.ph", type="full_time_regular", department_id=1
+        )
+        chair = models.User(
+            id=1, first_name="Chair", last_name="User",
+            email="chair@dlsau.edu.ph", password_hash="pw",
+            role="program_chair", department="CAST", is_verified=True
+        )
+        c1 = models.Curriculum(
+            id=1, code="CS101A", name="Prog 1", units=3, lec_units=3, lab_units=0,
+            type="lecture", department_id=1, is_major=True,
+        )
+        c2 = models.Curriculum(
+            id=2, code="CS102A", name="Prog 2", units=3, lec_units=3, lab_units=0,
+            type="lecture", department_id=1, is_major=True,
+        )
+        off1 = models.SubjectOffering(id=1, faculty_id=1, curriculum_id=1, semester_id=1)
+        off2 = models.SubjectOffering(id=2, faculty_id=1, curriculum_id=2, semester_id=1)
+        db.add_all([dept, sem, prof, chair, c1, c2, off1, off2])
+        db.commit()
+
+        # First schedule succeeds
+        s1 = create_schedule(
+            schemas.ScheduleCreate(
+                semester_id=1, curriculum_id=1, faculty_id=1, room_id=None,
+                day_of_week="Mon", start_time=time(8, 0), end_time=time(10, 0), section="",
+            ),
+            db,
+            chair,
+        )
+        self.assertIsNotNone(s1.id)
+
+        # Overlapping slot for same professor -> 409 Conflict
+        with self.assertRaises(HTTPException) as ctx:
+            create_schedule(
+                schemas.ScheduleCreate(
+                    semester_id=1, curriculum_id=2, faculty_id=1, room_id=None,
+                    day_of_week="Mon", start_time=time(9, 0), end_time=time(11, 0), section="",
+                ),
+                db,
+                chair,
+            )
+        self.assertEqual(ctx.exception.status_code, 409)
+
+        # Mark term published -> creating OR deleting schedule must raise 409
+        s1.status = "published"
+        db.commit()
+
+        with self.assertRaises(HTTPException) as ctx_pub_add:
+            create_schedule(
+                schemas.ScheduleCreate(
+                    semester_id=1, curriculum_id=2, faculty_id=1, room_id=None,
+                    day_of_week="Tue", start_time=time(8, 0), end_time=time(10, 0), section="",
+                ),
+                db,
+                chair,
+            )
+        self.assertEqual(ctx_pub_add.exception.status_code, 409)
+
+        with self.assertRaises(HTTPException) as ctx_pub_del:
+            delete_schedule(s1.id, db, chair)
+        self.assertEqual(ctx_pub_del.exception.status_code, 409)
+
+    def test_program_chair_cannot_escalate_role_and_dean_clear_logs_is_scoped(self):
+        """
+        1) A program_chair cannot escalate themselves to admin or edit another user.
+        2) A College Dean clearing audit logs only clears their own college's logs.
+        """
+        from fastapi import HTTPException
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models, schemas
+        from backend.app.routers.users import update_user
+        from backend.app.routers.logs import clear_logs
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        d_cast = models.Department(id=1, name="CAST", code="CAST")
+        d_cbma = models.Department(id=2, name="CBMA", code="CBMA")
+        dean_cast = models.User(
+            id=1, first_name="Dean", last_name="CAST", email="dean.cast@dlsau.edu.ph",
+            password_hash="pw", role="admin", department="CAST", is_verified=True,
+        )
+        chair_cast = models.User(
+            id=2, first_name="Chair", last_name="CAST", email="chair.cast@dlsau.edu.ph",
+            password_hash="pw", role="program_chair", department="CAST", is_verified=True,
+        )
+        db.add_all([d_cast, d_cbma, dean_cast, chair_cast])
+        db.flush()
+        log_cast = models.SystemLog(user_id=2, department_id=1, action="Test CAST", status="success")
+        log_cbma = models.SystemLog(user_id=None, department_id=2, action="Test CBMA", status="success")
+        db.add_all([log_cast, log_cbma])
+        db.commit()
+
+        # Program chair trying to promote self to admin -> 403
+        with self.assertRaises(HTTPException) as ctx_esc:
+            update_user(2, schemas.UserUpdate(role="admin"), db, chair_cast)
+        self.assertEqual(ctx_esc.exception.status_code, 403)
+
+        # Program chair trying to demote Dean -> 403
+        with self.assertRaises(HTTPException) as ctx_dean:
+            update_user(1, schemas.UserUpdate(role="program_chair"), db, chair_cast)
+        self.assertEqual(ctx_dean.exception.status_code, 403)
+
+        # CAST Dean clearing logs must preserve CBMA's logs
+        clear_logs(db, dean_cast)
+        remaining = db.query(models.SystemLog).all()
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].department_id, 2)
+
+    def test_published_term_blocks_clear_all_and_scoped_publish_conflicts(self):
+        """
+        1) Unresolved conflict in College B must NOT block College A from publishing.
+        2) Once College A is published, clear_all_schedules and CT update must raise 409.
+        """
+        from fastapi import HTTPException
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models, schemas
+        from backend.app.routers.schedules import (
+            set_schedule_status,
+            ScheduleStatusRequest,
+            clear_all_schedules,
+        )
+        from backend.app.routers.subject_offerings import update_subject_offering_ct
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        d_a = models.Department(id=1, name="CAST", code="CAST")
+        d_b = models.Department(id=2, name="CBMA", code="CBMA")
+        sem = models.Semester(id=1, term="1st", academic_year="2026-2027", is_active=True)
+        dean_a = models.User(
+            id=1, first_name="Dean", last_name="A", email="dean.a@dlsau.edu.ph",
+            password_hash="pw", role="admin", department="CAST", is_verified=True,
+        )
+        chair_a = models.User(
+            id=2, first_name="Chair", last_name="A", email="chair.a@dlsau.edu.ph",
+            password_hash="pw", role="program_chair", department="CAST", is_verified=True,
+        )
+        fac_a = models.Faculty(
+            id=1, first_name="Prof", last_name="A", email="pa@dlsau.edu.ph",
+            type="full_time_regular", department_id=1,
+        )
+        curr_a = models.Curriculum(
+            id=1, code="CS101A", name="Prog 1", units=3, lec_units=3, lab_units=0,
+            type="lecture", department_id=1,
+        )
+        curr_b = models.Curriculum(
+            id=2, code="ACC101A", name="Accounting", units=3, lec_units=3, lab_units=0,
+            type="lecture", department_id=2,
+        )
+        db.add_all([d_a, d_b, sem, dean_a, chair_a, fac_a, curr_a, curr_b])
+        db.flush()
+        off_a = models.SubjectOffering(id=1, faculty_id=1, curriculum_id=1, semester_id=1)
+        sched_a = models.Schedule(
+            id=1, semester_id=1, curriculum_id=1, faculty_id=1,
+            day_of_week="Mon", start_time=time(8, 0), end_time=time(10, 0),
+            section="", status="draft",
+        )
+        # Unresolved conflict ONLY in College B
+        conf_b = models.Conflict(curriculum_id=2, conflict_type="unplaced_lecture", reason="CBMA issue")
+        db.add_all([off_a, sched_a, conf_b])
+        db.commit()
+
+        # College A publishes cleanly despite College B's conflict
+        pub = set_schedule_status(
+            ScheduleStatusRequest(semester_id=1, status="published"),
+            db,
+            dean_a,
+        )
+        self.assertEqual(pub["status"], "published")
+        self.assertEqual(pub["affected"], 1)
+
+        # Published lock blocks clear_all_schedules and CT toggle
+        with self.assertRaises(HTTPException) as ctx_clear:
+            clear_all_schedules(1, db, chair_a)
+        self.assertEqual(ctx_clear.exception.status_code, 409)
+
+        with self.assertRaises(HTTPException) as ctx_ct:
+            update_subject_offering_ct(1, schemas.SubjectOfferingCTUpdate(ct_tier="ct_5_8"), db, chair_a)
+        self.assertEqual(ctx_ct.exception.status_code, 409)
+
+    def test_probationary_work_week_totals_40h_and_global_schedule_ct_no_crash(self):
+        """
+        1) Full-Time Probationary 2nd/3rd term sums to exactly 40.0h (24 + 2.5 + 6 + 7.5).
+        2) GET /ai-scheduler/global-schedule handles CT schedule with NULL credited_hours_override without 500.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models
+        from backend.app.routers.ai_scheduler import get_global_schedule
+
+        for term in ("1st", "2nd", "3rd"):
+            ww = work_week_breakdown(term, "full_time_probationary", actual_overload=0.0)
+            self.assertEqual(ww["teaching_hours"], 24.0)
+            self.assertEqual(ww["off_campus_hours"], 2.5)
+            self.assertEqual(ww["consultation_hours"], 6.0)
+            self.assertEqual(ww["office_hours"], 7.5)
+            self.assertEqual(ww["total_hours"], 40.0)
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="CAST", code="CAST")
+        sem = models.Semester(id=1, term="1st", academic_year="2026-2027", is_active=True)
+        chair = models.User(
+            id=1, first_name="Chair", last_name="User", email="chair@dlsau.edu.ph",
+            password_hash="pw", role="program_chair", department="CAST", is_verified=True,
+        )
+        fac = models.Faculty(
+            id=1, first_name="Alex", last_name="Pasion", email="alex@dlsau.edu.ph",
+            type="full_time_regular", department_id=1,
+        )
+        curr = models.Curriculum(
+            id=1, code="CS201A", name="Algorithms", units=3, lec_units=3, lab_units=0,
+            type="lecture", department_id=1,
+        )
+        # CT offering with enrolled_students=8 and credited_hours_override=None (triggers fallback)
+        off = models.SubjectOffering(
+            id=1, faculty_id=1, curriculum_id=1, semester_id=1,
+            enrolled_students=8, credited_hours_override=None,
+        )
+        sched = models.Schedule(
+            id=1, semester_id=1, curriculum_id=1, faculty_id=1,
+            day_of_week="Mon", start_time=time(8, 0), end_time=time(10, 0),
+            section="", enrolled_students=8, credited_hours_override=None,
+        )
+        db.add_all([dept, sem, chair, fac, curr, off, sched])
+        db.commit()
+
+        rows = get_global_schedule(semester_id=1, db=db, current_user=chair)
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["is_ct"])
+        self.assertEqual(rows[0]["credited_hours_override"], 2.0)
+
+    def test_delete_curriculum_cascades_schedules(self):
+        """
+        Deleting a curriculum item must cascade-delete its dependent Schedule rows
+        instead of leaving orphaned schedules with curriculum_id=NULL.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models
+        from backend.app.routers.curriculum import delete_curriculum_item
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="CAST", code="CAST")
+        sem = models.Semester(id=1, term="1st", academic_year="2026-2027", is_active=True)
+        dean = models.User(
+            id=1, first_name="Dean", last_name="CAST", email="dean@dlsau.edu.ph",
+            password_hash="pw", role="admin", department="CAST", is_verified=True,
+        )
+        fac = models.Faculty(
+            id=1, first_name="Prof", last_name="One", email="p1@dlsau.edu.ph",
+            type="full_time_regular", department_id=1,
+        )
+        curr = models.Curriculum(
+            id=1, code="CS999A", name="Temp Subject", units=3, lec_units=3, lab_units=0,
+            type="lecture", department_id=1,
+        )
+        sched = models.Schedule(
+            id=1, semester_id=1, curriculum_id=1, faculty_id=1,
+            day_of_week="Mon", start_time=time(8, 0), end_time=time(10, 0), section="",
+        )
+        db.add_all([dept, sem, dean, fac, curr, sched])
+        db.commit()
+
+        delete_curriculum_item(1, db, dean)
+        self.assertEqual(db.query(models.Schedule).count(), 0)
+
 if __name__ == "__main__":
     unittest.main()

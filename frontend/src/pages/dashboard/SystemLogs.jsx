@@ -65,12 +65,11 @@ export default function SystemLogs() {
     return () => { clearInterval(poll); clearInterval(clock); };
   }, []);
 
-  // user_id -> name. The API returns the id only; the old screen read a `user`
-  // field that was never sent, so the column was always blank.
+  // user_id -> name. Both Admins/Deans and Program Chairs are authorized to read
+  // their college's users so the Activity Log shows real names instead of "User 5".
   useEffect(() => {
-    if (!isAdmin) return;
     api.get('/users').then((d) => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
-  }, [isAdmin]);
+  }, []);
 
   const userName = (id) => {
     if (!id) return 'System';

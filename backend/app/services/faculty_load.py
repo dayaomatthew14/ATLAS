@@ -189,39 +189,142 @@ def allowed_teaching_minutes(term: Optional[str], employment_type: Optional[str]
 
 
 # ---------------------------------------------------------------------------
-# Exact-Minute Subject Conversion Rules (Courses with >= 13 students)
+# Exact-Minute Subject Conversion Rules (Regular 13+ & Converted Tutorial CT)
 # ---------------------------------------------------------------------------
 
-def lecture_minutes_for_units(lec_units: int) -> int:
+CT_TIER_REGULAR = "regular"
+CT_TIER_9_12 = "ct_9_12"
+CT_TIER_5_8 = "ct_5_8"
+CT_TIER_1_4 = "ct_1_4"
+
+VALID_CT_TIERS = {CT_TIER_REGULAR, CT_TIER_9_12, CT_TIER_5_8, CT_TIER_1_4}
+
+CT_TIER_LABELS = {
+    CT_TIER_REGULAR: "Regular (13+ students)",
+    CT_TIER_9_12: "CT (9–12 students)",
+    CT_TIER_5_8: "CT (5–8 students)",
+    CT_TIER_1_4: "CT (1–4 students)",
+}
+
+CT_TIER_SHORT_LABELS = {
+    CT_TIER_REGULAR: "Regular",
+    CT_TIER_9_12: "CT · 9–12",
+    CT_TIER_5_8: "CT · 5–8",
+    CT_TIER_1_4: "CT · 1–4",
+}
+
+CT_TIER_DEFAULT_STUDENTS = {
+    CT_TIER_REGULAR: None,
+    CT_TIER_9_12: 12,
+    CT_TIER_5_8: 8,
+    CT_TIER_1_4: 4,
+}
+
+
+def normalise_ct_tier(ct_tier: Optional[str] = None, enrolled_students: Optional[int] = None) -> str:
     """
-    Lecture (A) weekly minutes:
-      1 unit  ->  80 minutes (1 hr 20 min)
-      2 units -> 160 minutes (2 hrs 40 min)
-      3 units -> 240 minutes (4 hrs)
+    Resolve a Converted Tutorial (CT) tier from either an explicit tier key or
+    an actual enrolled student count:
+      - None or >= 13 students -> 'regular'
+      - 9..12 students         -> 'ct_9_12'
+      - 5..8 students          -> 'ct_5_8'
+      - 1..4 students          -> 'ct_1_4'
+    """
+    if ct_tier is not None and str(ct_tier).strip():
+        raw = str(ct_tier).strip().lower()
+        if raw in VALID_CT_TIERS:
+            return raw
+    if enrolled_students is not None:
+        try:
+            count = int(enrolled_students)
+        except (TypeError, ValueError):
+            return CT_TIER_REGULAR
+        if count <= 0 or count >= 13:
+            return CT_TIER_REGULAR
+        if count >= 9:
+            return CT_TIER_9_12
+        if count >= 5:
+            return CT_TIER_5_8
+        return CT_TIER_1_4
+    return CT_TIER_REGULAR
+
+
+def is_ct_tier(ct_tier: Optional[str] = None, enrolled_students: Optional[int] = None) -> bool:
+    return normalise_ct_tier(ct_tier=ct_tier, enrolled_students=enrolled_students) != CT_TIER_REGULAR
+
+
+def ct_tier_from_students(enrolled_students: Optional[int] = None) -> str:
+    """Convenience helper to resolve CT tier from enrolled student count."""
+    return normalise_ct_tier(enrolled_students=enrolled_students)
+
+
+def students_for_ct_tier(ct_tier: Optional[str]) -> Optional[int]:
+    norm = normalise_ct_tier(ct_tier=ct_tier)
+    return CT_TIER_DEFAULT_STUDENTS.get(norm)
+
+
+def ct_tier_label(ct_tier: Optional[str] = None, enrolled_students: Optional[int] = None) -> str:
+    norm = normalise_ct_tier(ct_tier=ct_tier, enrolled_students=enrolled_students)
+    return CT_TIER_LABELS.get(norm, CT_TIER_LABELS[CT_TIER_REGULAR])
+
+
+def ct_tier_short_label(ct_tier: Optional[str] = None, enrolled_students: Optional[int] = None) -> str:
+    norm = normalise_ct_tier(ct_tier=ct_tier, enrolled_students=enrolled_students)
+    return CT_TIER_SHORT_LABELS.get(norm, CT_TIER_SHORT_LABELS[CT_TIER_REGULAR])
+
+
+def lecture_minutes_for_units(lec_units: int, ct_tier: str = CT_TIER_REGULAR) -> int:
+    """
+    Lecture (A) weekly minutes by units and CT enrollment tier:
+      1 unit:  Regular 80m (1.33h) | 9-12: 60m (1h)  | 5-8: 60m (1h)    | 1-4: 60m (1h)
+      2 units: Regular 160m (2.67h)| 9-12: 120m (2h) | 5-8: 90m (1.5h)  | 1-4: 60m (1h)
+      3 units: Regular 240m (4h)   | 9-12: 180m (3h) | 5-8: 120m (2h)   | 1-4: 60m (1h)
     """
     u = max(0, int(lec_units or 0))
-    return u * 80
+    if u == 0:
+        return 0
+    tier = normalise_ct_tier(ct_tier=ct_tier)
+    if tier == CT_TIER_REGULAR:
+        return u * 80
+    table = {
+        1: {CT_TIER_9_12: 60, CT_TIER_5_8: 60, CT_TIER_1_4: 60},
+        2: {CT_TIER_9_12: 120, CT_TIER_5_8: 90, CT_TIER_1_4: 60},
+        3: {CT_TIER_9_12: 180, CT_TIER_5_8: 120, CT_TIER_1_4: 60},
+    }
+    if u in table:
+        return table[u][tier]
+    factor = {CT_TIER_9_12: 0.75, CT_TIER_5_8: 0.50, CT_TIER_1_4: 0.25}[tier]
+    return max(60, int(round(u * 80 * factor)))
 
 
-def lab_minutes_for_units(lab_units: int) -> int:
+def lab_minutes_for_units(lab_units: int, ct_tier: str = CT_TIER_REGULAR) -> int:
     """
-    Laboratory (B) weekly minutes:
-      1 unit  -> 240 minutes (4 hrs)
-      2 units -> 480 minutes (8 hrs)
+    Laboratory (B) weekly minutes by units and CT enrollment tier:
+      1 unit:  Regular 240m (4h) | 9-12: 180m (3h) | 5-8: 120m (2h) | 1-4: 60m (1h)
+      2 units: Regular 480m (8h) | 9-12: 360m (6h) | 5-8: 240m (4h) | 1-4: 120m (2h)
     """
     u = max(0, int(lab_units or 0))
-    return u * 240
+    if u == 0:
+        return 0
+    tier = normalise_ct_tier(ct_tier=ct_tier)
+    if tier == CT_TIER_REGULAR:
+        return u * 240
+    factor = {CT_TIER_9_12: 0.75, CT_TIER_5_8: 0.50, CT_TIER_1_4: 0.25}[tier]
+    return max(60, int(round(u * 240 * factor)))
 
 
-def combined_minutes_for_units(units: int = 3) -> int:
+def combined_minutes_for_units(units: int = 3, ct_tier: str = CT_TIER_REGULAR) -> int:
     """
-    Combined Lecture/Laboratory (C) weekly minutes:
-      3 units -> 240 minutes (4 hrs)
+    Combined Lecture/Laboratory (C) weekly minutes by units and CT enrollment tier:
+      3 units: Regular 240m (4h) | 9-12: 180m (3h) | 5-8: 120m (2h) | 1-4: 60m (1h)
     """
     u = max(1, int(units or 3))
-    if u == 3:
-        return 240
-    return int(round((u / 3.0) * 240))
+    base = 240 if u == 3 else int(round((u / 3.0) * 240))
+    tier = normalise_ct_tier(ct_tier=ct_tier)
+    if tier == CT_TIER_REGULAR:
+        return base
+    factor = {CT_TIER_9_12: 0.75, CT_TIER_5_8: 0.50, CT_TIER_1_4: 0.25}[tier]
+    return max(60, int(round(base * factor)))
 
 
 def is_combined_c_subject(curriculum) -> bool:
@@ -261,43 +364,54 @@ def is_lab_b_subject(curriculum) -> bool:
     return False
 
 
-def subject_required_minutes(curriculum) -> int:
+def subject_required_minutes(
+    curriculum,
+    enrolled_students: Optional[int] = None,
+    ct_tier: Optional[str] = None,
+) -> int:
     """
-    Calculate exact required weekly teaching minutes for a curriculum subject:
-    - Genuine Combined (C): 3 units = 240 minutes (4 hrs)
+    Calculate exact required weekly teaching minutes for a curriculum subject,
+    applying Converted Tutorial (CT) rules when enrolled_students < 13 or a CT tier is active:
+    - Genuine Combined (C): 3 units = 240m (Regular) | 180m (9-12) | 120m (5-8) | 60m (1-4)
     - Subject with both separate Lecture (A) and Lab (B) units (not C):
-      lecture_minutes_for_units(lec_units) + lab_minutes_for_units(lab_units)
-      (e.g., 2u Lec + 1u Lab = 160 + 240 = 400 minutes = 6 hrs 40 min)
+      lecture_minutes_for_units(lec_units, tier) + lab_minutes_for_units(lab_units, tier)
     - Laboratory (B):
-      1 unit = 240 min (4 hrs), 2 units = 480 min (8 hrs)
+      1u = 240m / 180m / 120m / 60m; 2u = 480m / 360m / 240m / 120m
     - Lecture (A):
-      1 unit = 80 min (1h 20m), 2 units = 160 min (2h 40m), 3 units = 240 min (4h)
+      1u = 80m / 60m / 60m / 60m; 2u = 160m / 120m / 90m / 60m; 3u = 240m / 180m / 120m / 60m
     """
     if curriculum is None:
         return 0
 
+    tier = normalise_ct_tier(ct_tier=ct_tier, enrolled_students=enrolled_students)
     total_u = int(getattr(curriculum, "units", 0) or 0)
     lec_u = int(getattr(curriculum, "lec_units", 0) or 0)
     lab_u = int(getattr(curriculum, "lab_units", 0) or 0)
 
     if is_combined_c_subject(curriculum):
         effective_u = total_u if total_u > 0 else (lec_u + lab_u if (lec_u + lab_u) > 0 else 3)
-        return combined_minutes_for_units(effective_u)
+        return combined_minutes_for_units(effective_u, ct_tier=tier)
 
     if lec_u > 0 and lab_u > 0:
-        return lecture_minutes_for_units(lec_u) + lab_minutes_for_units(lab_u)
+        return lecture_minutes_for_units(lec_u, ct_tier=tier) + lab_minutes_for_units(lab_u, ct_tier=tier)
 
     if is_lab_b_subject(curriculum):
         effective_lab = lab_u if lab_u > 0 else (total_u if total_u > 0 else 1)
-        return lab_minutes_for_units(effective_lab)
+        return lab_minutes_for_units(effective_lab, ct_tier=tier)
 
     effective_lec = lec_u if lec_u > 0 else (total_u if total_u > 0 else 3)
-    return lecture_minutes_for_units(effective_lec)
+    return lecture_minutes_for_units(effective_lec, ct_tier=tier)
 
 
-def subject_required_hours(curriculum) -> float:
+def subject_required_hours(
+    curriculum,
+    enrolled_students: Optional[int] = None,
+    ct_tier: Optional[str] = None,
+) -> float:
     """Required weekly teaching hours for a curriculum subject (rounded to 2 decimal places)."""
-    return round_hours(subject_required_minutes(curriculum) / 60.0)
+    return round_hours(
+        subject_required_minutes(curriculum, enrolled_students=enrolled_students, ct_tier=ct_tier) / 60.0
+    )
 
 
 def format_minutes_label(minutes: int) -> str:
@@ -370,7 +484,12 @@ def load_status(
 
 
 def compute_plotted_minutes(db, faculty_ids: Iterable[int], semester_id: Optional[int]) -> Dict[int, int]:
-    """Exact plotted weekly teaching minutes per faculty member for one term."""
+    """
+    Exact plotted weekly teaching minutes per faculty member for one term.
+    For Regular (13+ students) classes, sums exact plotted clock minutes across meetings.
+    For Converted Tutorial (CT, <13 students) classes, credits the exact CT teaching minutes
+    defined by the institutional CT conversion table once per plotted subject offering.
+    """
     ids = list(faculty_ids)
     totals = {fid: 0 for fid in ids}
     if not ids or not semester_id:
@@ -378,9 +497,11 @@ def compute_plotted_minutes(db, faculty_ids: Iterable[int], semester_id: Optiona
 
     rows = db.query(
         models.Schedule.faculty_id,
+        models.Schedule.curriculum_id,
         models.Schedule.day_of_week,
         models.Schedule.start_time,
         models.Schedule.end_time,
+        models.Schedule.enrolled_students,
     ).filter(
         models.Schedule.semester_id == semester_id,
         models.Schedule.faculty_id.in_(ids),
@@ -388,9 +509,57 @@ def compute_plotted_minutes(db, faculty_ids: Iterable[int], semester_id: Optiona
         models.Schedule.end_time.isnot(None),
     ).all()
 
-    for faculty_id, day_of_week, start_t, end_t in rows:
-        if faculty_id in totals:
-            totals[faculty_id] += meeting_teaching_minutes(start_t, end_t, day_of_week)
+    if not rows:
+        return totals
+
+    # Load active-term SubjectOfferings + Curriculum to inspect CT status cleanly
+    offering_ct_map: Dict[tuple, tuple] = {}
+    offerings = (
+        db.query(models.SubjectOffering, models.Curriculum)
+        .join(models.Curriculum, models.SubjectOffering.curriculum_id == models.Curriculum.id)
+        .filter(
+            models.SubjectOffering.semester_id == semester_id,
+            models.SubjectOffering.faculty_id.in_(ids),
+        )
+        .all()
+    )
+    for off, curr in offerings:
+        offering_ct_map[(off.faculty_id, off.curriculum_id)] = (off.enrolled_students, curr)
+
+    # Also fetch Curriculum records for any plotted schedule that has enrolled_students directly
+    missing_curr_ids = {
+        cid for (_fid, cid, _d, _s, _e, enr) in rows
+        if cid is not None and enr is not None and (_fid, cid) not in offering_ct_map
+    }
+    extra_currs = {}
+    if missing_curr_ids:
+        for c in db.query(models.Curriculum).filter(models.Curriculum.id.in_(missing_curr_ids)).all():
+            extra_currs[c.id] = c
+
+    # Group plotted meetings by (faculty_id, curriculum_id)
+    grouped_minutes: Dict[tuple, int] = {}
+    sched_enrolled: Dict[tuple, Optional[int]] = {}
+    for faculty_id, curriculum_id, day_of_week, start_t, end_t, row_enrolled in rows:
+        if faculty_id not in totals:
+            continue
+        key = (faculty_id, curriculum_id)
+        grouped_minutes[key] = grouped_minutes.get(key, 0) + meeting_teaching_minutes(start_t, end_t, day_of_week)
+        if row_enrolled is not None and key not in sched_enrolled:
+            sched_enrolled[key] = row_enrolled
+
+    for (faculty_id, curriculum_id), plotted_mins in grouped_minutes.items():
+        enrolled = None
+        curr = None
+        if (faculty_id, curriculum_id) in offering_ct_map:
+            enrolled, curr = offering_ct_map[(faculty_id, curriculum_id)]
+        if enrolled is None and (faculty_id, curriculum_id) in sched_enrolled:
+            enrolled = sched_enrolled[(faculty_id, curriculum_id)]
+            curr = curr or extra_currs.get(curriculum_id)
+
+        if curr is not None and is_ct_tier(enrolled_students=enrolled):
+            totals[faculty_id] += subject_required_minutes(curr, enrolled_students=enrolled)
+        else:
+            totals[faculty_id] += plotted_mins
 
     return totals
 
@@ -404,7 +573,7 @@ def compute_reg_hours(db, faculty_ids: Iterable[int], semester_id: Optional[int]
 def compute_assigned_minutes(db, faculty_ids: Iterable[int], semester_id: Optional[int]) -> Dict[int, int]:
     """
     Exact assigned weekly teaching minutes per faculty member from SubjectOffering rows
-    in the active term. Counted once per SubjectOffering (never duplicated across meetings).
+    in the active term (respecting Converted Tutorial CT tiers). Counted once per SubjectOffering.
     """
     ids = list(faculty_ids)
     totals = {fid: 0 for fid in ids}
@@ -412,7 +581,7 @@ def compute_assigned_minutes(db, faculty_ids: Iterable[int], semester_id: Option
         return totals
 
     offerings = (
-        db.query(models.SubjectOffering.faculty_id, models.Curriculum)
+        db.query(models.SubjectOffering, models.Curriculum)
         .join(models.Curriculum, models.SubjectOffering.curriculum_id == models.Curriculum.id)
         .filter(
             models.SubjectOffering.semester_id == semester_id,
@@ -421,9 +590,9 @@ def compute_assigned_minutes(db, faculty_ids: Iterable[int], semester_id: Option
         .all()
     )
 
-    for fid, curr in offerings:
-        if fid in totals and curr is not None:
-            totals[fid] += subject_required_minutes(curr)
+    for off, curr in offerings:
+        if off.faculty_id in totals and curr is not None:
+            totals[off.faculty_id] += subject_required_minutes(curr, enrolled_students=off.enrolled_students)
 
     return totals
 
@@ -488,7 +657,10 @@ def calculate_consultation_workload(
         }
 
     std_consultation = CONSULTATION_HOURS.get(norm_term, 6.0)
-    alloc_office = ALLOCATED_OFFICE_HOURS.get(norm_term, 8.5)
+    # Full-Time Probationary carries 24h teaching in all terms (same as 1st term),
+    # so its 40-hour work week uses the 24h non-teaching split (2.5h off-campus, 7.5h office).
+    effective_split_term = "1st" if norm_type == "full_time_probationary" else norm_term
+    alloc_office = ALLOCATED_OFFICE_HOURS.get(effective_split_term, 8.5)
     overload = round_hours(max(0.0, actual_overload))
 
     # Step 1: Overload hours must first be deducted from allocated office hours
@@ -535,12 +707,20 @@ def work_week_breakdown(
     if key is None or not is_full_time(employment_type):
         return None
 
-    base_teaching = required_teaching_hours(term, employment_type) or FULL_TIME_REGULAR_HOURS[key]
-    off_campus = OFF_CAMPUS_HOURS[key]
-    consult_info = calculate_consultation_workload(term, employment_type, actual_overload)
+    norm_type = normalise_employment_type(employment_type)
+    base_teaching = required_teaching_hours(term, norm_type) or FULL_TIME_REGULAR_HOURS[key]
+    effective_split_term = "1st" if norm_type == "full_time_probationary" else key
+    off_campus = OFF_CAMPUS_HOURS[effective_split_term]
+    consult_info = calculate_consultation_workload(term, norm_type, actual_overload)
     
     overload = round_hours(max(0.0, actual_overload))
     teaching = round_hours(base_teaching + overload)
+    actual_total_hours = round_hours(
+        teaching
+        + off_campus
+        + consult_info["adjusted_consultation"]
+        + consult_info["remaining_office"]
+    )
 
     return {
         "term": key,
@@ -560,7 +740,7 @@ def work_week_breakdown(
         "overload_difference": consult_info["overload_difference"],
         "policy_review_flag": consult_info["policy_review_flag"],
         "flag_reason": consult_info["flag_reason"],
-        "total_hours": TOTAL_WORK_WEEK_HOURS,
+        "total_hours": actual_total_hours,
     }
 
 

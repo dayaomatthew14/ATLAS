@@ -63,16 +63,24 @@ async def process_curriculum_import(
             detail="Only System Administrators and Deans can import curriculum Excel files"
         )
 
-    # Determine target department
+    # Determine target department — enforce college scope for College Deans
+    # (whether stored with role='dean' or role='admin' + department set).
     target_dept_id = department_id
-    if current_user.role == 'dean':
+    if current_user.department:
         user_dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
         ).first()
         if not user_dept:
-            raise HTTPException(status_code=400, detail="Dean department not found")
+            raise HTTPException(status_code=400, detail="Your assigned college could not be resolved.")
+        if target_dept_id is not None and int(target_dept_id) != int(user_dept.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only import curricula for your own college.",
+            )
         target_dept_id = user_dept.id
+    elif current_user.role == 'dean':
+        raise HTTPException(status_code=400, detail="Dean department not found")
     elif not target_dept_id:
         first_dept = db.query(models.Department).first()
         if not first_dept:
@@ -138,8 +146,20 @@ async def process_curriculum_import(
             curriculum_block = existing_block
             logger.debug(f"DEBUG: Found existing block '{extracted_program_name} ({extracted_ay})' (ID: {curriculum_block.id})")
         else:
+            from ..academics import match_program_code
+            matched_prog_id = None
+            matched_code = match_program_code(extracted_program_name) or match_program_code(program_code or "")
+            if matched_code:
+                prog_row = db.query(models.Program).filter(
+                    models.Program.code == matched_code,
+                    models.Program.department_id == target_dept_id,
+                ).first()
+                if prog_row:
+                    matched_prog_id = prog_row.id
+
             curriculum_block = models.CurriculumBlock(
                 department_id=target_dept_id,
+                program_id=matched_prog_id,
                 program_name=extracted_program_name,
                 academic_year=extracted_ay,
                 filename="Uploaded File"

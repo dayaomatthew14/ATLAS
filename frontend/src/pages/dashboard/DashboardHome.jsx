@@ -48,8 +48,7 @@ export default function DashboardHome() {
   const fetchStats = async () => {
     setIsLoading(true);
     try {
-      const [schedules, semesters, faculty, conflicts, curriculum] = await Promise.all([
-        api.get('/schedules').catch(() => []),
+      const [semesters, faculty, conflicts, curriculum] = await Promise.all([
         api.get('/semesters').catch(() => []),
         api.get('/professors').catch(() => []),
         api.get('/conflicts/count').catch((err) => {
@@ -60,12 +59,16 @@ export default function DashboardHome() {
       ]);
 
       const safeSemesters = Array.isArray(semesters) ? semesters : [];
-      const safeSchedules = Array.isArray(schedules) ? schedules : [];
       const safeFaculty = Array.isArray(faculty) ? faculty : [];
       const safeCurriculum = Array.isArray(curriculum) ? curriculum : [];
 
       const activeSem = safeSemesters.find((s) => s.is_active);
       setActiveSemester(activeSem || null);
+
+      const schedules = activeSem
+        ? await api.get('/schedules', { params: { semester_id: activeSem.id, limit: 1000 } }).catch(() => [])
+        : [];
+      const safeSchedules = Array.isArray(schedules) ? schedules : [];
 
       setSchedulesCount(safeSchedules.length);
       setConflictsCount(conflicts?.count ?? null);
@@ -111,9 +114,7 @@ export default function DashboardHome() {
         window.open(`${API_BASE}/schedules/export/excel?semester_id=${activeSemester.id}`, '_blank');
         addToast('Preparing schedule Excel spreadsheet.', 'success');
       } else if (action === 'resolve') {
-        await api.post('/ai-scheduler/resolve-conflicts', []);
-        addToast('Conflict resolution completed.', 'success');
-        fetchStats();
+        navigate('/dashboard/schedules?conflicts=open');
       }
     } catch {
       addToast('Action failed: the service is unavailable.', 'error');

@@ -93,10 +93,37 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
       const newFacId = newSchedule.faculty_id || newSchedule.teacherId;
       const existingFacId = existing.faculty_id || existing.teacherId;
 
-      const hasTeacherConflict = Boolean(newFacId && existingFacId && newFacId === existingFacId);
+      const hasTeacherConflict = Boolean(
+        newFacId && existingFacId && String(newFacId) === String(existingFacId)
+      );
 
       if (hasTeacherConflict) {
         conflicts.push({ type: 'Teacher', severity: 'blocking', with: existing });
+      }
+
+      // Same Program + Year Level student cohort overlap (advisory warning)
+      const newBlock = newSchedule.block_id;
+      const existingBlock = existing.block_id;
+      const newYear = String(newSchedule.year_level || '').trim().toUpperCase();
+      const existingYear = String(existing.year_level || '').trim().toUpperCase();
+      const newCurrId = newSchedule.curriculum_id || newSchedule.subject_id;
+      const existingCurrId = existing.curriculum_id;
+
+      if (
+        newBlock &&
+        existingBlock &&
+        String(newBlock) === String(existingBlock) &&
+        newYear &&
+        existingYear &&
+        newYear === existingYear &&
+        (!newCurrId || !existingCurrId || String(newCurrId) !== String(existingCurrId))
+      ) {
+        conflicts.push({
+          type: 'CohortOverlap',
+          severity: 'advisory',
+          with: existing,
+          message: `Same program & year level already has ${existing.subject_code || 'another class'} at this time on ${newDay}.`,
+        });
       }
     }
 
@@ -110,11 +137,11 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
       (newSchedule.curriculum_id && existing.curriculum_id && newSchedule.curriculum_id === existing.curriculum_id);
 
     if (isSameSubject) {
-      const isNewLab = newSchedule.part_type === 'lab' || newSchedule.type === 'lab' || String(newCode).toUpperCase().endsWith('B');
-      const isExistingLec = existing.part_type === 'lecture' || existing.type === 'lecture' || String(existingCode).toUpperCase().endsWith('A');
+      const isNewLab = newSchedule.part_type === 'lab' || newSchedule.type === 'lab' || newSchedule.curriculum_type === 'lab' || String(newCode).toUpperCase().endsWith('B');
+      const isExistingLec = existing.part_type === 'lecture' || existing.type === 'lecture' || existing.curriculum_type === 'lecture' || String(existingCode).toUpperCase().endsWith('A');
 
-      const isNewLec = newSchedule.part_type === 'lecture' || newSchedule.type === 'lecture' || String(newCode).toUpperCase().endsWith('A');
-      const isExistingLab = existing.part_type === 'lab' || existing.type === 'lab' || String(existingCode).toUpperCase().endsWith('B');
+      const isNewLec = newSchedule.part_type === 'lecture' || newSchedule.type === 'lecture' || newSchedule.curriculum_type === 'lecture' || String(newCode).toUpperCase().endsWith('A');
+      const isExistingLab = existing.part_type === 'lab' || existing.type === 'lab' || existing.curriculum_type === 'lab' || String(existingCode).toUpperCase().endsWith('B');
 
       const s1 = parseTimeToMinutes(start1);
       const e1 = parseTimeToMinutes(end1);
@@ -153,6 +180,10 @@ export const checkScheduleIntegrity = (schedules) => {
     
     const conflicts = schedules.filter(other => {
       if (other.id === item.id) return false;
+      // Never compare classes from different semesters against each other
+      if (item.semester_id != null && other.semester_id != null && item.semester_id !== other.semester_id) {
+        return false;
+      }
       const otherDay = other.day_of_week || other.dayOfWeek;
       if (!otherDay || !day || otherDay !== day) return false;
       
@@ -162,7 +193,7 @@ export const checkScheduleIntegrity = (schedules) => {
 
       const itemFacId = item.faculty_id || item.teacherId;
       const otherFacId = other.faculty_id || other.teacherId;
-      const teacherConflict = Boolean(itemFacId && otherFacId && itemFacId === otherFacId);
+      const teacherConflict = Boolean(itemFacId && otherFacId && String(itemFacId) === String(otherFacId));
 
       return teacherConflict;
     });

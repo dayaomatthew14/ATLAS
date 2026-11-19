@@ -17,7 +17,7 @@ def notify_faculty(
     """
     Send schedule notifications to all faculty members of the department.
     """
-    auth.require_roles(current_user, ('admin', 'program_chair', 'coordinator'))
+    auth.require_roles(current_user, ('admin', 'dean', 'program_chair', 'coordinator'))
 
     dept = auth.require_user_department(
         db, current_user, detail="Department not found", status_code=400
@@ -49,8 +49,12 @@ def notify_faculty(
         schedule_text = "Your schedule for the upcoming semester:\n\n"
         for s in schedules:
             curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == s.curriculum_id).first()
-            room = db.query(models.Room).filter(models.Room.id == s.room_id).first()
-            schedule_text += f"- {curriculum_item.name if curriculum_item else 'N/A'} ({s.section}): {s.day_of_week} {s.start_time.strftime('%I:%M %p')} - {s.end_time.strftime('%I:%M %p')} @ {room.name if room else 'N/A'}\n"
+            room = db.query(models.Room).filter(models.Room.id == s.room_id).first() if s.room_id else None
+            start_lbl = s.start_time.strftime('%I:%M %p') if s.start_time else 'TBA'
+            end_lbl = s.end_time.strftime('%I:%M %p') if s.end_time else 'TBA'
+            subj_label = f"{curriculum_item.code} - {curriculum_item.name}" if curriculum_item else 'N/A'
+            room_suffix = f" @ {room.name}" if room and room.name else ""
+            schedule_text += f"- {subj_label}: {s.day_of_week} {start_lbl} - {end_lbl}{room_suffix}\n"
             
         # Send email
         success_email = notifications.send_email_notification(
@@ -68,7 +72,11 @@ def notify_faculty(
         if success_email or success_sms:
             sent_count += 1
 
-    log_activity(db, current_user.id, "Notify Faculty", f"Sent schedule notifications to {sent_count} faculty members in {dept.name}")
+    log_activity(
+        db, current_user.id, "Notify Faculty",
+        f"Sent schedule notifications to {sent_count} faculty members in {dept.name}",
+        department_id=dept.id,
+    )
 
     return {
         "message": f"Notifications sent to {sent_count} faculty members",

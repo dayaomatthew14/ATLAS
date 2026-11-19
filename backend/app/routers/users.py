@@ -1,6 +1,7 @@
 import os
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from datetime import timedelta
+from fastapi import APIRouter, Depends, HTTPException, Response, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
@@ -100,8 +101,8 @@ def create_user(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['admin', 'dean', 'program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    if current_user.role not in ['admin', 'dean']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators and deans can create user accounts.")
         
     if current_user.department:
         if user.department != current_user.department:
@@ -130,9 +131,11 @@ def create_user(
     db.commit()
     db.refresh(new_user)
 
+    dept = auth.resolve_user_department(db, new_user) or auth.resolve_user_department(db, current_user)
     log_activity(
         db, current_user.id, "Create User",
         f"Created {new_user.role} account {new_user.email}", "success",
+        department_id=dept.id if dept else None,
     )
     return new_user
 
@@ -146,19 +149,45 @@ def update_user(
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
-    if current_user.department:
-        if db_user.department != current_user.department:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this user")
-        if user.role and user.role not in ['admin', 'program_chair']:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign this role")
-    elif current_user.role != 'admin' and current_user.id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
     update_data = user.model_dump(exclude_unset=True)
 
+    # Program chairs may only update their own basic profile fields (never role,
+    # department, verification, or another user's account).
+    if current_user.role not in ['admin', 'dean']:
+        if current_user.id != user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify other users.")
+        for forbidden_field in ('role', 'department', 'is_verified'):
+            if forbidden_field in update_data:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only administrators and deans can change account roles, department, or verification status."
+                )
+    elif current_user.department:
+        # College Dean (role='admin' or 'dean' with a college assigned):
+        # strictly scoped to their own college.
+        if db_user.department != current_user.department:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this user")
+        if db_user.id == current_user.id:
+            # Never let a College Dean accidentally wipe their own college or change their own role
+            if 'department' in update_data and update_data['department'] != current_user.department:
+                update_data['department'] = current_user.department
+            if 'role' in update_data and update_data['role'] != db_user.role:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You cannot change your own role."
+                )
+        else:
+            if 'role' in update_data and update_data['role'] not in ['program_chair']:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Deans can only assign the Program Chair role.")
+            if 'department' in update_data and update_data['department'] != current_user.department:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You cannot move users outside your college."
+                )
+
     # Department scoping is what every other permission check keys off, so
-    # reassigning it is an administrator action. A chair moving a user into
-    # another department would push that account out of their own reach.
+    # reassigning it is an administrator action.
     if 'department' in update_data and current_user.role != 'admin':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -223,17 +252,19 @@ def delete_user(
                 ),
             )
 
-    if current_user.role != 'admin':
+    if current_user.role not in ['admin', 'dean']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    if current_user.department and db_user.department and db_user.department != current_user.department:
+    if current_user.department and db_user.department != current_user.department:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
 
+    target_dept = auth.resolve_user_department(db, db_user) or auth.resolve_user_department(db, current_user)
     db.delete(db_user)
     db.commit()
     log_activity(
         db, current_user.id, "Delete User",
         f"Deleted account {db_user.email}", "success",
+        department_id=target_dept.id if target_dept else None,
     )
     return None
 
@@ -265,12 +296,15 @@ async def upload_profile_picture(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role != 'admin' and current_user.id != user_id:
+    if current_user.role not in ['admin', 'dean'] and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
         
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if current_user.id != user_id and current_user.department and db_user.department != current_user.department:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify users outside your department")
         
     # The extension comes from a client-controlled filename, so it is matched
     # against an allow-list rather than trusted. Taking it verbatim allowed
@@ -318,6 +352,7 @@ async def upload_profile_picture(
 @router.post("/change-password")
 def change_password(
     payload: schemas.ChangePassword,
+    response: Response,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -327,11 +362,25 @@ def change_password(
             detail="Incorrect current password"
         )
     setattr(current_user, 'password_hash', auth.get_password_hash(payload.new_password))
-    # Invalidate tokens issued before the change, matching what reset-password
-    # already did. Without this a stolen token outlived the password it came from.
-    current_user.session_version += 1  # type: ignore
+    # Invalidate tokens issued before the change, then re-issue a fresh cookie
+    # for THIS device so the caller stays signed in while other devices log out.
+    current_user.session_version = (current_user.session_version or 1) + 1  # type: ignore
     db.commit()
-    return {"msg": "Password updated successfully. Please sign in again on your other devices."}
+    db.refresh(current_user)
+
+    access_token = auth.create_access_token(
+        data={"sub": current_user.email, "sv": current_user.session_version},
+        expires_delta=timedelta(hours=auth.ACCESS_TOKEN_EXPIRE_MINUTES / 60),
+    )
+    is_prod = os.getenv("ENV") == "production"
+    response.set_cookie(
+        key="atlas_token",
+        value=access_token,
+        httponly=True,
+        secure=True if is_prod else False,
+        samesite="none" if is_prod else "lax",
+    )
+    return {"msg": "Password updated successfully. Other devices have been signed out."}
 
 """
 `purge-all-users` was registered here on both POST and DELETE. It ran
@@ -383,9 +432,11 @@ def admin_reset_password(
     db_user.session_version = (db_user.session_version or 1) + 1  # type: ignore
     db.commit()
 
+    target_dept = auth.resolve_user_department(db, db_user) or auth.resolve_user_department(db, current_user)
     log_activity(
         db, current_user.id, "Reset Password",
         f"Issued a temporary password for {db_user.email}", "success",
+        department_id=target_dept.id if target_dept else None,
     )
     return {
         "temporary_password": temporary,

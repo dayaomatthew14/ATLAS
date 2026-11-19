@@ -79,6 +79,39 @@ FOUR_HOUR_SINGLE_SLOTS = [
     (time(15, 30), time(19, 30)),
 ]
 
+# Converted Tutorial (CT) lunch-safe slot grids (1h, 1.5h, 3h)
+SIXTY_MIN_SLOTS = [
+    (time(7, 30), time(8, 30)),
+    (time(8, 30), time(9, 30)),
+    (time(9, 30), time(10, 30)),
+    (time(10, 30), time(11, 30)),
+    (time(11, 0), time(12, 0)),
+    (time(13, 0), time(14, 0)),
+    (time(14, 0), time(15, 0)),
+    (time(15, 0), time(16, 0)),
+    (time(16, 0), time(17, 0)),
+    (time(17, 0), time(18, 0)),
+    (time(18, 0), time(19, 0)),
+]
+
+NINETY_MIN_SLOTS = [
+    (time(7, 30), time(9, 0)),
+    (time(9, 0), time(10, 30)),
+    (time(10, 30), time(12, 0)),
+    (time(13, 0), time(14, 30)),
+    (time(14, 30), time(16, 0)),
+    (time(16, 0), time(17, 30)),
+    (time(17, 30), time(19, 0)),
+]
+
+THREE_HOUR_SLOTS = [
+    (time(7, 30), time(10, 30)),
+    (time(9, 0), time(12, 0)),
+    (time(13, 0), time(16, 0)),
+    (time(14, 30), time(17, 30)),
+    (time(16, 0), time(19, 0)),
+]
+
 LECTURE_GRIDS_BY_PATTERN = {
     1.33: STANDARD_LECTURE_SLOTS,
     2.67: STANDARD_LECTURE_SLOTS,
@@ -177,6 +210,60 @@ def is_room_conflict(room_id, day1, day2, start_t, end_t, all_scheds):
     return False
 
 
+def _cohort_key(curriculum) -> Optional[Tuple[str, Any, str]]:
+    """
+    Identify a student cohort by (block_id or program_code, year_level) so two
+    mandatory subjects for the same Program & Year Level are never scheduled at
+    overlapping times even when taught by different professors.
+    """
+    if curriculum is None:
+        return None
+    year_val = str(getattr(curriculum, "year_level", "") or "").strip().lower()
+    if not year_val:
+        return None
+    block_id = getattr(curriculum, "block_id", None)
+    if block_id is not None:
+        return ("block", block_id, year_val)
+    prog = str(getattr(curriculum, "program_code", "") or "").strip().upper()
+    if prog:
+        return ("prog", prog, year_val)
+    return None
+
+
+def is_cohort_conflict(
+    curriculum_id: Any,
+    days: Tuple[str, ...],
+    start_t: time,
+    end_t: time,
+    all_scheds: List[models.Schedule],
+    cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None,
+) -> bool:
+    if not cohort_by_curr_id or curriculum_id not in cohort_by_curr_id:
+        return False
+    target_cohort = cohort_by_curr_id[curriculum_id]
+    for s in all_scheds:
+        if s.day_of_week in days and s.curriculum_id != curriculum_id:
+            if cohort_by_curr_id.get(s.curriculum_id) == target_cohort:
+                if s.start_time and s.end_time and check_overlap(start_t, end_t, s.start_time, s.end_time):
+                    return True
+    return False
+
+
+def _violates_after_order(
+    days: Tuple[str, ...],
+    start_t: time,
+    after_schedules: Optional[List[models.Schedule]] = None,
+) -> bool:
+    """Ensure a paired Lab never starts before its Lecture ends on a shared day."""
+    if not after_schedules:
+        return False
+    for lec in after_schedules:
+        if lec.day_of_week in days and lec.end_time is not None:
+            if start_t < lec.end_time:
+                return True
+    return False
+
+
 def is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_scheds):
     for s in all_scheds:
         if s.faculty_id == faculty_id and s.day_of_week in (day1, day2):
@@ -260,7 +347,7 @@ def _calculate_workload_warnings(
             "overload_hours": over_by,
             "subject_code": c.code,
             "part_type": part_type,
-            "overload_approved": True,
+            "overload_approved": overload_approved,
             "requires_dean_approval": False,
             "message": (
                 f"Faculty '{fac_name}' ({emp_label}) exceeds the {required_hours} hrs/week limit: "
@@ -296,7 +383,7 @@ def _calculate_workload_warnings(
                 "overload_hours": over_by,
                 "subject_code": c.code,
                 "part_type": part_type,
-                "overload_approved": True,
+                "overload_approved": overload_approved,
                 "requires_dean_approval": False,
                 "message": (
                     f"Faculty '{fac_name}' (Part-Time) reaches "
@@ -317,19 +404,25 @@ def _place_lecture_slot(
     slots: List[Tuple[time, time]],
     all_unavails: List[models.FacultyUnavailability],
     all_schedules: List[models.Schedule],
+    cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None,
+    after_schedules: Optional[List[models.Schedule]] = None,
 ) -> Optional[Tuple[models.Schedule, models.Schedule]]:
     """
     Attempt to find an unconflicted day-pair and timeslot for a 2-meeting lecture.
-    Enforces the Mon-Fri 12:00 PM - 01:00 PM lunch break.
+    Enforces the Mon-Fri 12:00 PM - 01:00 PM lunch break and Program+Year cohort separation.
     """
     for days_pair in day_pairs_to_try:
         day1, day2 = days_pair[0], days_pair[1]
         for start_t, end_t in slots:
             if is_lunch_break_conflict_pair(day1, day2, start_t, end_t):
                 continue
+            if _violates_after_order((day1, day2), start_t, after_schedules):
+                continue
             if is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
                 continue
             if is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_schedules):
+                continue
+            if is_cohort_conflict(curriculum_id, (day1, day2), start_t, end_t, all_schedules, cohort_by_curr_id):
                 continue
 
             sched1 = models.Schedule(
@@ -367,19 +460,25 @@ def _place_lab_slot(
     rooms_by_type: Dict[str, List[models.Room]],
     all_unavails: List[models.FacultyUnavailability],
     all_schedules: List[models.Schedule],
+    cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None,
+    after_schedules: Optional[List[models.Schedule]] = None,
 ) -> Optional[Tuple[models.Schedule, models.Schedule]]:
     """
     Attempt to place a 2-meeting lab slot on a day pair.
-    Enforces the Mon-Fri 12:00 PM - 01:00 PM lunch break.
+    Enforces the Mon-Fri 12:00 PM - 01:00 PM lunch break and Program+Year cohort separation.
     """
     for days_pair in day_pairs_to_try:
         day1, day2 = days_pair[0], days_pair[1]
         for start_t, end_t in slots:
             if is_lunch_break_conflict_pair(day1, day2, start_t, end_t):
                 continue
+            if _violates_after_order((day1, day2), start_t, after_schedules):
+                continue
             if is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
                 continue
             if is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_schedules):
+                continue
+            if is_cohort_conflict(curriculum_id, (day1, day2), start_t, end_t, all_schedules, cohort_by_curr_id):
                 continue
 
             sched1 = models.Schedule(
@@ -416,19 +515,25 @@ def _place_single_4hr_slot(
     slots: List[Tuple[time, time]],
     all_unavails: List[models.FacultyUnavailability],
     all_schedules: List[models.Schedule],
+    cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None,
+    after_schedules: Optional[List[models.Schedule]] = None,
 ) -> Optional[models.Schedule]:
     """
     Attempt to place a single-day session on one available day (used for 4-hour Combined 'C'
-    blocks and 1-unit 80-minute single-session lectures).
-    Enforces the Mon-Fri 12:00 PM - 01:00 PM lunch break.
+    blocks, 1-unit 80-minute single-session lectures, and CT single sessions).
+    Enforces the Mon-Fri 12:00 PM - 01:00 PM lunch break and Program+Year cohort separation.
     """
     for day in days_to_try:
         for start_t, end_t in slots:
             if is_lunch_break_conflict(day, start_t, end_t):
                 continue
+            if _violates_after_order((day,), start_t, after_schedules):
+                continue
             if is_prof_unavail_single(faculty_id, day, start_t, end_t, all_unavails):
                 continue
             if is_prof_conflict_single(faculty_id, day, start_t, end_t, all_schedules):
+                continue
+            if is_cohort_conflict(curriculum_id, (day,), start_t, end_t, all_schedules, cohort_by_curr_id):
                 continue
             return models.Schedule(
                 semester_id=semester_id,
@@ -465,13 +570,14 @@ def _place_consecutive_lec_lab_slot(
     rooms_by_type: Dict[str, List[models.Room]],
     all_unavails: List[models.FacultyUnavailability],
     all_schedules: List[models.Schedule],
+    cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None,
 ) -> Optional[Tuple[models.Schedule, models.Schedule, models.Schedule, models.Schedule]]:
     """
     Attempt to place a consecutive lecture and laboratory session on the same day pair:
     1. Lecture scheduled first, followed by laboratory on the same day (lec_end <= lab_start).
     2. Prioritized by lecture start time and minimal gap between Lecture and Lab.
     3. Neither session may overlap the Mon-Fri 12:00 PM - 01:00 PM lunch break or any
-       existing scheduled class/unavailability.
+       existing scheduled class/unavailability or same-cohort class.
     """
     candidate_pairs = []
     for l_start, l_end in lecture_slots:
@@ -497,6 +603,10 @@ def _place_consecutive_lec_lab_slot(
             if is_prof_conflict(faculty_id, day1, day2, l_start, l_end, all_schedules):
                 continue
             if is_prof_conflict(faculty_id, day1, day2, b_start, b_end, all_schedules):
+                continue
+            if is_cohort_conflict(lec_curriculum_id, (day1, day2), l_start, l_end, all_schedules, cohort_by_curr_id):
+                continue
+            if is_cohort_conflict(lab_curriculum_id, (day1, day2), b_start, b_end, all_schedules, cohort_by_curr_id):
                 continue
 
             lec_sched1 = models.Schedule(
@@ -578,11 +688,19 @@ def generate_schedules(
             db.query(models.Schedule).filter(models.Schedule.id.in_(draft_ids)).delete(synchronize_session=False)
             db.commit()
 
-        db.query(models.Conflict).filter(
-            models.Conflict.faculty_id.in_(faculty_ids),
-            models.Conflict.resolved_at == None
-        ).delete(synchronize_session=False)
-        db.commit()
+        # Scope conflict cleanup to this department's curricula and this semester's schedules
+        dept_curr_ids = [
+            cid for (cid,) in db.query(models.Curriculum.id).filter(
+                models.Curriculum.department_id == department_id
+            ).all()
+        ]
+        if dept_curr_ids:
+            db.query(models.Conflict).filter(
+                models.Conflict.faculty_id.in_(faculty_ids),
+                models.Conflict.curriculum_id.in_(dept_curr_ids),
+                models.Conflict.resolved_at == None,
+            ).delete(synchronize_session=False)
+            db.commit()
 
     subject_offerings = db.query(models.SubjectOffering).join(models.Curriculum).filter(
         models.Curriculum.department_id == department_id,
@@ -622,6 +740,22 @@ def generate_schedules(
         if s.faculty_id and s.curriculum_id:
             scheduled_offerings.add((cast(int, s.faculty_id), s.curriculum_id))
 
+    # Build Program + Year Level cohort map so two courses for the same cohort never clash
+    cohort_by_curr_id: Dict[Any, Tuple[str, Any, str]] = {}
+    all_dept_currs = db.query(models.Curriculum).filter(
+        models.Curriculum.department_id == department_id
+    ).all()
+    for dc in all_dept_currs:
+        ck = _cohort_key(dc)
+        if ck is not None:
+            cohort_by_curr_id[dc.id] = ck
+    extra_sched_cids = {s.curriculum_id for s in all_schedules if s.curriculum_id and s.curriculum_id not in cohort_by_curr_id}
+    if extra_sched_cids:
+        for ec in db.query(models.Curriculum).filter(models.Curriculum.id.in_(extra_sched_cids)).all():
+            ck = _cohort_key(ec)
+            if ck is not None:
+                cohort_by_curr_id[ec.id] = ck
+
     offerings_by_faculty: Dict[int, List[models.SubjectOffering]] = {}
     for off in subject_offerings:
         if off.faculty_id is None:
@@ -632,9 +766,8 @@ def generate_schedules(
         c = db.query(models.Curriculum).filter(models.Curriculum.id == off.curriculum_id).first()
         if not c:
             continue
-        if c.code and str(c.code).startswith('GE'):
-            skipped_gened += 1
-            continue
+        # Explicitly assigned offerings (including assigned GenEd) are scheduled;
+        # only skip rows that are already plotted.
         if (pid, c.id) in scheduled_offerings:
             continue
         offerings_by_faculty.setdefault(pid, []).append(off)
@@ -706,9 +839,12 @@ def generate_schedules(
                         used_off_ids.add(off2.id)
                         break
 
-        # Step 4b: Schedule genuine Combined 'C' subjects (240 minutes = 4 hours/week)
+        # Step 4b: Schedule genuine Combined 'C' subjects (Regular 240m or CT-adjusted)
         for off_c, c_comb in combined_items:
-            proposed_hours = faculty_load.subject_required_hours(c_comb)
+            enrolled_c = getattr(off_c, 'enrolled_students', None)
+            is_ct_c = faculty_load.is_ct_tier(enrolled_students=enrolled_c)
+            target_mins_c = faculty_load.subject_required_minutes(c_comb, enrolled_students=enrolled_c)
+            proposed_hours = faculty_load.round_hours(target_mins_c / 60.0)
             warn_c, conf_c = _calculate_workload_warnings(
                 semester=semester, f_obj=f_obj, pid=pid, c=c_comb, part_type='combined',
                 proposed_hours_total=proposed_hours, current_hours=faculty_hours_used[pid]
@@ -718,6 +854,40 @@ def generate_schedules(
             if conf_c:
                 pending_conflicts.append(conf_c)
 
+            if is_ct_c:
+                ct_placed = _place_ct_sessions(
+                    semester_id=semester_id,
+                    curriculum_id=c_comb.id,
+                    faculty_id=pid,
+                    target_minutes=target_mins_c,
+                    enrolled_students=enrolled_c,
+                    credited_hours=proposed_hours,
+                    is_lab=False,
+                    is_combined=True,
+                    all_unavails=all_unavails,
+                    all_schedules=all_schedules,
+                    cohort_by_curr_id=cohort_by_curr_id,
+                )
+                if ct_placed:
+                    pending_schedules.extend(ct_placed)
+                    all_schedules.extend(ct_placed)
+                    scheduled_offerings.add((pid, c_comb.id))
+                    faculty_hours_used[pid] += proposed_hours
+                    generated_count += len(ct_placed)
+                else:
+                    reason_msg = f"{c_comb.code} (CT) could not be scheduled due to faculty availability or schedule conflict."
+                    pending_conflicts.append(
+                        models.Conflict(
+                            faculty_id=pid, curriculum_id=c_comb.id, conflict_type="unplaced_combined",
+                            reason=reason_msg
+                        )
+                    )
+                    unplaced.append({
+                        "faculty": pid, "curriculum_id": c_comb.id, "subject": c_comb.code,
+                        "part_type": "combined", "reason": reason_msg
+                    })
+                continue
+
             placed = _place_single_4hr_slot(
                 semester_id=semester_id,
                 curriculum_id=c_comb.id,
@@ -725,7 +895,8 @@ def generate_schedules(
                 days_to_try=SINGLE_DAYS_ORDER,
                 slots=FOUR_HOUR_SINGLE_SLOTS,
                 all_unavails=all_unavails,
-                all_schedules=all_schedules
+                all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
             )
             if placed:
                 pending_schedules.append(placed)
@@ -743,6 +914,7 @@ def generate_schedules(
                     slots=TWO_HOUR_LECTURE_SLOTS,
                     all_unavails=all_unavails,
                     all_schedules=all_schedules,
+                    cohort_by_curr_id=cohort_by_curr_id,
                 )
                 if placed_pair:
                     s1, s2 = placed_pair
@@ -771,6 +943,7 @@ def generate_schedules(
             pending_schedules=pending_schedules, pending_conflicts=pending_conflicts,
             scheduled_offerings=scheduled_offerings, faculty_hours_used=faculty_hours_used,
             bumped_warnings=bumped_warnings, unplaced=unplaced,
+            cohort_by_curr_id=cohort_by_curr_id,
         )
 
         # Step 4d: Standalone offerings (Lecture A only or Lab B only)
@@ -781,6 +954,7 @@ def generate_schedules(
             pending_schedules=pending_schedules, pending_conflicts=pending_conflicts,
             scheduled_offerings=scheduled_offerings, faculty_hours_used=faculty_hours_used,
             bumped_warnings=bumped_warnings, unplaced=unplaced,
+            cohort_by_curr_id=cohort_by_curr_id,
         )
 
     return _commit_generation_results(
@@ -790,14 +964,277 @@ def generate_schedules(
     )
 
 
+def _stamp_ct_metadata(
+    scheds: List[models.Schedule],
+    enrolled_students: Optional[int],
+    credited_hours: Optional[float],
+) -> List[models.Schedule]:
+    if enrolled_students is not None:
+        for s in scheds:
+            setattr(s, "enrolled_students", enrolled_students)
+            setattr(s, "credited_hours_override", credited_hours)
+    return scheds
+
+
+def _place_ct_sessions(
+    *,
+    semester_id: int,
+    curriculum_id: int,
+    faculty_id: int,
+    target_minutes: int,
+    enrolled_students: Optional[int],
+    credited_hours: float,
+    is_lab: bool,
+    is_combined: bool,
+    all_unavails: List[models.FacultyUnavailability],
+    all_schedules: List[models.Schedule],
+    cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None,
+    after_schedules: Optional[List[models.Schedule]] = None,
+) -> Optional[List[models.Schedule]]:
+    """
+    Place lunch-safe weekly sessions matching exact Converted Tutorial (CT) minutes:
+      60m  (1.0h) -> 1 x 60m
+      90m  (1.5h) -> 1 x 90m
+      120m (2.0h) -> 1 x 120m (fallback: 2 x 60m)
+      180m (3.0h) -> 2 x 90m  (fallback: 1 x 180m)
+      240m (4.0h) -> 1 x 240m if combined else 2 x 120m
+      360m (6.0h) -> 2 x 180m
+    """
+    day_pairs = [TTH_PAIR, MW_PAIR, FS_PAIR] if is_lab else [MW_PAIR, TTH_PAIR, FS_PAIR]
+    single_days = SINGLE_DAYS_ORDER if is_combined else ['Mon', 'Wed', 'Tue', 'Thu', 'Fri', 'Sat']
+
+    # If paired with a Lecture (after_schedules), prioritize the Lecture's own day(s) first
+    if after_schedules:
+        lec_days = [s.day_of_week for s in after_schedules if s.day_of_week]
+        if lec_days:
+            prioritized_single = list(dict.fromkeys(lec_days + single_days))
+            single_days = prioritized_single
+            lec_day_set = set(lec_days)
+            matching_pairs = [p for p in [MW_PAIR, TTH_PAIR, FS_PAIR] if lec_day_set.issubset(set(p))]
+            if matching_pairs:
+                day_pairs = matching_pairs + [p for p in day_pairs if p not in matching_pairs]
+
+    if target_minutes <= 60:
+        s = _place_single_4hr_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            days_to_try=single_days, slots=SIXTY_MIN_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        return _stamp_ct_metadata([s], enrolled_students, credited_hours) if s else None
+
+    if target_minutes <= 90:
+        s = _place_single_4hr_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            days_to_try=single_days, slots=NINETY_MIN_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        return _stamp_ct_metadata([s], enrolled_students, credited_hours) if s else None
+
+    if target_minutes <= 120:
+        s = _place_single_4hr_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            days_to_try=single_days, slots=TWO_HOUR_LECTURE_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        if s:
+            return _stamp_ct_metadata([s], enrolled_students, credited_hours)
+        pair = _place_lecture_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            day_pairs_to_try=day_pairs, slots=SIXTY_MIN_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        return _stamp_ct_metadata(list(pair), enrolled_students, credited_hours) if pair else None
+
+    if target_minutes <= 180:
+        pair = _place_lecture_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            day_pairs_to_try=day_pairs, slots=NINETY_MIN_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        if pair:
+            return _stamp_ct_metadata(list(pair), enrolled_students, credited_hours)
+        s = _place_single_4hr_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            days_to_try=single_days, slots=THREE_HOUR_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        return _stamp_ct_metadata([s], enrolled_students, credited_hours) if s else None
+
+    if target_minutes <= 240:
+        if is_combined:
+            s = _place_single_4hr_slot(
+                semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+                days_to_try=single_days, slots=FOUR_HOUR_SINGLE_SLOTS,
+                all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+            )
+            if s:
+                return _stamp_ct_metadata([s], enrolled_students, credited_hours)
+        pair = _place_lecture_slot(
+            semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+            day_pairs_to_try=day_pairs, slots=TWO_HOUR_LECTURE_SLOTS,
+            all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+        )
+        return _stamp_ct_metadata(list(pair), enrolled_students, credited_hours) if pair else None
+
+    # 360m (6h) -> 2 x 3h
+    pair = _place_lecture_slot(
+        semester_id=semester_id, curriculum_id=curriculum_id, faculty_id=faculty_id,
+        day_pairs_to_try=day_pairs, slots=THREE_HOUR_SLOTS,
+        all_unavails=all_unavails, all_schedules=all_schedules,
+        cohort_by_curr_id=cohort_by_curr_id, after_schedules=after_schedules,
+    )
+    return _stamp_ct_metadata(list(pair), enrolled_students, credited_hours) if pair else None
+
+
 def _schedule_paired_offerings(
     *, paired_items, semester, semester_id, f_obj, pid, rooms_by_type,
     all_unavails, all_schedules, pending_schedules, pending_conflicts,
     scheduled_offerings, faculty_hours_used, bumped_warnings, unplaced,
+    cohort_by_curr_id=None,
 ) -> int:
     """Place consecutive lecture+lab pairs on shared day pairs, returning count of created slots."""
     added = 0
     for _kind, _off_l, _off_b, c_lec, c_lab in paired_items:
+        enrolled_l = getattr(_off_l, 'enrolled_students', None)
+        enrolled_b = getattr(_off_b, 'enrolled_students', None)
+        is_ct_pair = (
+            faculty_load.is_ct_tier(enrolled_students=enrolled_l)
+            or faculty_load.is_ct_tier(enrolled_students=enrolled_b)
+        )
+
+        if is_ct_pair:
+            lec_tier = faculty_load.normalise_ct_tier(enrolled_students=enrolled_l)
+            lab_tier = faculty_load.normalise_ct_tier(enrolled_students=enrolled_b)
+            lec_mins = faculty_load.lecture_minutes_for_units(effective_lecture_units(c_lec), ct_tier=lec_tier)
+            lab_mins = faculty_load.lab_minutes_for_units(effective_lab_units(c_lab), ct_tier=lab_tier)
+            lec_hours = faculty_load.round_hours(lec_mins / 60.0)
+            lab_hours = faculty_load.round_hours(lab_mins / 60.0)
+
+            warn_l, conf_l = _calculate_workload_warnings(
+                semester=semester, f_obj=f_obj, pid=pid, c=c_lec, part_type='lecture',
+                proposed_hours_total=lec_hours, current_hours=faculty_hours_used[pid],
+            )
+            if warn_l:
+                bumped_warnings.append(warn_l)
+            if conf_l:
+                pending_conflicts.append(conf_l)
+
+            warn_b, conf_b = _calculate_workload_warnings(
+                semester=semester, f_obj=f_obj, pid=pid, c=c_lab, part_type='lab',
+                proposed_hours_total=lab_hours, current_hours=faculty_hours_used[pid] + lec_hours,
+            )
+            if warn_b:
+                bumped_warnings.append(warn_b)
+            if conf_b:
+                pending_conflicts.append(conf_b)
+
+            placed_l = _place_ct_sessions(
+                semester_id=semester_id, curriculum_id=c_lec.id, faculty_id=pid,
+                target_minutes=lec_mins, enrolled_students=enrolled_l, credited_hours=lec_hours,
+                is_lab=False, is_combined=False, all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
+            )
+            if placed_l:
+                pending_schedules.extend(placed_l)
+                all_schedules.extend(placed_l)
+                scheduled_offerings.add((pid, c_lec.id))
+                faculty_hours_used[pid] += lec_hours
+                added += len(placed_l)
+            else:
+                reason_msg = f"{c_lec.code} (CT) could not be scheduled due to faculty availability or schedule conflict."
+                pending_conflicts.append(models.Conflict(faculty_id=pid, curriculum_id=c_lec.id, conflict_type="unplaced_lecture", reason=reason_msg))
+                unplaced.append({"faculty": pid, "curriculum_id": c_lec.id, "subject": c_lec.code, "part_type": "lecture", "reason": reason_msg})
+
+            placed_b = _place_ct_sessions(
+                semester_id=semester_id, curriculum_id=c_lab.id, faculty_id=pid,
+                target_minutes=lab_mins, enrolled_students=enrolled_b, credited_hours=lab_hours,
+                is_lab=True, is_combined=False, all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id, after_schedules=placed_l,
+            )
+            if placed_b:
+                pending_schedules.extend(placed_b)
+                all_schedules.extend(placed_b)
+                scheduled_offerings.add((pid, c_lab.id))
+                faculty_hours_used[pid] += lab_hours
+                added += len(placed_b)
+            else:
+                reason_msg = f"{c_lab.code} (CT) could not be scheduled due to faculty availability or schedule conflict."
+                pending_conflicts.append(models.Conflict(faculty_id=pid, curriculum_id=c_lab.id, conflict_type="unplaced_lab", reason=reason_msg))
+                unplaced.append({"faculty": pid, "curriculum_id": c_lab.id, "subject": c_lab.code, "part_type": "lab", "reason": reason_msg})
+            continue
+
+        # 1-unit Lecture (80m = 1 single meeting) paired with Lab:
+        # Place 1 lecture session (80m), then place the Lab after Lecture on any shared day.
+        if faculty_load.subject_required_minutes(c_lec) == 80:
+            lec_slots = lecture_slots_for(c_lec)
+            b_slots = lab_slots_for(c_lab)
+            lec_hours = faculty_load.round_hours(80.0 / 60.0)
+            lab_hours = get_duration_hours(b_slots[0][0], b_slots[0][1]) * 2
+
+            warn_l, conf_l = _calculate_workload_warnings(
+                semester=semester, f_obj=f_obj, pid=pid, c=c_lec, part_type='lecture',
+                proposed_hours_total=lec_hours, current_hours=faculty_hours_used[pid],
+            )
+            if warn_l:
+                bumped_warnings.append(warn_l)
+            if conf_l:
+                pending_conflicts.append(conf_l)
+
+            warn_b, conf_b = _calculate_workload_warnings(
+                semester=semester, f_obj=f_obj, pid=pid, c=c_lab, part_type='lab',
+                proposed_hours_total=lab_hours, current_hours=faculty_hours_used[pid] + lec_hours,
+            )
+            if warn_b:
+                bumped_warnings.append(warn_b)
+            if conf_b:
+                pending_conflicts.append(conf_b)
+
+            placed_l = _place_single_4hr_slot(
+                semester_id=semester_id, curriculum_id=c_lec.id, faculty_id=pid,
+                days_to_try=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                slots=lec_slots, all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
+            )
+            if placed_l:
+                pending_schedules.append(placed_l)
+                all_schedules.append(placed_l)
+                scheduled_offerings.add((pid, c_lec.id))
+                faculty_hours_used[pid] += lec_hours
+                added += 1
+            else:
+                reason_msg = f"{c_lec.code} could not be scheduled due to faculty availability or schedule conflict."
+                pending_conflicts.append(models.Conflict(faculty_id=pid, curriculum_id=c_lec.id, conflict_type="unplaced_lecture", reason=reason_msg))
+                unplaced.append({"faculty": pid, "curriculum_id": c_lec.id, "subject": c_lec.code, "part_type": "lecture", "reason": reason_msg})
+
+            placed_b = _place_lab_slot(
+                semester_id=semester_id, curriculum_id=c_lab.id, faculty_id=pid,
+                day_pairs_to_try=[MW_PAIR, TTH_PAIR, FS_PAIR],
+                slots=b_slots, rooms_by_type=rooms_by_type,
+                all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
+                after_schedules=[placed_l] if placed_l else None,
+            )
+            if placed_b:
+                s1, s2 = placed_b
+                pending_schedules.extend([s1, s2])
+                all_schedules.extend([s1, s2])
+                scheduled_offerings.add((pid, c_lab.id))
+                faculty_hours_used[pid] += lab_hours
+                added += 2
+            else:
+                reason_msg = f"{c_lab.code} could not be scheduled due to faculty availability or schedule conflict."
+                pending_conflicts.append(models.Conflict(faculty_id=pid, curriculum_id=c_lab.id, conflict_type="unplaced_lab", reason=reason_msg))
+                unplaced.append({"faculty": pid, "curriculum_id": c_lab.id, "subject": c_lab.code, "part_type": "lab", "reason": reason_msg})
+            continue
+
         lec_slots = lecture_slots_for(c_lec)
         b_slots = lab_slots_for(c_lab)
         lec_hours = get_duration_hours(lec_slots[0][0], lec_slots[0][1]) * 2
@@ -826,6 +1263,7 @@ def _schedule_paired_offerings(
             faculty_id=pid, day_pairs_to_try=[MW_PAIR, TTH_PAIR, FS_PAIR],
             lecture_slots=lec_slots, lab_slots=b_slots, rooms_by_type=rooms_by_type,
             all_unavails=all_unavails, all_schedules=all_schedules,
+            cohort_by_curr_id=cohort_by_curr_id,
         )
         if placed:
             s1, s2, s3, s4 = placed
@@ -854,6 +1292,7 @@ def _schedule_standalone_offerings(
     *, offs, used_off_ids, off_currs, semester, semester_id, f_obj, pid,
     rooms_by_type, all_unavails, all_schedules, pending_schedules, pending_conflicts,
     scheduled_offerings, faculty_hours_used, bumped_warnings, unplaced,
+    cohort_by_curr_id=None,
 ) -> int:
     """Place remaining standalone lecture or lab offerings, returning count of created slots."""
     added = 0
@@ -866,6 +1305,45 @@ def _schedule_standalone_offerings(
 
         is_lab = faculty_load.is_lab_b_subject(c)
         part_type = 'lab' if is_lab else 'lecture'
+
+        enrolled = getattr(off, 'enrolled_students', None)
+        if faculty_load.is_ct_tier(enrolled_students=enrolled):
+            ct_mins = faculty_load.subject_required_minutes(c, enrolled_students=enrolled)
+            proposed_hours_total = faculty_load.round_hours(ct_mins / 60.0)
+            warn, conf = _calculate_workload_warnings(
+                semester=semester, f_obj=f_obj, pid=pid, c=c, part_type=part_type,
+                proposed_hours_total=proposed_hours_total, current_hours=faculty_hours_used[pid],
+            )
+            if warn:
+                bumped_warnings.append(warn)
+            if conf:
+                pending_conflicts.append(conf)
+
+            ct_placed = _place_ct_sessions(
+                semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
+                target_minutes=ct_mins, enrolled_students=enrolled, credited_hours=proposed_hours_total,
+                is_lab=is_lab, is_combined=False, all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
+            )
+            if ct_placed:
+                pending_schedules.extend(ct_placed)
+                all_schedules.extend(ct_placed)
+                scheduled_offerings.add((pid, c.id))
+                faculty_hours_used[pid] += proposed_hours_total
+                added += len(ct_placed)
+            else:
+                reason_msg = f"{c.code} (CT) could not be scheduled due to faculty availability or schedule conflict."
+                pending_conflicts.append(
+                    models.Conflict(
+                        faculty_id=pid, curriculum_id=c.id, conflict_type=f"unplaced_{part_type}",
+                        reason=reason_msg,
+                    )
+                )
+                unplaced.append({
+                    "faculty": pid, "curriculum_id": c.id, "subject": c.code,
+                    "part_type": part_type, "reason": reason_msg,
+                })
+            continue
 
         # 1-unit standalone Lecture (A): 1 meeting of 80 minutes per week (80 min total)
         if not is_lab and effective_lecture_units(c) == 1:
@@ -887,6 +1365,7 @@ def _schedule_standalone_offerings(
                 slots=STANDARD_LECTURE_SLOTS,
                 all_unavails=all_unavails,
                 all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
             )
             if placed_single:
                 pending_schedules.append(placed_single)
@@ -926,12 +1405,14 @@ def _schedule_standalone_offerings(
                 semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
                 day_pairs_to_try=day_pairs_to_try, slots=slots,
                 all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
             )
         else:
             placed_pair = _place_lab_slot(
                 semester_id=semester_id, curriculum_id=c.id, faculty_id=pid,
                 day_pairs_to_try=day_pairs_to_try, slots=slots,
                 rooms_by_type=rooms_by_type, all_unavails=all_unavails, all_schedules=all_schedules,
+                cohort_by_curr_id=cohort_by_curr_id,
             )
 
         if placed_pair:

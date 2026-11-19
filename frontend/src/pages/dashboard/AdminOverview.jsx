@@ -261,7 +261,10 @@ export default function AdminOverview() {
               const pct = progs.length > 0 ? Math.round((readyCount / progs.length) * 100) : 0;
               const isComplete = progs.length > 0 && readyCount === progs.length;
               const collegeFaculty = faculty.filter(
-                (f) => f.department === c.code || f.department === c.name
+                (f) =>
+                  (f.department_id != null && c.id != null && Number(f.department_id) === Number(c.id)) ||
+                  f.department === c.code ||
+                  f.department === c.name
               );
 
               return (

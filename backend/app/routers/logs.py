@@ -56,12 +56,17 @@ def create_log(
     if log.user_id and current_user.role == 'admin':
         attributed_user_id = log.user_id
 
+    valid_statuses = {'success', 'warning', 'error'}
+    log_status = (log.status or 'success').strip().lower()
+    if log_status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Log status must be 'success', 'warning', or 'error'.")
+
     db_log = models.SystemLog(
         user_id=attributed_user_id,
         department_id=log.department_id,
         action=log.action,
         details=log.details,
-        status=log.status
+        status=log_status
     )
     db.add(db_log)
     db.commit()
@@ -86,10 +91,23 @@ def clear_logs(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     """
-    Clear all system logs.
+    Clear system logs strictly within the caller's college scope.
+    College Deans only purge their own college's logs, never other colleges.
     """
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="System audit log purging is restricted to administrators.")
-    db.query(models.SystemLog).delete()
+    if current_user.role not in ('admin', 'dean'):
+        raise HTTPException(status_code=403, detail="System audit log purging is restricted to administrators and deans.")
+    if current_user.department:
+        dept = auth.resolve_user_department(db, current_user)
+        if dept:
+            db.query(models.SystemLog).filter(
+                (models.SystemLog.department_id == dept.id) |
+                (models.SystemLog.user_id == current_user.id)
+            ).delete(synchronize_session=False)
+        else:
+            db.query(models.SystemLog).filter(
+                models.SystemLog.user_id == current_user.id
+            ).delete(synchronize_session=False)
+    else:
+        db.query(models.SystemLog).delete()
     db.commit()
     return None

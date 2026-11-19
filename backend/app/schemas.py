@@ -247,8 +247,8 @@ def validate_section_label(value: Optional[str]) -> Optional[str]:
         )
     if not re.search(r"[A-Za-z0-9]", trimmed):
         raise ValueError("Section must include a letter or number (e.g., 1A, CS-3A).")
-    if len(trimmed) > 30:
-        raise ValueError("Section must be at most 30 characters.")
+    if len(trimmed) > 20:
+        raise ValueError("Section must be at most 20 characters.")
     return trimmed
 
 
@@ -479,7 +479,7 @@ class CurriculumBase(BaseModel):
     code: str
     name: str
     units: int
-    department_id: Optional[int] = 1
+    department_id: Optional[int] = None
     type: str
     program_code: Optional[str] = None
     year_level: Optional[str] = None
@@ -927,6 +927,8 @@ class ScheduleUpdate(BaseModel):
 
 class ScheduleResponse(ScheduleBase):
     id: int
+    enrolled_students: Optional[int] = None
+    credited_hours_override: Optional[float] = None
     created_at: datetime
     updated_at: datetime
     
@@ -934,6 +936,23 @@ class ScheduleResponse(ScheduleBase):
     curriculum: Optional[CurriculumResponse] = None
     room: Optional[RoomResponse] = None
     
+    @computed_field
+    @property
+    def ct_tier(self) -> str:
+        enr = self.enrolled_students
+        if enr is None or enr <= 0 or enr >= 13:
+            return "regular"
+        if enr >= 9:
+            return "ct_9_12"
+        if enr >= 5:
+            return "ct_5_8"
+        return "ct_1_4"
+
+    @computed_field
+    @property
+    def is_ct(self) -> bool:
+        return self.ct_tier != "regular"
+
     @computed_field
     @property
     def subject(self) -> str:
@@ -1122,10 +1141,32 @@ class SubjectOfferingCreate(BaseModel):
     faculty_id: int
     curriculum_id: int
     semester_id: int
+    enrolled_students: Optional[int] = None
+    ct_tier: Optional[str] = None
+
+class SubjectOfferingCTUpdate(BaseModel):
+    ct_tier: Optional[str] = None
+    enrolled_students: Optional[int] = None
+
+    @field_validator("ct_tier")
+    @classmethod
+    def check_ct_tier(cls, v):
+        if v is None:
+            return None
+        return validate_choice(v, {"regular", "ct_9_12", "ct_5_8", "ct_1_4"}, "CT tier")
+
+    @field_validator("enrolled_students")
+    @classmethod
+    def check_enrolled_students(cls, v):
+        if v is None:
+            return None
+        return validate_int_bounds(v, "Enrolled students", 1, 200)
 
 class SubjectOfferingResponse(BaseModel):
     id: int
     faculty_id: int
     curriculum_id: int
     semester_id: int
+    enrolled_students: Optional[int] = None
+    credited_hours_override: Optional[float] = None
     model_config = ConfigDict(from_attributes=True)

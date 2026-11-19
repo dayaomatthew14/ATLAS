@@ -101,7 +101,8 @@ export function calculateConsultationWorkload(term = '1st', type = 'full_time_re
   }
 
   const stdConsultation = CONSULTATION_HOURS[normTerm] ?? 6.0;
-  const allocOffice = ALLOCATED_OFFICE_HOURS[normTerm] ?? 8.5;
+  const effectiveSplitTerm = normType === 'full_time_probationary' ? '1st' : normTerm;
+  const allocOffice = ALLOCATED_OFFICE_HOURS[effectiveSplitTerm] ?? 8.5;
   const overload = Math.max(0, Number(actualOverload) || 0);
 
   // Step 1: Overload hours must first be deducted from allocated office hours
@@ -143,10 +144,19 @@ export function getWorkWeekBreakdown(term = '1st', type = 'full_time_regular', a
   if (!isFullTimeType(normType)) return null;
 
   const baseTeaching = getAllowedTeachingHours(normType, normTerm);
-  const offCampus = OFF_CAMPUS_HOURS[normTerm] ?? 5.5;
+  const effectiveSplitTerm = normType === 'full_time_probationary' ? '1st' : normTerm;
+  const offCampus = OFF_CAMPUS_HOURS[effectiveSplitTerm] ?? 5.5;
   const consultInfo = calculateConsultationWorkload(normTerm, normType, actualOverload);
   const overload = Math.max(0, Number(actualOverload) || 0);
   const teaching = Number((baseTeaching + overload).toFixed(2));
+  const actualTotalHours = Number(
+    (
+      teaching +
+      offCampus +
+      consultInfo.adjustedConsultation +
+      consultInfo.remainingOffice
+    ).toFixed(2)
+  );
 
   return {
     term: normTerm,
@@ -166,7 +176,7 @@ export function getWorkWeekBreakdown(term = '1st', type = 'full_time_regular', a
     overload_difference: consultInfo.overloadDifference,
     policy_review_flag: consultInfo.policyReviewFlag,
     flag_reason: consultInfo.flagReason,
-    total_hours: TOTAL_WORK_WEEK_HOURS,
+    total_hours: actualTotalHours,
   };
 }
 
@@ -207,47 +217,117 @@ export function isLabBSubject(subject) {
   return false;
 }
 
+export const CT_TIERS = {
+  REGULAR: 'regular',
+  CT_9_12: 'ct_9_12',
+  CT_5_8: 'ct_5_8',
+  CT_1_4: 'ct_1_4',
+};
+
+export const CT_TIER_OPTIONS = [
+  { value: CT_TIERS.REGULAR, label: 'Regular (13+)', shortLabel: 'Regular' },
+  { value: CT_TIERS.CT_9_12, label: 'CT · 9–12 students', shortLabel: 'CT · 9–12' },
+  { value: CT_TIERS.CT_5_8, label: 'CT · 5–8 students', shortLabel: 'CT · 5–8' },
+  { value: CT_TIERS.CT_1_4, label: 'CT · 1–4 students', shortLabel: 'CT · 1–4' },
+];
+
+export function normaliseCtTier(ctTier = null, enrolledStudents = null) {
+  if (ctTier) {
+    const raw = String(ctTier).trim().toLowerCase();
+    if (Object.values(CT_TIERS).includes(raw)) return raw;
+  }
+  if (enrolledStudents !== null && enrolledStudents !== undefined && enrolledStudents !== '') {
+    const n = Number(enrolledStudents);
+    if (Number.isFinite(n) && n > 0 && n < 13) {
+      if (n >= 9) return CT_TIERS.CT_9_12;
+      if (n >= 5) return CT_TIERS.CT_5_8;
+      return CT_TIERS.CT_1_4;
+    }
+  }
+  return CT_TIERS.REGULAR;
+}
+
+export function isCtTier(ctTier = null, enrolledStudents = null) {
+  return normaliseCtTier(ctTier, enrolledStudents) !== CT_TIERS.REGULAR;
+}
+
+export function ctTierShortLabel(ctTier = null, enrolledStudents = null) {
+  const norm = normaliseCtTier(ctTier, enrolledStudents);
+  const found = CT_TIER_OPTIONS.find((o) => o.value === norm);
+  return found ? found.shortLabel : 'Regular';
+}
+
+function lectureMinutesForUnits(lecUnits, ctTier = CT_TIERS.REGULAR) {
+  const u = Math.max(0, Math.round(Number(lecUnits) || 0));
+  if (u === 0) return 0;
+  const tier = normaliseCtTier(ctTier);
+  if (tier === CT_TIERS.REGULAR) return u * 80;
+  const table = {
+    1: { [CT_TIERS.CT_9_12]: 60, [CT_TIERS.CT_5_8]: 60, [CT_TIERS.CT_1_4]: 60 },
+    2: { [CT_TIERS.CT_9_12]: 120, [CT_TIERS.CT_5_8]: 90, [CT_TIERS.CT_1_4]: 60 },
+    3: { [CT_TIERS.CT_9_12]: 180, [CT_TIERS.CT_5_8]: 120, [CT_TIERS.CT_1_4]: 60 },
+  };
+  if (table[u]) return table[u][tier];
+  const factor = { [CT_TIERS.CT_9_12]: 0.75, [CT_TIERS.CT_5_8]: 0.5, [CT_TIERS.CT_1_4]: 0.25 }[tier];
+  return Math.max(60, Math.round(u * 80 * factor));
+}
+
+function labMinutesForUnits(labUnits, ctTier = CT_TIERS.REGULAR) {
+  const u = Math.max(0, Math.round(Number(labUnits) || 0));
+  if (u === 0) return 0;
+  const tier = normaliseCtTier(ctTier);
+  if (tier === CT_TIERS.REGULAR) return u * 240;
+  const factor = { [CT_TIERS.CT_9_12]: 0.75, [CT_TIERS.CT_5_8]: 0.5, [CT_TIERS.CT_1_4]: 0.25 }[tier];
+  return Math.max(60, Math.round(u * 240 * factor));
+}
+
+function combinedMinutesForUnits(units = 3, ctTier = CT_TIERS.REGULAR) {
+  const u = Math.max(1, Math.round(Number(units) || 3));
+  const base = u === 3 ? 240 : Math.round((u / 3) * 240);
+  const tier = normaliseCtTier(ctTier);
+  if (tier === CT_TIERS.REGULAR) return base;
+  const factor = { [CT_TIERS.CT_9_12]: 0.75, [CT_TIERS.CT_5_8]: 0.5, [CT_TIERS.CT_1_4]: 0.25 }[tier];
+  return Math.max(60, Math.round(base * factor));
+}
+
 /**
- * Compute exact weekly teaching minutes for a subject according to the panelist rules:
- * - Genuine Combined (C): 3 units = 240 min (4h)
- * - Separate Lecture (A) + Lab (B) on same subject: lec_units * 80 + lab_units * 240
- *   (e.g. 2u Lec + 1u Lab = 160 + 240 = 400 min = 6h 40m)
- * - Laboratory (B): 1u = 240 min (4h), 2u = 480 min (8h)
- * - Lecture (A): 1u = 80 min (1h 20m), 2u = 160 min (2h 40m), 3u = 240 min (4h)
+ * Compute exact weekly teaching minutes for a subject according to institutional
+ * Regular (13+ students) and Converted Tutorial (CT) rules.
  */
-export function computeSubjectMinutes(subject) {
+export function computeSubjectMinutes(subject, overrideTier = null) {
   if (!subject) return 0;
-  if (Number.isFinite(Number(subject.required_minutes)) && Number(subject.required_minutes) > 0) {
+  if (!overrideTier && Number.isFinite(Number(subject.required_minutes)) && Number(subject.required_minutes) > 0) {
     return Math.round(Number(subject.required_minutes));
   }
 
+  const tier = normaliseCtTier(overrideTier ?? subject.ct_tier, subject.enrolled_students);
   const totalUnits = Number(subject.units || 0);
   const lecUnits = Number(subject.lec_units || 0);
   const labUnits = Number(subject.lab_units || 0);
 
   if (isCombinedCSubject(subject)) {
     const effUnits = totalUnits > 0 ? totalUnits : (lecUnits + labUnits > 0 ? lecUnits + labUnits : 3);
-    return effUnits === 3 ? 240 : Math.round((effUnits / 3) * 240);
+    return combinedMinutesForUnits(effUnits, tier);
   }
 
   if (lecUnits > 0 && labUnits > 0) {
-    return lecUnits * 80 + labUnits * 240;
+    return lectureMinutesForUnits(lecUnits, tier) + labMinutesForUnits(labUnits, tier);
   }
 
   if (isLabBSubject(subject)) {
     const effLab = labUnits > 0 ? labUnits : (totalUnits > 0 ? totalUnits : 1);
-    return effLab * 240;
+    return labMinutesForUnits(effLab, tier);
   }
 
   const effLec = lecUnits > 0 ? lecUnits : (totalUnits > 0 ? totalUnits : 3);
-  return effLec * 80;
+  return lectureMinutesForUnits(effLec, tier);
 }
 
-export function computeSubjectHours(subject) {
+export function computeSubjectHours(subject, overrideTier = null) {
   if (!subject) return 0;
-  if (Number.isFinite(Number(subject.required_hours)) && Number(subject.required_hours) > 0) {
+  if (!overrideTier && Number.isFinite(Number(subject.required_hours)) && Number(subject.required_hours) > 0) {
     return Number(Number(subject.required_hours).toFixed(2));
   }
-  const mins = computeSubjectMinutes(subject);
+  const mins = computeSubjectMinutes(subject, overrideTier);
   return Number((mins / 60).toFixed(2));
 }

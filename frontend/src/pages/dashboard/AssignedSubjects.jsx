@@ -7,7 +7,6 @@ import {
   UserX,
   Search,
   RefreshCw,
-  Trash2,
 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -16,7 +15,13 @@ import Modal from '../../components/Modal';
 import { focusRing } from '../../components/ui/tokens';
 import { ValidationAnchor } from '../../components/ui/ValidationPopup';
 import { parseErrorResponse } from '../../utils/validation';
-import { formatMinutesLabel, computeSubjectMinutes, employmentTypeLabel } from '../../utils/load';
+import {
+  formatMinutesLabel,
+  computeSubjectMinutes,
+  employmentTypeLabel,
+  CT_TIER_OPTIONS,
+  CT_TIERS,
+} from '../../utils/load';
 
 const formatYearLevel = (val) => {
   if (!val) return '—';
@@ -41,11 +46,12 @@ export default function AssignedSubjects() {
   });
 
   // Filter states
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned' | 'ct'
   const [courseFilter, setCourseFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [professorFilter, setProfessorFilter] = useState('all'); // 'all' | professor_name
   const [searchQuery, setSearchQuery] = useState('');
+  const [updatingCtId, setUpdatingCtId] = useState(null);
 
   // Professor roster for assignment modal
   const [allProfessors, setAllProfessors] = useState([]);
@@ -142,6 +148,7 @@ export default function AssignedSubjects() {
       // 1. Status filter
       if (statusFilter === 'assigned' && sub.status !== 'assigned') return false;
       if (statusFilter === 'unassigned' && sub.status !== 'unassigned') return false;
+      if (statusFilter === 'ct' && !sub.is_ct) return false;
 
       // 2. Course filter (matching curriculum program)
       if (courseFilter !== 'all') {
@@ -190,15 +197,8 @@ export default function AssignedSubjects() {
   const executeAssignment = async (subject, profId) => {
     setIsSubmitting(true);
     try {
-      // If already assigned to another professor, remove previous offering
-      if (subject.assigned_professors?.length > 0) {
-        const currentOffering = subject.assigned_professors[0];
-        if (String(currentOffering.faculty_id) !== String(profId)) {
-          await api.delete(`/subject-offerings/${currentOffering.offering_id}`).catch(() => {});
-        }
-      }
-
-      // Create/override offering assignment
+      // Backend POST /subject-offerings updates any existing offering for this
+      // subject in-place (preserving CT tier & cleaning up old professor's draft schedules).
       await api.post('/subject-offerings', {
         faculty_id: parseInt(profId),
         curriculum_id: subject.curriculum_id,
@@ -216,6 +216,27 @@ export default function AssignedSubjects() {
       const parsed = parseErrorResponse(err, 'Failed to assign professor.');
       setAssignError(parsed.message);
       addToast(parsed.message || 'Failed to assign professor.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Unassign professor from inside the Change Assigned Professor modal
+  const handleUnassignFromModal = async () => {
+    if (!selectedSubject?.assigned_professors?.length) return;
+    const currentOffering = selectedSubject.assigned_professors[0];
+    setIsSubmitting(true);
+    try {
+      await api.delete(`/subject-offerings/${currentOffering.offering_id}`);
+      addToast(`Unassigned ${currentOffering.faculty_name} from ${selectedSubject.code}.`, 'success');
+      setAssignModalOpen(false);
+      setAssignError('');
+      fetchAssignedSubjects();
+    } catch (err) {
+      console.error(err);
+      const parsed = parseErrorResponse(err, 'Failed to remove assignment.');
+      setAssignError(parsed.message);
+      addToast(parsed.message || 'Failed to remove assignment.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -257,26 +278,65 @@ export default function AssignedSubjects() {
     await executeAssignment(selectedSubject, selectedProfId);
   };
 
-  // Unassign professor
-  const handleUnassign = async (subject) => {
-    if (!subject?.assigned_professors?.length) return;
-    const offeringId = subject.assigned_professors[0].offering_id;
+  // Inline update for Converted Tutorial (CT) tier
+  const handleUpdateCtTier = async (subject, nextTier) => {
+    const offeringId = subject?.offering_id || subject?.assigned_professors?.[0]?.offering_id;
+    if (!offeringId) return;
+    setUpdatingCtId(offeringId);
     try {
-      await api.delete(`/subject-offerings/${offeringId}`);
-      addToast(`Unassigned professor from ${subject.code}.`, 'success');
-      fetchAssignedSubjects();
+      const updated = await api.patch(`/subject-offerings/${offeringId}/ct`, {
+        ct_tier: nextTier,
+      });
+      setData((prev) => {
+        const nextSubjects = (prev.subjects || []).map((item) => {
+          if (item.curriculum_id !== subject.curriculum_id) return item;
+          return {
+            ...item,
+            enrolled_students: updated.enrolled_students,
+            ct_tier: updated.ct_tier,
+            is_ct: updated.is_ct,
+            ct_label: updated.ct_label,
+            ct_short_label: updated.ct_short_label,
+            regular_minutes: updated.regular_minutes,
+            regular_hours: updated.regular_hours,
+            regular_hours_label: updated.regular_hours_label,
+            required_minutes: updated.required_minutes,
+            required_hours: updated.required_hours,
+            required_hours_label: updated.required_hours_label,
+          };
+        });
+        const nextCtCount = nextSubjects.filter((s) => s.is_ct).length;
+        return {
+          ...prev,
+          summary: {
+            ...(prev.summary || {}),
+            ct_count: nextCtCount,
+          },
+          subjects: nextSubjects,
+        };
+      });
+      const baseToast = updated.is_ct
+        ? `${subject.code} set to ${updated.ct_label} — ${updated.required_hours_label}/week.`
+        : `${subject.code} restored to Regular (13+ students) — ${updated.required_hours_label}/week.`;
+      const rescheduleNote = updated.needs_reschedule
+        ? ' Regenerate or adjust its timetable slot on Schedule to match the new CT duration.'
+        : '';
+      addToast(`${baseToast}${rescheduleNote}`, updated.needs_reschedule ? 'warning' : 'success');
     } catch (err) {
       console.error(err);
-      addToast(err.message || 'Failed to unassign professor.', 'error');
+      addToast(err.message || 'Failed to update Converted Tutorial status.', 'error');
+    } finally {
+      setUpdatingCtId(null);
     }
   };
 
-  const summary = data?.summary || { total: 0, assigned: 0, unassigned: 0, all_assigned: true };
+  const summary = data?.summary || { total: 0, assigned: 0, unassigned: 0, ct_count: 0, all_assigned: true };
+  const ctCount = summary.ct_count ?? (data?.subjects || []).filter((s) => s.is_ct).length;
   const active_semester = data?.active_semester;
   const department = data?.department;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="w-full max-w-[1640px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200/80">
         <div>
@@ -295,7 +355,11 @@ export default function AssignedSubjects() {
           </h1>
           <p className="font-ui text-sm text-slate-600 mt-1">
             {active_semester
-              ? `${active_semester.academic_year} · ${active_semester.term} Semester`
+              ? `${active_semester.academic_year} · ${
+                  /semester/i.test(String(active_semester.term || ''))
+                    ? active_semester.term.replace(/semester/i, 'Semester')
+                    : `${active_semester.term} Semester`
+                }`
               : 'No active academic term configured'}
           </p>
         </div>
@@ -399,7 +463,7 @@ export default function AssignedSubjects() {
             <button
               type="button"
               onClick={() => setStatusFilter('all')}
-              className={`px-3 py-1.5 rounded-lg font-ui text-xs font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'all'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -410,7 +474,7 @@ export default function AssignedSubjects() {
             <button
               type="button"
               onClick={() => setStatusFilter('unassigned')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-ui text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'unassigned'
                   ? 'bg-amber-500 text-white shadow-xs'
                   : summary.unassigned > 0
@@ -426,13 +490,26 @@ export default function AssignedSubjects() {
             <button
               type="button"
               onClick={() => setStatusFilter('assigned')}
-              className={`px-3 py-1.5 rounded-lg font-ui text-xs font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'assigned'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Assigned ({summary.assigned})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ct')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+                statusFilter === 'ct'
+                  ? 'bg-teal-700 text-white shadow-xs'
+                  : ctCount > 0
+                    ? 'text-teal-800 hover:bg-teal-100/60'
+                    : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Converted Tutorial ({ctCount})
             </button>
           </div>
 
@@ -447,7 +524,7 @@ export default function AssignedSubjects() {
                 setProfessorFilter('all');
                 setSearchQuery('');
               }}
-              className="font-ui text-xs font-semibold text-emerald-800 hover:underline"
+              className="font-ui text-[13px] font-semibold text-emerald-800 hover:underline"
             >
               Reset Filters
             </button>
@@ -459,13 +536,13 @@ export default function AssignedSubjects() {
 
           {/* Course / Program Filter */}
           <div>
-            <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Course / Program
             </label>
             <select
               value={courseFilter}
               onChange={(e) => setCourseFilter(e.target.value)}
-              className={`w-full h-9 px-3 rounded-lg bg-white border border-slate-300 font-ui text-xs text-slate-800 focus:outline-hidden ${focusRing}`}
+              className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 focus:outline-hidden ${focusRing}`}
             >
               <option value="all">All Courses</option>
               {courseOptions.map((prog) => (
@@ -478,13 +555,13 @@ export default function AssignedSubjects() {
 
           {/* Year Level Filter */}
           <div>
-            <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Year Level
             </label>
             <select
               value={yearFilter}
               onChange={(e) => setYearFilter(e.target.value)}
-              className={`w-full h-9 px-3 rounded-lg bg-white border border-slate-300 font-ui text-xs text-slate-800 focus:outline-hidden ${focusRing}`}
+              className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 focus:outline-hidden ${focusRing}`}
             >
               <option value="all">All Year Levels</option>
               {yearOptions.map((y) => (
@@ -497,13 +574,13 @@ export default function AssignedSubjects() {
 
           {/* Professor Filter */}
           <div>
-            <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Professor
             </label>
             <select
               value={professorFilter}
               onChange={(e) => setProfessorFilter(e.target.value)}
-              className={`w-full h-9 px-3 rounded-lg bg-white border border-slate-300 font-ui text-xs text-slate-800 focus:outline-hidden ${focusRing}`}
+              className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 focus:outline-hidden ${focusRing}`}
             >
               <option value="all">All Professors</option>
               {assignedProfessorOptions.map((prof) => (
@@ -516,17 +593,17 @@ export default function AssignedSubjects() {
 
           {/* Search Query */}
           <div>
-            <label className="block font-ui text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Search Code or Title
             </label>
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input
                 type="text"
                 placeholder="e.g. CS101, Programming..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`w-full h-9 pl-9 pr-3 rounded-lg bg-white border border-slate-300 font-ui text-xs text-slate-800 placeholder:text-slate-400 focus:outline-hidden ${focusRing}`}
+                className={`w-full h-10 pl-9 pr-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden ${focusRing}`}
               />
             </div>
           </div>
@@ -538,27 +615,28 @@ export default function AssignedSubjects() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                <th className="px-5 py-3.5">Subject Code</th>
-                <th className="px-5 py-3.5">Subject Title</th>
-                <th className="px-5 py-3.5">Teaching Load / Units</th>
-                <th className="px-5 py-3.5">Course & Year</th>
-                <th className="px-5 py-3.5">Assigned Professor</th>
-                <th className="px-5 py-3.5">Status</th>
-                <th className="px-5 py-3.5 text-right">Action</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-600">
+                <th className="pl-5 pr-3 py-3.5 whitespace-nowrap">Subject Code</th>
+                <th className="px-3.5 py-3.5">Subject Title</th>
+                <th className="px-3.5 py-3.5 whitespace-nowrap">Teaching Load / Units</th>
+                <th className="px-3.5 py-3.5 whitespace-nowrap">Class Mode (CT)</th>
+                <th className="px-3.5 py-3.5 whitespace-nowrap">Course & Year</th>
+                <th className="px-3.5 py-3.5 whitespace-nowrap">Assigned Professor</th>
+                <th className="px-3.5 py-3.5 whitespace-nowrap">Status</th>
+                <th className="pl-3 pr-5 py-3.5 text-right whitespace-nowrap">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200/80 font-ui text-sm text-slate-800">
+            <tbody className="divide-y divide-slate-200/80 font-ui text-[15px] text-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                  <td colSpan={8} className="p-8 text-center text-slate-500">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-700 mb-2" />
                     Loading assigned subjects...
                   </td>
                 </tr>
               ) : filteredSubjects.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center">
+                  <td colSpan={8} className="p-12 text-center">
                     <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-slate-800">No subjects found</p>
                     <p className="text-xs text-slate-500 mt-1">
@@ -583,13 +661,13 @@ export default function AssignedSubjects() {
                       }`}
                     >
                       {/* Subject Code */}
-                      <td className="px-5 py-3.5 whitespace-nowrap">
+                      <td className="pl-5 pr-3 py-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-slate-900">
+                          <span className="font-mono font-bold text-[15px] text-slate-900">
                             {subject.code}
                           </span>
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
                               subject.type === 'lab'
                                 ? 'bg-purple-100 text-purple-900 border border-purple-200'
                                 : 'bg-blue-100 text-blue-900 border border-blue-200'
@@ -601,65 +679,112 @@ export default function AssignedSubjects() {
                       </td>
 
                       {/* Subject Name & Category */}
-                      <td className="px-5 py-3.5 min-w-[200px]">
-                        <p className="font-medium text-slate-900 leading-snug">
+                      <td className="px-3.5 py-3.5 min-w-[165px]">
+                        <p className="font-medium text-[15px] text-slate-900 leading-snug">
                           {subject.name}
                         </p>
                         {subject.is_major ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 mt-0.5">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 mt-0.5">
                             Major Subject
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-50 text-violet-800 border border-violet-200 mt-0.5">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-violet-50 text-violet-800 border border-violet-200 mt-0.5">
                             General Education
                           </span>
                         )}
                       </td>
 
                       {/* Teaching Load & Units */}
-                      <td className="px-5 py-3.5 whitespace-nowrap tabular-nums">
+                      <td className="px-3.5 py-3.5 whitespace-nowrap tabular-nums">
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-900 text-xs">
-                            {subject.required_hours_label || formatMinutesLabel(computeSubjectMinutes(subject))}
-                          </span>
-                          <span className="text-[11px] text-slate-500">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {subject.is_ct && subject.regular_hours_label && (
+                              <span className="text-xs text-slate-400 line-through">
+                                {subject.regular_hours_label}
+                              </span>
+                            )}
+                            <span
+                              className={`font-semibold text-sm ${
+                                subject.is_ct ? 'text-teal-800 font-bold' : 'text-slate-900'
+                              }`}
+                            >
+                              {subject.required_hours_label || formatMinutesLabel(computeSubjectMinutes(subject))}
+                            </span>
+                            {subject.is_ct && (
+                              <span className="px-1.5 py-0.2 rounded text-[11px] font-extrabold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-300">
+                                CT
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-slate-500">
                             {subject.units} {subject.units === 1 ? 'unit' : 'units'} ({subject.lec_units || 0}L / {subject.lab_units || 0}Lab)
                           </span>
                         </div>
                       </td>
 
+                      {/* Class Mode / Converted Tutorial (CT) */}
+                      <td className="px-3.5 py-3.5 whitespace-nowrap">
+                        {isAssigned ? (
+                          <select
+                            aria-label={`Class mode for ${subject.code}`}
+                            value={subject.ct_tier || CT_TIERS.REGULAR}
+                            disabled={updatingCtId === (subject.offering_id || subject.assigned_professors?.[0]?.offering_id)}
+                            onChange={(e) => handleUpdateCtTier(subject, e.target.value)}
+                            className={`h-9 px-2.5 rounded-lg border font-ui text-[13px] transition-colors focus:outline-hidden ${focusRing} ${
+                              subject.is_ct
+                                ? 'bg-teal-50 border-teal-300 text-teal-900 font-bold'
+                                : 'bg-white border-slate-300 text-slate-700 hover:border-slate-400'
+                            } disabled:opacity-60`}
+                          >
+                            {CT_TIER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className="inline-flex items-center px-2.5 py-1 rounded-lg text-[13px] text-slate-400 bg-slate-50 border border-slate-200/80"
+                            title="Assign a professor first to set Converted Tutorial (CT) status"
+                          >
+                            Regular (13+)
+                          </span>
+                        )}
+                      </td>
+
                       {/* Course & Year */}
-                      <td className="px-5 py-3.5 whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 whitespace-nowrap">
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-800 text-xs">
+                          <span className="font-semibold text-slate-800 text-sm">
                             {subject.program_name || '—'}
                           </span>
-                          <span className="text-[11px] text-slate-500">
+                          <span className="text-xs text-slate-500">
                             {formatYearLevel(subject.year_level)}
                           </span>
                         </div>
                       </td>
 
                       {/* Assigned Professor */}
-                      <td className="px-5 py-3.5 min-w-[180px]">
+                      <td className="px-3.5 py-3.5 min-w-[145px]">
                         {isAssigned ? (
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0 border border-emerald-300">
                               {profName.charAt(0)}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-bold text-slate-900 text-xs truncate">
+                              <p className="font-bold text-slate-900 text-sm truncate">
                                 {profName}
                               </p>
                               {subject.assigned_professors?.[0]?.faculty_type && (
-                                <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
-                                  {subject.assigned_professors[0].faculty_type.replace('_', ' ')}
+                                <span className="inline-block px-1.5 py-0.2 rounded text-[11px] font-medium bg-slate-100 text-slate-600">
+                                  {subject.assigned_professors[0].faculty_type_label ||
+                                    employmentTypeLabel(subject.assigned_professors[0].faculty_type)}
                                 </span>
                               )}
                             </div>
                           </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[13px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                             <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
                             Unassigned
                           </span>
@@ -667,23 +792,23 @@ export default function AssignedSubjects() {
                       </td>
 
                       {/* Status */}
-                      <td className="px-5 py-3.5 whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 whitespace-nowrap">
                         {isAssigned ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[13px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                             Assigned
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100/80 text-amber-900 border border-amber-300">
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[13px] font-semibold bg-amber-100/80 text-amber-900 border border-amber-300">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                             Unassigned
                           </span>
                         )}
                       </td>
 
                       {/* Action */}
-                      <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1.5 justify-end">
+                      <td className="pl-3 pr-5 py-3.5 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center justify-end">
                           <Button
                             size="row"
                             variant={isAssigned ? 'secondary' : 'primary'}
@@ -691,17 +816,6 @@ export default function AssignedSubjects() {
                           >
                             {isAssigned ? 'Change' : 'Assign'}
                           </Button>
-                          {isAssigned && (
-                            <button
-                              type="button"
-                              onClick={() => handleUnassign(subject)}
-                              title="Unassign professor"
-                              className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span className="sr-only">Unassign</span>
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -808,21 +922,35 @@ export default function AssignedSubjects() {
             </ValidationAnchor>
 
             {/* Actions */}
-            <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-200">
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={() => setAssignModalOpen(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                loading={isSubmitting}
-              >
-                Save Assignment
-              </Button>
+            <div className="pt-4 flex items-center justify-between gap-3 border-t border-slate-200">
+              <div>
+                {selectedSubject?.status === 'assigned' && (
+                  <button
+                    type="button"
+                    onClick={handleUnassignFromModal}
+                    disabled={isSubmitting}
+                    className="text-xs font-semibold text-rose-700 hover:text-rose-800 hover:underline disabled:opacity-50 cursor-pointer"
+                  >
+                    Remove assignment
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => setAssignModalOpen(false)}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={isSubmitting}
+                >
+                  Save Assignment
+                </Button>
+              </div>
             </div>
           </form>
         )}

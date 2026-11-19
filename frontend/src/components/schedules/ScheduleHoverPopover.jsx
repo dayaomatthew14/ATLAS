@@ -1,5 +1,6 @@
 import { AlertTriangle, Clock, MapPin, Trash2, User } from 'lucide-react';
 import { DAY_LABEL, durationHours, formatSubjectCode, to12h } from '../../utils/scheduleHelpers';
+import { ctTierShortLabel } from '../../utils/load';
 
 /**
  * Floating detail preview popover shown on hover/focus of a grid schedule card.
@@ -34,6 +35,11 @@ export default function ScheduleHoverPopover({
           >
             {formatSubjectCode(sched)}
           </span>
+          {(sched.is_ct || (sched.ct_tier && sched.ct_tier !== 'regular')) && (
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-300">
+              {ctTierShortLabel(sched.ct_tier, sched.enrolled_students)}
+            </span>
+          )}
           {inConflict && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-700 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
@@ -72,9 +78,22 @@ export default function ScheduleHoverPopover({
           <div className="flex items-center gap-2 text-[#0F2A1D]">
             <MapPin className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
             <span className="font-medium truncate">
-              Room: {sched.room_name || sched.room?.name || 'TBA'}
+              Room: {sched.room_name || sched.room?.name || 'Assigned by Registrar'}
             </span>
           </div>
+
+          {(sched.is_ct || (sched.ct_tier && sched.ct_tier !== 'regular')) &&
+            sched.credited_hours_override != null && (
+              <div className="rounded-lg bg-teal-50/90 border border-teal-200 px-2.5 py-1.5 text-[11px] text-teal-900">
+                <span className="font-bold">CT Credited Load:</span>{' '}
+                <span className="font-data font-bold tabular-nums">
+                  {Number(sched.credited_hours_override).toFixed(
+                    Number(sched.credited_hours_override) % 1 === 0 ? 0 : 2
+                  )}{' '}
+                  hrs/week
+                </span>
+              </div>
+            )}
         </div>
 
         {canManageSchedules && (

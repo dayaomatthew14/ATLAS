@@ -187,6 +187,7 @@ def update_curriculum_block_status(
     subjects = db.query(models.Curriculum).filter(models.Curriculum.block_id == block.id).all()
     return {
         "id": block.id,
+        "program_id": block.program_id,
         "program_name": block.program_name,
         "academic_year": block.academic_year,
         "filename": block.filename,
@@ -211,8 +212,8 @@ def get_curriculum(
 ):
     query = db.query(models.Curriculum)
     
-    if current_user.role in ['dean', 'program_chair'] and current_user.department:
-        # Filter curriculum by the user's department
+    if current_user.department or current_user.role in ['dean', 'program_chair']:
+        # Filter curriculum by the user's department (including seeded College Deans)
         dept = auth.resolve_user_department(db, current_user)
         if dept:
             query = query.filter(models.Curriculum.department_id == dept.id)
@@ -239,12 +240,25 @@ def get_curriculum_item(
     if not curriculum_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Curriculum item not found")
         
-    if current_user.role in ['dean', 'program_chair'] and current_user.department:
+    if current_user.department or current_user.role in ['dean', 'program_chair']:
         dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this curriculum item")
             
     return curriculum_item
+
+
+def _normalise_db_subject_type(raw_type: Optional[str], lec_units: int = 0, lab_units: int = 0) -> str:
+    """Map schema subject type strings strictly to the DB Enum ('lecture' | 'lab')."""
+    if lec_units > 0 and lab_units == 0:
+        return 'lecture'
+    if lec_units == 0 and lab_units > 0:
+        return 'lab'
+    t = str(raw_type or '').strip().lower()
+    if t in ('lab', 'computer_lab'):
+        return 'lab'
+    return 'lecture'
+
 
 @router.post("", response_model=schemas.CurriculumResponse, status_code=status.HTTP_201_CREATED)
 def create_curriculum_item(
@@ -257,7 +271,7 @@ def create_curriculum_item(
             blk = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == curriculum_item.block_id).first()
             if blk:
                 curriculum_item.department_id = int(blk.department_id) # type: ignore
-        if not curriculum_item.department_id and current_user.role == 'dean':
+        if not curriculum_item.department_id and current_user.department:
             dept = auth.resolve_user_department(db, current_user)
             if dept:
                 curriculum_item.department_id = int(dept.id) # type: ignore
@@ -268,13 +282,10 @@ def create_curriculum_item(
 
     _require_admin_or_dept_dean(current_user, curriculum_item.department_id, db)
              
-    # Determine subject type using Lec/Lab unit values as primary priority
-    lec_u_val = curriculum_item.lec_units
-    lab_u_val = curriculum_item.lab_units
-    if lec_u_val > 0 and lab_u_val == 0:
-        curriculum_item.type = 'lecture'
-    elif lec_u_val == 0 and lab_u_val > 0:
-        curriculum_item.type = 'lab'
+    # Normalize type strictly to the DB Enum ('lecture' | 'lab')
+    curriculum_item.type = _normalise_db_subject_type(
+        curriculum_item.type, curriculum_item.lec_units, curriculum_item.lab_units
+    )
 
     ab_match = re.search(r"^(.*?)[_\-\s]*A/B$", curriculum_item.code, re.IGNORECASE)
     # Split only when both halves are real; see the import path for why an
@@ -358,6 +369,11 @@ def update_curriculum_item(
     _require_admin_or_dept_dean(current_user, db_curriculum.department_id, db)
              
     update_data = curriculum_item.model_dump(exclude_unset=True)
+    if 'type' in update_data or 'lec_units' in update_data or 'lab_units' in update_data:
+        eff_lec = update_data.get('lec_units', db_curriculum.lec_units or 0)
+        eff_lab = update_data.get('lab_units', db_curriculum.lab_units or 0)
+        eff_type = update_data.get('type', db_curriculum.type)
+        update_data['type'] = _normalise_db_subject_type(eff_type, eff_lec, eff_lab)
     for key, value in update_data.items():
         setattr(db_curriculum, key, value)
         
@@ -442,7 +458,18 @@ def bulk_create_curriculum(
             ).first()
 
         if not block:
+            from ..academics import match_program_code
+            matched_prog_id = None
+            matched_code = match_program_code(payload.program_name)
+            if matched_code:
+                prog_row = db.query(models.Program).filter(
+                    models.Program.code == matched_code,
+                    models.Program.department_id == payload.department_id,
+                ).first()
+                if prog_row:
+                    matched_prog_id = prog_row.id
             block = models.CurriculumBlock(
+                program_id=matched_prog_id,
                 program_name=payload.program_name,
                 academic_year=payload.academic_year,
                 department_id=payload.department_id,
@@ -461,7 +488,12 @@ def bulk_create_curriculum(
             ).first()
 
             if not existing:
-                new_item = models.Curriculum(**item.model_dump())
+                item_data = item.model_dump()
+                item_data['type'] = _normalise_db_subject_type(
+                    item_data.get('type'), item_data.get('lec_units', 0), item_data.get('lab_units', 0)
+                )
+                item_data['department_id'] = payload.department_id
+                new_item = models.Curriculum(**item_data)
                 new_item.block_id = block.id
                 new_items.append(new_item)
             else:
@@ -514,15 +546,16 @@ async def delete_curriculum_course(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role == 'dean':
+    if current_user.role in ('dean', 'admin') and current_user.department:
         dept = auth.resolve_user_department(db, current_user)
-        dept_id = dept.id if dept else None
+        if not dept:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your college could not be resolved.")
         db.query(models.Curriculum).filter(
             models.Curriculum.program_code == course_name,
-            models.Curriculum.department_id == dept_id
+            models.Curriculum.department_id == dept.id
         ).delete(synchronize_session=False)
         db.commit()
-        log_activity(db, int(current_user.id), "Delete Course", f"Deleted items for course: {course_name}", "success", department_id=int(dept_id) if dept_id is not None else None) # type: ignore
+        log_activity(db, int(current_user.id), "Delete Course", f"Deleted items for course: {course_name}", "success", department_id=int(dept.id)) # type: ignore
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     elif current_user.role == 'admin':
         db.query(models.Curriculum).filter(models.Curriculum.program_code == course_name).delete(synchronize_session=False)

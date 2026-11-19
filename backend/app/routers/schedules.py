@@ -23,11 +23,11 @@ def _resolve_scope_department(db: Session, current_user: models.User, requested_
     """
     The department a request should be scoped to.
 
-    Chairs and coordinators are pinned to their own department regardless of
-    what they ask for. Admins may target one explicitly, or None for every
-    department. Returns None only for an unscoped admin.
+    Anyone with a college assigned (Program Chairs, Deans, and seeded College Deans
+    whose role is 'admin' + department set) is pinned to their own college.
+    Only an unscoped system administrator (department=None) may target any college.
     """
-    if current_user.role in ('dean', 'program_chair'):
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
         dept = db.query(models.Department).filter(
             (models.Department.code == current_user.department) |
             (models.Department.name == current_user.department)
@@ -39,6 +39,46 @@ def _resolve_scope_department(db: Session, current_user: models.User, requested_
             )
         return dept.id
     return requested_id
+
+
+def _count_scoped_unresolved_conflicts(
+    db: Session,
+    semester_id: int,
+    dept_id: Optional[int],
+) -> int:
+    """Count unresolved conflicts scoped strictly to one department and semester."""
+    query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
+
+    if dept_id is not None:
+        dept_curr_ids = [
+            cid for (cid,) in db.query(models.Curriculum.id).filter(
+                models.Curriculum.department_id == dept_id
+            ).all()
+        ]
+        dept_sched_ids = [
+            sid for (sid,) in db.query(models.Schedule.id).filter(
+                models.Schedule.semester_id == semester_id,
+                models.Schedule.curriculum_id.in_(dept_curr_ids),
+            ).all()
+        ] if dept_curr_ids else []
+        if not dept_curr_ids:
+            return 0
+        query = query.filter(
+            models.Conflict.curriculum_id.in_(dept_curr_ids) |
+            models.Conflict.schedule_id_1.in_(dept_sched_ids)
+        )
+
+    sem_sched_ids = [
+        sid for (sid,) in db.query(models.Schedule.id).filter(
+            models.Schedule.semester_id == semester_id
+        ).all()
+    ]
+    query = query.filter(
+        (models.Conflict.schedule_id_1 == None) |
+        models.Conflict.schedule_id_1.in_(sem_sched_ids)
+    )
+    return query.count()
+
 
 @router.get("", response_model=List[schemas.ScheduleResponse])
 def get_schedules(
@@ -54,7 +94,7 @@ def get_schedules(
         joinedload(models.Schedule.curriculum)
     ).join(models.Curriculum)
     
-    if current_user.role in ['dean', 'program_chair']:
+    if current_user.department or current_user.role in ['dean', 'program_chair']:
         if not current_user.department:
             return []
         dept = db.query(models.Department).filter(
@@ -72,14 +112,52 @@ def get_schedules(
         query = query.filter(models.Schedule.curriculum_id == curriculum_id)
     if faculty_id:
         query = query.filter(models.Schedule.faculty_id == faculty_id)
-        
-    return query.offset(skip).limit(limit).all()
+
+    rows = query.offset(skip).limit(limit).all()
+    if rows:
+        sem_ids = {r.semester_id for r in rows if r.semester_id is not None}
+        curr_ids = {r.curriculum_id for r in rows if r.curriculum_id is not None}
+        if sem_ids and curr_ids:
+            offerings = db.query(models.SubjectOffering).filter(
+                models.SubjectOffering.semester_id.in_(sem_ids),
+                models.SubjectOffering.curriculum_id.in_(curr_ids),
+            ).all()
+            off_map = {
+                (o.semester_id, o.curriculum_id, o.faculty_id): o
+                for o in offerings
+            }
+            off_fallback = {
+                (o.semester_id, o.curriculum_id): o
+                for o in offerings
+            }
+            for r in rows:
+                if r.enrolled_students is None:
+                    matched = off_map.get((r.semester_id, r.curriculum_id, r.faculty_id)) or off_fallback.get((r.semester_id, r.curriculum_id))
+                    if matched and matched.enrolled_students is not None:
+                        r.enrolled_students = matched.enrolled_students
+                        r.credited_hours_override = matched.credited_hours_override
+    return rows
 
 # NOTE: GET /{schedule_id} is deliberately registered near the bottom of this
 # module. FastAPI matches routes in registration order, so declaring it here
 # would swallow every literal sibling path -- /suggestions used to return a 422
 # "unable to parse 'suggestions' as an integer" for exactly that reason.
 # Keep literal paths above the catch-all parameter route.
+
+def _assert_term_not_published(db: Session, semester_id: Optional[int], department_id: Optional[int]) -> None:
+    """Prevent modifications once a department's term schedule is officially published."""
+    if not semester_id:
+        return
+    q = db.query(models.Schedule.status).filter(models.Schedule.semester_id == semester_id)
+    if department_id is not None:
+        q = q.join(models.Curriculum).filter(models.Curriculum.department_id == department_id)
+    rows = q.all()
+    if rows and all(r[0] == 'published' for r in rows):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This schedule is officially published. Ask an administrator to unpublish it before making changes."
+        )
+
 
 @router.post("", response_model=schemas.ScheduleResponse, status_code=status.HTTP_201_CREATED)
 def create_schedule(
@@ -129,7 +207,40 @@ def create_schedule(
             detail="Classes cannot be scheduled during the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM, Monday to Friday)."
         )
 
-    new_schedule = models.Schedule(**schedule.model_dump())
+    _assert_term_not_published(db, schedule.semester_id, getattr(curriculum_item, 'department_id', None))
+
+    # Reject overlapping schedules for the same professor at the API level
+    if schedule.faculty_id and schedule.semester_id and schedule.day_of_week and schedule.start_time and schedule.end_time:
+        prof_overlap = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == schedule.semester_id,
+            models.Schedule.faculty_id == schedule.faculty_id,
+            models.Schedule.day_of_week == schedule.day_of_week,
+            models.Schedule.start_time < schedule.end_time,
+            models.Schedule.end_time > schedule.start_time,
+        ).first()
+        if prof_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This professor already has a class scheduled during that time slot."
+            )
+
+    sched_payload = schedule.model_dump()
+    # Program chairs always create draft schedules (publishing is admin/dean-only)
+    sched_payload["status"] = "draft"
+    sched_payload["is_locked"] = False
+    new_schedule = models.Schedule(**sched_payload)
+    # Inherit Converted Tutorial (CT) status from active offering if already flagged
+    if schedule.semester_id and schedule.curriculum_id:
+        off_q = db.query(models.SubjectOffering).filter(
+            models.SubjectOffering.semester_id == schedule.semester_id,
+            models.SubjectOffering.curriculum_id == schedule.curriculum_id,
+        )
+        if schedule.faculty_id:
+            off_q = off_q.filter(models.SubjectOffering.faculty_id == schedule.faculty_id)
+        matched_off = off_q.first()
+        if matched_off and matched_off.enrolled_students is not None:
+            setattr(new_schedule, "enrolled_students", matched_off.enrolled_students)
+            setattr(new_schedule, "credited_hours_override", matched_off.credited_hours_override)
     db.add(new_schedule)
     if schedule.faculty_id and current_user.role not in ('admin', 'dean'):
         fac_obj = db.query(models.Faculty).filter(models.Faculty.id == schedule.faculty_id).first()
@@ -138,7 +249,7 @@ def create_schedule(
     db.commit()
     db.refresh(new_schedule)
     dept_id_val = getattr(curriculum_item, 'department_id', None)
-    log_activity(db, current_user.id, "Create Schedule", f"Created schedule for {curriculum_item.code} in {new_schedule.section}", "success", department_id=dept_id_val) # type: ignore
+    log_activity(db, current_user.id, "Create Schedule", f"Created schedule for {curriculum_item.code}", "success", department_id=dept_id_val) # type: ignore
     
     return new_schedule
 
@@ -160,10 +271,24 @@ def update_schedule(
         db, current_user, db_schedule.curriculum_id, "Not authorized to modify this schedule"  # type: ignore
     )
     
-    if db_schedule.is_locked and schedule.is_locked is not False:
+    if db_schedule.is_locked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule is locked and cannot be modified")
+
+    curr_for_pub = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
+    _assert_term_not_published(db, db_schedule.semester_id, getattr(curr_for_pub, 'department_id', None))
                 
     update_data = schedule.model_dump(exclude_unset=True)
+    # Prevent chairs from self-publishing or tampering with lock status
+    update_data.pop('status', None)
+    update_data.pop('is_locked', None)
+
+    if 'curriculum_id' in update_data and update_data['curriculum_id'] is not None:
+        _assert_curriculum_department_access(
+            db, current_user, update_data['curriculum_id'], "Not authorized to move schedule to another college's curriculum"
+        )
+
+    effective_sem = update_data.get('semester_id', db_schedule.semester_id)
+    effective_fac = update_data.get('faculty_id', db_schedule.faculty_id)
     effective_day = update_data.get('day_of_week', db_schedule.day_of_week)
     effective_start = update_data.get('start_time', db_schedule.start_time)
     effective_end = update_data.get('end_time', db_schedule.end_time)
@@ -177,6 +302,31 @@ def update_schedule(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Classes cannot be scheduled during the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM, Monday to Friday).",
         )
+    if effective_fac and effective_day and effective_start and effective_end:
+        prof_overlap = db.query(models.Schedule).filter(
+            models.Schedule.id != db_schedule.id,
+            models.Schedule.semester_id == effective_sem,
+            models.Schedule.faculty_id == effective_fac,
+            models.Schedule.day_of_week == effective_day,
+            models.Schedule.start_time < effective_end,
+            models.Schedule.end_time > effective_start,
+        ).first()
+        if prof_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This professor already has a class scheduled during that time slot.",
+            )
+        unavail_hit = db.query(models.FacultyUnavailability).filter(
+            models.FacultyUnavailability.faculty_id == effective_fac,
+            models.FacultyUnavailability.day_of_week == effective_day,
+            models.FacultyUnavailability.start_time < effective_end,
+            models.FacultyUnavailability.end_time > effective_start,
+        ).first()
+        if unavail_hit:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This professor is marked unavailable during that time slot.",
+            )
     for key, value in update_data.items():
         setattr(db_schedule, key, value)
         
@@ -185,7 +335,7 @@ def update_schedule(
     
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
     item_code = curriculum_item.code if curriculum_item else "Unknown"
-    log_activity(db, current_user.id, "Update Schedule", f"Updated schedule for {item_code} in {db_schedule.section}", "success", department_id=curriculum_item.department_id if curriculum_item else None) # type: ignore
+    log_activity(db, current_user.id, "Update Schedule", f"Updated schedule for {item_code}", "success", department_id=curriculum_item.department_id if curriculum_item else None) # type: ignore
     
     return db_schedule
 
@@ -200,13 +350,20 @@ def clear_all_schedules(
 
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
 
-    if current_user.role in ('dean', 'program_chair'):
+    dept = None
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
         dept = auth.resolve_user_department(db, current_user)
         if not dept:
             return {"deleted_count": 0, "backup": []}
+        _assert_term_not_published(db, semester_id, dept.id)
         query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
 
     schedules_to_delete = query.all()
+    if any(s.is_locked for s in schedules_to_delete):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="One or more schedule entries are locked and cannot be cleared."
+        )
     backup = []
     for s in schedules_to_delete:
         backup.append({
@@ -218,15 +375,33 @@ def clear_all_schedules(
             "start_time": s.start_time.strftime("%H:%M") if s.start_time else "07:30",
             "end_time": s.end_time.strftime("%H:%M") if s.end_time else "09:00",
             "section": s.section or "",
-            "status": s.status or "draft"
+            "status": "draft"
         })
 
     count = len(schedules_to_delete)
     for s in schedules_to_delete:
         db.delete(s)
+
+    # Also clear unresolved generator conflicts for this department so an empty timetable has 0 ghost conflicts
+    if dept is not None:
+        dept_curr_ids = [
+            cid for (cid,) in db.query(models.Curriculum.id).filter(
+                models.Curriculum.department_id == dept.id
+            ).all()
+        ]
+        if dept_curr_ids:
+            db.query(models.Conflict).filter(
+                models.Conflict.curriculum_id.in_(dept_curr_ids),
+                models.Conflict.resolved_at == None,
+            ).delete(synchronize_session=False)
+
     db.commit()
 
-    log_activity(db, current_user.id, "Clear All Schedules", f"Cleared {count} schedules for semester ID {semester_id}", "success")
+    log_activity(
+        db, current_user.id, "Clear All Schedules",
+        f"Cleared {count} schedules for semester ID {semester_id}", "success",
+        department_id=dept.id if dept else None,
+    )
     return {"deleted_count": count, "backup": backup}
 
 from pydantic import BaseModel
@@ -266,7 +441,7 @@ def get_schedule_status(
     total = len(rows)
     published = sum(1 for s in rows if s.status == 'published')
 
-    unresolved = db.query(models.Conflict).filter(models.Conflict.resolved_at == None).count()
+    unresolved = _count_scoped_unresolved_conflicts(db, semester_id, dept_id)
 
     return {
         "semester_id": semester_id,
@@ -286,15 +461,11 @@ def set_schedule_status(
 ):
     """
     Publish or unpublish a department's schedule for a term (DEP-1).
-
-    Publishing is what makes a schedule official, so it is an administrator
-    action and it is refused while conflicts are unresolved -- posting a
-    timetable that the system knows is broken is the failure this prevents.
     """
-    if current_user.role != 'admin':
+    if current_user.role not in ('admin', 'dean'):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can publish schedules."
+            detail="Only administrators and deans can publish schedules."
         )
 
     new_status = (payload.status or '').strip().lower()
@@ -308,7 +479,7 @@ def set_schedule_status(
     if not semester:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Term not found")
 
-    dept_id = payload.department_id
+    dept_id = _resolve_scope_department(db, current_user, payload.department_id)
     dept = db.query(models.Department).filter(models.Department.id == dept_id).first() if dept_id else None
 
     query = db.query(models.Schedule).join(models.Curriculum).filter(
@@ -325,7 +496,7 @@ def set_schedule_status(
         )
 
     if new_status == 'published':
-        unresolved = db.query(models.Conflict).filter(models.Conflict.resolved_at == None).count()
+        unresolved = _count_scoped_unresolved_conflicts(db, payload.semester_id, dept_id)
         if unresolved:
             noun = "conflict" if unresolved == 1 else "conflicts"
             raise HTTPException(
@@ -370,12 +541,16 @@ def restore_schedules(
     # single-item create path applies -- otherwise it is a way to write
     # schedules into any department's curriculum.
     allowed_dept_id = None
-    if current_user.role in ('dean', 'program_chair'):
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
         dept = auth.require_user_department(db, current_user, detail="Your department could not be resolved")
         allowed_dept_id = dept.id
 
+    checked_sems = set()
     restored_items = []
     for item in req.items:
+        if item.semester_id not in checked_sems:
+            _assert_term_not_published(db, item.semester_id, allowed_dept_id)
+            checked_sems.add(item.semester_id)
         if allowed_dept_id is not None:
             curriculum_item = db.query(models.Curriculum).filter(
                 models.Curriculum.id == item.curriculum_id
@@ -385,12 +560,24 @@ def restore_schedules(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Cannot restore a schedule for curriculum {item.curriculum_id}: it belongs to another department"
                 )
-        new_sched = models.Schedule(**item.model_dump())
+        if item.day_of_week and item.start_time and item.end_time and is_lunch_break_conflict(item.day_of_week, item.start_time, item.end_time):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Restored schedule overlaps mandatory Lunch Break (12:00 PM – 01:00 PM, Mon–Fri)."
+            )
+        payload = item.model_dump()
+        payload["status"] = "draft"
+        payload["is_locked"] = False
+        new_sched = models.Schedule(**payload)
         db.add(new_sched)
         restored_items.append(new_sched)
 
     db.commit()
-    log_activity(db, current_user.id, "Restore Schedules", f"Restored {len(restored_items)} schedule items", "success")
+    log_activity(
+        db, current_user.id, "Restore Schedules",
+        f"Restored {len(restored_items)} schedule items", "success",
+        department_id=allowed_dept_id,
+    )
     return {"restored_count": len(restored_items)}
 
 def _assert_curriculum_department_access(
@@ -399,8 +586,8 @@ def _assert_curriculum_department_access(
     curriculum_id: Optional[int],
     detail: str,
 ) -> None:
-    """Restrict dean/program_chair operations to curricula belonging to their department."""
-    if current_user.role not in ('dean', 'program_chair') or not curriculum_id:
+    """Restrict department-scoped users to curricula belonging to their college."""
+    if not (current_user.department or current_user.role in ('dean', 'program_chair')) or not curriculum_id:
         return
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == curriculum_id).first()
     if curriculum_item:
@@ -414,20 +601,91 @@ def _load_export_schedules(db: Session, current_user: models.User, semester_id: 
     query = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id)
     dept = None
     dept_name: str = "All Departments"
-    if current_user.role in ('dean', 'program_chair'):
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
         dept = auth.resolve_user_department(db, current_user)
         if dept:
             query = query.join(models.Curriculum).filter(models.Curriculum.department_id == dept.id)
             dept_name = str(dept.name)
 
     schedules = query.options(
-        joinedload(models.Schedule.curriculum),
+        joinedload(models.Schedule.curriculum).joinedload(models.Curriculum.block).joinedload(models.CurriculumBlock.program),
         joinedload(models.Schedule.faculty),
         joinedload(models.Schedule.room),
     ).all()
+
+    # Hydrate CT metadata from active-term SubjectOfferings onto exported schedules
+    if schedules:
+        offerings = db.query(models.SubjectOffering).filter(
+            models.SubjectOffering.semester_id == semester_id
+        ).all()
+        off_map = {(o.curriculum_id, o.faculty_id): o for o in offerings}
+        off_fallback = {o.curriculum_id: o for o in offerings}
+        for s in schedules:
+            if s.enrolled_students is None:
+                matched = off_map.get((s.curriculum_id, s.faculty_id)) or off_fallback.get(s.curriculum_id)
+                if matched and matched.enrolled_students is not None:
+                    s.enrolled_students = matched.enrolled_students
+                    s.credited_hours_override = matched.credited_hours_override
+
     semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
     term_label = f"{semester.academic_year} {semester.term}" if semester else ""
     return schedules, dept, dept_name, term_label
+
+
+def _load_registrar_proposal_subjects(db: Session, dept: Optional[models.Department], semester_id: int) -> list:
+    """
+    Build the full active-term published curriculum list for the Registrar Proposal sheet
+    (including unscheduled Gen Ed courses with their units, grouped by Program & Year Level).
+    """
+    from .subject_offerings import normalize_term
+
+    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    if not semester:
+        return []
+    sem_term_norm = normalize_term(semester.term)
+
+    block_q = db.query(models.CurriculumBlock).options(
+        joinedload(models.CurriculumBlock.program)
+    ).filter(models.CurriculumBlock.status == 'PUBLISHED')
+    if dept is not None:
+        block_q = block_q.filter(models.CurriculumBlock.department_id == dept.id)
+    blocks = block_q.all()
+    if not blocks:
+        return []
+
+    block_map = {b.id: b for b in blocks}
+    currs = db.query(models.Curriculum).filter(
+        models.Curriculum.block_id.in_(list(block_map.keys()))
+    ).all()
+
+    offerings = db.query(models.SubjectOffering).options(
+        joinedload(models.SubjectOffering.faculty)
+    ).filter(
+        models.SubjectOffering.semester_id == semester_id,
+        models.SubjectOffering.curriculum_id.in_([c.id for c in currs]),
+    ).all() if currs else []
+    off_by_curr = {o.curriculum_id: o for o in offerings}
+
+    items = []
+    for c in currs:
+        if normalize_term(c.semester_term) != sem_term_norm:
+            continue
+        blk = block_map.get(c.block_id)
+        prog_code = (blk.program.code if (blk and blk.program) else None) or (blk.program_name if blk else None) or c.program_code or "PROGRAM"
+        off = off_by_curr.get(c.id)
+        items.append({
+            "curriculum_id": c.id,
+            "curriculum": c,
+            "code": c.code,
+            "name": c.name,
+            "units": c.units or 0,
+            "year_level": c.year_level or "",
+            "program_code": prog_code,
+            "program_name": blk.program_name if blk else prog_code,
+            "faculty": off.faculty if off else None,
+            "enrolled_students": off.enrolled_students if off else None,
+        })
+    return items
 
 
 @router.delete("/{schedule_id}")
@@ -451,8 +709,8 @@ def delete_schedule(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Locked schedules cannot be deleted")
                 
     curriculum_item = db.query(models.Curriculum).filter(models.Curriculum.id == db_schedule.curriculum_id).first()
-    section = db_schedule.section
     dept_id = curriculum_item.department_id if curriculum_item else None
+    _assert_term_not_published(db, db_schedule.semester_id, dept_id)
     code = curriculum_item.code if curriculum_item else "Unknown"
 
     backup = {
@@ -470,7 +728,7 @@ def delete_schedule(
     db.delete(db_schedule)
     db.commit()
     
-    log_activity(db, current_user.id, "Delete Schedule", f"Deleted schedule for {code} in {section}", "success", department_id=dept_id) # type: ignore
+    log_activity(db, current_user.id, "Delete Schedule", f"Deleted schedule for {code}", "success", department_id=dept_id) # type: ignore
     
     return {"message": "Schedule deleted successfully", "backup": backup}
 
@@ -502,8 +760,29 @@ def get_schedule_suggestions(
             return []
         semester_id = active_sem.id # type: ignore
 
-    # Get valid faculties for the curriculum department
-    faculties = db.query(models.Faculty).filter(models.Faculty.department_id == curriculum_item.department_id).all()
+    # For major subjects, strictly recommend professors who are actually assigned
+    # to this subject in the active semester so "Apply -> Save" never fails with 400.
+    assigned_offerings = db.query(models.SubjectOffering).filter(
+        models.SubjectOffering.curriculum_id == curriculum_item.id,
+        models.SubjectOffering.semester_id == semester_id,
+    ).all()
+    assigned_fac_ids = [o.faculty_id for o in assigned_offerings if o.faculty_id is not None]
+
+    if curriculum_item.is_major is not False:
+        if not assigned_fac_ids:
+            return []
+        faculties = db.query(models.Faculty).filter(
+            models.Faculty.id.in_(assigned_fac_ids),
+            models.Faculty.department_id == curriculum_item.department_id,
+        ).all()
+    elif assigned_fac_ids:
+        faculties = db.query(models.Faculty).filter(
+            models.Faculty.id.in_(assigned_fac_ids)
+        ).all()
+    else:
+        faculties = db.query(models.Faculty).filter(
+            models.Faculty.department_id == curriculum_item.department_id
+        ).all()
     valid_faculties = []
     
     semester_obj = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
@@ -630,11 +909,18 @@ async def import_excel(
     """
     auth.require_roles(current_user, ('admin', 'dean', 'program_chair'))
 
-    contents = await file.read()
-    success_count, errors = import_schedules_from_excel(contents, db, semester_id)
+    sem_row = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    if not sem_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Semester {semester_id} not found.")
 
-    dept = auth.resolve_user_department(db, current_user)
-    log_activity(db, current_user.id, "Import Excel", f"Imported {success_count} schedules from Excel. Errors: {len(errors)}", department_id=dept.id if dept else None) # type: ignore
+    dept = auth.resolve_user_department(db, current_user) if (current_user.department or current_user.role in ('dean', 'program_chair')) else None
+    dept_id = dept.id if dept else None
+    _assert_term_not_published(db, semester_id, dept_id)
+
+    contents = await file.read()
+    success_count, errors = import_schedules_from_excel(contents, db, semester_id, department_id=dept_id)
+
+    log_activity(db, current_user.id, "Import Excel", f"Imported {success_count} schedules from Excel. Errors: {len(errors)}", department_id=dept_id) # type: ignore
 
     return {
         "message": f"Successfully imported {success_count} schedules",
@@ -654,12 +940,14 @@ def export_excel(
     auth.require_roles(current_user, ('admin', 'dean', 'program_chair'))
 
     schedules, dept, dept_name, term_label = _load_export_schedules(db, current_user, semester_id)
+    proposal_subjects = _load_registrar_proposal_subjects(db, dept, semester_id)
 
     output, row_count = build_schedule_excel(
         schedules,
         dept_name=dept_name,
         term_label=term_label,
         faculty_name=faculty_name,
+        proposal_subjects=proposal_subjects,
     )
 
     log_activity(db, current_user.id, "Export Excel", f"Exported schedule for {dept_name} to Excel ({row_count} classes)", department_id=dept.id if dept else None) # type: ignore

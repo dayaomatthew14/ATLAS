@@ -62,9 +62,19 @@ export default function ClassCard({ sched, color, dayLabel, lensDim, lensLit, ca
           >
             {isLabSession(sched) ? 'LAB' : 'LEC'}
           </span>
-          <span className="font-mono text-[10px] font-semibold text-slate-600 bg-white/80 px-1.5 py-0.5 rounded border border-slate-200/80">
-            {sched.room_name || sched.room?.name || 'TBA'}
-          </span>
+          {(sched.is_ct || (sched.ct_tier && sched.ct_tier !== 'regular')) && (
+            <span
+              className="font-mono text-[9.5px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs bg-teal-50 text-teal-800 border border-teal-300"
+              title="Converted Tutorial (CT)"
+            >
+              CT
+            </span>
+          )}
+          {(sched.room_name || sched.room?.name) && (
+            <span className="font-mono text-[10px] font-semibold text-slate-600 bg-white/80 px-1.5 py-0.5 rounded border border-slate-200/80">
+              {sched.room_name || sched.room?.name}
+            </span>
+          )}
         </div>
         {canManage && (
           <button

@@ -82,6 +82,8 @@ export default function UserManagement() {
   const { addToast } = useToast();
   const deanMode = isDean();
   const deptCode = getDepartment();
+  const currentUserId = localStorage.getItem('atlas_user_id');
+  const currentUserEmail = (localStorage.getItem('atlas_user_email') || '').toLowerCase();
 
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -269,13 +271,22 @@ export default function UserManagement() {
     setIsSaving(true);
     try {
       const compactPhone = normalizeContactNumber(editForm.contact_number);
-      await api.put(`/users/${editing.id}`, {
+      const isEditingSelf =
+        (currentUserId && String(editing.id) === String(currentUserId)) ||
+        (currentUserEmail && String(editing.email || '').toLowerCase() === currentUserEmail);
+      const nextDept = deanMode
+        ? (editing.department || deptCode || null)
+        : (editForm.department || null);
+      const payload = {
         first_name: editForm.first_name.trim(),
         last_name: editForm.last_name.trim(),
         contact_number: compactPhone || null,
-        role: editForm.role,
-        department: editForm.role === 'admin' ? null : editForm.department,
-      });
+        department: nextDept,
+      };
+      if (!isEditingSelf) {
+        payload.role = editForm.role;
+      }
+      await api.put(`/users/${editing.id}`, payload);
       addToast(`${displayName(editing)} updated.`, 'success');
       setEditing(null);
       fetchUsers();
@@ -447,11 +458,14 @@ export default function UserManagement() {
     },
   ];
 
-  const rowActions = (u) => (
-    <RowMenu
-      label={`Actions for ${displayName(u)}`}
-      items={[
-        { label: 'Edit account', onSelect: () => openEdit(u) },
+  const rowActions = (u) => {
+    const isSelf =
+      (currentUserId && String(u.id) === String(currentUserId)) ||
+      (currentUserEmail && String(u.email || '').toLowerCase() === currentUserEmail);
+    const canManageRow = !isSelf && (!deanMode || u.role === 'program_chair');
+    const items = [{ label: 'Edit account', onSelect: () => openEdit(u) }];
+    if (canManageRow) {
+      items.push(
         {
           label: u.is_verified ? 'Revoke verification' : 'Mark as verified',
           onSelect: () => toggleVerification(u),
@@ -464,10 +478,16 @@ export default function UserManagement() {
           label: 'Delete user',
           destructive: true,
           onSelect: () => setDeleteTarget(u),
-        },
-      ]}
-    />
-  );
+        }
+      );
+    }
+    return (
+      <RowMenu
+        label={`Actions for ${displayName(u)}`}
+        items={items}
+      />
+    );
+  };
 
   return (
     <div className="p-6 lg:p-8">

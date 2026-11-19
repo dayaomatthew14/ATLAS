@@ -286,7 +286,7 @@ export const formatSubjectCode = (sched) => {
 export const isLabSession = (sched) => {
   if (!sched) return false;
   if (sched.part_type === 'lab') return true;
-  if (sched.curriculum?.type === 'lab') return true;
+  if (sched.curriculum_type === 'lab' || sched.curriculum?.type === 'lab') return true;
   const rawCode = sched.subject_code || sched.code || sched.curriculum?.code || '';
   if (rawCode.toUpperCase().endsWith('B')) return true;
   const dur = durationHours(sched);
@@ -303,11 +303,19 @@ export const EXPORT_COLUMNS = [
   { key: 'faculty', label: 'Professor', value: (s) => s.faculty_name || 'TBA' },
   { key: 'code', label: 'Subject Code', value: (s) => formatSubjectCode(s) },
   { key: 'name', label: 'Subject Name', value: (s) => s.subject_name || '' },
-  { key: 'room', label: 'Room', value: (s) => s.room_name || s.room?.name || 'TBA' },
+  { key: 'room', label: 'Room', value: (s) => s.room_name || s.room?.name || '' },
   { key: 'day', label: 'Day', value: (s) => DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '' },
   { key: 'start', label: 'Start Time', value: (s) => to12h(s.start_time) },
   { key: 'end', label: 'End Time', value: (s) => to12h(s.end_time) },
   { key: 'hours', label: 'Hours', value: (s) => `${durationHours(s).toFixed(2)}h` },
+  {
+    key: 'mode',
+    label: 'Class Mode',
+    value: (s) =>
+      s.is_ct || (s.ct_tier && s.ct_tier !== 'regular')
+        ? `CT · ${s.ct_tier === 'ct_9_12' ? '9–12' : s.ct_tier === 'ct_5_8' ? '5–8' : s.ct_tier === 'ct_1_4' ? '1–4' : 'CT'}`
+        : 'Regular',
+  },
 ];
 
 /** Professor, then the week in order, then time of day. */

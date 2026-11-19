@@ -16,8 +16,9 @@ def _assert_department_rule_access(
     rule_department_id: Optional[int],
     detail: str,
 ) -> None:
-    """Enforce department scoping for deans and program chairs modifying AI rules."""
-    if current_user.role in ('dean', 'program_chair'):
+    """Enforce role and college scoping when creating/modifying/deleting AI rules."""
+    auth.require_roles(current_user, ('admin', 'dean', 'program_chair'), detail=detail)
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
         dept = auth.resolve_user_department(db, current_user)
         if not dept or rule_department_id != dept.id:
             raise HTTPException(status_code=403, detail=detail)
@@ -33,10 +34,11 @@ def get_rules(
 
     query = db.query(models.AIRule)
 
-    if current_user.role in ('dean', 'program_chair'):
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
         dept = auth.resolve_user_department(db, current_user)
-        if dept:
-            query = query.filter(models.AIRule.department_id == dept.id)
+        if not dept:
+            return []
+        query = query.filter(models.AIRule.department_id == dept.id)
     elif department_id:
         query = query.filter(models.AIRule.department_id == department_id)
 

@@ -258,9 +258,18 @@ export default function Teachers() {
     const q = subjectSearchQuery.trim().toLowerCase();
     const isAssigned = (s) => teacherSubjects.some((ts) => ts.curriculum_id === s.id);
 
+    const normTerm = (v) => {
+      const s = String(v ?? '').trim().toLowerCase();
+      if (s.startsWith('1') || s.includes('first')) return '1st';
+      if (s.startsWith('2') || s.includes('second')) return '2nd';
+      if (s.startsWith('3') || s.includes('third') || s.includes('summer')) return '3rd';
+      return s;
+    };
+
     return curriculumSubjects
       .filter((sub) => {
-        const matchSem = sub.semester_term === semesterFilter || sub.semester === semesterFilter;
+        const subTerm = normTerm(sub.semester_term || sub.semester);
+        const matchSem = subTerm === semesterFilter;
 
         let matchType = true;
         if (courseCodeFilter === 'A') matchType = sub.type === 'lecture' && sub.lab_units === 0;
@@ -296,9 +305,25 @@ export default function Teachers() {
     return assignedSubjectsList.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
   }, [assignedSubjectsList]);
 
+  const teacherOfferingByCurrId = useMemo(() => {
+    const map = new Map();
+    for (const ts of teacherSubjects || []) {
+      if (ts && ts.curriculum_id != null) {
+        map.set(ts.curriculum_id, ts);
+      }
+    }
+    return map;
+  }, [teacherSubjects]);
+
   const totalAssignedHours = useMemo(() => {
-    return assignedSubjectsList.reduce((sum, s) => sum + computeSubjectHours(s), 0);
-  }, [assignedSubjectsList]);
+    return assignedSubjectsList.reduce((sum, s) => {
+      const off = teacherOfferingByCurrId.get(s.id);
+      if (off && off.credited_hours_override != null) {
+        return sum + Number(off.credited_hours_override);
+      }
+      return sum + computeSubjectHours(s, { enrolledStudents: off?.enrolled_students ?? null });
+    }, 0);
+  }, [assignedSubjectsList, teacherOfferingByCurrId]);
 
   const handleOpenSubjectModal = async (teacher) => {
     setSelectedTeacherForSubjects(teacher);
@@ -1368,7 +1393,20 @@ export default function Teachers() {
                     </thead>
                     <tbody>
                       {visibleSubjects.map((sub) => {
-                        const isAssigned = teacherSubjects.some((ts) => ts.curriculum_id === sub.id);
+                        const matchedOffering = teacherOfferingByCurrId.get(sub.id);
+                        const isAssigned = Boolean(matchedOffering);
+                        const isCtOffering = Boolean(
+                          matchedOffering &&
+                            matchedOffering.enrolled_students != null &&
+                            Number(matchedOffering.enrolled_students) > 0 &&
+                            Number(matchedOffering.enrolled_students) < 13
+                        );
+                        const effectiveSubHours =
+                          matchedOffering?.credited_hours_override != null
+                            ? Number(matchedOffering.credited_hours_override)
+                            : computeSubjectHours(sub, {
+                                enrolledStudents: matchedOffering?.enrolled_students ?? null,
+                              });
                         return (
                           <tr
                             key={sub.id}
@@ -1385,7 +1423,14 @@ export default function Teachers() {
                               />
                             </td>
                             <td className="px-4 py-2.5 font-data text-table text-atlas-ink whitespace-nowrap">
-                              {sub.code}
+                              <span className="inline-flex items-center gap-1.5">
+                                {sub.code}
+                                {isCtOffering && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-teal-50 text-teal-800 border border-teal-300">
+                                    CT
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td className="px-4 py-2.5 font-ui text-table text-atlas-ink">{sub.name}</td>
                             <td className="px-4 py-2.5 font-ui text-table text-atlas-slate whitespace-nowrap">
@@ -1395,7 +1440,7 @@ export default function Teachers() {
                               {sub.units}
                             </td>
                             <td className="px-4 py-2.5 text-right font-data text-table tabular-nums font-semibold text-slate-700 whitespace-nowrap">
-                              {formatHours(computeSubjectHours(sub))} hrs
+                              {formatHours(effectiveSubHours)} hrs
                             </td>
                           </tr>
                         );

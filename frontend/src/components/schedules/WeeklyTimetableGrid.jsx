@@ -339,7 +339,7 @@ function WeeklyTimetableGrid({
                   const isLab = isLabSession(sched);
                   const isComb = isCombinedCSubject({
                     code: sched.subject_code,
-                    type: sched.curriculum?.type,
+                    type: sched.curriculum_type || sched.curriculum?.type,
                   });
                   const displayCode = formatSubjectCode(sched) || sched.subject_code || 'N/A';
                   const subjectTitle =
@@ -416,6 +416,14 @@ function WeeklyTimetableGrid({
                             >
                               {isComb ? 'COMB' : isLab ? 'LAB' : 'LEC'}
                             </span>
+                            {(sched.is_ct || (sched.ct_tier && sched.ct_tier !== 'regular')) && (
+                              <span
+                                className="font-mono text-[10.5px] font-black uppercase px-1.5 py-0.5 rounded leading-tight shrink-0 bg-teal-50 text-teal-800 border border-teal-300"
+                                title="Converted Tutorial (CT)"
+                              >
+                                CT
+                              </span>
+                            )}
                           </div>
 
                           {canEditSchedules && (

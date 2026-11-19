@@ -200,9 +200,18 @@ def list_unassigned_blocks(
     seeded. Hiding them would lose real curriculum silently, so they get their
     own listing and an explicit decision: assign, or delete.
     """
-    blocks = db.query(models.CurriculumBlock).filter(
+    auth.require_roles(current_user, ('admin', 'dean', 'program_chair'))
+    query = db.query(models.CurriculumBlock).filter(
         models.CurriculumBlock.program_id.is_(None)
-    ).all()
+    )
+    if current_user.department or current_user.role in ('dean', 'program_chair'):
+        dept = auth.resolve_user_department(db, current_user)
+        if not dept:
+            return []
+        query = query.filter(models.CurriculumBlock.department_id == dept.id)
+    if current_user.role not in ('admin', 'dean'):
+        query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
+    blocks = query.all()
     out = []
     for b in blocks:
         out.append({

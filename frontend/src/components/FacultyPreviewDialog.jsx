@@ -452,6 +452,11 @@ export default function FacultyPreviewDialog({
                               <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/70">
                                 {s.subject_code}
                               </span>
+                              {(s.is_ct || (s.ct_tier && s.ct_tier !== 'regular')) && (
+                                <span className="font-mono text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-300">
+                                  CT
+                                </span>
+                              )}
                               <span className="font-ui text-sm font-semibold text-slate-900 break-words">
                                 {s.subject_name}
                               </span>
@@ -466,7 +471,7 @@ export default function FacultyPreviewDialog({
             </div>
             <div className="mt-3 flex items-center justify-between px-1 text-xs font-medium text-slate-500">
               <span>{pluralize(schedules.length, 'class', 'classes')} plotted</span>
-              <span className="font-bold text-slate-700 font-data">{formatHours(plottedHours)} hrs a week</span>
+              <span className="font-bold text-slate-700 font-data">{formatHours(teacher.reg_hours ?? plottedHours)} hrs a week</span>
             </div>
           </>
         )}

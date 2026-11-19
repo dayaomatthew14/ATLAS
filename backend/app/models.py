@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Enum, Time, DateTime, Date
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Enum, Time, DateTime, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from .database import Base
@@ -131,7 +131,7 @@ class Curriculum(Base):
 
     department = relationship("Department", back_populates="curriculum_items")
     block = relationship("CurriculumBlock", back_populates="curriculum_items")
-    schedules = relationship("Schedule", back_populates="curriculum")
+    schedules = relationship("Schedule", back_populates="curriculum", cascade="all, delete-orphan")
 
 class Room(Base):
     """
@@ -213,6 +213,8 @@ class Schedule(Base):
     section = Column(String(20))
     status = Column(Enum('draft', 'published', name='schedule_status'), default='draft')
     is_locked = Column(Boolean, default=False)
+    enrolled_students = Column(Integer, nullable=True)
+    credited_hours_override = Column(Float, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -273,6 +275,8 @@ class SubjectOffering(Base):
     curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=False)
     semester_id = Column(Integer, ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False)
     assigned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    enrolled_students = Column(Integer, nullable=True)
+    credited_hours_override = Column(Float, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     curriculum = relationship("Curriculum")

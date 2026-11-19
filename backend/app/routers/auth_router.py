@@ -404,7 +404,7 @@ def register_user(
     db.refresh(db_user)
 
 
-    log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success") # type: ignore
+    log_activity(db, db_user.id, "Register", f"New user registered: {db_user.email}", "success", department_id=college.id) # type: ignore
     
     # Delivery is reported back rather than assumed. An account whose code never
     # arrived cannot be verified and cannot be signed into, so "we could not
@@ -417,6 +417,7 @@ def register_user(
         log_activity(
             db, int(db_user.id), "Register",  # type: ignore
             f"Verification code could not be delivered to {db_user.email}", "warning",
+            department_id=college.id,
         )
 
     # Return user details returning the friendly department name to the frontend
@@ -631,14 +632,27 @@ def logout(response: Response):
 
 @router.post("/logout-all")
 def logout_all(response: Response, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
-    current_user.session_version += 1 # type: ignore
+    current_user.session_version = (current_user.session_version or 1) + 1 # type: ignore
     db.commit()
+    db.refresh(current_user)
     
     dept = auth.resolve_user_department(db, current_user)
-    log_activity(db, current_user.id, "Logout All", "User logged out of all devices", "success", department_id=dept.id if dept else None) # type: ignore
+    log_activity(db, current_user.id, "Logout All", "User signed out of all other devices", "success", department_id=dept.id if dept else None) # type: ignore
     
+    # Re-issue a fresh session cookie for THIS device so it stays signed in
+    # while every older token on other devices is invalidated.
+    access_token = auth.create_access_token(
+        data={"sub": current_user.email, "sv": current_user.session_version},
+        expires_delta=timedelta(hours=auth.ACCESS_TOKEN_EXPIRE_MINUTES / 60),
+    )
     is_prod = os.getenv("ENV") == "production"
     samesite_val = "none" if is_prod else "lax"
     secure_val = True if is_prod else False
-    response.delete_cookie("atlas_token", samesite=samesite_val, secure=secure_val)
-    return {"msg": "Logged out of all devices successfully"}
+    response.set_cookie(
+        key="atlas_token",
+        value=access_token,
+        httponly=True,
+        secure=secure_val,
+        samesite=samesite_val,
+    )
+    return {"msg": "Signed out of all other devices successfully. This device remains signed in."}

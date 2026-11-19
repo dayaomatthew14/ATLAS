@@ -173,8 +173,14 @@ def validate_schedule_conflict(
                 if not is_same_subject:
                     continue
 
-                is_other_lab = (other_curr.type == 'lab' or (other_curr.lab_units or 0) > 0 or other_code.upper().endswith('B'))
-                is_other_lec = (other_curr.type == 'lecture' or (other_curr.lec_units or 0) > 0 or other_code.upper().endswith('A'))
+                # Skip session-order comparison when both rows reference the exact same
+                # curriculum row (single combined A/B row has both lec_units & lab_units > 0,
+                # so comparing it against itself produces a false-positive violation).
+                if target_curr.id == other_curr.id:
+                    continue
+
+                is_other_lab = (other_curr.type == 'lab' or ((other_curr.lab_units or 0) > 0 and (other_curr.lec_units or 0) == 0) or other_code.upper().endswith('B'))
+                is_other_lec = (other_curr.type == 'lecture' or ((other_curr.lec_units or 0) > 0 and (other_curr.lab_units or 0) == 0) or other_code.upper().endswith('A'))
 
                 if is_target_lab and is_other_lec:
                     if validation_data.start_time < s.end_time:

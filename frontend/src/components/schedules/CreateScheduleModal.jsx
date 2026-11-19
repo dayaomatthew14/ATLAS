@@ -4,6 +4,7 @@ import {
   BookOpen,
   Calendar,
   CalendarPlus,
+  DoorOpen,
   Info,
   Sparkles,
   UserCheck,
@@ -30,10 +31,12 @@ export default function CreateScheduleModal({
   formatSemesterTerm,
   subjects = [],
   teachers = [],
+  rooms = [],
   isLoadingDropdowns = false,
   formData,
   formErrors = {},
   blockingFormConflicts = [],
+  advisoryFormConflicts = [],
   onSelectSubject,
   onFieldChange,
   onFieldBlur,
@@ -107,6 +110,34 @@ export default function CreateScheduleModal({
       })),
     []
   );
+
+  const selectedCodeUpper = String(selectedSubject?.code || '').trim().toUpperCase();
+  const isLabOrCombinedSubject = Boolean(
+    selectedSubject &&
+      (selectedSubject.type === 'lab' ||
+        selectedCodeUpper.endsWith('B') ||
+        selectedCodeUpper.endsWith('C'))
+  );
+
+  const labRoomOptions = useMemo(() => {
+    const base = [{ value: '', label: 'Unassigned (Registrar / Later)' }];
+    const labRooms = (Array.isArray(rooms) ? rooms : [])
+      .filter((r) => r && r.id != null)
+      .sort((a, b) => {
+        const aIsLab = String(a.type || '').toLowerCase() === 'lab' ? 0 : 1;
+        const bIsLab = String(b.type || '').toLowerCase() === 'lab' ? 0 : 1;
+        if (aIsLab !== bIsLab) return aIsLab - bIsLab;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      })
+      .map((r) => ({
+        value: String(r.id),
+        label: r.name,
+        secondary: [r.building, r.type ? String(r.type).toUpperCase() : null]
+          .filter(Boolean)
+          .join(' · '),
+      }));
+    return [...base, ...labRooms];
+  }, [rooms]);
 
   const termLabel = currentSemester
     ? `A.Y. ${currentSemester.academic_year} · ${formatSemesterTerm(currentSemester.term)}`
@@ -199,6 +230,21 @@ export default function CreateScheduleModal({
           </div>
         )}
 
+        {blockingFormConflicts.length === 0 && advisoryFormConflicts.length > 0 && (
+          <div className="rounded-panel bg-amber-50/90 border border-amber-300/70 p-3.5 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="font-ui text-caption font-semibold text-amber-900">
+                Student Cohort Overlap Warning
+              </p>
+              <p className="font-ui text-caption text-amber-800 mt-0.5 leading-relaxed">
+                {advisoryFormConflicts[0].message ||
+                  'Another subject in the same Program and Year Level is already scheduled at this time.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         <Field
           id="schedule-subject-id"
           label="Subject"
@@ -268,6 +314,38 @@ export default function CreateScheduleModal({
             />
           )}
         </Field>
+
+        {isLabOrCombinedSubject ? (
+          <Field
+            id="schedule-room-id"
+            label="Lab Room (Optional — CS/COE)"
+            hint="Leave blank if the Registrar will assign the room."
+          >
+            {({ id, describedBy, invalid }) => (
+              <SelectMenu
+                id={id}
+                describedBy={describedBy}
+                invalid={invalid}
+                value={formData.room_id || ''}
+                onChange={(val) => onFieldChange('room_id', val)}
+                options={labRoomOptions}
+                placeholder="Unassigned (Registrar / Later)"
+                menuTitle="Department Lab Rooms"
+                emptyMessage="No lab rooms configured."
+                searchable={labRoomOptions.length > 6}
+                searchPlaceholder="Search lab room…"
+                loading={isLoadingDropdowns}
+                icon={DoorOpen}
+                itemNoun="room"
+              />
+            )}
+          </Field>
+        ) : selectedSubject ? (
+          <p className="font-ui text-caption text-atlas-slate flex items-center gap-1.5 px-1">
+            <Info className="w-3.5 h-3.5 text-atlas-slate/80 shrink-0" aria-hidden="true" />
+            Lecture rooms are assigned by the Registrar and left blank in the proposal export.
+          </p>
+        ) : null}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field
