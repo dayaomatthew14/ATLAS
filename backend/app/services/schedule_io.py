@@ -21,6 +21,8 @@ from reportlab.pdfgen import canvas
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from .. import models
+from . import faculty_load
+from .schedule_generator import is_lunch_break_conflict, LUNCH_BREAK_DAYS, LUNCH_BREAK_START, LUNCH_BREAK_END
 
 
 def _attachment_header(stem: str, ext: str) -> dict:
@@ -86,7 +88,7 @@ class NumberedCanvas(canvas.Canvas):
 
 
 _DAY_ORDER = {d: i for i, d in enumerate(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])}
-_EXPORT_HEADERS = ["Professor", "Subject Code", "Subject Name", "Section", "Day", "Start Time", "End Time"]
+_EXPORT_HEADERS = ["Professor", "Subject Code", "Subject Name", "Room", "Day", "Start Time", "End Time", "Hours"]
 
 
 def _prepare_export_rows(
@@ -98,19 +100,30 @@ def _prepare_export_rows(
     for s in schedules:
         curriculum_item = s.curriculum
         faculty = s.faculty
+        room = getattr(s, "room", None)
+        room_label = (room.name if (room and getattr(room, "name", None)) else "TBA")
         prof = f"{faculty.first_name} {faculty.last_name}" if faculty else "TBA"
         if faculty_name and prof != faculty_name:
             continue
         if faculty:
             unique_profs.add(prof)
+        dur_hrs = (
+            faculty_load.round_hours(faculty_load.duration_hours(s.start_time, s.end_time, s.day_of_week))
+            if (s.start_time and s.end_time)
+            else 0.0
+        )
         rows.append({
             "professor": prof,
             "code": curriculum_item.code if curriculum_item else "N/A",
             "name": curriculum_item.name if curriculum_item else "N/A",
             "section": s.section or "—",
+            "room": room_label,
             "day": str(s.day_of_week or "—"),
             "start": s.start_time.strftime('%I:%M %p').lstrip('0') if s.start_time else "—",
             "end": s.end_time.strftime('%I:%M %p').lstrip('0') if s.end_time else "—",
+            "hours": f"{dur_hrs:.2f}",
+            "start_time_obj": s.start_time,
+            "end_time_obj": s.end_time,
             "_sort": (
                 prof,
                 _DAY_ORDER.get(str(s.day_of_week or "")[:3], 9),
@@ -222,13 +235,14 @@ def build_schedule_pdf(
                 Paragraph(_cell_text(r["professor"]), pdf_styles["cell_bold"]),
                 Paragraph(_cell_text(r["code"]), pdf_styles["center_bold"]),
                 Paragraph(_cell_text(r["name"]), pdf_styles["cell"]),
-                Paragraph(_cell_text(r["section"]), pdf_styles["center"]),
+                Paragraph(_cell_text(r["room"]), pdf_styles["center"]),
                 Paragraph(_cell_text(r["day"]), pdf_styles["center_bold"]),
                 Paragraph(_cell_text(r["start"]), pdf_styles["center"]),
                 Paragraph(_cell_text(r["end"]), pdf_styles["center"]),
+                Paragraph(_cell_text(r["hours"]), pdf_styles["center"]),
             ])
 
-        table = Table(data, repeatRows=1, colWidths=[130, 80, 222, 60, 70, 85, 85])
+        table = Table(data, repeatRows=1, colWidths=[130, 75, 212, 60, 55, 65, 65, 70])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#05301F')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -244,7 +258,11 @@ def build_schedule_pdf(
             ('LEFTPADDING', (0, 0), (-1, -1), 4),
             ('RIGHTPADDING', (0, 0), (-1, -1), 4),
         ]))
-        elements.extend([table, _build_pdf_signature_block(pdf_styles["meta"])])
+        note = Paragraph(
+            "<i>Note: Monday–Friday 12:00 PM – 01:00 PM is reserved as a mandatory 1-hour Lunch Break across all programs.</i>",
+            pdf_styles["sub"],
+        )
+        elements.extend([table, Spacer(1, 6), note, _build_pdf_signature_block(pdf_styles["meta"])])
 
     doc.build(elements, canvasmaker=NumberedCanvas)
     buffer.seek(0)
@@ -340,7 +358,7 @@ def build_schedule_excel(
         "name": (Font(name='Segoe UI', size=9.5, color='1E293B'), 'left'),
     }
     default_style = (Font(name='Segoe UI', size=9.5, color='1E293B'), 'center')
-    data_keys = ["professor", "code", "name", "section", "day", "start", "end"]
+    data_keys = ["professor", "code", "name", "room", "day", "start", "end", "hours"]
 
     for row_idx, r in enumerate(rows, start=8):
         is_alt = (row_idx % 2 == 1)
@@ -354,15 +372,94 @@ def build_schedule_excel(
             c.font = font
             c.alignment = Alignment(horizontal=horiz, vertical='center')
 
-    min_widths = {1: 24, 2: 15, 3: 38, 4: 12, 5: 12, 6: 14, 7: 14}
-    for col_idx in range(1, 8):
+    min_widths = {1: 24, 2: 15, 3: 36, 4: 12, 5: 10, 6: 14, 7: 14, 8: 10}
+    for col_idx in range(1, len(_EXPORT_HEADERS) + 1):
         max_len = max(
-            [min_widths.get(col_idx, 15)] +
+            [min_widths.get(col_idx, 14)] +
             [len(str(ws.cell(row=row, column=col_idx).value or '')) for row in range(7, len(rows) + 8)]
         )
         ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 3, 50)
 
     ws.freeze_panes = 'A8'
+
+    # Second Sheet: Weekly Timetable Grid (Mon-Sat with Mon-Fri 12:00-13:00 LUNCH BREAK)
+    grid_ws = wb.create_sheet("Weekly Timetable Grid")
+    grid_ws.views.sheetView[0].showGridLines = True
+    grid_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    grid_headers = ["Time", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    for col_idx, h in enumerate(grid_headers, start=1):
+        cell = grid_ws.cell(row=1, column=col_idx, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = header_border
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    grid_ws.row_dimensions[1].height = 26
+
+    # Build 30-minute bands from 07:30 to 19:30, with 12:00-13:00 as a single 1-hour Lunch Break row
+    time_bands = [
+        (450, 480, "07:30 AM - 08:00 AM"),
+        (480, 510, "08:00 AM - 08:30 AM"),
+        (510, 540, "08:30 AM - 09:00 AM"),
+        (540, 570, "09:00 AM - 09:30 AM"),
+        (570, 600, "09:30 AM - 10:00 AM"),
+        (600, 630, "10:00 AM - 10:30 AM"),
+        (630, 660, "10:30 AM - 11:00 AM"),
+        (660, 690, "11:00 AM - 11:30 AM"),
+        (690, 720, "11:30 AM - 12:00 PM"),
+        (720, 780, "12:00 PM - 01:00 PM"),  # 1-hour Lunch Break (Mon-Fri)
+        (780, 810, "01:00 PM - 01:30 PM"),
+        (810, 840, "01:30 PM - 02:00 PM"),
+        (840, 870, "02:00 PM - 02:30 PM"),
+        (870, 900, "02:30 PM - 03:00 PM"),
+        (900, 930, "03:00 PM - 03:30 PM"),
+        (930, 960, "03:30 PM - 04:00 PM"),
+        (960, 990, "04:00 PM - 04:30 PM"),
+        (990, 1020, "04:30 PM - 05:00 PM"),
+        (1020, 1050, "05:00 PM - 05:30 PM"),
+        (1050, 1080, "05:30 PM - 06:00 PM"),
+        (1080, 1110, "06:00 PM - 06:30 PM"),
+        (1110, 1140, "06:30 PM - 07:00 PM"),
+        (1140, 1170, "07:00 PM - 07:30 PM"),
+    ]
+    lunch_fill = PatternFill(start_color='FEF3C7', end_color='FEF3C7', fill_type='solid')
+    lunch_font = Font(name='Segoe UI', size=9, bold=True, color='92400E')
+    class_fill = PatternFill(start_color='E6F4EA', end_color='E6F4EA', fill_type='solid')
+
+    for b_idx, (b_start, b_end, label) in enumerate(time_bands, start=2):
+        grid_ws.row_dimensions[b_idx].height = 34 if (b_start == 720 and b_end == 780) else 24
+        t_cell = grid_ws.cell(row=b_idx, column=1, value=label)
+        t_cell.font = Font(name='Segoe UI', size=8.5, bold=True, color='334155')
+        t_cell.alignment = Alignment(horizontal='center', vertical='center')
+        t_cell.border = cell_border
+
+        for d_idx, day_code in enumerate(grid_days, start=2):
+            c = grid_ws.cell(row=b_idx, column=d_idx)
+            c.border = cell_border
+            if b_start == 720 and b_end == 780 and day_code in LUNCH_BREAK_DAYS:
+                c.value = "LUNCH BREAK (12:00 PM - 01:00 PM)"
+                c.fill = lunch_fill
+                c.font = lunch_font
+                c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                continue
+
+            matching = []
+            for r in rows:
+                if r["day"] != day_code or not r["start_time_obj"] or not r["end_time_obj"]:
+                    continue
+                s_min = r["start_time_obj"].hour * 60 + r["start_time_obj"].minute
+                e_min = r["end_time_obj"].hour * 60 + r["end_time_obj"].minute
+                if s_min < b_end and e_min > b_start:
+                    matching.append(f"{r['code']} · {r['room']} · {r['start']}-{r['end']}")
+            if matching:
+                c.value = "\n".join(matching)
+                c.fill = class_fill
+                c.font = Font(name='Segoe UI', size=8.5, bold=True, color='05301F')
+                c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    grid_ws.column_dimensions['A'].width = 22
+    for col_idx in range(2, 8):
+        grid_ws.column_dimensions[get_column_letter(col_idx)].width = 28
+
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -404,12 +501,13 @@ def import_schedules_from_excel(
     
     # Basic validation
     header = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
-    required_cols = ['CurriculumCode', 'FacultyEmail', 'Day', 'StartTime', 'EndTime', 'Section']
+    required_cols = ['CurriculumCode', 'FacultyEmail', 'Day', 'StartTime', 'EndTime']
     col_indices = {}
     for col in required_cols:
         if col not in header:
             raise HTTPException(status_code=400, detail=f"Missing required column: {col}")
         col_indices[col] = header.index(col)
+    sec_col = header.index('Section') if 'Section' in header else -1
             
     success_count = 0
     errors = []
@@ -434,7 +532,7 @@ def import_schedules_from_excel(
             day_val = str(row[col_indices['Day']]).strip() if row[col_indices['Day']] is not None else ""
             start_val = row[col_indices['StartTime']]
             end_val = row[col_indices['EndTime']]
-            sec_val = str(row[col_indices['Section']]).strip() if row[col_indices['Section']] is not None else ""
+            sec_val = str(row[sec_col]).strip() if sec_col != -1 and row[sec_col] is not None else ""
 
             curriculum_item = curriculum_by_code.get(curr_code)
             faculty = faculty_by_email.get(fac_email)
@@ -445,6 +543,11 @@ def import_schedules_from_excel(
                 
             start_t = _parse_time_val(start_val)
             end_t = _parse_time_val(end_val)
+            if is_lunch_break_conflict(day_val, start_t, end_t):
+                errors.append(
+                    f"Row {index}: {curr_code} on {day_val} ({start_t.strftime('%H:%M')}-{end_t.strftime('%H:%M')}) overlaps the mandatory Monday–Friday Lunch Break (12:00 PM – 01:00 PM)."
+                )
+                continue
             
             new_sched = models.Schedule(
                 semester_id=semester_id,

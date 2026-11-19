@@ -19,11 +19,15 @@ The core loop:
 
 1. A **Dean Administrator** maintains the **curriculum**, oversees college **programmes**,
    and manages college user access.
-2. A **Program Chair** registers faculty, sets their unit caps
-   and unavailable hours, and assigns subject offerings.
-3. The scheduler **generates** a weekly timetable for that college.
-4. Conflicts are **resolved one at a time**, each as a deliberate decision.
-5. Schedules are reviewed and verified before publication.
+2. A **Program Chair** registers faculty, sets their classification
+   (Full-Time Regular, Full-Time Probationary, Part-Time) and teaching-hour caps,
+   and assigns subject offerings based on exact weekly teaching hours.
+3. Overloads are permitted and flagged for **College Dean review and approval**.
+4. The scheduler **generates** a weekly timetable for that college, strictly
+   reserving the mandatory 1-hour lunch break (12:00 PM – 01:00 PM, Mon–Fri).
+5. Conflicts are **resolved one at a time**, each as a deliberate decision.
+6. Schedules are reviewed and verified on the Monday–Saturday weekly timetable
+   grid before publication.
 
 ---
 
@@ -98,21 +102,23 @@ database.
 
 ## 5. The scheduling engine
 
-`backend/app/services/schedule_generator.py` places classes into fixed slots
+`backend/app/services/schedule_generator.py` places classes into structured slots
 across a six-day week (Mon–Sat, 07:30–19:30).
 
-- **Lecture blocks** are 90 minutes; **laboratory blocks** are 120 minutes.
-- Classes are placed on **day pairs** — Mon/Wed, Tue/Thu, or Fri/Sat — so a
-  subject meets twice weekly.
-- A subject with both lecture and lab components is split across two different
-  day pairs.
+- **Teaching hours** are calculated from exact minutes based on lecture/lab units (Courses with 13+ students: 1u lec = 80m, 2u lec = 160m, 3u lec = 240m; 1u lab = 240m, 2u lab = 480m; 3u comb C = 240m).
+- Classes are placed on **day pairs** (Mon/Wed, Tue/Thu, Fri/Sat) or single-day blocks so a subject fulfills its weekly teaching hours.
+- A subject with both lecture and lab components schedules lecture before laboratory.
 
 Constraints honoured during placement:
 
-- Faculty maximum teaching units (default 18 full-time, 12 part-time)
+- **Mandatory 1-Hour Lunch Break**: Exactly 12:00 PM – 01:00 PM, Monday through Friday, is strictly reserved with zero classes allowed to overlap; Saturdays are exempt.
+- **Faculty Teaching-Hour Limits**:
+  - Full-Time Probationary: 24 hrs across all terms (1st, 2nd, 3rd)
+  - Full-Time Regular: 24 hrs (1st Term), 20 hrs (2nd & 3rd Terms)
+  - Part-Time: Maximum 20 hrs across all terms
+- **Overload Handling**: Assignments or placements exceeding term hours limits are allowed but flagged for **College Dean Overload Approval**.
 - Faculty unavailability, edited as a direct-manipulation week grid
-- Room type must match the subject: lecture subjects need lecture rooms,
-  laboratory subjects need a laboratory or computer laboratory
+- Room type must match the subject: laboratory subjects require a lab or computer laboratory room; unassigned rooms fall back to `TBA`
 - No double-booking of a room, a faculty member, or a section
 
 When no conflict-free slot exists, the subject is reported **unplaced with a

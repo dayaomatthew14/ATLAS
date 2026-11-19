@@ -131,12 +131,12 @@ def validate_ph_contact_number(value: Optional[str]) -> Optional[str]:
 
 
 VALID_ROOM_TYPES = {"lecture", "lab", "computer_lab"}
-VALID_FACULTY_TYPES = {"full_time", "part_time"}
-VALID_LOAD_UNITS = {"units", "hrs"}
+VALID_FACULTY_TYPES = {"full_time", "full_time_regular", "full_time_probationary", "part_time"}
+VALID_LOAD_UNITS = {"units", "hrs", "hours"}
 VALID_SEMESTER_TERMS = {"1st", "2nd", "3rd semester", "1st Semester", "2nd Semester", "3rd Semester"}
 VALID_DAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 VALID_BLOCK_STATUSES = {"DRAFT", "PUBLISHED", "ARCHIVED"}
-VALID_CURRICULUM_TYPES = {"lecture", "lab", "computer_lab", "lec/lab", "both"}
+VALID_CURRICULUM_TYPES = {"lecture", "lab", "computer_lab", "lec/lab", "both", "combined", "c"}
 
 
 def _sample_chars(chars: List[str]) -> str:
@@ -269,9 +269,9 @@ def validate_faculty_load_bounds(
 ) -> Optional[int]:
     if max_units is None:
         return None
-    effective_unit = (load_unit or "units").strip().lower()
-    effective_type = (faculty_type or "full_time").strip().lower()
-    if effective_unit == "hrs":
+    effective_unit = (load_unit or "hours").strip().lower()
+    effective_type = (faculty_type or "full_time_regular").strip().lower()
+    if effective_unit in ("hrs", "hours"):
         upper = 20 if effective_type == "part_time" else 30
         label = "Maximum teaching hours"
     else:
@@ -668,9 +668,10 @@ class FacultyBase(BaseModel):
     last_name: str
     email: Optional[EmailStr] = None
     contact_number: Optional[str] = None
-    max_units: int = 18
-    load_unit: Optional[str] = 'units'
-    type: str = 'full_time'
+    max_units: int = 24
+    load_unit: Optional[str] = 'hours'
+    type: str = 'full_time_regular'
+    overload_approved: Optional[bool] = False
     department_id: Optional[int] = None
 
 class FacultyCreate(FacultyBase):
@@ -692,22 +693,23 @@ class FacultyCreate(FacultyBase):
     @field_validator("type")
     @classmethod
     def check_type(cls, v):
-        return validate_choice(v, VALID_FACULTY_TYPES, "employment type")
+        checked = validate_choice(v, VALID_FACULTY_TYPES, "employment type")
+        if checked == "full_time":
+            return "full_time_regular"
+        return checked
 
     @field_validator("load_unit")
     @classmethod
     def check_load_unit(cls, v):
-        return validate_choice(v, VALID_LOAD_UNITS, "load unit") if v is not None else "units"
+        return validate_choice(v, VALID_LOAD_UNITS, "load unit") if v is not None else "hours"
 
     @model_validator(mode="after")
     def check_load_bounds(self):
+        self.load_unit = "hours"
         if "max_units" not in self.model_fields_set:
-            if self.load_unit == "hrs":
-                self.max_units = 16 if self.type == "part_time" else 24
-            else:
-                self.max_units = 12 if self.type == "part_time" else 18
+            self.max_units = 20 if self.type == "part_time" else 24
         else:
-            validate_faculty_load_bounds(self.max_units, self.type, self.load_unit)
+            validate_faculty_load_bounds(self.max_units, self.type, "hours")
         return self
 
 
@@ -719,6 +721,7 @@ class FacultyUpdate(BaseModel):
     max_units: Optional[int] = None
     load_unit: Optional[str] = None
     type: Optional[str] = None
+    overload_approved: Optional[bool] = None
     department_id: Optional[int] = None
 
     @field_validator("first_name")
@@ -739,7 +742,10 @@ class FacultyUpdate(BaseModel):
     @field_validator("type")
     @classmethod
     def check_type(cls, v):
-        return validate_choice(v, VALID_FACULTY_TYPES, "employment type")
+        checked = validate_choice(v, VALID_FACULTY_TYPES, "employment type")
+        if checked == "full_time":
+            return "full_time_regular"
+        return checked
 
     @field_validator("load_unit")
     @classmethod
@@ -755,31 +761,64 @@ class FacultyUpdate(BaseModel):
                 validate_int_bounds(self.max_units, "Maximum load", 1, 30)
         return self
 
+
+class FacultyOverloadApprovalUpdate(BaseModel):
+    approved: bool
+
+
 class FacultyWorkWeek(BaseModel):
     """The Full-Time 40-hour duty week for a term. Absent for Part-Time."""
     term: str
     teaching_hours: float
+    base_teaching_hours: Optional[float] = None
     off_campus_hours: float
     consultation_hours: float
+    standard_consultation_hours: Optional[float] = 6.0
+    adjusted_consultation_hours: Optional[float] = None
     office_hours: float
+    allocated_office_hours: Optional[float] = None
+    deducted_from_office: Optional[float] = 0.0
+    deducted_from_consultation: Optional[float] = 0.0
+    excess_overload_hours: Optional[float] = 0.0
+    max_overload_hours: Optional[float] = None
+    actual_overload_hours: Optional[float] = 0.0
+    overload_difference: Optional[float] = 0.0
+    policy_review_flag: bool = False
+    flag_reason: Optional[str] = None
     total_hours: float
 
 
 class FacultyResponse(FacultyBase):
     id: int
-    # Teaching load, in hours per week, from the plotted schedule. This is the
-    # institution's actual basis for load; the *_units fields below are academic
-    # information only and are not what a chair is judged against.
+    employment_type: Optional[str] = None
+    employment_type_label: Optional[str] = None
+    # Teaching load, in hours per week, from the plotted schedule (plotted stage).
     reg_hours: float = 0.0
-    # None when no target applies: every Part-Time member (their figures are
-    # unconfirmed) and any unrecognised term. Must not be rendered as 0.
+    plotted_hours: float = 0.0
+    plotted_minutes: int = 0
+    # Assigned teaching load, in hours per week, from SubjectOfferings (assigned stage).
+    # Distinct from reg_hours; never added together.
+    assigned_hours: float = 0.0
+    assigned_minutes: int = 0
     required_hours: Optional[float] = None
-    load_status: Optional[str] = None  # UNDERLOAD | REGULAR | OVERLOAD
-    # Exactly one of these is set, and only when a target exists.
+    allowed_hours: Optional[float] = None
+    load_status: Optional[str] = None  # UNDERLOAD | REGULAR | OVERLOAD | NOT_PLOTTED | NO_ACTIVE_TERM
+    assigned_status: Optional[str] = None
     overload_hours: Optional[float] = None
     remaining_hours: Optional[float] = None
+    assigned_overload_hours: Optional[float] = None
+    assigned_remaining_hours: Optional[float] = None
     part_time_ceiling_hours: Optional[float] = None
     exceeds_part_time_ceiling: bool = False
+    is_overloaded: bool = False
+    overload_approved: bool = False
+    requires_dean_approval: bool = False
+    max_overload_hours: Optional[float] = None
+    standard_consultation_hours: Optional[float] = None
+    adjusted_consultation_hours: Optional[float] = None
+    overload_difference: Optional[float] = None
+    policy_review_flag: bool = False
+    flag_reason: Optional[str] = None
     work_week: Optional[FacultyWorkWeek] = None
     current_units: Optional[int] = 0
     remaining_units: Optional[int] = 18

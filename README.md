@@ -46,18 +46,19 @@ ATLAS enforces strict Role-Based Access Control (RBAC) across two authenticated 
 > [!NOTE]
 > - **Pre-seeded Dean Admin Accounts**: Deans do not register manually. Dedicated Dean Administrator accounts for all 4 colleges (`dean.cast@dlsau.edu.ph`, `dean.cbma@dlsau.edu.ph`, `dean.coed@dlsau.edu.ph`, `dean.cvmas@dlsau.edu.ph`) are automatically seeded on startup with default password `DeanPassword123!`.
 > - **Registration Policy**: Public self-registration is strictly locked to **Users (Program Chairs)**. Attempts to register as an Administrator or Dean are rejected.
-> - **Faculty Records & Resources**: Faculty members do not log into the system. Instead, faculty profiles are managed as teaching resource records by authorized Deans and Program Chairs to track teaching unit caps, subject qualifications, and unavailability schedules.
+> - **Faculty Records & Resources**: Faculty members do not log into the system. Instead, faculty profiles are managed as teaching resource records by authorized Deans and Program Chairs to track employment classifications (Full-Time Regular, Full-Time Probationary, Part-Time), term teaching-hour caps, Dean overload approvals, subject qualifications, and unavailability schedules.
 
 ---
 
 ## ✨ Key Features
 
 - 📑 **Excel Curriculum Parser (v1.4)**: Upload `.xlsx` curriculum sheets with automatic program/AY block isolation, merged cell unmerging, and totals row filtering.
-- ⚡ **Algorithmic AI Scheduler**: Automated timetable generation handling lecture (unassigned room) and lab (lab/computer room required) slots, faculty workload caps, and unavailability restrictions.
+- ⚡ **Algorithmic AI Scheduler**: Automated timetable generation calculating exact teaching hours per lecture/lab component, term faculty teaching-hour limits, and strictly enforcing the **Mandatory 1-Hour Lunch Break** (12:00 PM – 01:00 PM, Mon–Fri; Sat exempt).
+- 👨‍🏫 **Faculty Teaching Load & Overload Workflow**: Workload calculated and displayed in weekly teaching hours (Full-Time Probationary: 24h all terms; Full-Time Regular: 24h 1st term, 20h 2nd/3rd terms; Part-Time: max 20h). Assignments exceeding limits are flagged for College Dean review and approval.
 - 🛡️ **Multi-Tenant Department RBAC**: Secure separation between CAST, CBMA, CVMAS, and COED department workspaces.
-- ⚠️ **Conflict Detection & Human Handoff**: Identifies schedule overlaps, room shortages, and faculty max unit violations with visual resolution options.
-- 📅 **Dynamic Timetable Calendar Grid**: Filterable interactive visual grid for weekly schedules with dark and light UI theme modes.
-- 📄 **Export Capabilities**: Generate publication-ready PDF and Excel timetable reports.
+- ⚠️ **Conflict Detection & Human Handoff**: Identifies schedule overlaps, room shortages, lunch break overlaps, and faculty overload conditions with visual resolution options.
+- 📅 **Unified Weekly Timetable Grid**: High-clarity Monday through Saturday schedule grid with a shared vertical time scale (07:30–19:30), duration-proportional class blocks, room labels (`TBA` fallback), visible free periods, and labeled lunch breaks.
+- 📄 **Export Capabilities**: Generate publication-ready PDF and Excel timetable reports complete with room assignments, duration hours, and weekly timetable grid sheets.
 - 🔒 **Security & Session Invalidation**: OAuth2 password flow, JWT tokens, OTP email verification, and audit logging.
 
 ---

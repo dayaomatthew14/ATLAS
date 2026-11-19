@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, Trash2, User, Users } from 'lucide-react';
+import { AlertTriangle, Clock, MapPin, Trash2, User } from 'lucide-react';
 import { DAY_LABEL, durationHours, formatSubjectCode, to12h } from '../../utils/scheduleHelpers';
 
 /**
@@ -34,11 +34,6 @@ export default function ScheduleHoverPopover({
           >
             {formatSubjectCode(sched)}
           </span>
-          {sched.section && (
-            <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[#E3EED4] text-[#0F2A1D]">
-              Sec {sched.section}
-            </span>
-          )}
           {inConflict && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-700 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
@@ -74,12 +69,12 @@ export default function ScheduleHoverPopover({
             </span>
           </div>
 
-          {sched.section && (
-            <div className="flex items-center gap-2 text-[#0F2A1D]">
-              <Users className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
-              <span className="font-medium truncate">Section {sched.section}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-[#0F2A1D]">
+            <MapPin className="w-3.5 h-3.5 text-[#6B9071] shrink-0" />
+            <span className="font-medium truncate">
+              Room: {sched.room_name || sched.room?.name || 'TBA'}
+            </span>
+          </div>
         </div>
 
         {canManageSchedules && (

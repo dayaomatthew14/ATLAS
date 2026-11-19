@@ -11,7 +11,6 @@ export default function ClassCard({ sched, color, dayLabel, lensDim, lensLit, ca
   const label =
     `${code}, ${sched.subject_name}, ${dayLabel} ` +
     `${to12h(sched.start_time)} to ${to12h(sched.end_time)}` +
-    (sched.section ? `, Section ${sched.section}` : '') +
     (canManage ? '. Press Delete to remove this class.' : '');
 
   return (
@@ -63,11 +62,9 @@ export default function ClassCard({ sched, color, dayLabel, lensDim, lensLit, ca
           >
             {isLabSession(sched) ? 'LAB' : 'LEC'}
           </span>
-          {sched.section && (
-            <span className="font-mono text-caption font-semibold text-[#375534]">
-              Sec {sched.section}
-            </span>
-          )}
+          <span className="font-mono text-[10px] font-semibold text-slate-600 bg-white/80 px-1.5 py-0.5 rounded border border-slate-200/80">
+            {sched.room_name || sched.room?.name || 'TBA'}
+          </span>
         </div>
         {canManage && (
           <button

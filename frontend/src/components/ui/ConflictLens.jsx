@@ -1,7 +1,6 @@
 import React from 'react';
-import { AlertTriangle, ChevronLeft, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Sparkles, X } from 'lucide-react';
 import Button from './Button';
-import { focusRing } from './tokens';
 
 /**
  * The conflict lens. Phase 1 §1.5 — the one place the system is allowed to be
@@ -116,34 +115,47 @@ export default function ConflictLens({
         className="no-print fixed bottom-0 left-0 right-0 z-lens flex justify-center p-4 pointer-events-none"
       >
         <div
-          className="pointer-events-auto w-full max-w-3xl rounded-panel bg-atlas-surface border
-                     border-atlas-line shadow-overlay p-4 rise-bottom
-                     motion-reduce:animate-none duration-lens ease-standard"
+          className="relative pointer-events-auto w-full max-w-2xl rounded-2xl bg-white/95 backdrop-blur-md border
+                     border-[#AEC3B0]/60 shadow-2xl p-5 rise-bottom
+                     motion-reduce:animate-none duration-lens ease-standard overflow-hidden"
         >
+          {/* Top Rose-Amber Accent Stripe */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 via-amber-500 to-rose-600 pointer-events-none" />
+
           {triageMode ? (
             <>
               <div className="flex items-start justify-between gap-4">
-                <h2 className="font-display text-section text-atlas-ink flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-sem-conflict shrink-0" aria-hidden="true" />
-                  {conflicts.length} conflicts — the schedule needs regenerating, not patching
-                </h2>
+                <div className="flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 border border-rose-300 flex items-center justify-center shrink-0 shadow-2xs">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <h2 className="font-ui text-[15px] font-black text-[#0F2A1D]">
+                      {conflicts.length} Conflicts Detected
+                    </h2>
+                    <p className="font-ui text-xs text-slate-500 font-medium">
+                      The timetable requires regenerating rather than manual patching.
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={onClose}
                   aria-label="Dismiss conflict resolver"
-                  className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-field
-                              text-atlas-slate hover:bg-white/85 ${focusRing}`}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
                 >
                   <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
 
-              <ul className="mt-3 divide-y divide-white/45">
+              <ul className="mt-3.5 divide-y divide-slate-100 max-h-56 overflow-y-auto pr-1">
                 {groupByCause(conflicts).map((g) => (
                   <li key={g.cause} className="flex items-center justify-between py-2">
-                    <span className="font-ui text-body text-atlas-ink">{g.cause}</span>
-                    <span className="flex items-center gap-3">
-                      <span className="font-data text-table tabular-nums text-atlas-slate">{g.count}</span>
+                    <span className="font-ui text-xs font-bold text-[#0F2A1D]">{g.cause}</span>
+                    <span className="flex items-center gap-2.5">
+                      <span className="font-data text-xs font-black tabular-nums px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                        {g.count}
+                      </span>
                       <Button size="row" variant="secondary" onClick={() => onFilterCause(g.cause)}>
                         Review
                       </Button>
@@ -152,45 +164,86 @@ export default function ConflictLens({
                 ))}
               </ul>
 
-              <div className="mt-3 flex justify-end gap-2">
-                <Button variant="ghost" onClick={onClose}>Adjust constraints</Button>
-                {onRegenerate && <Button onClick={onRegenerate}>Regenerate</Button>}
+              <div className="mt-4 pt-3 border-t border-[#AEC3B0]/30 flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={onClose}>Adjust constraints</Button>
+                {onRegenerate && <Button size="sm" onClick={onRegenerate}>Regenerate</Button>}
               </div>
             </>
           ) : (
             <>
               <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-sem-conflict shrink-0" aria-hidden="true" />
-                    Conflict {visible.length ? index + 1 : 0} of {visible.length}
-                    {causeFilter && ` · ${causeFilter}`}
-                  </p>
-                  <p className="font-ui text-body text-atlas-ink mt-1">
+                <div className="min-w-0 flex-1">
+                  {/* Badge & Type Row */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" aria-hidden="true" />
+                      Conflict {visible.length ? index + 1 : 0} of {visible.length}
+                    </span>
+                    {current?.type && (
+                      <span className="px-2.5 py-1 rounded-full font-ui text-[11px] font-black bg-[#E3EED4] text-[#0F2A1D] border border-[#AEC3B0]/70">
+                        {current.type}
+                      </span>
+                    )}
+                    {causeFilter && (
+                      <span className="text-xs font-semibold text-slate-500 font-ui">
+                        · {causeFilter}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Conflict Description / Reason */}
+                  <p className="font-ui text-[14px] font-bold text-[#0F2A1D] mt-2.5 leading-snug break-words">
                     {current?.reason || 'Overlapping time or resource constraint.'}
                   </p>
-                  <p className="font-ui text-caption text-atlas-slate mt-0.5">
-                    {[current?.curriculum, current?.faculty_name].filter(Boolean).join(' · ')}
-                  </p>
+
+                  {/* Metadata Chips (Subject, Faculty, Dean Approval) */}
+                  <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                    {current?.curriculum && (
+                      <span className="font-mono text-[12px] font-black px-2.5 py-0.5 rounded-md bg-[#E3EED4] text-[#0F2A1D] border border-[#AEC3B0]/60 shadow-2xs">
+                        {current.curriculum}
+                      </span>
+                    )}
+                    {current?.faculty_name && (
+                      <span className="font-ui text-[12px] font-bold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200">
+                        {current.faculty_name}
+                      </span>
+                    )}
+                    {Boolean(current?.conflict_type === 'overload' || current?.conflict_type === 'part_time_ceiling' || (current?.reason && current.reason.toLowerCase().includes('overload'))) && (
+                      <span className="font-ui text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300">
+                        Overload
+                      </span>
+                    )}
+                  </div>
                 </div>
+
                 <button
                   type="button"
                   onClick={onClose}
                   aria-label="Dismiss conflict resolver"
-                  className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-field
-                              text-atlas-slate hover:bg-white/85 ${focusRing}`}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
                 >
                   <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
 
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <div className="flex gap-2">
+              {/* Bottom Controls */}
+              <div className="mt-4 pt-3.5 border-t border-[#AEC3B0]/30 flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-[12px] font-semibold text-slate-500 font-ui hidden sm:flex items-center gap-1.5">
+                  <span>Use keyboard</span>
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[11px] font-mono text-slate-700">J</kbd>
+                  <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[11px] font-mono text-slate-700">K</kbd>
+                  <span>to step</span>
+                </div>
+
+                <div className="flex items-center gap-2 ml-auto">
                   {causeFilter && (
-                    <Button variant="ghost" onClick={() => onFilterCause(null)}>All causes</Button>
+                    <Button variant="ghost" size="sm" onClick={() => onFilterCause(null)}>
+                      All causes
+                    </Button>
                   )}
                   <Button
                     variant="secondary"
+                    size="sm"
                     icon={ChevronLeft}
                     onClick={() => step(-1)}
                     disabled={visible.length < 2}
@@ -200,19 +253,17 @@ export default function ConflictLens({
                   </Button>
                   <Button
                     variant="secondary"
+                    size="sm"
+                    icon={ChevronRight}
                     onClick={() => step(1)}
                     disabled={visible.length < 2}
                     aria-label="Next conflict"
                   >
                     Next
                   </Button>
-                  {/*
-                    Some entries are grid overlaps the server has not recorded
-                    as conflicts. There is no conflict row for /solve-conflict
-                    to act on, so offering the action would fail; say what to do
-                    instead.
-                  */}
                   <Button
+                    size="sm"
+                    icon={Sparkles}
                     onClick={() => current && !current.unresolvable && onResolve(current)}
                     loading={resolvingId != null && resolvingId === (current?.conflict_id ?? current?.id)}
                     disabled={!current || Boolean(current.unresolvable)}

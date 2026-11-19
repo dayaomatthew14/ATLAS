@@ -1,35 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, LayoutGrid, LayoutList, Calendar, ChevronDown, Check } from 'lucide-react';
+import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, ChevronDown, Check } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
 import AtlasButton from '../../components/ui/Button';
 import ConflictLens from '../../components/ui/ConflictLens';
 import { PageHeader } from '../../components/ui/Page';
-import { focusRing, pluralize } from '../../components/ui/tokens';
+import { pluralize } from '../../components/ui/tokens';
 import { canEditSchedules } from '../../utils/session';
 import {
   ALLOWED_DAY_ABBR,
-  validateSectionName,
   validateTimeOrder,
   parseErrorResponse,
 } from '../../utils/validation';
 import {
   getFacultyColor,
-  DAY_ORDER,
-  DAY_LABEL,
-  ACADEMIC_PERIODS,
-  to12h,
-  minutesOf,
   durationHours,
-  dayKey,
-  formatSubjectCode,
-  isLabSession,
   sortForExport,
   filterActiveTermSubjects,
 } from '../../utils/scheduleHelpers';
-import ClassCard from '../../components/schedules/ClassCard';
+import {
+  getAllowedTeachingHours,
+  isFullTimeType,
+  getWorkWeekBreakdown,
+  formatHours,
+} from '../../utils/load';
+import WeeklyTimetableGrid from '../../components/schedules/WeeklyTimetableGrid';
 import ScheduleHoverPopover from '../../components/schedules/ScheduleHoverPopover';
 import ConflictResolutionDialog from '../../components/schedules/ConflictResolutionDialog';
 import GenerateScheduleModal from '../../components/schedules/GenerateScheduleModal';
@@ -45,22 +42,116 @@ const formatSemesterTerm = (term) => {
   return term;
 };
 
+const FacultyBoard = React.memo(function FacultyBoard({
+  board,
+  color,
+  hasClasses,
+  canManageSchedules,
+  conflictedCurriculumIds,
+  isLensOpen,
+  onDeleteSchedule,
+  onQuickAdd,
+  onCardEnter,
+  onCardLeave,
+  teacher = null,
+  activeTerm = '1st',
+}) {
+  const handleQuickAddSlot = React.useCallback(
+    (day, startStr, endStr) => {
+      onQuickAdd(board.name, day, startStr, endStr);
+    },
+    [onQuickAdd, board.name]
+  );
+
+  const empType = teacher?.type || 'full_time_regular';
+  const isFullTime = isFullTimeType(empType);
+  const requiredHours = getAllowedTeachingHours(empType, activeTerm);
+  const actualHours = board.hours || 0;
+  const actualOverload = Math.max(0, Number((actualHours - requiredHours).toFixed(2)));
+  const isOverloaded = isFullTime && actualOverload > 0.005;
+  const workWeek = isOverloaded ? getWorkWeekBreakdown(activeTerm, empType, actualOverload) : null;
+
+  return (
+    <section
+      aria-label={`Schedule for ${board.name}`}
+      className="rounded-3xl border border-[#AEC3B0]/35 bg-white/95 overflow-hidden break-inside-avoid shadow-xs hover:shadow-sm transition-shadow duration-150"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '0 850px' }}
+    >
+      <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-[#AEC3B0]/30 bg-gradient-to-r from-[#E3EED4]/35 via-white/80 to-transparent">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <span
+            className="w-4 h-4 rounded-full shrink-0 shadow-2xs"
+            style={{ backgroundColor: color.accent }}
+            aria-hidden="true"
+          />
+          <h3 className="font-ui text-[18px] font-black text-[#0F2A1D] truncate tracking-tight">
+            {board.name}
+          </h3>
+        </div>
+
+        {/* Overload Workload Breakdown (Image 1 displayed in Image 2 header) */}
+        {isOverloaded && workWeek && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-3.5 py-1.5 rounded-xl bg-emerald-50/80 border border-[#AEC3B0]/50 font-ui text-[12px] text-slate-700 shadow-2xs">
+              <span className="tabular-nums font-medium">
+                Teaching <strong className="font-data font-bold text-[#0F2A1D]">{formatHours(workWeek.teaching_hours)}</strong>
+                {' · '}Off-campus <strong className="font-data font-bold text-[#0F2A1D]">{formatHours(workWeek.off_campus_hours)}</strong>
+                {' · '}Consultation <strong className="font-data font-bold text-[#0F2A1D]">{formatHours(workWeek.consultation_hours)}</strong>
+                {' · '}Office <strong className="font-data font-bold text-[#0F2A1D]">{formatHours(workWeek.office_hours)}</strong>
+              </span>
+              <span className="font-data font-black text-rose-700 bg-rose-100/90 border border-rose-300 px-2 py-0.5 rounded-md text-[11px] tabular-nums">
+                Overload +{formatHours(actualOverload)}h
+              </span>
+              {workWeek.policy_review_flag && (
+                <span
+                  className="font-ui font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md text-[11px]"
+                  title={workWeek.flag_reason || 'Flagged for Policy Review'}
+                >
+                  ⚠️ Policy Review
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <span className="font-ui text-[13px] font-black px-4 py-1.5 rounded-full bg-[#E3EED4]/90 border border-[#AEC3B0]/60 text-[#0F2A1D] tabular-nums shadow-2xs">
+          {hasClasses
+            ? `${pluralize(board.classes.length, 'class', 'classes')} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
+            : 'No classes scheduled'}
+        </span>
+      </header>
+
+      {hasClasses ? (
+        <div className="bg-white overflow-hidden">
+          <WeeklyTimetableGrid
+            schedules={board.classes}
+            viewMode="faculty"
+            canEditSchedules={canManageSchedules}
+            conflictedCurriculumIds={conflictedCurriculumIds}
+            isLensOpen={isLensOpen}
+            onDeleteSchedule={onDeleteSchedule}
+            onQuickAdd={handleQuickAddSlot}
+            onCardEnter={onCardEnter}
+            onCardLeave={onCardLeave}
+          />
+        </div>
+      ) : (
+        <p className="px-7 py-10 text-center text-sm font-semibold text-[#6B9071]">
+          The generator placed no classes for {board.name} this term.
+        </p>
+      )}
+    </section>
+  );
+});
+
 export default function Schedules() {
   const { addToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [formConflicts, setFormConflicts] = useState([]);
-  // A room clash does not stop a save; a faculty or section clash does.
+  // A room clash does not stop a save; a faculty clash does.
   const blockingFormConflicts = formConflicts.filter((c) => c.severity !== 'advisory');
 
   const [activeSemesterId, setActiveSemesterId] = useState(null);
-
-  // Live timer for current time indicator line on the calendar grid
-  const [currentTime, setCurrentTime] = useState(new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const navigate = useNavigate();
   const [unassignedOfferingsData, setUnassignedOfferingsData] = useState({ unassigned: 0, total: 0 });
@@ -109,68 +200,63 @@ export default function Schedules() {
   // down, next to `lensConflicts`, because it is that combined list -- not the
   // server list alone -- that decides whether anything is left to show.
 
-  /* --------------------------------------------------------------------------
-   * How the generated schedule is displayed.
-   *
-   * The combined week grid stacks every professor into one six-column board and
-   * positions each class absolutely at full column width. Two professors
-   * teaching at 9:00 on a Monday — in different rooms, which is the normal case,
-   * not an error — render on top of one another, and the later one hides the
-   * earlier completely. So the one view that claimed to show the whole
-   * department's schedule was the one view that could not.
-   *
-   * "By professor" gives each professor their own board, where classes flow in
-   * time order instead of being positioned over each other. Nothing can hide
-   * anything, subject names wrap instead of truncating, and the page is as long
-   * as it needs to be. The combined grid is kept because the conflict lens dims
-   * and lights blocks in it, and that is a different job from reading a load.
-   * ----------------------------------------------------------------------- */
-  const [scheduleView, setScheduleView] = useState('faculty');
-
-  // Hover state for Week Grid class cards
+  // Hover state for timetable class cards
   const [hoveredSchedule, setHoveredSchedule] = useState(null);
   const hoverTimerRef = React.useRef(null);
 
-  const handleCardMouseEnter = (sched, color, day, inConflict, event) => {
+  const handleCardMouseEnter = React.useCallback((sched, color, day, inConflict, event) => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
-    const rect = event.currentTarget.getBoundingClientRect();
-    setHoveredSchedule({ sched, color, day, rect, inConflict });
-  };
-
-  const handleCardMouseLeave = () => {
+    const target = event.currentTarget;
+    // Debounce hover popover (200ms) so fast cursor movement across cards
+    // does not trigger synchronous layout reflows or React re-render thrashing.
     hoverTimerRef.current = setTimeout(() => {
-      setHoveredSchedule(null);
-    }, 180);
-  };
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      setHoveredSchedule({ sched, color, day, rect, inConflict });
+    }, 200);
+  }, []);
 
-  const handlePopoverMouseEnter = () => {
+  const handleCardMouseLeave = React.useCallback(() => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
-  };
-
-  const handlePopoverMouseLeave = () => {
     hoverTimerRef.current = setTimeout(() => {
       setHoveredSchedule(null);
-    }, 180);
-  };
+    }, 120);
+  }, []);
+
+  const handlePopoverMouseEnter = React.useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  const handlePopoverMouseLeave = React.useCallback(() => {
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredSchedule(null);
+    }, 120);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
-      if (hoveredSchedule) {
-        setHoveredSchedule(null);
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
       }
+      setHoveredSchedule((prev) => (prev ? null : prev));
     };
-    window.addEventListener('scroll', handleScroll, true);
+    // Use passive listener to avoid blocking browser scrolling thread
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
     return () => {
-      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('scroll', handleScroll, { capture: true });
       if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     };
-  }, [hoveredSchedule]);
+  }, []);
 
   const getPopoverStyle = (rect) => {
     if (!rect) return { display: 'none' };
@@ -266,7 +352,10 @@ export default function Schedules() {
         title: res.title || 'Conflict Resolved',
         message: res.message || 'Conflict resolved successfully.',
         details: res.details || res.message || 'The resolution has been applied.',
-        action_taken: res.action_taken || 'resolved'
+        action_taken: res.action_taken || 'resolved',
+        curriculum: item.curriculum || item.subject_code,
+        faculty_name: item.faculty_name,
+        conflict_type: item.type,
       });
 
       if (generationResults) {
@@ -314,23 +403,6 @@ export default function Schedules() {
    * force-places (DEP-6), and conflicts are now stepped through one at a time
    * in the lens so each resolution is a decision someone actually made.
    */
-
-  const handleDeleteSchedule = async (sched) => {
-    try {
-      const res = await api.delete(`/schedules/${sched.id}`);
-      if (res?.backup) {
-        setUndoBackup({
-          label: `Deleted schedule for ${sched.subject_code}`,
-          items: [res.backup]
-        });
-      }
-      const semToFetch = selectedGenSemester || activeSemesterId;
-      if (semToFetch) fetchGlobalSchedules(semToFetch);
-      fetchSchedules();
-    } catch (e) {
-      addToast(e.message || 'Failed to delete schedule', 'error');
-    }
-  };
 
   const handleClearAllSchedules = async () => {
     const semId = selectedGenSemester || activeSemesterId;
@@ -399,7 +471,7 @@ export default function Schedules() {
     }
   };
 
-  const fetchGlobalSchedules = async (semesterId) => {
+  const fetchGlobalSchedules = React.useCallback(async (semesterId) => {
     if (!semesterId) return;
     setIsGlobalLoading(true);
     try {
@@ -410,7 +482,7 @@ export default function Schedules() {
     } finally {
       setIsGlobalLoading(false);
     }
-  };
+  }, [addToast]);
 
   const [selectedProfessorFilter, setSelectedProfessorFilter] = useState('');
   const [allTeachers, setAllTeachers] = useState([]);
@@ -579,12 +651,6 @@ export default function Schedules() {
       .map((board) => ({
         ...board,
         hours: board.classes.reduce((n, s) => n + durationHours(s), 0),
-        days: DAY_ORDER.map((day) => ({
-          day,
-          classes: board.classes
-            .filter((s) => dayKey(s.day_of_week) === day)
-            .sort((a, b) => minutesOf(a.start_time) - minutesOf(b.start_time)),
-        })),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [globalSchedules, selectedProfessorFilter]);
@@ -592,6 +658,17 @@ export default function Schedules() {
   const visibleBoards = selectedProfessorFilter
     ? facultyBoards.filter((b) => b.name === selectedProfessorFilter)
     : facultyBoards;
+
+  const teacherMap = React.useMemo(() => {
+    const map = new Map();
+    for (const t of allTeachers) {
+      if (t.name) map.set(t.name, t);
+      if (t.id) map.set(String(t.id), t);
+      const fullName = `${t.first_name || ''} ${t.last_name || ''}`.trim();
+      if (fullName) map.set(fullName, t);
+    }
+    return map;
+  }, [allTeachers]);
 
   const handleGenerateSubmit = async (e) => {
     e.preventDefault();
@@ -663,9 +740,6 @@ export default function Schedules() {
         ? ''
         : 'Select a valid day from Monday to Saturday (Mon–Sat).';
     }
-    if (field === 'section') {
-      return validateSectionName(data.section, { required: false });
-    }
     if (field === 'start_time') {
       return data.start_time ? '' : 'Select a start time.';
     }
@@ -679,7 +753,7 @@ export default function Schedules() {
 
   const validateScheduleForm = () => {
     const errors = {};
-    ['subject_id', 'faculty_id', 'section', 'day_of_week', 'start_time', 'end_time'].forEach((f) => {
+    ['subject_id', 'faculty_id', 'day_of_week', 'start_time', 'end_time'].forEach((f) => {
       const msg = validateScheduleField(f, formData);
       if (msg) errors[f] = msg;
     });
@@ -692,11 +766,7 @@ export default function Schedules() {
     setFormData(next);
     setFormErrors((prev) => {
       const updated = { ...prev };
-      if (field === 'section') {
-        const msg = validateSectionName(value, { required: false });
-        if (value.trim() && msg) updated.section = msg;
-        else if (prev.section) updated.section = msg || undefined;
-      } else if (field === 'start_time' || field === 'end_time') {
+      if (field === 'start_time' || field === 'end_time') {
         if (field === 'start_time') {
           updated.start_time = validateScheduleField('start_time', next) || undefined;
         }
@@ -723,7 +793,7 @@ export default function Schedules() {
     });
   };
 
-  const fetchDropdownData = async () => {
+  const fetchDropdownData = React.useCallback(async () => {
     setIsLoadingDropdowns(true);
     try {
       let currentSem =
@@ -771,7 +841,7 @@ export default function Schedules() {
     } finally {
       setIsLoadingDropdowns(false);
     }
-  };
+  }, [semesters, activeSemesterId, addToast]);
 
   const handleSelectSubject = (subjectId) => {
     const chosen = subjects.find((s) => String(s.id) === String(subjectId));
@@ -807,6 +877,24 @@ export default function Schedules() {
     setFormErrors({});
     setIsModalOpen(true);
   };
+
+  const handleQuickAdd = React.useCallback(
+    (facultyName, day, startStr, endStr) => {
+      const matchProf = teachers.find((t) => t.name === facultyName);
+      setFormData((prev) => ({
+        ...prev,
+        faculty_id: matchProf ? String(matchProf.id) : prev.faculty_id,
+        day_of_week: day,
+        start_time: startStr,
+        end_time: endStr,
+      }));
+      fetchDropdownData();
+      setAiSuggestions([]);
+      setFormErrors({});
+      setIsModalOpen(true);
+    },
+    [teachers, fetchDropdownData]
+  );
 
   const handleGetSuggestions = async () => {
     if (!formData.subject_id) {
@@ -865,7 +953,7 @@ export default function Schedules() {
         day_of_week: formData.day_of_week,
         start_time: formData.start_time,
         end_time: formData.end_time,
-        section: formData.section.trim()
+        section: ''
       };
       await api.post('/schedules', submissionData);
       fetchSchedules();
@@ -882,7 +970,6 @@ export default function Schedules() {
         day_of_week: 'day_of_week',
         start_time: 'start_time',
         end_time: 'end_time',
-        section: 'section',
       });
       const nextFields = { ...parsed.fields };
       if (!Object.keys(nextFields).length) {
@@ -903,7 +990,7 @@ export default function Schedules() {
     }
   };
 
-  const fetchSchedules = async () => {
+  const fetchSchedules = React.useCallback(async () => {
     try {
       const rawData = await api.get('/schedules');
       const formattedData = Array.isArray(rawData) ? rawData.map(s => ({
@@ -915,7 +1002,27 @@ export default function Schedules() {
       console.error('Failed to fetch schedules', error);
       setSchedules([]);
     }
-  };
+  }, []);
+
+  const handleDeleteSchedule = React.useCallback(
+    async (sched) => {
+      try {
+        const res = await api.delete(`/schedules/${sched.id}`);
+        if (res?.backup) {
+          setUndoBackup({
+            label: `Deleted schedule for ${sched.subject_code}`,
+            items: [res.backup],
+          });
+        }
+        const semToFetch = selectedGenSemester || activeSemesterId;
+        if (semToFetch) fetchGlobalSchedules(semToFetch);
+        fetchSchedules();
+      } catch (e) {
+        addToast(e.message || 'Failed to delete schedule', 'error');
+      }
+    },
+    [selectedGenSemester, activeSemesterId, fetchGlobalSchedules, fetchSchedules, addToast]
+  );
 
   // `handleAutoResolveAll` was removed with the button that called it. It
   // looped the single-conflict resolver, which force-placed into the first free
@@ -924,7 +1031,7 @@ export default function Schedules() {
 
   useEffect(() => {
     fetchSchedules();
-  }, []);
+  }, [fetchSchedules]);
 
   /**
    * The conflict count had two competing sources: this button counted overlaps
@@ -1087,37 +1194,11 @@ export default function Schedules() {
             }
           />
 
-          {/* View switch. "By professor" is the default because it is the only
-              one of the two that can show every professor's classes at once. */}
+          {/* Faculty filter toolbar — aligned to the right */}
           {globalSchedules.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 no-print mb-4">
-              <div className="inline-flex rounded-2xl bg-[#E3EED4]/50 border border-[#AEC3B0]/40 p-1 shadow-2xs">
-                {[
-                  { id: 'faculty', label: 'By professor', icon: LayoutList },
-                  { id: 'grid', label: 'Week grid', icon: LayoutGrid },
-                ].map((v) => {
-                  const Icon = v.icon;
-                  const isActive = scheduleView === v.id;
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => setScheduleView(v.id)}
-                      aria-pressed={isActive}
-                      className={`h-9 px-4 rounded-xl font-ui text-caption font-bold flex items-center gap-2 transition-all duration-200 ${
-                        isActive
-                          ? 'bg-[#0F2A1D] text-[#E3EED4] shadow-xs'
-                          : 'text-[#375534] hover:text-[#0F2A1D] hover:bg-[#E3EED4]/60'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" aria-hidden="true" />
-                      {v.label}
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="flex flex-wrap items-center justify-end gap-3 no-print mb-4">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="font-ui text-caption font-semibold text-[#375534] shrink-0">Showing</span>
+                <span className="font-ui text-[13px] font-bold text-[#1B432C] shrink-0">Showing</span>
 
                 {/* Custom Faculty Filter Dropdown */}
                 <div className="relative" ref={facultyDropdownRef}>
@@ -1126,7 +1207,7 @@ export default function Schedules() {
                     onClick={() => setIsFacultyDropdownOpen(!isFacultyDropdownOpen)}
                     aria-haspopup="listbox"
                     aria-expanded={isFacultyDropdownOpen}
-                    className={`h-9 min-w-[210px] max-w-full rounded-xl border bg-white px-3 py-1.5 font-ui text-caption font-bold text-[#0F2A1D] flex items-center justify-between gap-2 shadow-2xs transition-all duration-150 cursor-pointer ${
+                    className={`h-10 min-w-[220px] max-w-full rounded-xl border bg-white px-3.5 py-2 font-ui text-[13.5px] font-bold text-[#0F2A1D] flex items-center justify-between gap-2 shadow-2xs transition-all duration-150 cursor-pointer ${
                       isFacultyDropdownOpen
                         ? 'border-[#046A38] ring-2 ring-[#046A38]/20'
                         : 'border-[#AEC3B0]/60 hover:border-[#375534]'
@@ -1289,7 +1370,7 @@ export default function Schedules() {
 
           {isGlobalLoading ? (
             <div className="flex justify-center py-20"><Sparkles className="w-8 h-8 text-indigo-400 animate-spin" /></div>
-          ) : scheduleView === 'faculty' ? (
+          ) : (
             <div className="print-grid mt-8 flex flex-col gap-8">
               {visibleBoards.length === 0 && (
                 <div className="glass sheen rounded-panel surface p-16 text-center">
@@ -1303,301 +1384,32 @@ export default function Schedules() {
               {visibleBoards.map((board) => {
                 const color = getFacultyColor(board.name);
                 const hasClasses = board.classes.length > 0;
+                const matchedTeacher =
+                  teacherMap.get(board.name) ||
+                  (board.classes[0]?.faculty_id ? teacherMap.get(String(board.classes[0].faculty_id)) : null);
+                const activeSem = semesters.find(
+                  (s) => s.id === (selectedGenSemester || activeSemesterId)
+                );
+                const activeTerm = activeSem?.term || '1st';
 
                 return (
-                  <section
+                  <FacultyBoard
                     key={board.name}
-                    aria-label={`Schedule for ${board.name}`}
-                    className="rounded-3xl border border-[#AEC3B0]/35 bg-white/95 overflow-hidden break-inside-avoid shadow-xs hover:shadow-sm transition-all"
-                  >
-                    <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-[#AEC3B0]/30 bg-gradient-to-r from-[#E3EED4]/35 via-white/80 to-transparent">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span
-                          className="w-3.5 h-3.5 rounded-full shrink-0 shadow-2xs"
-                          style={{ backgroundColor: color.accent }}
-                          aria-hidden="true"
-                        />
-                        <h3 className="font-ui text-lead font-bold text-[#0F2A1D] truncate tracking-tight">
-                          {board.name}
-                        </h3>
-                      </div>
-                      <span className="font-ui text-caption font-bold px-3.5 py-1.5 rounded-full bg-[#E3EED4]/80 border border-[#AEC3B0]/50 text-[#0F2A1D] tabular-nums shadow-2xs">
-                        {hasClasses
-                          ? `${pluralize(board.classes.length, 'class', 'classes')} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
-                          : 'No classes scheduled'}
-                      </span>
-                    </header>
-
-                    {hasClasses ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 wide:grid-cols-6 gap-3 p-5 bg-[#FAFBF9]">
-                        {board.days.map(({ day, classes }) => (
-                          <div key={day} className="bg-white rounded-2xl p-3.5 border border-[#AEC3B0]/30 flex flex-col gap-3 min-h-[8rem] shadow-2xs">
-                            <h4 className="font-ui text-xs font-bold uppercase text-[#0F2A1D] text-center py-1.5 bg-[#E3EED4]/50 border border-[#AEC3B0]/30 rounded-xl">
-                              <abbr title={DAY_LABEL[day]} className="no-underline">{day}</abbr>
-                            </h4>
-
-                            {classes.length === 0 ? (
-                              <p className="font-ui text-caption text-[#6B9071] text-center py-4">No classes</p>
-                            ) : (
-                              classes.map((sched) => {
-                                const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
-                                return (
-                                  <ClassCard
-                                    key={sched.id}
-                                    sched={sched}
-                                    color={color}
-                                    dayLabel={DAY_LABEL[day]}
-                                    lensDim={isLensOpen && !inConflict}
-                                    lensLit={isLensOpen && inConflict}
-                                    canManage={canManageSchedules}
-                                    onDelete={handleDeleteSchedule}
-                                  />
-                                );
-                              })
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="px-7 py-10 text-center text-sm font-semibold text-[#6B9071]">
-                        The generator placed no classes for {board.name} this term.
-                      </p>
-                    )}
-                  </section>
+                    board={board}
+                    color={color}
+                    hasClasses={hasClasses}
+                    canManageSchedules={canManageSchedules}
+                    conflictedCurriculumIds={conflictedCurriculumIds}
+                    isLensOpen={isLensOpen}
+                    onDeleteSchedule={handleDeleteSchedule}
+                    onQuickAdd={handleQuickAdd}
+                    onCardEnter={handleCardMouseEnter}
+                    onCardLeave={handleCardMouseLeave}
+                    teacher={matchedTeacher}
+                    activeTerm={activeTerm}
+                  />
                 );
               })}
-            </div>
-          ) : (
-            /* Structured Academic Period Matrix View — Institutional DLSAU / ATLAS Style */
-            <div className="print-grid relative mt-6 bg-white rounded-3xl border border-[#D5DFD9] shadow-xs overflow-hidden">
-              {/* Matrix Institutional Header Bar - Clean light aesthetic */}
-              <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-white border-b border-[#E1E5E2]">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-2xl bg-[#E6F0EA] border border-[#8FBFA6]/40 flex items-center justify-center shrink-0 shadow-2xs">
-                    <Calendar className="w-5 h-5 text-[#05301F]" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-ui text-base font-bold text-[#05301F] tracking-tight">
-                        Weekly Timetable Matrix
-                      </h3>
-                      <span className="font-data text-[11px] font-semibold text-[#03502A] uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#E6F0EA] border border-[#8FBFA6]/40">
-                        {DAY_ORDER.length} Days
-                      </span>
-                      {selectedProfessorFilter && (
-                        <span className="font-ui text-xs font-semibold text-[#05301F] bg-[#E6F0EA] px-2.5 py-0.5 rounded-full border border-[#046A38]/30">
-                          {selectedProfessorFilter}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-[#527A66] mt-0.5 font-medium">
-                      Structured academic period schedule · {exportTerm ? `A.Y. ${exportTerm.academic_year} ${formatSemesterTerm(exportTerm.term)}` : 'Current Term'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="font-data text-xs font-bold px-3.5 py-1.5 rounded-full bg-[#E6F0EA] text-[#05301F] border border-[#8FBFA6]/40 shadow-2xs">
-                    {pluralize(filteredMatrixSchedules.length, 'class', 'classes')} scheduled
-                  </span>
-                </div>
-              </div>
-
-              {/* Matrix Table with overflow scroll for small viewports */}
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left min-w-[1020px]">
-                  <thead>
-                    <tr className="border-b-2 border-[#8FBFA6]/60 bg-[#F4F8F5] text-[#05301F]">
-                      {/* Day Column Headers */}
-                      {DAY_ORDER.map((day, dIdx) => {
-                        const todayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][currentTime.getDay()];
-                        const isToday = day === todayKey;
-                        const dayCount = filteredMatrixSchedules.filter(s => s.day_of_week === day || s.day_of_week === day.substring(0, 3)).length;
-
-                        return (
-                          <th
-                            key={day}
-                            className={`w-1/6 px-4 py-3.5 text-center transition-colors ${
-                              dIdx > 0 ? 'border-l border-[#E1E5E2]' : ''
-                            } ${isToday ? 'bg-[#E3EED4]' : 'bg-[#F4F8F5]'}`}
-                          >
-                            <div className="flex items-center justify-center gap-1.5">
-                              <span className="font-ui text-xs font-extrabold uppercase tracking-wider text-[#05301F]">
-                                {DAY_LABEL[day] || day}
-                              </span>
-                              {isToday && (
-                                <span className="font-ui text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-[#05301F] text-[#E3EED4] uppercase tracking-wider shadow-2xs">
-                                  Today
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] font-semibold text-[#4D6B4A] mt-0.5">
-                              {dayCount > 0 ? pluralize(dayCount, 'class', 'classes') : 'No classes'}
-                            </div>
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {ACADEMIC_PERIODS.map((period, pIdx) => {
-                      const isAlt = pIdx % 2 === 1;
-
-                      return (
-                        <tr
-                          key={period.id}
-                          className={`border-b border-[#E1E5E2] last:border-b-0 transition-colors ${
-                            period.isMidday
-                              ? 'bg-[#F2F7F4]/70'
-                              : isAlt
-                              ? 'bg-[#FAFBF9]'
-                              : 'bg-white'
-                          }`}
-                        >
-                          {/* 6 Day Matrix Cells */}
-                          {DAY_ORDER.map((day, dIdx) => {
-                            const todayKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][currentTime.getDay()];
-                            const isToday = day === todayKey;
-
-                            // Filter classes falling into this period on this day
-                            const cellClasses = filteredMatrixSchedules.filter((s) => {
-                              const matchesDay = s.day_of_week === day || s.day_of_week === day.substring(0, 3);
-                              if (!matchesDay) return false;
-                              const sMin = minutesOf(s.start_time);
-                              return sMin >= period.thresholdStart && sMin < period.thresholdEnd;
-                            });
-
-                            return (
-                              <td
-                                key={day}
-                                className={`w-1/6 p-2.5 align-top ${
-                                  dIdx > 0 ? 'border-l border-[#E1E5E2]' : ''
-                                } ${isToday ? 'bg-[#E3EED4]/15' : ''}`}
-                              >
-                                {cellClasses.length > 0 ? (
-                                  <div className="flex flex-col gap-2">
-                                    {cellClasses.map((sched) => {
-                                      const color = getFacultyColor(sched.faculty_name);
-                                      const inConflict = conflictedCurriculumIds.has(sched.curriculum_id);
-                                      const lensDim = isLensOpen && !inConflict;
-                                      const lensLit = isLensOpen && inConflict;
-                                      const isLab = isLabSession(sched);
-
-                                      const blockLabel =
-                                        `${formatSubjectCode(sched)} (${isLab ? 'LAB' : 'LEC'}), ${sched.subject_name}, ` +
-                                        `${sched.faculty_name}, ` +
-                                        `${day} ${sched.start_time} to ${sched.end_time}` +
-                                        (canManageSchedules ? '. Press Delete to remove this class.' : '');
-
-                                      return (
-                                        <div
-                                          key={sched.id}
-                                          role="button"
-                                          tabIndex={lensDim ? -1 : 0}
-                                          aria-hidden={lensDim || undefined}
-                                          aria-label={blockLabel}
-                                          onKeyDown={(e) => {
-                                            if ((e.key === 'Delete' || e.key === 'Backspace') && canManageSchedules) {
-                                              e.preventDefault();
-                                              handleDeleteSchedule(sched);
-                                              if (hoveredSchedule?.sched?.id === sched.id) {
-                                                setHoveredSchedule(null);
-                                              }
-                                            }
-                                          }}
-                                          onMouseEnter={(e) => handleCardMouseEnter(sched, color, day, inConflict, e)}
-                                          onMouseLeave={handleCardMouseLeave}
-                                          onFocus={(e) => handleCardMouseEnter(sched, color, day, inConflict, e)}
-                                          onBlur={handleCardMouseLeave}
-                                          style={{
-                                            backgroundColor: color.bg,
-                                            borderColor: color.border,
-                                          }}
-                                          className={`group relative rounded-xl border p-2.5 shadow-2xs hover:shadow-md transition-all duration-150 cursor-pointer overflow-hidden ${focusRing} ${
-                                            lensDim ? 'lens-dimmed' : ''
-                                          } ${lensLit ? 'lens-conflict' : ''}`}
-                                        >
-                                          {/* Accent left indicator stripe */}
-                                          <div
-                                            className="absolute left-0 top-0 bottom-0 w-1 rounded-l-md pointer-events-none transition-all group-hover:w-1.5"
-                                            style={{ backgroundColor: color.accent }}
-                                          />
-
-                                          {lensLit && (
-                                            <span
-                                              className="absolute top-1.5 right-1.5 text-rose-600 font-extrabold text-xs"
-                                              aria-hidden="true"
-                                              title="Conflict detected"
-                                            >
-                                              ▲
-                                            </span>
-                                          )}
-
-                                          <div className="pl-1.5 flex flex-col gap-1">
-                                            {/* Badges: Subject code + Session (LEC/LAB) + Section */}
-                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                              <span
-                                                className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-2xs"
-                                                style={{ backgroundColor: color.badgeBg, color: color.badgeText }}
-                                              >
-                                                {formatSubjectCode(sched)}
-                                              </span>
-                                              <span
-                                                className={`font-mono text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs ${
-                                                  isLab
-                                                    ? 'bg-amber-100 text-amber-900 border border-amber-300/80'
-                                                    : 'bg-emerald-100 text-emerald-900 border border-emerald-300/80'
-                                                }`}
-                                              >
-                                                {isLab ? 'LAB' : 'LEC'}
-                                              </span>
-                                              {sched.section && (
-                                                <span className="font-mono text-[9.5px] font-semibold text-[#03502A]">
-                                                  Sec {sched.section}
-                                                </span>
-                                              )}
-                                            </div>
-
-                                            {/* Subject Title */}
-                                            <h4
-                                              className="font-ui text-xs font-bold leading-snug line-clamp-2 text-[#05301F]"
-                                              title={sched.subject_name}
-                                            >
-                                              {sched.subject_name}
-                                            </h4>
-
-                                            {/* Time range */}
-                                            <div className="mt-0.5 flex items-center justify-between gap-1 text-[10.5px]">
-                                              <span
-                                                className="font-data font-bold tabular-nums whitespace-nowrap"
-                                                style={{ color: color.time }}
-                                              >
-                                                {to12h(sched.start_time)} – {to12h(sched.end_time)}
-                                              </span>
-                                              {sched.section && (
-                                                <span className="font-ui text-[10px] font-semibold text-[#4D6B4A] truncate">
-                                                  Sec {sched.section}
-                                                </span>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="h-full min-h-[44px]" />
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
             </div>
           )}
         </div>

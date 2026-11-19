@@ -70,7 +70,7 @@ export default function DashboardHome() {
       setSchedulesCount(safeSchedules.length);
       setConflictsCount(conflicts?.count ?? null);
       setFacultyCount(safeFaculty.length);
-      setFacultyMissingAvail(safeFaculty.filter((f) => !f.max_units || f.max_units === 0).length);
+      setFacultyMissingAvail(safeFaculty.filter((f) => (!f.max_units || f.max_units === 0) && (!f.allowed_hours || f.allowed_hours === 0)).length);
       setCurriculumCount(safeCurriculum.length);
     } catch (e) {
       console.error('Failed to fetch dashboard stats', e);
@@ -450,7 +450,7 @@ export default function DashboardHome() {
             <div className="p-4 rounded-xl bg-[#E3EED4]/35 border border-[#AEC3B0]/30 text-caption font-medium text-[#406349] flex items-start gap-2.5 leading-relaxed">
               <span className="font-bold text-[#1E3A2B] shrink-0">Tip:</span>
               <span>
-                Verify all faculty teaching limits and section assignments prior to final timetable publication.
+                Verify all faculty teaching limits prior to final timetable publication.
               </span>
             </div>
           </div>

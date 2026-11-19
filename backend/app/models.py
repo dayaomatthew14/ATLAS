@@ -181,9 +181,10 @@ class Faculty(Base):
     last_name = Column(String(255), nullable=False, default='')
     email = Column(String(255), nullable=True)
     contact_number = Column(String(20), nullable=True)
-    max_units = Column(Integer, nullable=False, default=18)
-    load_unit = Column(String(10), nullable=False, default='units')
-    type = Column(Enum('full_time', 'part_time', name='faculty_types'), nullable=False, default='full_time')
+    max_units = Column(Integer, nullable=False, default=24)
+    load_unit = Column(String(10), nullable=False, default='hours')
+    type = Column(String(40), nullable=False, default='full_time_regular')
+    overload_approved = Column(Boolean, nullable=False, default=False)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
 
     department = relationship("Department", back_populates="faculty_members")
@@ -273,3 +274,7 @@ class SubjectOffering(Base):
     semester_id = Column(Integer, ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False)
     assigned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    curriculum = relationship("Curriculum")
+    faculty = relationship("Faculty")
+    semester = relationship("Semester")

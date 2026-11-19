@@ -72,6 +72,16 @@ export function canManageFaculty() {
   return SCHEDULING_ROLES.includes(getRole());
 }
 
+/** Update faculty classification (e.g., Full-Time Regular vs. Probationary). Allowed for College Dean and Program Chair. */
+export function canEditFacultyClassification() {
+  return canManageFaculty() || isAdmin() || isDean();
+}
+
+/** Approve or override faculty teaching load overloads. Allowed for Program Chair, College Dean, and Admin. */
+export function canApproveOverload() {
+  return [ROLES.PROGRAM_CHAIR, ROLES.DEAN, ROLES.ADMIN].includes(getRole());
+}
+
 /**
  * Add, edit, import or remove curriculum. Administrator only.
  *

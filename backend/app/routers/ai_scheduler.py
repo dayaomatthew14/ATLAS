@@ -338,14 +338,21 @@ def solve_conflict(
         if target_sched:
             curr_item = db.query(models.Curriculum).filter(models.Curriculum.id == target_sched.curriculum_id).first()
             
-            from ..services.schedule_generator import TIMESLOTS, DAYS, is_prof_conflict
+            from ..services.schedule_generator import (
+                TIMESLOTS, DAYS, is_prof_conflict, is_prof_unavail_single, is_lunch_break_conflict
+            )
             all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == target_sched.semester_id).all()
+            all_unavails = db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id == target_sched.faculty_id).all()
 
             placed = False
             item_code = curr_item.code if curr_item else subj_code
             for day in DAYS:
                 if placed: break
                 for start_t, end_t in TIMESLOTS:
+                    if is_lunch_break_conflict(day, start_t, end_t):
+                        continue
+                    if is_prof_unavail_single(target_sched.faculty_id, day, start_t, end_t, all_unavails):
+                        continue
                     if not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
                         target_sched.room_id = None # type: ignore
                         target_sched.day_of_week = day # type: ignore
@@ -395,6 +402,8 @@ def solve_conflict(
         (conflict.reason and 'overload' in conflict.reason.lower())
     ):
         conflict.resolved_at = datetime.now(timezone.utc) # type: ignore
+        if f_obj and current_user.role in ('admin', 'dean', 'program_chair'):
+            f_obj.overload_approved = True  # type: ignore
         
         # Mark all pending overload / part_time_ceiling conflicts for this faculty & curriculum as resolved
         if faculty_id and curriculum_id:
@@ -408,9 +417,9 @@ def solve_conflict(
                 oc.resolved_at = datetime.now(timezone.utc) # type: ignore
 
         is_overload = conflict.conflict_type == 'overload' or (conflict.reason and 'overload' in conflict.reason.lower())
-        action_title = "Overload Authorized" if is_overload else "Load Exception Authorized"
-        reason_desc = conflict.reason or "Overload condition approved by department head"
-        log_msg = f"Authorized {('overload' if is_overload else 'part-time ceiling exception')} for {fac_name} on {subj_code}: {reason_desc}"
+        action_title = "Overload Overridden" if is_overload else "Load Exception Overridden"
+        reason_desc = conflict.reason or "Overload condition reviewed"
+        log_msg = f"Program Chair overrode {('overload' if is_overload else 'part-time ceiling exception')} for {fac_name} on {subj_code}: {reason_desc}"
         
         log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
         db.commit()
@@ -419,8 +428,8 @@ def solve_conflict(
             "status": "success",
             "action_taken": "overload_approved",
             "title": action_title,
-            "message": f"Overload for {fac_name} on {subj_code} has been authorized.",
-            "details": f"{reason_desc}. The assigned teaching load has been approved and confirmed in the timetable. Recorded in the Activity Log."
+            "message": f"Overload for {fac_name} on {subj_code} has been overridden and approved.",
+            "details": f"{reason_desc}. Recorded in the Activity Log."
         }
 
     # 3. Subject Assignment / Unplaced Subject
@@ -467,14 +476,16 @@ def solve_conflict(
         # Automatically bump faculty max units cap to accommodate the unplaced subject
         f_obj.max_units = int((f_obj.max_units or 18) + 12) # type: ignore
 
-        from ..services.schedule_generator import LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR, is_prof_conflict, lecture_slots_for
+        from ..services.schedule_generator import (
+            LAB_SLOTS, MW_PAIR, TTH_PAIR, FS_PAIR,
+            is_prof_conflict, is_prof_unavail, is_lunch_break_conflict_pair,
+            lecture_slots_for, lab_slots_for
+        )
         all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == sem_id).all()
+        all_unavails = db.query(models.FacultyUnavailability).filter(models.FacultyUnavailability.faculty_id == faculty_id).all()
 
         part_type = req.part_type or 'lecture'
-        # Same grid the generator would have used for this subject. Re-plotting a
-        # conflict on a different grid would give the class a different weekly
-        # load than the one the timetable was built with.
-        slots = LAB_SLOTS if part_type == 'lab' else lecture_slots_for(c_obj)
+        slots = lab_slots_for(c_obj) if part_type == 'lab' else lecture_slots_for(c_obj)
         day_pairs = [MW_PAIR, TTH_PAIR, FS_PAIR]
 
         placed = False
@@ -484,6 +495,10 @@ def solve_conflict(
             if placed: break
             d1, d2 = days[0], days[1]
             for start_t, end_t in slots:
+                if is_lunch_break_conflict_pair(d1, d2, start_t, end_t):
+                    continue
+                if is_prof_unavail(faculty_id, d1, d2, start_t, end_t, all_unavails):
+                    continue
                 if not is_prof_conflict(faculty_id, d1, d2, start_t, end_t, all_schedules):
                     s1 = models.Schedule(
                         semester_id=sem_id,

@@ -3,7 +3,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from .. import models, schemas, database, auth
-from ..services.schedule_generator import TIMESLOTS, DAYS
+from ..services import faculty_load
+from ..services.schedule_generator import TIMESLOTS, DAYS, is_lunch_break_conflict
 from ..services.schedule_io import (
     _attachment_header,
     build_schedule_pdf,
@@ -122,8 +123,18 @@ def create_schedule(
                     detail=f"Cannot schedule {curriculum_item.code}: The selected professor is not assigned to this subject for this semester."
                 )
              
+    if is_lunch_break_conflict(schedule.day_of_week, schedule.start_time, schedule.end_time):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Classes cannot be scheduled during the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM, Monday to Friday)."
+        )
+
     new_schedule = models.Schedule(**schedule.model_dump())
     db.add(new_schedule)
+    if schedule.faculty_id and current_user.role not in ('admin', 'dean'):
+        fac_obj = db.query(models.Faculty).filter(models.Faculty.id == schedule.faculty_id).first()
+        if fac_obj:
+            setattr(fac_obj, "overload_approved", False)
     db.commit()
     db.refresh(new_schedule)
     dept_id_val = getattr(curriculum_item, 'department_id', None)
@@ -153,12 +164,18 @@ def update_schedule(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Schedule is locked and cannot be modified")
                 
     update_data = schedule.model_dump(exclude_unset=True)
+    effective_day = update_data.get('day_of_week', db_schedule.day_of_week)
     effective_start = update_data.get('start_time', db_schedule.start_time)
     effective_end = update_data.get('end_time', db_schedule.end_time)
     if effective_start is not None and effective_end is not None and effective_end <= effective_start:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Schedule end time ({effective_end.strftime('%I:%M %p')}) must be after start time ({effective_start.strftime('%I:%M %p')}).",
+        )
+    if effective_day and effective_start and effective_end and is_lunch_break_conflict(effective_day, effective_start, effective_end):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Classes cannot be scheduled during the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM, Monday to Friday).",
         )
     for key, value in update_data.items():
         setattr(db_schedule, key, value)
@@ -489,36 +506,31 @@ def get_schedule_suggestions(
     faculties = db.query(models.Faculty).filter(models.Faculty.department_id == curriculum_item.department_id).all()
     valid_faculties = []
     
-    # One pass for the whole semester instead of a query per faculty plus a
-    # query per schedule row. `semester_schedules` is reused below for the
-    # overlap checks, which used to issue their own query per candidate slot.
+    semester_obj = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    term_str = getattr(semester_obj, "term", None) if semester_obj else None
     semester_schedules = db.query(models.Schedule).filter(
         models.Schedule.semester_id == semester_id
     ).all()
-    unit_by_curriculum = {
-        c.id: int(c.units or 0)
-        for c in db.query(models.Curriculum.id, models.Curriculum.units).all()
-    }
-    units_by_faculty = {}
-    for s in semester_schedules:
-        if s.faculty_id:
-            units_by_faculty[s.faculty_id] = (
-                units_by_faculty.get(s.faculty_id, 0) + unit_by_curriculum.get(s.curriculum_id, 0)
-            )
+    hours_by_faculty = faculty_load.compute_reg_hours(
+        db, [f.id for f in faculties if f.id is not None], semester_id
+    )
+    subject_hours = faculty_load.subject_required_hours(curriculum_item)
 
     # Faculty unavailability, likewise loaded once.
     unavailabilities = db.query(models.FacultyUnavailability).filter(
         models.FacultyUnavailability.faculty_id.in_([f.id for f in faculties])
     ).all() if faculties else []
 
-    # Calculate current units for faculties
+    # Calculate current teaching hours and load percentage for faculties
     for f in faculties:
-        total_units = units_by_faculty.get(f.id, 0)
-        if (total_units + curriculum_item.units) <= f.max_units:
-            valid_faculties.append({
-                "faculty": f,
-                "load_percentage": (total_units + curriculum_item.units) / f.max_units
-            })
+        current_hrs = hours_by_faculty.get(f.id, 0.0)
+        allowed_hrs = faculty_load.allowed_teaching_hours(term_str, f.type) or 20.0
+        projected_hrs = current_hrs + subject_hours
+        valid_faculties.append({
+            "faculty": f,
+            "load_percentage": projected_hrs / allowed_hrs if allowed_hrs > 0 else 1.0,
+            "requires_dean_approval": projected_hrs > allowed_hrs + 0.005,
+        })
 
     suggestions = []
     
@@ -529,10 +541,12 @@ def get_schedule_suggestions(
         faculty = f_data["faculty"]
         for day in DAYS:
             for start_t, end_t in TIMESLOTS:
+                if is_lunch_break_conflict(day, start_t, end_t):
+                    continue
                 overlap = any(
                     s.day_of_week == day
-                    and s.start_time == start_t
-                    and s.end_time == end_t
+                    and s.start_time < end_t
+                    and s.end_time > start_t
                     and s.faculty_id == faculty.id
                     for s in semester_schedules
                 )

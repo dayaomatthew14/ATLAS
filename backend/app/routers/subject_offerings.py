@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
 from .. import auth, models, schemas
+from ..services import faculty_load
 from ..database import get_db
 from ..auth import get_current_user
 
@@ -144,13 +145,16 @@ def _format_subject_offering_entry(
             "faculty_id": fac.id,
             "faculty_name": f"{fac.first_name} {fac.last_name}".strip(),
             "faculty_email": fac.email,
-            "faculty_type": fac.type,
+            "faculty_type": faculty_load.normalise_employment_type(fac.type),
+            "faculty_type_label": faculty_load.employment_type_label(fac.type),
         }
         for off, fac in assigned_list
     ]
     is_assigned = len(assigned_list) > 0
     prog_name = block.program_name if block else (curriculum_item.program_code or "")
     prog_code = (block.program.code if (block and block.program) else None) or prog_name
+    req_mins = faculty_load.subject_required_minutes(curriculum_item)
+    req_hrs = faculty_load.subject_required_hours(curriculum_item)
     return {
         "curriculum_id": curriculum_item.id,
         "code": curriculum_item.code,
@@ -159,6 +163,10 @@ def _format_subject_offering_entry(
         "lec_units": curriculum_item.lec_units,
         "lab_units": curriculum_item.lab_units,
         "type": curriculum_item.type,
+        "is_combined_c": faculty_load.is_combined_c_subject(curriculum_item),
+        "required_minutes": req_mins,
+        "required_hours": req_hrs,
+        "required_hours_label": faculty_load.format_minutes_label(req_mins),
         "is_major": is_major,
         "year_level": curriculum_item.year_level or "",
         "semester_term": curriculum_item.semester_term or "",
@@ -384,6 +392,8 @@ def create_subject_offering(
     if prior_offering:
         setattr(prior_offering, "faculty_id", offering.faculty_id)
         setattr(prior_offering, "assigned_by", current_user.id)
+        if current_user.role not in ('admin', 'dean'):
+            setattr(faculty_mem, "overload_approved", False)
         db.commit()
         db.refresh(prior_offering)
         return prior_offering
@@ -394,6 +404,8 @@ def create_subject_offering(
         semester_id=offering.semester_id,
         assigned_by=current_user.id
     )
+    if current_user.role not in ('admin', 'dean'):
+        setattr(faculty_mem, "overload_approved", False)
     db.add(new_offering)
     db.commit()
     db.refresh(new_offering)

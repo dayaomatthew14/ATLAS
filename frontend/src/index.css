@@ -316,10 +316,8 @@ body {
 }
 
 /*
-  The ambient wash and authentic academic blueprint grid.
-  Inspired by the Landing & Login pages: soft ambient pools plus faint
-  timetable blueprint lines (var(--tt-daycol-min), var(--tt-hour)) that give
-  the dashboard an authentic academic scheduling presence.
+  The ambient wash for the dashboard canvas.
+  Soft ambient pools give the dashboard clean, subtle depth without grid lines.
 */
 .glass-canvas {
   position: relative;
@@ -335,18 +333,6 @@ body {
     radial-gradient(58rem 42rem at 12% -8%, var(--glass-ambient-a), transparent 60%),
     radial-gradient(48rem 38rem at 92% 6%, var(--glass-ambient-b), transparent 62%),
     radial-gradient(52rem 40rem at 68% 104%, var(--glass-ambient-c), transparent 60%);
-}
-.glass-canvas::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    repeating-linear-gradient(to right,  rgb(4 106 56 / 0.035) 0 1px, transparent 1px var(--tt-daycol-min)),
-    repeating-linear-gradient(to bottom, rgb(4 106 56 / 0.03) 0 1px, transparent 1px var(--tt-hour));
-  -webkit-mask-image: radial-gradient(ellipse 95% 85% at 50% 20%, #000 30%, transparent 95%);
-          mask-image: radial-gradient(ellipse 95% 85% at 50% 20%, #000 30%, transparent 95%);
 }
 /*
   Everything the shell renders sits above the wash.
@@ -397,8 +383,7 @@ body {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .glass-canvas::before,
-  .glass-canvas::after { display: none; }
+  .glass-canvas::before { display: none; }
 }
 
 /* Printing a translucent panel wastes ink and prints grey text on grey. */
@@ -411,8 +396,7 @@ body {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
-  .glass-canvas::before,
-  .glass-canvas::after { display: none !important; }
+  .glass-canvas::before { display: none !important; }
 }
 
 /* ==========================================================================

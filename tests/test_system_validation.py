@@ -76,7 +76,8 @@ class RoomAndProgramSchemaValidationTest(unittest.TestCase):
 class FacultyValidationTest(unittest.TestCase):
     def test_faculty_names_and_load_bounds(self):
         fac = schemas.FacultyCreate(first_name="Ma. Teresa", last_name="Peña", type="part_time")
-        self.assertEqual(fac.max_units, 12)
+        self.assertEqual(fac.max_units, 20)
+        self.assertEqual(fac.load_unit, "hours")
 
         with self.assertRaises(ValidationError) as ctx_num:
             schemas.FacultyCreate(first_name="Juan123", last_name="Cruz")
@@ -87,18 +88,12 @@ class FacultyValidationTest(unittest.TestCase):
         self.assertIn("@", str(ctx_sym.exception))
 
         with self.assertRaises(ValidationError):
-            schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="part_time", load_unit="units", max_units=13)
+            schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="full_time_regular", max_units=31)
 
         with self.assertRaises(ValidationError):
-            schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="full_time", load_unit="units", max_units=19)
+            schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="part_time", max_units=21)
 
-        with self.assertRaises(ValidationError):
-            schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="full_time", load_unit="hrs", max_units=31)
-
-        with self.assertRaises(ValidationError):
-            schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="part_time", load_unit="hrs", max_units=21)
-
-        fac_hrs = schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="full_time", load_unit="hrs", max_units=24)
+        fac_hrs = schemas.FacultyCreate(first_name="Ana", last_name="Reyes", type="full_time_regular", max_units=24)
         self.assertEqual(fac_hrs.max_units, 24)
 
     def test_faculty_unavailability_validation(self):
@@ -276,15 +271,15 @@ class RouterValidationGuardsTest(unittest.TestCase):
         self.db.commit()
         self.db.refresh(fac)
 
-        # Switching full_time (18 units) -> part_time without reducing max_units violates 1..12 part_time units cap
-        with self.assertRaises(HTTPException) as ctx:
-            professors.update_professor(
-                faculty_id=cast(int, fac.id),
-                faculty=schemas.FacultyUpdate(type="part_time"),
-                db=self.db,
-                current_user=_fake_user(role="program_chair", department="CAST"),
-            )
-        self.assertEqual(ctx.exception.status_code, 422)
+        # Switching full_time -> part_time automatically recalculates teaching hours to 20
+        res = professors.update_professor(
+            faculty_id=cast(int, fac.id),
+            faculty=schemas.FacultyUpdate(type="part_time"),
+            db=self.db,
+            current_user=_fake_user(role="program_chair", department="CAST"),
+        )
+        self.assertEqual(res["max_units"], 20)
+        self.assertEqual(res["type"], "part_time")
 
     def test_schedule_update_enforces_effective_time_order(self):
         dept = models.Department(code="CAST", name="College of Arts, Sciences and Technology")

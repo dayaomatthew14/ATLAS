@@ -226,14 +226,14 @@ export const filterActiveTermSubjects = (
  * Covers 7:30 AM to 7:30 PM with clean institutional slot thresholds.
  */
 export const ACADEMIC_PERIODS = [
-  { id: 'p1', num: '1', title: 'Period 1', time: '07:30 – 09:00', thresholdStart: 0, thresholdEnd: 525 },
-  { id: 'p2', num: '2', title: 'Period 2', time: '09:00 – 10:30', thresholdStart: 525, thresholdEnd: 605 },
-  { id: 'p3', num: '3', title: 'Period 3', time: '10:30 – 12:00', thresholdStart: 605, thresholdEnd: 685 },
-  { id: 'p4', num: '4', title: 'Midday', time: '12:00 – 01:30', thresholdStart: 685, thresholdEnd: 795, isMidday: true },
-  { id: 'p5', num: '5', title: 'Period 5', time: '01:30 – 03:00', thresholdStart: 795, thresholdEnd: 885 },
-  { id: 'p6', num: '6', title: 'Period 6', time: '03:00 – 04:30', thresholdStart: 885, thresholdEnd: 975 },
-  { id: 'p7', num: '7', title: 'Period 7', time: '04:30 – 06:00', thresholdStart: 975, thresholdEnd: 1055 },
-  { id: 'p8', num: '8', title: 'Period 8', time: '06:00 – 07:30', thresholdStart: 1055, thresholdEnd: 1440 },
+  { id: 'p1', num: '1', title: 'Period 1', time: '07:30 – 09:00', thresholdStart: 0, thresholdEnd: 540 },
+  { id: 'p2', num: '2', title: 'Period 2', time: '09:00 – 10:30', thresholdStart: 540, thresholdEnd: 630 },
+  { id: 'p3', num: '3', title: 'Period 3', time: '10:30 – 12:00', thresholdStart: 630, thresholdEnd: 720 },
+  { id: 'p4', num: '—', title: 'Lunch Break', time: '12:00 – 01:00', thresholdStart: 720, thresholdEnd: 780, isMidday: true },
+  { id: 'p5', num: '4', title: 'Period 4', time: '01:00 – 02:30', thresholdStart: 780, thresholdEnd: 870 },
+  { id: 'p6', num: '5', title: 'Period 5', time: '02:30 – 04:00', thresholdStart: 870, thresholdEnd: 960 },
+  { id: 'p7', num: '6', title: 'Period 6', time: '04:00 – 05:30', thresholdStart: 960, thresholdEnd: 1050 },
+  { id: 'p8', num: '7', title: 'Period 7', time: '05:30 – 07:30', thresholdStart: 1050, thresholdEnd: 1440 },
 ];
 
 /** "13:30" -> "1:30 PM". */
@@ -250,7 +250,20 @@ export const minutesOf = (t) => {
   return (h || 0) * 60 + (m || 0);
 };
 
-export const durationHours = (s) => Math.max(0, (minutesOf(s.end_time) - minutesOf(s.start_time)) / 60);
+export const durationMinutes = (s) => {
+  if (!s) return 0;
+  const sMin = minutesOf(s.start_time || s.startTime);
+  const eMin = minutesOf(s.end_time || s.endTime);
+  let raw = Math.max(0, eMin - sMin);
+  const d = String(s.day_of_week || s.dayOfWeek || '').slice(0, 3);
+  if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(d)) {
+    const overlap = Math.max(0, Math.min(eMin, 780) - Math.max(sMin, 720));
+    raw = Math.max(0, raw - overlap);
+  }
+  return raw;
+};
+
+export const durationHours = (s) => durationMinutes(s) / 60;
 
 /** The API writes either "Mon" or "Monday" depending on the path that saved it. */
 export const dayKey = (value) => {
@@ -290,10 +303,11 @@ export const EXPORT_COLUMNS = [
   { key: 'faculty', label: 'Professor', value: (s) => s.faculty_name || 'TBA' },
   { key: 'code', label: 'Subject Code', value: (s) => formatSubjectCode(s) },
   { key: 'name', label: 'Subject Name', value: (s) => s.subject_name || '' },
-  { key: 'section', label: 'Section', value: (s) => s.section || '—' },
+  { key: 'room', label: 'Room', value: (s) => s.room_name || s.room?.name || 'TBA' },
   { key: 'day', label: 'Day', value: (s) => DAY_LABEL[dayKey(s.day_of_week)] || s.day_of_week || '' },
   { key: 'start', label: 'Start Time', value: (s) => to12h(s.start_time) },
   { key: 'end', label: 'End Time', value: (s) => to12h(s.end_time) },
+  { key: 'hours', label: 'Hours', value: (s) => `${durationHours(s).toFixed(2)}h` },
 ];
 
 /** Professor, then the week in order, then time of day. */

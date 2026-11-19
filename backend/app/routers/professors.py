@@ -26,8 +26,11 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
     if load is None:
         load = faculty_load.summarise_many(db, [faculty], semester).get(fac_id, {})
 
-    max_u = faculty.max_units if (faculty.max_units and faculty.max_units > 0) else (
-        18 if faculty.type == 'full_time' else 12
+    norm_type = faculty_load.normalise_employment_type(faculty.type)
+    sem_obj = semester or db.query(models.Semester).filter(models.Semester.is_active == True).first()
+    allowed_h = faculty_load.allowed_teaching_hours(sem_obj.term if sem_obj else None, norm_type)
+    max_u = int(allowed_h) if allowed_h is not None else (
+        faculty.max_units if (faculty.max_units and faculty.max_units > 0) else (24 if norm_type.startswith('full_time') else 20)
     )
     current_u = _unit_load(db, fac_id, semester)
 
@@ -38,8 +41,9 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
         "email": faculty.email,
         "contact_number": faculty.contact_number,
         "max_units": max_u,
-        "load_unit": getattr(faculty, 'load_unit', 'units') or 'units',
-        "type": faculty.type,
+        "load_unit": "hours",
+        "type": norm_type,
+        "overload_approved": bool(getattr(faculty, 'overload_approved', False)),
         "department_id": faculty.department_id,
         "current_units": current_u,
         "remaining_units": max(0, max_u - current_u),
@@ -204,10 +208,15 @@ def get_professors(
             if faculty_id is not None:
                 unit_loads[faculty_id] = unit_loads.get(faculty_id, 0) + (units or 0)
 
+    active_sem = semester or faculty_load.active_semester(db)
     result = []
     for f in faculty_members:
         f_id = cast(int, f.id)
-        max_u = f.max_units if (f.max_units and f.max_units > 0) else (18 if f.type == 'full_time' else 12)
+        norm_type = faculty_load.normalise_employment_type(f.type)
+        allowed_h = faculty_load.allowed_teaching_hours(active_sem.term if active_sem else None, norm_type)
+        max_u = int(allowed_h) if allowed_h is not None else (
+            f.max_units if (f.max_units and f.max_units > 0) else (24 if norm_type.startswith('full_time') else 20)
+        )
         curr_u = unit_loads.get(f_id, 0)
         result.append({
             "id": f.id,
@@ -216,8 +225,9 @@ def get_professors(
             "email": f.email,
             "contact_number": f.contact_number,
             "max_units": max_u,
-            "load_unit": getattr(f, 'load_unit', 'units') or 'units',
-            "type": f.type,
+            "load_unit": "hours",
+            "type": norm_type,
+            "overload_approved": bool(getattr(f, 'overload_approved', False)),
             "department_id": f.department_id,
             "current_units": curr_u,
             "remaining_units": max(0, max_u - curr_u),
@@ -247,20 +257,29 @@ def create_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not add faculty. This is done by the program chair.")
+    if current_user.role not in ['program_chair', 'admin', 'dean']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to add faculty.")
         
     faculty_data = faculty.model_dump()
+    faculty_data['load_unit'] = 'hours'
+    norm_type = faculty_load.normalise_employment_type(faculty_data.get('type'))
+    faculty_data['type'] = norm_type
 
-    if not faculty_data.get('load_unit'):
-        faculty_data['load_unit'] = 'units'
+    active_sem = (
+        db.query(models.Semester)
+        .filter(models.Semester.is_active == True)
+        .first()
+    )
+    term_key = active_sem.term if active_sem else '1st'
+    calculated_limit = faculty_load.allowed_teaching_hours(term_key, norm_type) or 24.0
+    faculty_data['max_units'] = int(calculated_limit)
 
-    if faculty_data.get('type') == 'full_time' and (not faculty_data.get('max_units') or faculty_data.get('max_units') == 0):
-        faculty_data['max_units'] = 24 if faculty_data.get('load_unit') == 'hrs' else 18
+    if current_user.role not in ('admin', 'dean', 'program_chair'):
+        faculty_data['overload_approved'] = False
     
-    if current_user.role in ('dean', 'program_chair'):
+    if current_user.role in ('dean', 'program_chair', 'admin'):
         dept = auth.resolve_user_department(db, current_user)
-        if dept:
+        if dept and not faculty_data.get('department_id'):
             faculty_data['department_id'] = dept.id
             
     new_faculty = models.Faculty(**faculty_data)
@@ -277,8 +296,8 @@ def update_professor(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    if current_user.role not in ['program_chair']:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrators do not edit faculty. This is done by the program chair.")
+    if current_user.role not in ['program_chair', 'admin', 'dean']:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to edit faculty.")
         
     db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not db_faculty:
@@ -287,15 +306,23 @@ def update_professor(
     assert_faculty_in_scope(db, current_user, db_faculty)
 
     update_data = faculty.model_dump(exclude_unset=True)
+    if 'type' in update_data and update_data['type'] is not None:
+        update_data['type'] = faculty_load.normalise_employment_type(update_data['type'])
+
+    # Program Chair, Dean, or Admin can approve or override an overload
+    if 'overload_approved' in update_data and current_user.role not in ('admin', 'dean', 'program_chair'):
+        update_data.pop('overload_approved', None)
 
     effective_type = update_data.get('type', db_faculty.type)
-    effective_unit = update_data.get('load_unit', db_faculty.load_unit or 'units')
-    effective_max = update_data.get('max_units', db_faculty.max_units)
-    if 'max_units' in update_data or 'type' in update_data or 'load_unit' in update_data:
-        try:
-            schemas.validate_faculty_load_bounds(effective_max, effective_type, effective_unit)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    update_data['load_unit'] = 'hours'
+    active_sem = (
+        db.query(models.Semester)
+        .filter(models.Semester.is_active == True)
+        .first()
+    )
+    term_key = active_sem.term if active_sem else '1st'
+    calculated_limit = faculty_load.allowed_teaching_hours(term_key, effective_type) or 24.0
+    update_data['max_units'] = int(calculated_limit)
 
     # A scoped user must not be able to move a faculty member into another
     # department, which would put the record permanently out of their reach.
@@ -307,11 +334,47 @@ def update_professor(
                 detail="Cannot reassign faculty to another department"
             )
 
+    # Changing classification resets overload approval if the new limit is lower
+    if 'type' in update_data and update_data['type'] != db_faculty.type and 'overload_approved' not in update_data:
+        update_data['overload_approved'] = False
+
     for key, value in update_data.items():
         setattr(db_faculty, key, value)
 
     db.commit()
     db.refresh(db_faculty)
+    return serialise_faculty(db, db_faculty)
+
+
+@router.patch("/{faculty_id}/overload-approval", response_model=schemas.FacultyResponse)
+def update_overload_approval(
+    faculty_id: int,
+    payload: schemas.FacultyOverloadApprovalUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """
+    Update professor overload approval status.
+    """
+    db_faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
+    if not db_faculty:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Professor not found")
+
+    db_faculty.overload_approved = bool(payload.approved)
+    db.commit()
+    db.refresh(db_faculty)
+    return serialise_faculty(db, db_faculty)
+
+    fac_name = f"{db_faculty.first_name} {db_faculty.last_name}".strip()
+    action_label = "Approved Overload" if payload.approved else "Revoked Overload Approval"
+    log_activity(
+        db,
+        current_user.id,
+        action_label,
+        f"{action_label} for {fac_name} ({faculty_load.employment_type_label(db_faculty.type)})",
+        "success",
+        department_id=db_faculty.department_id,
+    )
     return serialise_faculty(db, db_faculty)
 
 @router.delete("/{faculty_id}", status_code=status.HTTP_204_NO_CONTENT)

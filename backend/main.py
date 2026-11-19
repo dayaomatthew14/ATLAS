@@ -110,14 +110,24 @@ def init_db():
 
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             if "postgresql" in engine.url.drivername:
-                # Legacy fixup: role was originally an ENUM and must be widened
-                # before the generic column check can rely on it.
+                # Legacy fixup: role and faculty.type were originally ENUMs and must be widened
+                # before the generic column check can rely on them.
                 try:
                     conn.execute(text("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR;"))
                 except Exception as e:
                     print(f"  (users.role already VARCHAR or not alterable: {e})")
+                try:
+                    conn.execute(text("ALTER TABLE faculty ALTER COLUMN type TYPE VARCHAR(40) USING type::VARCHAR;"))
+                except Exception as e:
+                    print(f"  (faculty.type already VARCHAR or not alterable: {e})")
 
             added = sync_missing_columns(conn)
+            try:
+                conn.execute(text("UPDATE faculty SET type = 'full_time_regular' WHERE type = 'full_time';"))
+                conn.execute(text("UPDATE faculty SET load_unit = 'hours' WHERE load_unit IS NULL OR load_unit = 'units';"))
+                conn.execute(text("UPDATE faculty SET overload_approved = FALSE WHERE overload_approved IS NULL;"))
+            except Exception as e:
+                print(f"  (faculty classification migration note: {e})")
             if added:
                 print("=" * 72)
                 print(f"  SCHEMA DRIFT: {len(added)} column(s) existed on the models but not in")

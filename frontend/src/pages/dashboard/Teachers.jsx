@@ -6,7 +6,14 @@ import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../componen
 import AtlasButton from '../../components/ui/Button';
 import DataTable from '../../components/ui/DataTable';
 import { LoadMeter, LoadStatusBadge } from '../../components/ui/Badge';
-import { formatHours, PART_TIME_CEILING_HOURS, computeSubjectHours } from '../../utils/load';
+import {
+  formatHours,
+  PART_TIME_CEILING_HOURS,
+  computeSubjectHours,
+  employmentTypeLabel,
+  getAllowedTeachingHours,
+  getWorkWeekBreakdown,
+} from '../../utils/load';
 import { SelectInput } from '../../components/ui/Field';
 import { Page, PageHeader, EmptyState } from '../../components/ui/Page';
 import FacultyPreviewDialog from '../../components/FacultyPreviewDialog';
@@ -16,7 +23,6 @@ import { restrictionReason, pluralize, focusRing } from '../../components/ui/tok
 import { canManageFaculty as canManageFacultyRole, getRole, ROLES } from '../../utils/session';
 import {
   validatePersonName,
-  validateIntegerRange,
   validateTimeOrder,
   parseErrorResponse,
 } from '../../utils/validation';
@@ -51,24 +57,6 @@ const validateName = (value) =>
   validatePersonName(value, 'Full name', { required: true, requireFullName: true }) || undefined;
 
 /**
- * Subject units are optional, because teaching load is REG. HOURS against the
- * term's required figure; this field is curriculum bookkeeping.
- */
-const validateUnits = (value, unitType = 'units', facultyType = 'full_time') => {
-  const isHrs = unitType === 'hrs';
-  const max = isHrs ? (facultyType === 'part_time' ? 20 : 30) : (facultyType === 'part_time' ? 12 : 18);
-  return (
-    validateIntegerRange(value, {
-      label: isHrs ? 'Maximum teaching hours' : 'Maximum subject units',
-      min: 1,
-      max,
-      required: false,
-      blankHint: ', or leave it blank',
-    }) || undefined
-  );
-};
-
-/**
  * Which subjects a role carries.
  *
  * A program chair holds their programme's major subjects; a coordinator holds
@@ -99,9 +87,9 @@ export default function Teachers() {
   const [editingTeacher, setEditingTeacher] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
-    type: 'full_time',
-    max_units: 18,
-    load_unit: 'units',
+    type: 'full_time_regular',
+    max_units: 24,
+    load_unit: 'hours',
     unavailability: []
   });
   const [selectedDays, setSelectedDays] = useState([]);
@@ -133,6 +121,7 @@ export default function Teachers() {
       width: '280px',
       render: (item) => {
         const isPartTime = item.type === 'part_time' || item.type === 'Part-Time';
+        const typeLabel = employmentTypeLabel(item.type);
         return (
           <button
             type="button"
@@ -158,15 +147,15 @@ export default function Teachers() {
                 />
               </span>
               <span className="inline-flex items-center mt-0.5">
-                {isPartTime ? (
-                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/70 shadow-2xs">
-                    Part-time
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/70 shadow-2xs">
-                    Full-time
-                  </span>
-                )}
+                <span className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold border shadow-2xs ${
+                  item.type === 'full_time_probationary'
+                    ? 'bg-blue-50 text-blue-800 border-blue-200/70'
+                    : isPartTime
+                      ? 'bg-amber-50 text-amber-800 border-amber-200/70'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200/70'
+                }`}>
+                  {typeLabel}
+                </span>
               </span>
             </span>
             <span className="sr-only">— open preview</span>
@@ -506,6 +495,7 @@ export default function Teachers() {
       try {
         const sems = await api.get('/semesters');
         const activeSem = sems.find(s => s.is_active);
+        setActiveSemester(activeSem || null);
         if (activeSem) {
           activeSemesterId = activeSem.id;
           offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
@@ -612,14 +602,16 @@ export default function Teachers() {
   };
 
   const handleOpenModal = (teacher = null) => {
+    const termKey = activeSemester?.term || '1st';
     if (teacher) {
       setEditingTeacher(teacher);
-      const loadUnit = teacher.load_unit || 'units';
+      const teacherType = teacher.faculty_type || teacher.type || 'full_time_regular';
+      const limit = getAllowedTeachingHours(teacherType, termKey);
       setFormData({
         name: computeFullName(teacher.first_name, teacher.last_name),
-        type: teacher.faculty_type || teacher.type || 'full_time',
-        max_units: teacher.max_units || (loadUnit === 'hrs' ? 24 : 18),
-        load_unit: loadUnit,
+        type: teacherType,
+        max_units: limit,
+        load_unit: 'hours',
         unavailability: teacher.unavailability || []
       });
 
@@ -662,7 +654,15 @@ export default function Teachers() {
       setCustomRanges(ranges);
     } else {
       setEditingTeacher(null);
-      setFormData({ name: '', type: 'full_time', max_units: 18, load_unit: 'units', unavailability: [] });
+      const defaultType = 'full_time_regular';
+      const defaultLimit = getAllowedTeachingHours(defaultType, termKey);
+      setFormData({
+        name: '',
+        type: defaultType,
+        max_units: defaultLimit,
+        load_unit: 'hours',
+        unavailability: []
+      });
       setSelectedDays([]);
       setCustomRanges({});
     }
@@ -718,13 +718,15 @@ export default function Teachers() {
       }
     }
 
+    const termKey = activeSemester?.term || '1st';
+    const computedHours = getAllowedTeachingHours(formData.type, termKey);
+
     const errors = {
       name: validateName(formData.name),
-      max_units: validateUnits(formData.max_units, formData.load_unit, formData.type),
       unavailability: unavailErr,
     };
     setFormErrors(errors);
-    if (errors.name || errors.max_units || errors.unavailability) {
+    if (errors.name || errors.unavailability) {
       if (errors.unavailability) addToast(errors.unavailability, 'error');
       return;
     }
@@ -736,11 +738,6 @@ export default function Teachers() {
     const first_name = nameParts[0] || '';
     const last_name = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
-    // Field names must match schemas.FacultyCreate / FacultyUpdate. `faculty_type`
-    // was silently dropped by the API, so the employment type never saved.
-    const defaultVal = formData.load_unit === 'hrs'
-      ? (formData.type === 'part_time' ? 16 : 24)
-      : (formData.type === 'part_time' ? 12 : 18);
     const emailSlug = formData.name
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -752,8 +749,8 @@ export default function Teachers() {
       first_name,
       last_name,
       email: editingTeacher?.email || `${emailSlug}@dlsau.edu.ph`,
-      max_units: parseInt(formData.max_units, 10) || defaultVal,
-      load_unit: formData.load_unit || 'units',
+      max_units: computedHours,
+      load_unit: 'hours',
       type: formData.type,
     };
 
@@ -906,11 +903,12 @@ export default function Teachers() {
         notPlotted > 0 ? `${pluralize(notPlotted, 'member')} awaiting generation` : null,
       ].filter(Boolean).join(' · ') || undefined;
 
-  // The 40-hour week depends only on the term and employment type, so it is the
-  // same table for every Full-Time member and is shown once rather than
-  // repeated down the page. Taken off the first Full-Time record because that
-  // is where the backend already resolves the active term.
-  const workWeek = teachers.find((t) => t.work_week)?.work_week || null;
+  // Standing institutional 40-hour full-time policy basis for the active term.
+  // Represents the standard baseline allocation per term (independent of any individual teacher's actual overload).
+  const activeTerm = activeSemester?.term || teachers.find((t) => t.term)?.term || '1st';
+  const baselineWorkWeek = useMemo(() => {
+    return getWorkWeekBreakdown(activeTerm, 'full_time_regular', 0);
+  }, [activeTerm]);
 
   const rowActions = (t) =>
     canManageFaculty ? (
@@ -918,12 +916,10 @@ export default function Teachers() {
         <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenModal(t)} aria-label={`Edit ${t.name}`}>
           Edit
         </AtlasButton>
-        {/* `destructive` is the system's outlined red — a bordered control
-            rather than red text, which is what made Remove read as a word
-            sitting in the row instead of the button it is. */}
         <AtlasButton
           size="row"
           variant="destructive"
+          className={ROW_CONTROL}
           onClick={() => handleDelete(t.id)}
           aria-label={`Remove ${t.name}`}
         >
@@ -970,28 +966,23 @@ export default function Teachers() {
         </div>
       )}
 
-      {/* The Full-Time 40-hour week. Worth stating because 40 hours is the
-          total duty week, not 40 teaching hours -- the distinction the old
-          units-based meter gave a chair no way to see. */}
-      {workWeek && (
+      {/* The Full-Time 40-hour week standing baseline basis for the active term */}
+      {baselineWorkWeek && (
         /* A reminder, not a feature.
            This is standing institutional policy — it is the same five figures
-           every time the page loads and nothing a chair does here changes
-           them. It earned a full panel of number tiles in an earlier pass,
-           which gave the page's largest, greenest element to its least
-           actionable content. One quiet line, above the roster it qualifies. */
+           every time the page loads and represents the baseline basis per term. */
         <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-4 px-4 py-2.5 rounded-field
                       bg-atlas-50/70 border border-atlas-line font-ui text-caption text-atlas-slate rise-flat">
           <span className="inline-flex items-center gap-1.5 font-medium text-atlas-800">
             <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-            Full-time week · {workWeek.term} term
+            Full-time week · {baselineWorkWeek.term} term
           </span>
           <span className="tabular-nums">
-            Teaching <span className="font-data text-atlas-ink">{formatHours(workWeek.teaching_hours)}</span>
-            {' · '}Off-campus <span className="font-data text-atlas-ink">{formatHours(workWeek.off_campus_hours)}</span>
-            {' · '}Consultation <span className="font-data text-atlas-ink">{formatHours(workWeek.consultation_hours)}</span>
-            {' · '}Office <span className="font-data text-atlas-ink">{formatHours(workWeek.office_hours)}</span>
-            {' · '}Total <span className="font-data text-atlas-ink">{formatHours(workWeek.total_hours)}</span> hrs
+            Teaching <span className="font-data text-atlas-ink">{formatHours(baselineWorkWeek.teaching_hours)}</span>
+            {' · '}Off-campus <span className="font-data text-atlas-ink">{formatHours(baselineWorkWeek.off_campus_hours)}</span>
+            {' · '}Consultation <span className="font-data text-atlas-ink">{formatHours(baselineWorkWeek.consultation_hours)}</span>
+            {' · '}Office <span className="font-data text-atlas-ink">{formatHours(baselineWorkWeek.office_hours)}</span>
+            {' · '}Total <span className="font-data text-atlas-ink">{formatHours(baselineWorkWeek.total_hours)}</span> hrs
           </span>
           <span>
             REG. hours measure Teaching alone. Part-time teach under{' '}
@@ -1046,7 +1037,7 @@ export default function Teachers() {
           />
         )}
         {!isLoading && teachers.map((t) => {
-          const isFullTime = t.type === 'full_time' || t.type === 'Full-Time';
+          const isPartTime = t.type === 'part_time' || t.type === 'Part-Time';
           return (
             <div key={t.id} className="glass rounded-panel p-4 border border-emerald-900/10 shadow-xs">
               <div className="flex items-start justify-between gap-3">
@@ -1068,11 +1059,13 @@ export default function Teachers() {
                     </button>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10.5px] font-semibold border shadow-2xs ${
-                        isFullTime
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                        t.type === 'full_time_probationary'
+                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                          : isPartTime
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                       }`}>
-                        {isFullTime ? 'Full-time' : 'Part-time'}
+                        {employmentTypeLabel(t.type)}
                       </span>
                       <span className="text-xs text-slate-500 font-medium">
                         {pluralize(t.subject_offerings?.length || 0, 'subject')}
@@ -1088,7 +1081,10 @@ export default function Teachers() {
                     ceiling={t.part_time_ceiling_hours}
                     overCeiling={t.exceeds_part_time_ceiling}
                   />
-                  <LoadStatusBadge status={t.load_status} overCeiling={t.exceeds_part_time_ceiling} />
+                  <LoadStatusBadge
+                    status={t.load_status}
+                    overCeiling={t.exceeds_part_time_ceiling}
+                  />
                 </span>
               </div>
               <div className="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
@@ -1126,7 +1122,7 @@ export default function Teachers() {
         formErrors={formErrors}
         setFormErrors={setFormErrors}
         validateName={validateName}
-        validateUnits={validateUnits}
+        activeTerm={activeSemester?.term || '1st'}
         selectedDays={selectedDays}
         setSelectedDays={setSelectedDays}
         setCustomRanges={setCustomRanges}

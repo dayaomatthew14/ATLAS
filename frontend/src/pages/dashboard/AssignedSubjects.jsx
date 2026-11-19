@@ -16,6 +16,7 @@ import Modal from '../../components/Modal';
 import { focusRing } from '../../components/ui/tokens';
 import { ValidationAnchor } from '../../components/ui/ValidationPopup';
 import { parseErrorResponse } from '../../utils/validation';
+import { formatMinutesLabel, computeSubjectMinutes, employmentTypeLabel } from '../../utils/load';
 
 const formatYearLevel = (val) => {
   if (!val) return '—';
@@ -540,7 +541,7 @@ export default function AssignedSubjects() {
               <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
                 <th className="px-5 py-3.5">Subject Code</th>
                 <th className="px-5 py-3.5">Subject Title</th>
-                <th className="px-5 py-3.5">Units</th>
+                <th className="px-5 py-3.5">Teaching Load / Units</th>
                 <th className="px-5 py-3.5">Course & Year</th>
                 <th className="px-5 py-3.5">Assigned Professor</th>
                 <th className="px-5 py-3.5">Status</th>
@@ -615,14 +616,16 @@ export default function AssignedSubjects() {
                         )}
                       </td>
 
-                      {/* Units */}
+                      {/* Teaching Load & Units */}
                       <td className="px-5 py-3.5 whitespace-nowrap tabular-nums">
-                        <span className="font-semibold text-slate-900">
-                          {subject.units}
-                        </span>
-                        <span className="text-xs text-slate-500 ml-1">
-                          ({subject.lec_units || 0}L / {subject.lab_units || 0}Lab)
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-slate-900 text-xs">
+                            {subject.required_hours_label || formatMinutesLabel(computeSubjectMinutes(subject))}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            {subject.units} {subject.units === 1 ? 'unit' : 'units'} ({subject.lec_units || 0}L / {subject.lab_units || 0}Lab)
+                          </span>
+                        </div>
                       </td>
 
                       {/* Course & Year */}
@@ -791,7 +794,7 @@ export default function AssignedSubjects() {
                     <option value="">-- Choose a Professor --</option>
                     {allProfessors.map((prof) => (
                       <option key={prof.id} value={prof.id}>
-                        {prof.name} ({prof.type === 'full_time' ? 'Full-Time' : 'Part-Time'}, max {prof.max_units}u)
+                        {prof.name} ({prof.employment_type_label || employmentTypeLabel(prof.type)}, {prof.allowed_hours || prof.max_units} hrs limit)
                       </option>
                     ))}
                   </select>

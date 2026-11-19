@@ -44,11 +44,35 @@ export const isTimeOverlap = (start1Str, end1Str, start2Str, end2Str) => {
   return s1 < e2 && e1 > s2;
 };
 
+export const LUNCH_BREAK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+export const LUNCH_BREAK_START_MIN = 12 * 60; // 12:00 PM
+export const LUNCH_BREAK_END_MIN = 13 * 60;   // 01:00 PM
+
+export const isLunchBreakOverlap = (day, startStr, endStr) => {
+  if (!day || !LUNCH_BREAK_DAYS.includes(String(day).slice(0, 3))) return false;
+  const s = parseTimeToMinutes(startStr);
+  const e = parseTimeToMinutes(endStr);
+  if (s === null || e === null) return false;
+  return s < LUNCH_BREAK_END_MIN && e > LUNCH_BREAK_START_MIN;
+};
+
 /**
  * Utility to detect conflicts between a new/edited schedule and existing ones.
  */
 export const detectConflicts = (newSchedule, existingSchedules) => {
   const conflicts = [];
+  const newDay = newSchedule.dayOfWeek || newSchedule.day_of_week;
+  const newStart = newSchedule.start_time || newSchedule.startTime;
+  const newEnd = newSchedule.end_time || newSchedule.endTime;
+
+  if (isLunchBreakOverlap(newDay, newStart, newEnd)) {
+    conflicts.push({
+      type: 'LunchBreak',
+      severity: 'blocking',
+      with: null,
+      message: `Classes cannot overlap the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM) on ${newDay}.`,
+    });
+  }
 
   existingSchedules.forEach(existing => {
     // Skip if comparing to itself (during edits)
@@ -73,11 +97,6 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
 
       if (hasTeacherConflict) {
         conflicts.push({ type: 'Teacher', severity: 'blocking', with: existing });
-      }
-
-      // Section Conflict
-      if (newSchedule.section && existing.section && newSchedule.section === existing.section) {
-        conflicts.push({ type: 'Section', severity: 'blocking', with: existing });
       }
     }
 
@@ -145,14 +164,13 @@ export const checkScheduleIntegrity = (schedules) => {
       const otherFacId = other.faculty_id || other.teacherId;
       const teacherConflict = Boolean(itemFacId && otherFacId && itemFacId === otherFacId);
 
-      const sectionConflict = item.section && other.section && item.section === other.section;
-
-      return teacherConflict || sectionConflict;
+      return teacherConflict;
     });
 
     return {
       ...item,
-      isConflicting: conflicts.length > 0,
+      isConflicting: conflicts.length > 0 || isLunchBreakOverlap(day, start, end),
+      hasLunchBreakConflict: isLunchBreakOverlap(day, start, end),
       hasRoomOverlap: false,
       conflictDetails: conflicts,
       roomOverlapDetails: [],

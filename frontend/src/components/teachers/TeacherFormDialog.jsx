@@ -1,11 +1,13 @@
+import { useEffect } from 'react';
 import { Plus, Users as UsersIcon, X, Trash2, UserPlus } from 'lucide-react';
 import AtlasDialog from '../ui/Dialog';
 import AtlasButton from '../ui/Button';
-import { TextInput, NumberInput, RadioGroup } from '../ui/Field';
+import { TextInput, Field, RadioGroup } from '../ui/Field';
 import { pluralize, focusRing } from '../ui/tokens';
 import { ValidationAnchor } from '../ui/ValidationPopup';
 import { hasImmediateNameIssue } from '../../utils/validation';
 import { DAY_ORDER as DAYS } from '../../utils/scheduleHelpers';
+import { getAllowedTeachingHours, normaliseEmploymentType } from '../../utils/load';
 
 /**
  * Add / Edit Faculty modal dialog with teaching load limits and weekly unavailability editor.
@@ -21,7 +23,7 @@ export default function TeacherFormDialog({
   formErrors,
   setFormErrors,
   validateName,
-  validateUnits,
+  activeTerm = '1st',
   selectedDays,
   setSelectedDays,
   setCustomRanges,
@@ -31,6 +33,19 @@ export default function TeacherFormDialog({
   handleUpdateRange,
   formatTime,
 }) {
+  const normType = normaliseEmploymentType(formData.type);
+  const teachingHoursLimit = getAllowedTeachingHours(normType, activeTerm);
+
+  useEffect(() => {
+    const limit = getAllowedTeachingHours(formData.type, activeTerm);
+    if (formData.max_units !== limit || formData.load_unit !== 'hours') {
+      setFormData((prev) => ({
+        ...prev,
+        max_units: limit,
+        load_unit: 'hours',
+      }));
+    }
+  }, [formData.type, activeTerm, setFormData, formData.max_units, formData.load_unit]);
   return (
     <AtlasDialog
       isOpen={isOpen}
@@ -77,107 +92,70 @@ export default function TeacherFormDialog({
           </div>
 
           <RadioGroup
-            label="Employment"
+            label="Employment Classification"
             required
             name="faculty-type"
-            value={formData.type}
+            value={formData.type === 'full_time' ? 'full_time_regular' : formData.type}
             onChange={(v) => {
-              setFormData({ ...formData, type: v });
-              setFormErrors((prev) => ({
+              const limit = getAllowedTeachingHours(v, activeTerm);
+              setFormData((prev) => ({
                 ...prev,
-                max_units: formErrors.max_units || formData.max_units !== ''
-                  ? validateUnits(formData.max_units, formData.load_unit, v)
-                  : undefined,
+                type: v,
+                max_units: limit,
+                load_unit: 'hours',
               }));
+              if (formErrors.max_units) {
+                setFormErrors((prev) => ({ ...prev, max_units: undefined }));
+              }
             }}
             options={[
               {
-                value: 'full_time',
-                label: 'Full-time',
-                hint: '20–24 hrs/week required',
+                value: 'full_time_regular',
+                label: 'Full-Time Regular',
+                hint: '24h (1st Term) · 20h (2nd & 3rd Terms)',
+              },
+              {
+                value: 'full_time_probationary',
+                label: 'Full-Time Probationary',
+                hint: '24h across all terms (1st, 2nd, 3rd)',
               },
               {
                 value: 'part_time',
-                label: 'Part-time',
-                hint: 'Under 20 hrs/week',
+                label: 'Part-Time',
+                hint: 'Maximum 20 hrs/week',
               },
             ]}
           />
 
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <label
-                htmlFor="faculty-load-limit"
-                className="font-ui text-micro uppercase text-atlas-slate flex items-center gap-2"
-              >
-                {formData.load_unit === 'hrs' ? 'Maximum teaching hours' : 'Maximum subject units'}
-              </label>
-              <div
-                className="inline-flex p-0.5 rounded-field bg-atlas-100 border border-atlas-line text-caption font-ui"
-                role="group"
-                aria-label="Load limit unit of measurement"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (formData.load_unit === 'units') return;
-                    const maxLimit = formData.type === 'part_time' ? 12 : 18;
-                    setFormData((prev) => ({
-                      ...prev,
-                      load_unit: 'units',
-                      max_units: prev.max_units ? Math.min(maxLimit, Math.max(1, Math.round(Number(prev.max_units)))) : maxLimit,
-                    }));
-                    if (formErrors.max_units) setFormErrors((prev) => ({ ...prev, max_units: undefined }));
-                  }}
-                  className={`px-2.5 py-1 rounded-[4px] font-medium transition-all duration-state ease-standard ${
-                    formData.load_unit !== 'hrs'
-                      ? 'bg-white text-atlas-ink shadow-sm'
-                      : 'text-atlas-slate hover:text-atlas-ink'
-                  }`}
+          <Field
+            label="Maximum Teaching Hours"
+            hint={
+              normType === 'full_time_probationary'
+                ? 'Full-Time Probationary: 24 hrs/week across all terms (1st, 2nd, 3rd).'
+                : normType === 'part_time'
+                  ? 'Part-Time: Maximum 20 hrs/week across all terms (1st, 2nd, 3rd).'
+                  : `Full-Time Regular: ${teachingHoursLimit} hrs/week for the active term (24h in 1st term, 20h in 2nd & 3rd terms).`
+            }
+          >
+            {({ id: fieldId, describedBy }) => (
+              <div className="relative">
+                <input
+                  id={fieldId}
+                  type="text"
+                  readOnly
+                  aria-describedby={describedBy}
+                  value={teachingHoursLimit}
+                  className="w-full h-11 pl-3.5 pr-24 rounded-field font-data text-body font-bold text-slate-900 bg-slate-50 border border-slate-300 shadow-2xs select-none cursor-default focus:outline-hidden"
+                />
+                <span
+                  className="absolute inset-y-0 right-3.5 flex items-center font-ui text-xs font-semibold text-emerald-800 bg-emerald-100/80 border border-emerald-300/70 px-2 py-0.5 rounded my-auto h-6 pointer-events-none select-none shadow-2xs"
+                  aria-hidden="true"
                 >
-                  Units
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (formData.load_unit === 'hrs') return;
-                    const maxLimit = formData.type === 'part_time' ? 20 : 30;
-                    setFormData((prev) => ({
-                      ...prev,
-                      load_unit: 'hrs',
-                      max_units: prev.max_units ? Math.min(maxLimit, Math.max(1, Math.round(Number(prev.max_units)))) : (formData.type === 'part_time' ? 16 : 24),
-                    }));
-                    if (formErrors.max_units) setFormErrors((prev) => ({ ...prev, max_units: undefined }));
-                  }}
-                  className={`px-2.5 py-1 rounded-[4px] font-medium transition-all duration-state ease-standard ${
-                    formData.load_unit === 'hrs'
-                      ? 'bg-white text-atlas-ink shadow-sm'
-                      : 'text-atlas-slate hover:text-atlas-ink'
-                  }`}
-                >
-                  Hours (hrs)
-                </button>
+                  hrs/week
+                </span>
               </div>
-            </div>
-
-            <NumberInput
-              id="faculty-load-limit"
-              suffix={formData.load_unit === 'hrs' ? 'hrs' : 'units'}
-              min={1}
-              max={
-                formData.load_unit === 'hrs'
-                  ? (formData.type === 'part_time' ? 20 : 30)
-                  : (formData.type === 'part_time' ? 12 : 18)
-              }
-              value={formData.max_units}
-              error={formErrors.max_units}
-              onChange={(e) => {
-                setFormData({ ...formData, max_units: e.target.value });
-                if (formErrors.max_units) setFormErrors({ ...formErrors, max_units: undefined });
-              }}
-              onBlur={() => setFormErrors((prev) => ({ ...prev, max_units: validateUnits(formData.max_units, formData.load_unit, formData.type) }))}
-            />
-          </div>
+            )}
+          </Field>
         </div>
 
         <ValidationAnchor

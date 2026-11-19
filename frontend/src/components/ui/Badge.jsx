@@ -167,7 +167,11 @@ export function LoadMeter({
 /**
  * The load verdict as a styled badge chip.
  */
-export function LoadStatusBadge({ status = null, overCeiling = false, className = '' }) {
+export function LoadStatusBadge({
+  status = null,
+  overCeiling = false,
+  className = '',
+}) {
   if (status === 'NO_ACTIVE_TERM') {
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-slate-100 text-slate-500 border border-slate-200/80 shadow-2xs ${className}`}>
@@ -182,6 +186,16 @@ export function LoadStatusBadge({ status = null, overCeiling = false, className 
       </span>
     );
   }
+
+  const isOverloadState = status === 'OVERLOAD' || overCeiling;
+  if (isOverloadState) {
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-rose-50 text-rose-800 border border-rose-300 shadow-2xs ${className}`}>
+        OVERLOAD
+      </span>
+    );
+  }
+
   if (overCeiling) {
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200/80 shadow-2xs ${className}`}>

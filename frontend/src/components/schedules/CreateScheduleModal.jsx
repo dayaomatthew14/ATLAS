@@ -179,21 +179,21 @@ export default function CreateScheduleModal({
         </div>
 
         {/* Blocking and advisory conflicts are reported separately, because a faculty
-            or section clash has to be resolved or overridden explicitly here. */}
+            clash has to be resolved or overridden explicitly here. */}
         {blockingFormConflicts.length > 0 && (
           <div className="rounded-panel bg-sem-conflict-bg border border-sem-conflict/30 p-3.5 flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-sem-conflict shrink-0 mt-0.5" aria-hidden="true" />
             <div className="min-w-0">
               <p className="font-ui text-caption font-semibold text-sem-conflict">
-                {blockingFormConflicts[0].type === 'Teacher'
-                  ? 'This professor is already teaching then'
-                  : 'This section already has a class then'}
+                {blockingFormConflicts[0].type === 'LunchBreak'
+                  ? 'Overlaps Mandatory Lunch Break (12:00 PM – 01:00 PM)'
+                  : blockingFormConflicts[0].type === 'SessionOrder'
+                  ? 'Lecture must be scheduled before Laboratory'
+                  : 'This professor is already teaching then'}
               </p>
               <p className="font-ui text-caption text-sem-conflict/90 mt-0.5 leading-relaxed">
-                Two classes cannot share{' '}
-                {blockingFormConflicts[0].type === 'Teacher' ? 'a professor' : 'a section'} at the
-                same time. Change the time, or the{' '}
-                {blockingFormConflicts[0].type === 'Teacher' ? 'professor' : 'section'}.
+                {blockingFormConflicts[0].message ||
+                  'Two classes cannot share a professor at the same time. Change the time or the professor.'}
               </p>
             </div>
           </div>
@@ -242,44 +242,32 @@ export default function CreateScheduleModal({
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field
-            id="schedule-faculty-id"
-            label="Professor"
-            required
-            error={formErrors.faculty_id}
-          >
-            {({ id, describedBy, invalid }) => (
-              <SelectMenu
-                id={id}
-                describedBy={describedBy}
-                invalid={invalid}
-                value={formData.faculty_id}
-                onChange={(val) => onFieldChange('faculty_id', val)}
-                onBlur={() => onFieldBlur('faculty_id')}
-                options={professorOptions}
-                placeholder="Select Professor"
-                menuTitle="Department Faculty"
-                emptyMessage="No professors available."
-                searchable={teachers.length > 6}
-                searchPlaceholder="Search professor name…"
-                loading={isLoadingDropdowns}
-                icon={UserCheck}
-                itemNoun="professor"
-              />
-            )}
-          </Field>
-
-          <TextInput
-            id="schedule-section"
-            label="Section (Optional)"
-            placeholder="e.g. 1A, CS-3A"
-            value={formData.section}
-            error={formErrors.section}
-            onChange={(e) => onFieldChange('section', e.target.value)}
-            onBlur={() => onFieldBlur('section')}
-          />
-        </div>
+        <Field
+          id="schedule-faculty-id"
+          label="Professor"
+          required
+          error={formErrors.faculty_id}
+        >
+          {({ id, describedBy, invalid }) => (
+            <SelectMenu
+              id={id}
+              describedBy={describedBy}
+              invalid={invalid}
+              value={formData.faculty_id}
+              onChange={(val) => onFieldChange('faculty_id', val)}
+              onBlur={() => onFieldBlur('faculty_id')}
+              options={professorOptions}
+              placeholder="Select Professor"
+              menuTitle="Department Faculty"
+              emptyMessage="No professors available."
+              searchable={teachers.length > 6}
+              searchPlaceholder="Search professor name…"
+              loading={isLoadingDropdowns}
+              icon={UserCheck}
+              itemNoun="professor"
+            />
+          )}
+        </Field>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field

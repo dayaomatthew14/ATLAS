@@ -211,9 +211,6 @@ export default function GenerateScheduleModal({
                       <span className="flex items-center gap-3 min-w-0">
                         <span className="font-data text-table text-sem-conflict shrink-0">{item.subject}</span>
                         <span className="min-w-0">
-                          {item.section && item.section.trim() !== '' && (
-                            <span className="block font-ui text-body text-atlas-ink">{item.section}</span>
-                          )}
                           <span className="block font-ui text-caption text-atlas-slate">{item.reason}</span>
                         </span>
                       </span>
@@ -256,7 +253,11 @@ export default function GenerateScheduleModal({
                           {warn.overload_hours != null ? ` · ${warn.overload_hours} hrs overload` : ''}
                         </span>
                       </span>
-                      <Badge status="review" label="Needs approval" className="shrink-0" />
+                      <Badge
+                        status={warn.overload_approved ? 'approved' : 'review'}
+                        label={warn.overload_approved ? 'Dean Approved' : 'For Dean Approval'}
+                        className="shrink-0"
+                      />
                     </li>
                   ))}
                 </ul>

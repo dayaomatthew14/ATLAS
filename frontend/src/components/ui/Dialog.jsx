@@ -62,10 +62,10 @@ export default function Dialog({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
         className={`relative w-full ${width} max-h-[calc(100vh-2rem)] flex flex-col
-                    glass-strong rounded-panel border border-emerald-900/15 shadow-2xl
+                    bg-white rounded-panel border border-emerald-900/15 shadow-2xl
                     transition-opacity duration-overlay ease-standard`}
       >
-        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-emerald-900/10 bg-white/40 rounded-t-panel">
+        <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-emerald-900/10 bg-slate-50/60 rounded-t-panel shrink-0">
           <div className="flex items-start gap-3.5 min-w-0">
             {Icon && (
               <span
@@ -103,13 +103,18 @@ export default function Dialog({
           )}
         </header>
 
-        <div className="px-6 py-6 overflow-y-auto">{children}</div>
+        <div
+          className="px-6 py-6 overflow-y-auto overscroll-contain"
+          style={{ willChange: 'scroll-position', WebkitOverflowScrolling: 'touch' }}
+        >
+          {children}
+        </div>
 
         {/* The footer wraps: three actions at 375px pushed the first button off
             the left edge of the panel, and a control you cannot reach is worse
             than one that costs a second row. */}
         {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-emerald-900/10 bg-white/30 rounded-b-panel">
+          <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-emerald-900/10 bg-slate-50/60 rounded-b-panel shrink-0">
             {footer}
           </div>
         )}

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from .. import models, database, auth, schemas
+from ..services.schedule_generator import is_lunch_break_conflict
 
 router = APIRouter(
     prefix="/api/conflicts",
@@ -91,6 +92,13 @@ def validate_schedule_conflict(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     conflicts = []
+
+    if is_lunch_break_conflict(validation_data.day_of_week, validation_data.start_time, validation_data.end_time):
+        conflicts.append(schemas.ConflictDetail(
+            type="lunch_break",
+            existing_schedule=None,
+            message=f"Mandatory Lunch Break: Classes cannot overlap 12:00 PM – 01:00 PM on {validation_data.day_of_week}."
+        ))
     
     # 1. Base query for overlaps in the same semester and day
     base_query = db.query(models.Schedule).filter(
@@ -134,19 +142,6 @@ def validate_schedule_conflict(
                 type="faculty_unavailability",
                 existing_schedule=None,
                 message=f"Faculty is marked unavailable on {validation_data.day_of_week} from {unavail.start_time} to {unavail.end_time}"
-            ))
-
-    # C. Section Conflict
-    if validation_data.section:
-        section_overlap = base_query.filter(
-            models.Schedule.section == validation_data.section,
-            time_filter
-        ).first()
-        if section_overlap:
-            conflicts.append(schemas.ConflictDetail(
-                type="section",
-                existing_schedule=schemas.ScheduleResponse.model_validate(section_overlap),
-                message=f"Section {section_overlap.section} already has a class: {section_overlap.curriculum_id}"
             ))
 
 
