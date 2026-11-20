@@ -432,22 +432,12 @@ def meeting_teaching_minutes(
     day_of_week: Optional[str] = None,
 ) -> int:
     """
-    Exact teaching minutes for one scheduled meeting, excluding any overlap with
-    the mandatory Mon-Fri 12:00 PM - 01:00 PM lunch break.
+    Exact teaching minutes for one scheduled meeting.
+    Calculated directly from meeting start and end times.
     """
     s_min = start_t.hour * 60 + start_t.minute
     e_min = end_t.hour * 60 + end_t.minute
-    raw = max(0, e_min - s_min)
-    if raw == 0:
-        return 0
-
-    if day_of_week in LUNCH_BREAK_DAYS:
-        lunch_s = LUNCH_BREAK_START.hour * 60 + LUNCH_BREAK_START.minute
-        lunch_e = LUNCH_BREAK_END.hour * 60 + LUNCH_BREAK_END.minute
-        overlap = max(0, min(e_min, lunch_e) - max(s_min, lunch_s))
-        raw = max(0, raw - overlap)
-
-    return raw
+    return max(0, e_min - s_min)
 
 
 def duration_hours(start_t: time, end_t: time, day_of_week: Optional[str] = None) -> float:

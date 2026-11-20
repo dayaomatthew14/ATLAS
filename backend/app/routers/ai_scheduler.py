@@ -460,8 +460,6 @@ def solve_conflict(
             for day in DAYS:
                 if placed: break
                 for start_t, end_t in TIMESLOTS:
-                    if is_lunch_break_conflict(day, start_t, end_t):
-                        continue
                     if is_prof_unavail_single(target_sched.faculty_id, day, start_t, end_t, all_unavails):
                         continue
                     if not is_prof_conflict(target_sched.faculty_id, day, day, start_t, end_t, all_schedules):
@@ -606,8 +604,6 @@ def solve_conflict(
             if placed: break
             d1, d2 = days[0], days[1]
             for start_t, end_t in slots:
-                if is_lunch_break_conflict_pair(d1, d2, start_t, end_t):
-                    continue
                 if is_prof_unavail(faculty_id, d1, d2, start_t, end_t, all_unavails):
                     continue
                 if not is_prof_conflict(faculty_id, d1, d2, start_t, end_t, all_schedules):

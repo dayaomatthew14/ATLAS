@@ -199,6 +199,8 @@ Assignments mapping Faculty records to Curriculum subjects for a specific Semest
 | `curriculum_id` | `INTEGER` | `FOREIGN KEY(curriculum.id ON DELETE CASCADE)` | Target subject ID |
 | `semester_id` | `INTEGER` | `FOREIGN KEY(semesters.id ON DELETE CASCADE)` | Active semester ID |
 | `assigned_by` | `INTEGER` | `FOREIGN KEY(users.id ON DELETE SET NULL)` | Authorized user ID (Admin/Dean/Chair) who made assignment |
+| `enrolled_students` | `INTEGER` | `NULLABLE` | Enrolled student headcount for Converted Tutorial (CT) calculations |
+| `credited_hours_override` | `FLOAT` | `NULLABLE` | Optional administrative override for credited teaching hours |
 | `created_at` | `DATETIME` | `DEFAULT UTC` | Creation timestamp |
 
 ---

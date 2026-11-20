@@ -53,11 +53,11 @@ ATLAS enforces strict Role-Based Access Control (RBAC) across two authenticated 
 ## ✨ Key Features
 
 - 📑 **Excel Curriculum Parser (v1.4)**: Upload `.xlsx` curriculum sheets with automatic program/AY block isolation, merged cell unmerging, and totals row filtering.
-- ⚡ **Algorithmic AI Scheduler**: Automated timetable generation calculating exact teaching hours per lecture/lab component, term faculty teaching-hour limits, and strictly enforcing the **Mandatory 1-Hour Lunch Break** (12:00 PM – 01:00 PM, Mon–Fri; Sat exempt).
+- ⚡ **Algorithmic AI Scheduler**: Automated timetable generation calculating exact teaching hours per lecture/lab component, term faculty teaching-hour limits, and flexible scheduling across midday.
 - 👨‍🏫 **Faculty Teaching Load & Overload Workflow**: Workload calculated and displayed in weekly teaching hours (Full-Time Probationary: 24h all terms; Full-Time Regular: 24h 1st term, 20h 2nd/3rd terms; Part-Time: max 20h). Assignments exceeding limits are flagged for College Dean review and approval.
 - 🛡️ **Multi-Tenant Department RBAC**: Secure separation between CAST, CBMA, CVMAS, and COED department workspaces.
-- ⚠️ **Conflict Detection & Human Handoff**: Identifies schedule overlaps, room shortages, lunch break overlaps, and faculty overload conditions with visual resolution options.
-- 📅 **Unified Weekly Timetable Grid**: High-clarity Monday through Saturday schedule grid with a shared vertical time scale (07:30–19:30), duration-proportional class blocks, room labels (`TBA` fallback), visible free periods, and labeled lunch breaks.
+- ⚠️ **Conflict Detection & Human Handoff**: Identifies schedule overlaps, room shortages, cohort clashes, and faculty overload conditions with visual resolution options.
+- 📅 **Unified Weekly Timetable Grid**: High-clarity Monday through Saturday schedule grid with a shared vertical time scale (07:30–19:30), duration-proportional class blocks, room labels (`TBA` fallback), and visible free periods.
 - 📄 **Export Capabilities**: Generate publication-ready PDF and Excel timetable reports complete with room assignments, duration hours, and weekly timetable grid sheets.
 - 🔒 **Security & Session Invalidation**: OAuth2 password flow, JWT tokens, OTP email verification, and audit logging.
 

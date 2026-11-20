@@ -148,7 +148,7 @@ export default function Schedules() {
   const { addToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [formConflicts, setFormConflicts] = useState([]);
-  // A cohort overlap is advisory; a faculty / lunch / session-order clash is blocking.
+  // A cohort overlap is advisory; a faculty / room / session-order clash is blocking.
   const blockingFormConflicts = formConflicts.filter((c) => c.severity !== 'advisory');
   const advisoryFormConflicts = formConflicts.filter((c) => c.severity === 'advisory');
 

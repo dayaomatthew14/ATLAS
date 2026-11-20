@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] - 2026-11-20
+
+### Added
+- **Flexible Midday Scheduling & Academic Periods**:
+  - Removed the rigid 12:00 PM – 01:00 PM mandatory lunch break lock across the scheduler, conflict detector, timetable grid, and export generators.
+  - Expanded generator and manual slot grids across all categories (80m, 120m, 240m, and CT 60m/90m/180m) to naturally support midday placements (e.g. 11:30 AM – 01:30 PM labs, 10:50 AM – 12:10 PM lectures).
+  - Unlocked the 12:00 PM and 12:30 PM slot intervals on the interactive timetable grid so Program Chairs can click to quick-add classes at any time of day.
+  - Reclassified Period 4 as a standard academic period (12:00 PM – 01:00 PM) on the timetable matrix.
+  - Stopped deducting midday overlap minutes in teaching hours and schedule duration calculations (an 11:30–13:30 lab counts as 2.0 full teaching hours).
+- **Converted Tutorial (CT) Matrix & Credited Hours Overrides**:
+  - Added support for DLSAU Converted Tutorial load calculations based on `enrolled_students` tiers (Regular 13+, 9–12, 5–8, 1–4 students) and optional administrative `credited_hours_override`.
+  - Added CT visual badges and accurate credited hours calculations in subject assignment modals.
+- **Published Schedule Locks**:
+  - Protected official published term schedules against accidental modification, regeneration, clearing, restoration, or Excel importing (`_assert_term_not_published`).
+  - Added a `Published (Locked)` badge and disabled mutation buttons on the Schedules dashboard for published terms.
+- **Multi-Tenant College Isolation & Privilege Safeguards**:
+  - Prevented role escalation by Program Chairs; restricted user updates to the caller's college.
+  - Scoped audit log clearing so College Deans only purge logs belonging to their own college.
+  - Scoped term publishing conflict checks so unresolved conflicts in another department never block a college from publishing its timetable.
+
+### Changed
+- Calibrated Full-Time Probationary work-week duty breakdown to exactly 40.0 hours (24h teaching + 2.5h off-campus + 6.0h consultation + 7.5h office) across all terms.
+- Simplified Assigned Subjects action controls by removing the delete button, focusing actions on assigning and reassigning professors safely.
+- Auto-linked imported curriculum blocks to registered degree programs using program code matching.
+- Updated Excel timetable export to split midday hours into regular 30-minute rows.
+
+### Fixed
+- Fixed phantom session-order conflicts when comparing multi-part single-row curriculum items.
+- Fixed cross-term overlap comparisons in conflict detection by enforcing semester-id scoping.
+- Fixed cascade deletion in SQLAlchemy models so removing a curriculum course cascades to its schedule entries.
+- Fixed user password change and logout-all to re-issue valid session cookies for the active client device.
+
+---
+
 ## [1.5.0] - 2026-10-26
 
 ### Added

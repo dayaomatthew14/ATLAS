@@ -201,12 +201,6 @@ def create_schedule(
                     detail=f"Cannot schedule {curriculum_item.code}: The selected professor is not assigned to this subject for this semester."
                 )
              
-    if is_lunch_break_conflict(schedule.day_of_week, schedule.start_time, schedule.end_time):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Classes cannot be scheduled during the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM, Monday to Friday)."
-        )
-
     _assert_term_not_published(db, schedule.semester_id, getattr(curriculum_item, 'department_id', None))
 
     # Reject overlapping schedules for the same professor at the API level
@@ -296,11 +290,6 @@ def update_schedule(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Schedule end time ({effective_end.strftime('%I:%M %p')}) must be after start time ({effective_start.strftime('%I:%M %p')}).",
-        )
-    if effective_day and effective_start and effective_end and is_lunch_break_conflict(effective_day, effective_start, effective_end):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Classes cannot be scheduled during the mandatory 1-hour Lunch Break (12:00 PM – 01:00 PM, Monday to Friday).",
         )
     if effective_fac and effective_day and effective_start and effective_end:
         prof_overlap = db.query(models.Schedule).filter(
@@ -560,11 +549,6 @@ def restore_schedules(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Cannot restore a schedule for curriculum {item.curriculum_id}: it belongs to another department"
                 )
-        if item.day_of_week and item.start_time and item.end_time and is_lunch_break_conflict(item.day_of_week, item.start_time, item.end_time):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Restored schedule overlaps mandatory Lunch Break (12:00 PM – 01:00 PM, Mon–Fri)."
-            )
         payload = item.model_dump()
         payload["status"] = "draft"
         payload["is_locked"] = False
@@ -820,8 +804,6 @@ def get_schedule_suggestions(
         faculty = f_data["faculty"]
         for day in DAYS:
             for start_t, end_t in TIMESLOTS:
-                if is_lunch_break_conflict(day, start_t, end_t):
-                    continue
                 overlap = any(
                     s.day_of_week == day
                     and s.start_time < end_t

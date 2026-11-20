@@ -1,5 +1,5 @@
 import { useMemo, memo } from 'react';
-import { Lock, Unlock, Trash2, AlertTriangle, Utensils } from 'lucide-react';
+import { Lock, Unlock, Trash2, AlertTriangle } from 'lucide-react';
 import {
   DAY_ORDER,
   DAY_LABEL,
@@ -13,9 +13,6 @@ import { isCombinedCSubject } from '../../utils/load';
 
 const GRID_START_MIN = 7 * 60 + 30; // 07:30 AM (450)
 const GRID_END_MIN = 19 * 60 + 30;  // 07:30 PM (1170)
-const LUNCH_START_MIN = 12 * 60;    // 12:00 PM (720)
-const LUNCH_END_MIN = 13 * 60;      // 01:00 PM (780)
-const LUNCH_DAYS = new Set(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
 
 // 1.35px per minute -> 30m = 40.5px, 60m = 81px, 80m = 108px, 120m = 162px, 240m = 324px
 const PX_PER_MINUTE = 1.35;
@@ -40,7 +37,6 @@ const TIME_TICKS = (() => {
       label,
       isHour,
       isHalf,
-      isLunchBoundary: m === LUNCH_START_MIN || m === LUNCH_END_MIN,
     });
   }
   return ticks;
@@ -51,21 +47,18 @@ const GRID_SLOTS = (() => {
   const slots = [];
   for (let i = 0; i < TIME_TICKS.length - 1; i += 1) {
     const tick = TIME_TICKS[i];
-    const slotEndMin = tick.minutes + 30;
     const h24 = Math.floor(tick.minutes / 60);
     const m24 = tick.minutes % 60;
     const eH24 = Math.floor((tick.minutes + 80) / 60);
     const eM24 = (tick.minutes + 80) % 60;
     const startStr = `${String(h24).padStart(2, '0')}:${String(m24).padStart(2, '0')}`;
     const endStr = `${String(eH24).padStart(2, '0')}:${String(eM24).padStart(2, '0')}`;
-    const isLunchTime = tick.minutes >= LUNCH_START_MIN && slotEndMin <= LUNCH_END_MIN;
 
     slots.push({
       minutes: tick.minutes,
       topPx: tick.topPx,
       isHour: tick.isHour,
       label: tick.label,
-      isLunchTime,
       startStr,
       endStr,
     });
@@ -174,9 +167,6 @@ function WeeklyTimetableGrid({
     return laidOut;
   }, [schedules]);
 
-  const lunchTopPx = (LUNCH_START_MIN - GRID_START_MIN) * PX_PER_MINUTE + GRID_PADDING_TOP;
-  const lunchHeightPx = (LUNCH_END_MIN - LUNCH_START_MIN) * PX_PER_MINUTE;
-
   return (
     <div className="overflow-x-auto bg-white select-none">
       <div className="min-w-[1000px]">
@@ -192,7 +182,6 @@ function WeeklyTimetableGrid({
           </div>
           {DAY_ORDER.map((day) => {
             const dayCount = schedulesByDay[day]?.length || 0;
-            const hasLunch = LUNCH_DAYS.has(day);
             return (
               <div
                 key={day}
@@ -203,7 +192,7 @@ function WeeklyTimetableGrid({
                     {DAY_LABEL[day] || day}
                   </div>
                   <div className="text-[12px] text-[#1B432C] font-semibold">
-                    {hasLunch ? '12:00–1:00 Lunch Break' : 'No Lunch Restriction'}
+                    {dayCount === 1 ? '1 class' : `${dayCount} classes`}
                   </div>
                 </div>
                 <span
@@ -243,9 +232,7 @@ function WeeklyTimetableGrid({
                 >
                   <span
                     className={`font-data tabular-nums leading-none tracking-tight ${
-                      tick.isLunchBoundary
-                        ? 'text-[13px] font-black text-amber-950'
-                        : isMajor
+                      isMajor
                         ? 'text-[13px] font-black text-[#05301F]'
                         : 'text-[11.5px] font-semibold text-[#3D634B]'
                     }`}
@@ -259,7 +246,6 @@ function WeeklyTimetableGrid({
 
           {/* Monday - Saturday Proportional Day Columns */}
           {DAY_ORDER.map((day) => {
-            const isMonToFri = LUNCH_DAYS.has(day);
             const dayItems = schedulesByDay[day] || [];
 
             return (
@@ -268,57 +254,32 @@ function WeeklyTimetableGrid({
                 className="relative border-r last:border-r-0 border-[#E1E5E2] bg-white"
               >
                 {/* 30-minute background horizontal guide lines & quick-add click zones */}
-                {GRID_SLOTS.map((slot) => {
-                  const isLunchSlot = isMonToFri && slot.isLunchTime;
-
-                  return (
-                    <div
-                      key={slot.minutes}
-                      onClick={() => {
-                        if (!isLunchSlot && canEditSchedules && onQuickAdd) {
-                          onQuickAdd(day, slot.startStr, slot.endStr);
-                        }
-                      }}
-                      className={`absolute left-0 right-0 border-b ${
-                        slot.isHour ? 'border-[#D5DFD9]' : 'border-[#EEF3EF]'
-                      } ${
-                        !isLunchSlot && canEditSchedules && onQuickAdd
-                          ? 'hover:bg-[#E3EED4]/35 cursor-pointer transition-colors'
-                          : ''
-                      }`}
-                      style={{
-                        top: `${slot.topPx}px`,
-                        height: `${30 * PX_PER_MINUTE}px`,
-                      }}
-                      title={
-                        !isLunchSlot && canEditSchedules && onQuickAdd
-                          ? `Click to add class on ${DAY_LABEL[day]} at ${slot.label}`
-                          : undefined
-                      }
-                    />
-                  );
-                })}
-
-                {/* Mandatory 1-Hour Lunch Break Block (Monday-Friday ONLY, 12:00 PM - 01:00 PM) */}
-                {isMonToFri && (
+                {GRID_SLOTS.map((slot) => (
                   <div
-                    className="absolute left-1.5 right-1.5 z-10 rounded-xl border border-amber-300/80 bg-amber-50/90 px-3 py-1 flex flex-col items-center justify-center text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] pointer-events-none"
-                    style={{
-                      top: `${lunchTopPx + 3}px`,
-                      height: `${lunchHeightPx - 6}px`,
-                      backgroundImage:
-                        'repeating-linear-gradient(135deg, rgba(217, 119, 6, 0.05) 0px, rgba(217, 119, 6, 0.05) 6px, transparent 6px, transparent 12px)',
+                    key={slot.minutes}
+                    onClick={() => {
+                      if (canEditSchedules && onQuickAdd) {
+                        onQuickAdd(day, slot.startStr, slot.endStr);
+                      }
                     }}
-                  >
-                    <div className="flex items-center gap-2 text-[13px] font-black uppercase tracking-wider text-amber-950">
-                      <Utensils className="w-4 h-4 text-amber-700 shrink-0" />
-                      <span>LUNCH BREAK</span>
-                    </div>
-                    <div className="font-data text-[12.5px] font-black text-amber-900 tabular-nums">
-                      12:00 PM – 01:00 PM
-                    </div>
-                  </div>
-                )}
+                    className={`absolute left-0 right-0 border-b ${
+                      slot.isHour ? 'border-[#D5DFD9]' : 'border-[#EEF3EF]'
+                    } ${
+                      canEditSchedules && onQuickAdd
+                        ? 'hover:bg-[#E3EED4]/35 cursor-pointer transition-colors'
+                        : ''
+                    }`}
+                    style={{
+                      top: `${slot.topPx}px`,
+                      height: `${30 * PX_PER_MINUTE}px`,
+                    }}
+                    title={
+                      canEditSchedules && onQuickAdd
+                        ? `Click to add class on ${DAY_LABEL[day]} at ${slot.label}`
+                        : undefined
+                    }
+                  />
+                ))}
 
                 {/* Plotted Class Blocks (Proportional to Exact Start & End Minutes) */}
                 {dayItems.map(({ sched, startMin, endMin, clampedStart, clampedEnd, laneIndex, laneCount }) => {

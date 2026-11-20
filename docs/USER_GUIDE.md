@@ -183,7 +183,7 @@ You can assign subjects from either screen:
 - **Option B — From Assigned Subjects (`/dashboard/assigned-subjects`):**
   1. Click **Assigned Subjects** in the left navigation rail to see the complete active-term subject list and assignment summary (`Total`, `Assigned`, `Unassigned`).
   2. Filter by **Status** (`All`, `Assigned`, `Unassigned`), **Program**, **Year Level**, or **Professor**.
-  3. Click **Assign** (or **Change** on an already-assigned subject), pick a professor from your roster, and confirm.
+  3. Click **Assign** (or **Change** on an already-assigned subject), pick a professor from your roster, and confirm. (The table protects against accidental subject offering deletions by focusing actions on assigning and reassigning).
   4. If assigning or overriding a **General Education (GenEd)** subject, confirm the prompt in the confirmation dialog.
 
 ### 3B.5 Generate the Timetable, Resolve Conflicts & Export (`/dashboard/schedules`)
@@ -191,12 +191,14 @@ You can assign subjects from either screen:
 2. **Generate Timetable with AI:**
    - Click **Generate Schedule**.
    - Verify the active academic term at the top of the modal. (If unassigned major subjects remain, a notice appears with a **Review Assigned Subjects** shortcut.)
-   - Select the professors to include (defaults to all professors) and click **Generate Schedule**.
+   - Select the professors to include (defaults to all professors) and click **Generate Schedule**. Midday slots (e.g. 11:30 AM – 01:30 PM) are naturally utilized without a rigid lunch break lock.
    - Review the post-generation summary (**Generated**, **Unplaced**, **Skipped GenEd**, and any **Teaching load warnings**).
 3. **Inspect the Timetable:**
    - Toggle between the **Grid View** (Weekly Matrix across Periods 1–8, `07:30 AM – 07:30 PM`, `Mon–Sat`) and the **By-Professor Board**.
    - Filter by **Professor** or **Section** using the top filter controls.
+   - Click any 30-minute interval on the timetable grid to quick-add a class at that exact day and time.
    - Hover any class block on the grid to open the **Schedule Hover Popover** showing full subject details, section, duration, professor, and a quick **Delete Schedule** button.
+   - When a term is marked as **Published**, the grid displays a `Published (Locked)` status badge and disables destructive actions (`Generate`, `Create`, `Clear All`, quick-add, and delete) to prevent accidental changes to official schedules.
 4. **Add or Remove a Class Manually:**
    - Click **Create** to manually place a class: choose **Subject**, **Professor**, **Section**, **Day** (plus optional paired day), **Start Time**, and **End Time**. Live conflict checks and **AI Slot Suggestions** appear inside the modal before saving.
    - If you delete a class or click **Clear All**, an **Undo / Restore** banner appears in the bottom-right corner so you can immediately restore the previous state.

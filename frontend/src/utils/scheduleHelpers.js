@@ -229,11 +229,11 @@ export const ACADEMIC_PERIODS = [
   { id: 'p1', num: '1', title: 'Period 1', time: '07:30 – 09:00', thresholdStart: 0, thresholdEnd: 540 },
   { id: 'p2', num: '2', title: 'Period 2', time: '09:00 – 10:30', thresholdStart: 540, thresholdEnd: 630 },
   { id: 'p3', num: '3', title: 'Period 3', time: '10:30 – 12:00', thresholdStart: 630, thresholdEnd: 720 },
-  { id: 'p4', num: '—', title: 'Lunch Break', time: '12:00 – 01:00', thresholdStart: 720, thresholdEnd: 780, isMidday: true },
-  { id: 'p5', num: '4', title: 'Period 4', time: '01:00 – 02:30', thresholdStart: 780, thresholdEnd: 870 },
-  { id: 'p6', num: '5', title: 'Period 5', time: '02:30 – 04:00', thresholdStart: 870, thresholdEnd: 960 },
-  { id: 'p7', num: '6', title: 'Period 6', time: '04:00 – 05:30', thresholdStart: 960, thresholdEnd: 1050 },
-  { id: 'p8', num: '7', title: 'Period 7', time: '05:30 – 07:30', thresholdStart: 1050, thresholdEnd: 1440 },
+  { id: 'p4', num: '4', title: 'Period 4', time: '12:00 – 01:00', thresholdStart: 720, thresholdEnd: 780 },
+  { id: 'p5', num: '5', title: 'Period 5', time: '01:00 – 02:30', thresholdStart: 780, thresholdEnd: 870 },
+  { id: 'p6', num: '6', title: 'Period 6', time: '02:30 – 04:00', thresholdStart: 870, thresholdEnd: 960 },
+  { id: 'p7', num: '7', title: 'Period 7', time: '04:00 – 05:30', thresholdStart: 960, thresholdEnd: 1050 },
+  { id: 'p8', num: '8', title: 'Period 8', time: '05:30 – 07:30', thresholdStart: 1050, thresholdEnd: 1440 },
 ];
 
 /** "13:30" -> "1:30 PM". */
@@ -254,13 +254,7 @@ export const durationMinutes = (s) => {
   if (!s) return 0;
   const sMin = minutesOf(s.start_time || s.startTime);
   const eMin = minutesOf(s.end_time || s.endTime);
-  let raw = Math.max(0, eMin - sMin);
-  const d = String(s.day_of_week || s.dayOfWeek || '').slice(0, 3);
-  if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(d)) {
-    const overlap = Math.max(0, Math.min(eMin, 780) - Math.max(sMin, 720));
-    raw = Math.max(0, raw - overlap);
-  }
-  return raw;
+  return Math.max(0, eMin - sMin);
 };
 
 export const durationHours = (s) => durationMinutes(s) / 60;

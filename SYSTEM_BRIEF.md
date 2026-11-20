@@ -23,8 +23,7 @@ The core loop:
    (Full-Time Regular, Full-Time Probationary, Part-Time) and teaching-hour caps,
    and assigns subject offerings based on exact weekly teaching hours.
 3. Overloads are permitted and flagged for **College Dean review and approval**.
-4. The scheduler **generates** a weekly timetable for that college, strictly
-   reserving the mandatory 1-hour lunch break (12:00 PM – 01:00 PM, Mon–Fri).
+4. The scheduler **generates** a weekly timetable for that college with flexible placement across midday.
 5. Conflicts are **resolved one at a time**, each as a deliberate decision.
 6. Schedules are reviewed and verified on the Monday–Saturday weekly timetable
    grid before publication.
@@ -111,7 +110,7 @@ across a six-day week (Mon–Sat, 07:30–19:30).
 
 Constraints honoured during placement:
 
-- **Mandatory 1-Hour Lunch Break**: Exactly 12:00 PM – 01:00 PM, Monday through Friday, is strictly reserved with zero classes allowed to overlap; Saturdays are exempt.
+- **Flexible Midday Placement**: Classes can freely be scheduled across midday as required by academic curricula (e.g., 11:30 AM – 01:30 PM labs, 10:50 AM – 12:10 PM courses).
 - **Faculty Teaching-Hour Limits**:
   - Full-Time Probationary: 24 hrs across all terms (1st, 2nd, 3rd)
   - Full-Time Regular: 24 hrs (1st Term), 20 hrs (2nd & 3rd Terms)

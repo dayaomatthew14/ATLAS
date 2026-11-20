@@ -96,21 +96,18 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
         self.assertEqual(allowed_teaching_hours("3rd", "part_time"), 20.0)
 
     def test_mandatory_lunch_break_rules(self):
-        # 12:00 PM to 01:00 PM Monday through Friday
-        for day in ["Mon", "Tue", "Wed", "Thu", "Fri"]:
-            # Overlap during lunch break
-            self.assertTrue(is_lunch_break_conflict(day, time(11, 30), time(12, 30)))
-            self.assertTrue(is_lunch_break_conflict(day, time(12, 0), time(13, 0)))
-            self.assertTrue(is_lunch_break_conflict(day, time(12, 30), time(13, 30)))
-            self.assertTrue(is_lunch_break_conflict(day, time(11, 0), time(14, 0)))
+        # Lunch break is flexible and not a fixed hard lock at 12:00 PM - 01:00 PM
+        from backend.app.services.faculty_load import meeting_teaching_minutes
 
-            # Cleanly before or after lunch break
-            self.assertFalse(is_lunch_break_conflict(day, time(10, 0), time(12, 0)))
-            self.assertFalse(is_lunch_break_conflict(day, time(13, 0), time(15, 0)))
+        for day in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
+            # Classes spanning midday or 12:00 PM - 01:00 PM do NOT raise lunch break conflicts
+            self.assertFalse(is_lunch_break_conflict(day, time(11, 30), time(12, 30)))
+            self.assertFalse(is_lunch_break_conflict(day, time(12, 0), time(13, 0)))
+            self.assertFalse(is_lunch_break_conflict(day, time(12, 30), time(13, 30)))
+            self.assertFalse(is_lunch_break_conflict(day, time(11, 30), time(13, 30)))
 
-        # Saturday is exempt
-        self.assertFalse(is_lunch_break_conflict("Sat", time(12, 0), time(13, 0)))
-        self.assertFalse(is_lunch_break_conflict("Sat", time(11, 30), time(13, 30)))
+            # Meeting teaching minutes calculates full duration (e.g. 11:30 to 13:30 is 120 mins)
+            self.assertEqual(meeting_teaching_minutes(time(11, 30), time(13, 30), day), 120)
 
     def test_faculty_schemas_always_use_hours(self):
         from backend.app.schemas import FacultyCreate
@@ -310,8 +307,8 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
         self.assertGreater(len(placed_scheds), 0)
         for s in placed_scheds:
             if s.day_of_week in ("Mon", "Wed"):
-                # Must be after 12:00 PM (and after 13:00 PM lunch)
-                self.assertGreaterEqual(s.start_time, time(13, 0))
+                # Must be after 12:00 PM (the unavailable morning period ended at 12:00)
+                self.assertGreaterEqual(s.start_time, time(12, 0))
 
     def test_converted_tutorial_hours_matrix(self):
         """Verify all 6 subject types across Regular (13+), 9-12, 5-8, and 1-4 students."""

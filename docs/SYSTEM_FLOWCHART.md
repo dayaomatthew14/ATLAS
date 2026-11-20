@@ -2,7 +2,7 @@
 
 The main path through the system, in the order it happens.
 
-This describes what ATLAS does today. Timetables are generated adhering to subject teaching hours, term workload limits, mandatory lunch breaks, and room allocations. Room assignment is shown as ending at the Registrar because ATLAS produces a conflict-free professor timetable and the Registrar assigns or confirms general lecture rooms from the submitted file.
+This describes what ATLAS does today. Timetables are generated adhering to subject teaching hours, term workload limits, flexible midday scheduling, and room allocations. Room assignment is shown as ending at the Registrar because ATLAS produces a conflict-free professor timetable and the Registrar assigns or confirms general lecture rooms from the submitted file.
 
 ```mermaid
 flowchart TD
@@ -26,7 +26,7 @@ flowchart TD
 
     Ready{"Active term, faculty<br/>and subjects all set?"}
     Ready -- No --> Faculty
-    Ready -- Yes --> Generate["Generate the timetable<br/>respecting mandatory 1hr lunch break<br/>(Mon-Fri 12-1pm) &amp; teaching hours"]
+    Ready -- Yes --> Generate["Generate the timetable<br/>respecting cohort separation,<br/>teaching hours &amp; midday slots"]
 
     Generate --> Conflicts{"Any conflicts?"}
     Conflicts -- Yes --> Resolve["Resolve one at a time<br/>in the conflict view"]
@@ -54,6 +54,6 @@ flowchart TD
 - **A verification code** is required before an account can log in.
 - **Nothing can be generated** until an administrator has set an active academic term — this is why the administrator branch feeds the chair's work.
 - **Teaching load is measured in actual weekly hours** rather than academic units. Overloads are permitted but flagged for Dean approval.
-- **Mandatory Lunch Break** is reserved strictly from 12:00 PM to 01:00 PM, Monday through Friday (Saturdays exempt).
+- **Flexible Midday Scheduling**: Classes can be placed across midday (e.g. 11:30 AM – 01:30 PM lab) as required by degree curricula without a fixed lunch break lock.
 - **Conflicts are resolved one at a time**, deliberately; there is no bulk auto-solve.
 - **Rooms are best-effort.** A laboratory is given a free laboratory room where one exists, and left blank (`TBA`) where none is.

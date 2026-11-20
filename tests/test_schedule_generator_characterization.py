@@ -201,9 +201,9 @@ class ScheduleGeneratorCharacterizationTest(unittest.TestCase):
         ]
 
         expected_footprint = [
-            # CS101 (Faculty 1, Lecture 3u = 4hrs/wk): MW 13:00-15:00
-            (1, 1, None, "Mon", "13:00", "15:00"),
-            (1, 1, None, "Wed", "13:00", "15:00"),
+            # CS101 (Faculty 1, Lecture 3u = 4hrs/wk): MW 11:00-13:00 (midday slot open without fixed lunch lock)
+            (1, 1, None, "Mon", "11:00", "13:00"),
+            (1, 1, None, "Wed", "11:00", "13:00"),
 
             # CS102L (Faculty 1, Lab): TTh 07:30-09:30 (room unassigned / None)
             (2, 1, None, "Thu", "07:30", "09:30"),
@@ -213,9 +213,9 @@ class ScheduleGeneratorCharacterizationTest(unittest.TestCase):
             (3, 2, None, "Mon", "07:30", "09:30"),
             (3, 2, None, "Wed", "07:30", "09:30"),
 
-            # CPE101 (Faculty 1, Engineering Lecture 3u = 4hrs/wk): MW 15:00-17:00
-            (4, 1, None, "Mon", "15:00", "17:00"),
-            (4, 1, None, "Wed", "15:00", "17:00"),
+            # CPE101 (Faculty 1, Engineering Lecture 3u = 4hrs/wk): MW 13:00-15:00
+            (4, 1, None, "Mon", "13:00", "15:00"),
+            (4, 1, None, "Wed", "13:00", "15:00"),
         ]
 
         self.assertEqual(footprint, expected_footprint)

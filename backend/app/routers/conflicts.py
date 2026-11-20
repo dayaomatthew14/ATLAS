@@ -93,13 +93,7 @@ def validate_schedule_conflict(
 
     conflicts = []
 
-    if is_lunch_break_conflict(validation_data.day_of_week, validation_data.start_time, validation_data.end_time):
-        conflicts.append(schemas.ConflictDetail(
-            type="lunch_break",
-            existing_schedule=None,
-            message=f"Mandatory Lunch Break: Classes cannot overlap 12:00 PM – 01:00 PM on {validation_data.day_of_week}."
-        ))
-    
+
     # 1. Base query for overlaps in the same semester and day
     base_query = db.query(models.Schedule).filter(
         models.Schedule.semester_id == validation_data.semester_id,

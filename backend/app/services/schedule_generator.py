@@ -5,14 +5,14 @@ from sqlalchemy.orm import Session
 from .. import models
 from . import faculty_load
 
-# Mandatory 1-hour daily lunch break on Monday through Friday (12:00 PM - 01:00 PM).
-# Saturday ('Sat') does NOT have a mandatory lunch break restriction.
+# Lunch break is flexible and not a fixed hard block at 12:00 PM - 01:00 PM.
+# Classes can be scheduled across midday as needed.
 LUNCH_BREAK_START = time(12, 0)
 LUNCH_BREAK_END = time(13, 0)
 LUNCH_BREAK_DAYS = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri'}
 
 # ---------------------------------------------------------------------------
-# Slot Grids (all slots respect the Mon-Fri 12:00 PM - 01:00 PM lunch break)
+# Slot Grids (supporting flexible scheduling across all periods)
 # ---------------------------------------------------------------------------
 
 # 80-minute lecture slots:
@@ -23,6 +23,9 @@ STANDARD_LECTURE_SLOTS = [
     (time(8, 50), time(10, 10)),
     (time(10, 10), time(11, 30)),
     (time(10, 40), time(12, 0)),
+    (time(10, 50), time(12, 10)),
+    (time(11, 30), time(12, 50)),
+    (time(12, 0), time(13, 20)),
     (time(13, 0), time(14, 20)),
     (time(14, 20), time(15, 40)),
     (time(15, 40), time(17, 0)),
@@ -38,6 +41,9 @@ TWO_HOUR_LECTURE_SLOTS = [
     (time(8, 0), time(10, 0)),
     (time(9, 30), time(11, 30)),
     (time(10, 0), time(12, 0)),
+    (time(11, 0), time(13, 0)),
+    (time(11, 30), time(13, 30)),
+    (time(12, 0), time(14, 0)),
     (time(13, 0), time(15, 0)),
     (time(13, 30), time(15, 30)),
     (time(15, 0), time(17, 0)),
@@ -52,12 +58,14 @@ LECTURE_SLOTS = STANDARD_LECTURE_SLOTS
 
 # 120-minute (2-hour) laboratory slots:
 # - Used on a 2-day pair (TTh, MW, FS) for 1-unit Laboratory (B) subjects -> 2 x 120m = 240m (4h/week).
-# Note: (11:30, 13:30) was removed so no lab overlaps the 12:00-13:00 Mon-Fri lunch break.
 LAB_SLOTS = [
     (time(7, 30), time(9, 30)),
     (time(8, 50), time(10, 50)),
     (time(9, 30), time(11, 30)),
     (time(10, 0), time(12, 0)),
+    (time(11, 0), time(13, 0)),
+    (time(11, 30), time(13, 30)),
+    (time(12, 0), time(14, 0)),
     (time(13, 0), time(15, 0)),
     (time(13, 30), time(15, 30)),
     (time(14, 20), time(16, 20)),
@@ -73,19 +81,25 @@ LAB_SLOTS = [
 FOUR_HOUR_SINGLE_SLOTS = [
     (time(8, 0), time(12, 0)),
     (time(7, 30), time(11, 30)),
+    (time(10, 0), time(14, 0)),
+    (time(11, 0), time(15, 0)),
+    (time(12, 0), time(16, 0)),
     (time(13, 0), time(17, 0)),
     (time(13, 30), time(17, 30)),
     (time(15, 0), time(19, 0)),
     (time(15, 30), time(19, 30)),
 ]
 
-# Converted Tutorial (CT) lunch-safe slot grids (1h, 1.5h, 3h)
+# Converted Tutorial (CT) slot grids (1h, 1.5h, 3h)
 SIXTY_MIN_SLOTS = [
     (time(7, 30), time(8, 30)),
     (time(8, 30), time(9, 30)),
     (time(9, 30), time(10, 30)),
     (time(10, 30), time(11, 30)),
     (time(11, 0), time(12, 0)),
+    (time(11, 30), time(12, 30)),
+    (time(12, 0), time(13, 0)),
+    (time(12, 30), time(13, 30)),
     (time(13, 0), time(14, 0)),
     (time(14, 0), time(15, 0)),
     (time(15, 0), time(16, 0)),
@@ -98,6 +112,8 @@ NINETY_MIN_SLOTS = [
     (time(7, 30), time(9, 0)),
     (time(9, 0), time(10, 30)),
     (time(10, 30), time(12, 0)),
+    (time(11, 30), time(13, 0)),
+    (time(12, 0), time(13, 30)),
     (time(13, 0), time(14, 30)),
     (time(14, 30), time(16, 0)),
     (time(16, 0), time(17, 30)),
@@ -107,6 +123,9 @@ NINETY_MIN_SLOTS = [
 THREE_HOUR_SLOTS = [
     (time(7, 30), time(10, 30)),
     (time(9, 0), time(12, 0)),
+    (time(10, 30), time(13, 30)),
+    (time(11, 0), time(14, 0)),
+    (time(12, 0), time(15, 0)),
     (time(13, 0), time(16, 0)),
     (time(14, 30), time(17, 30)),
     (time(16, 0), time(19, 0)),
@@ -194,16 +213,14 @@ def check_overlap(s1_start: time, s1_end: time, s2_start: time, s2_end: time) ->
 
 def is_lunch_break_conflict(day: Optional[str], start_t: time, end_t: time) -> bool:
     """
-    Check if a proposed class on `day` overlaps the mandatory Monday-Friday
-    12:00 PM - 01:00 PM lunch break. Saturday ('Sat') is exempt.
+    Lunch break is flexible and not a fixed hard block at 12:00 PM - 01:00 PM.
+    Classes can freely be scheduled across midday as needed.
     """
-    if not day or day not in LUNCH_BREAK_DAYS:
-        return False
-    return check_overlap(start_t, end_t, LUNCH_BREAK_START, LUNCH_BREAK_END)
+    return False
 
 
 def is_lunch_break_conflict_pair(day1: str, day2: str, start_t: time, end_t: time) -> bool:
-    return is_lunch_break_conflict(day1, start_t, end_t) or is_lunch_break_conflict(day2, start_t, end_t)
+    return False
 
 
 def is_room_conflict(room_id, day1, day2, start_t, end_t, all_scheds):

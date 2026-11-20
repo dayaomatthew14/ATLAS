@@ -361,11 +361,7 @@ def build_schedule_pdf(
             ('LEFTPADDING', (0, 0), (-1, -1), 4),
             ('RIGHTPADDING', (0, 0), (-1, -1), 4),
         ]))
-        note = Paragraph(
-            "<i>Note: Monday–Friday 12:00 PM – 01:00 PM is reserved as a mandatory 1-hour Lunch Break across all programs.</i>",
-            pdf_styles["sub"],
-        )
-        elements.extend([table, Spacer(1, 6), note, _build_pdf_signature_block(pdf_styles["meta"])])
+        elements.extend([table, Spacer(1, 6), _build_pdf_signature_block(pdf_styles["meta"])])
 
     doc.build(elements, canvasmaker=NumberedCanvas)
     buffer.seek(0)
@@ -702,7 +698,8 @@ def build_schedule_excel(
         (630, 660, "10:30 AM - 11:00 AM"),
         (660, 690, "11:00 AM - 11:30 AM"),
         (690, 720, "11:30 AM - 12:00 PM"),
-        (720, 780, "12:00 PM - 01:00 PM"),  # 1-hour Lunch Break (Mon-Fri)
+        (720, 750, "12:00 PM - 12:30 PM"),
+        (750, 780, "12:30 PM - 01:00 PM"),
         (780, 810, "01:00 PM - 01:30 PM"),
         (810, 840, "01:30 PM - 02:00 PM"),
         (840, 870, "02:00 PM - 02:30 PM"),
@@ -722,7 +719,7 @@ def build_schedule_excel(
     class_fill = PatternFill(start_color='E6F4EA', end_color='E6F4EA', fill_type='solid')
 
     for b_idx, (b_start, b_end, label) in enumerate(time_bands, start=2):
-        grid_ws.row_dimensions[b_idx].height = 34 if (b_start == 720 and b_end == 780) else 24
+        grid_ws.row_dimensions[b_idx].height = 24
         t_cell = grid_ws.cell(row=b_idx, column=1, value=label)
         t_cell.font = Font(name='Segoe UI', size=8.5, bold=True, color='334155')
         t_cell.alignment = Alignment(horizontal='center', vertical='center')
@@ -731,12 +728,6 @@ def build_schedule_excel(
         for d_idx, day_code in enumerate(grid_days, start=2):
             c = grid_ws.cell(row=b_idx, column=d_idx)
             c.border = cell_border
-            if b_start == 720 and b_end == 780 and day_code in LUNCH_BREAK_DAYS:
-                c.value = "LUNCH BREAK (12:00 PM - 01:00 PM)"
-                c.fill = lunch_fill
-                c.font = lunch_font
-                c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                continue
 
             matching = []
             for r in rows:
@@ -854,11 +845,6 @@ def import_schedules_from_excel(
             end_t = _parse_time_val(end_val)
             if end_t <= start_t:
                 errors.append(f"Row {index}: End time must be after start time for {curr_code}.")
-                continue
-            if is_lunch_break_conflict(day_val, start_t, end_t):
-                errors.append(
-                    f"Row {index}: {curr_code} on {day_val} ({start_t.strftime('%H:%M')}-{end_t.strftime('%H:%M')}) overlaps the mandatory Monday–Friday Lunch Break (12:00 PM – 01:00 PM)."
-                )
                 continue
             
             new_sched = models.Schedule(

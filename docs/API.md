@@ -163,8 +163,9 @@ the load basis.
 | `exceeds_part_time_ceiling` | bool | Part-Time member at or above 20 hrs/week |
 | `work_week` | object \| null | Full-Time 40-hour week for the term: `teaching_hours`, `off_campus_hours`, `consultation_hours`, `office_hours`, `total_hours`. `null` for Part-Time |
 
-The 40 hours are the total duty week, not 40 teaching hours — 1st term is
-24 / 2.5 / 6 / 7.5, and the 2nd and 3rd are 20 / 5.5 / 6 / 8.5.
+The 40 hours are the total duty week, not 40 teaching hours: Full-Time Regular is
+24 / 2.5 / 6 / 7.5 in the 1st term and 20 / 5.5 / 6 / 8.5 in the 2nd and 3rd terms.
+Full-Time Probationary maintains 24 teaching hours and 24 / 2.5 / 6 / 7.5 across all three terms.
 
 `NOT_PLOTTED` exists because a faculty member with subjects assigned and no
 generated timetable reads 0.00 hrs, exactly like a genuine underload. Counting
@@ -345,7 +346,7 @@ Assigns a professor to a curriculum subject for a semester.
 - **Behavior**:
   - Supports both Major and General Education subjects.
   - Automatically overrides and reassigns if the subject already has an active offering in the target semester.
-- **Body**: `{ "faculty_id": int, "curriculum_id": int, "semester_id": int }`
+- **Body**: `{ "faculty_id": int, "curriculum_id": int, "semester_id": int, "enrolled_students"?: int, "credited_hours_override"?: float }`
 
 #### `DELETE /api/subject-offerings/{id}`
 Removes a subject assignment offering.
