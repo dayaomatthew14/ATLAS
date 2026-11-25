@@ -822,6 +822,8 @@ class FacultyResponse(FacultyBase):
     work_week: Optional[FacultyWorkWeek] = None
     current_units: Optional[int] = 0
     remaining_units: Optional[int] = 18
+    unavailability_hours: Optional[float] = 0.0
+    unavailability_warning: Optional[bool] = False
     unavailability: Optional[List["FacultyUnavailabilityResponse"]] = []
     model_config = ConfigDict(from_attributes=True)
 
@@ -874,6 +876,11 @@ class ScheduleBase(BaseModel):
     section: Optional[str] = ""
     status: str = 'draft'
     is_locked: bool = False
+    room_approval_status: Optional[str] = 'approved'
+    room_requested_by: Optional[int] = None
+    room_approved_by: Optional[int] = None
+    room_approved_at: Optional[datetime] = None
+    room_rejection_reason: Optional[str] = None
 
 class ScheduleCreate(ScheduleBase):
     @field_validator("day_of_week")
@@ -906,6 +913,11 @@ class ScheduleUpdate(BaseModel):
     section: Optional[str] = None
     status: Optional[str] = None
     is_locked: Optional[bool] = None
+    room_approval_status: Optional[str] = None
+    room_requested_by: Optional[int] = None
+    room_approved_by: Optional[int] = None
+    room_approved_at: Optional[datetime] = None
+    room_rejection_reason: Optional[str] = None
 
     @field_validator("day_of_week")
     @classmethod
@@ -1162,11 +1174,25 @@ class SubjectOfferingCTUpdate(BaseModel):
             return None
         return validate_int_bounds(v, "Enrolled students", 1, 200)
 
+class SubjectOfferingRoomAssign(BaseModel):
+    curriculum_id: int
+    semester_id: int
+    room_id: Optional[int] = None
+
+class SubjectOfferingRoomRejection(BaseModel):
+    reason: Optional[str] = "Room request declined by CS/COE Program Chair."
+
 class SubjectOfferingResponse(BaseModel):
     id: int
-    faculty_id: int
+    faculty_id: Optional[int] = None
     curriculum_id: int
     semester_id: int
     enrolled_students: Optional[int] = None
     credited_hours_override: Optional[float] = None
+    room_id: Optional[int] = None
+    room_name: Optional[str] = None
+    room_approval_status: Optional[str] = 'approved'
+    room_rejection_reason: Optional[str] = None
+    room_requested_by: Optional[int] = None
+    room_approved_by: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)

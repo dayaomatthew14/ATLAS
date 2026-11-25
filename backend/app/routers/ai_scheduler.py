@@ -4,8 +4,10 @@ from typing import List, Optional, cast
 from datetime import datetime, timezone
 from pydantic import BaseModel
 import logging
+import re
 from .. import models, database, auth
 from ..services.schedule_generator import generate_schedules
+from ..services import faculty_load
 from .logs import log_activity
 
 logger = logging.getLogger(__name__)
@@ -151,8 +153,11 @@ def get_conflicts(
 
     target_sem_id = semester_id
     if target_sem_id is None:
-        active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
-        target_sem_id = active_sem.id if active_sem else None
+        try:
+            active_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+            target_sem_id = active_sem.id if active_sem else None
+        except Exception:
+            target_sem_id = None
 
     # Scope to the caller's department whenever the user belongs to a college
     # (including seeded College Deans whose role is 'admin' + department set).
@@ -527,9 +532,129 @@ def solve_conflict(
 
         is_overload = conflict.conflict_type == 'overload' or (conflict.reason and 'overload' in conflict.reason.lower())
         action_title = "Overload Overridden" if is_overload else "Load Exception Overridden"
-        reason_desc = conflict.reason or "Overload condition reviewed"
-        log_msg = f"Program Chair overrode {('overload' if is_overload else 'part-time ceiling exception')} for {fac_name} on {subj_code}: {reason_desc}"
-        
+
+        # Determine term and faculty employment type for cascade calculation
+        target_sem = None
+        if req.semester_id:
+            target_sem = db.query(models.Semester).filter(models.Semester.id == req.semester_id).first()
+        if not target_sem and conflict and conflict.schedule_id_1:
+            s_ref = db.query(models.Schedule).filter(models.Schedule.id == conflict.schedule_id_1).first()
+            if s_ref:
+                target_sem = db.query(models.Semester).filter(models.Semester.id == s_ref.semester_id).first()
+        if not target_sem:
+            target_sem = db.query(models.Semester).filter(models.Semester.is_active == True).first()
+
+        term_val = getattr(target_sem, "term", "2nd")
+        term_key = faculty_load.normalise_term(term_val) or "2nd"
+        raw_emp = getattr(f_obj, "type", None) if f_obj else None
+        norm_type = faculty_load.normalise_employment_type(raw_emp)
+        is_ft = faculty_load.is_full_time(norm_type)
+
+        # Extract or calculate overload hours
+        parsed_overload = 0.0
+        reason_text = conflict.reason or ""
+        m = re.search(r'(?:by|\+)\s*(\d+(?:\.\d+)?)\s*hrs?(?:\s*overload)?', reason_text, re.IGNORECASE)
+        if not m:
+            m = re.search(r'(\d+(?:\.\d+)?)\s*hrs?\s*overload', reason_text, re.IGNORECASE)
+        if m:
+            try:
+                parsed_overload = float(m.group(1))
+            except (ValueError, TypeError):
+                parsed_overload = 0.0
+
+        sem_id_for_load = target_sem.id if target_sem else None
+        scheds = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == sem_id_for_load,
+            models.Schedule.faculty_id == faculty_id
+        ).all() if (sem_id_for_load and faculty_id) else []
+
+        plotted_teaching = sum(
+            faculty_load.round_hours(
+                ((s.end_time.hour * 60 + s.end_time.minute) - (s.start_time.hour * 60 + s.start_time.minute)) / 60.0
+            ) for s in scheds if s.start_time and s.end_time
+        )
+        req_hours = faculty_load.required_teaching_hours(term_key, norm_type)
+        calc_overload = 0.0
+        if req_hours is not None and plotted_teaching > req_hours:
+            calc_overload = faculty_load.round_hours(plotted_teaching - req_hours)
+
+        overload_hours = calc_overload if calc_overload > 0.0 else (parsed_overload if parsed_overload > 0.0 else 0.0)
+        if overload_hours == 0.0 and c_obj:
+            overload_hours = faculty_load.round_hours(faculty_load.subject_required_minutes(c_obj) / 60.0)
+
+        cascade_info = faculty_load.calculate_consultation_workload(
+            term=term_key,
+            employment_type=norm_type,
+            actual_overload=overload_hours
+        )
+        work_week = faculty_load.work_week_breakdown(
+            term=term_key,
+            employment_type=norm_type,
+            actual_overload=overload_hours
+        )
+        off_campus = work_week["off_campus_hours"] if work_week else (2.5 if term_key == "1st" or norm_type == "full_time_probationary" else 5.5)
+
+        if is_ft:
+            office_ded = cascade_info["deducted_from_office"]
+            rem_office = cascade_info["remaining_office"]
+            alloc_office = cascade_info["allocated_office"]
+            off_ded = cascade_info["deducted_from_off_campus"]
+            rem_off = cascade_info["remaining_off_campus"]
+            alloc_off = cascade_info["allocated_off_campus"]
+            rem_consult = cascade_info["adjusted_consultation"]
+
+            cascade_desc = (
+                f"Overload of {overload_hours:.1f}h applied under DLSAU cascade rules: "
+                f"{office_ded:.1f}h deducted from office hours ({rem_office:.1f}h of {alloc_office:.1f}h remaining). "
+            )
+            if off_ded > 0:
+                cascade_desc += f"{off_ded:.1f}h deducted from off-campus hours ({rem_off:.1f}h of {alloc_off:.1f}h remaining). "
+            else:
+                cascade_desc += f"Off-campus hours remain at {rem_off:.1f}h. "
+            cascade_desc += f"Consultation hours are fixed at {rem_consult:.1f}h."
+            if cascade_info.get("policy_review_flag"):
+                cascade_desc += f" Policy Note: {cascade_info.get('flag_reason')}"
+
+            cascade_dict = {
+                "term": term_key,
+                "is_full_time": True,
+                "overload_hours": overload_hours,
+                "allocated_office": alloc_office,
+                "remaining_office": rem_office,
+                "deducted_from_office": office_ded,
+                "allocated_off_campus": alloc_off,
+                "remaining_off_campus": rem_off,
+                "deducted_from_off_campus": off_ded,
+                "standard_consultation": rem_consult,
+                "remaining_consultation": rem_consult,
+                "deducted_from_consultation": 0.0,
+                "off_campus_hours": rem_off,
+                "policy_review_flag": bool(cascade_info.get("policy_review_flag", False)),
+                "flag_reason": cascade_info.get("flag_reason"),
+            }
+        else:
+            ceiling = faculty_load.PART_TIME_CEILING_HOURS
+            cascade_desc = (
+                f"Part-Time teaching load exception approved (+{overload_hours:.1f}h over {ceiling:.1f}h ceiling). "
+                "Part-Time faculty are exempt from 40h office and consultation obligations."
+            )
+            cascade_dict = {
+                "term": term_key,
+                "is_full_time": False,
+                "overload_hours": overload_hours,
+                "part_time_ceiling": ceiling,
+                "allocated_office": 0.0,
+                "remaining_office": 0.0,
+                "deducted_from_office": 0.0,
+                "standard_consultation": 0.0,
+                "remaining_consultation": 0.0,
+                "deducted_from_consultation": 0.0,
+                "off_campus_hours": 0.0,
+                "policy_review_flag": False,
+                "flag_reason": None,
+            }
+
+        log_msg = f"Program Chair approved {('overload' if is_overload else 'part-time ceiling exception')} for {fac_name} on {subj_code}: {cascade_desc}"
         log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
         db.commit()
 
@@ -537,8 +662,11 @@ def solve_conflict(
             "status": "success",
             "action_taken": "overload_approved",
             "title": action_title,
-            "message": f"Overload for {fac_name} on {subj_code} has been overridden and approved.",
-            "details": f"{reason_desc}. Recorded in the Activity Log."
+            "message": f"Overload for {fac_name} on {subj_code} (+{overload_hours:.1f}h) has been overridden and approved.",
+            "details": f"{cascade_desc} Recorded in the Activity Log.",
+            "cascade": cascade_dict,
+            "curriculum": subj_code,
+            "faculty_name": fac_name,
         }
 
     # 3. Subject Assignment / Unplaced Subject
@@ -659,7 +787,63 @@ def solve_conflict(
         for uc in unresolved:
             uc.resolved_at = datetime.now(timezone.utc) # type: ignore
 
-        log_msg = f"Scheduled unplaced subject {c_obj.code} for {fac_name} on {placed_days_str} {placed_times_str}"
+        # Check if placement results in an overload
+        post_sem = db.query(models.Semester).filter(models.Semester.id == sem_id).first()
+        post_term_val = getattr(post_sem, "term", "2nd")
+        post_term_key = faculty_load.normalise_term(post_term_val) or "2nd"
+        post_norm_type = faculty_load.normalise_employment_type(getattr(f_obj, "type", None))
+        post_is_ft = faculty_load.is_full_time(post_norm_type)
+        post_req_hours = faculty_load.required_teaching_hours(post_term_key, post_norm_type)
+
+        post_scheds = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == sem_id,
+            models.Schedule.faculty_id == faculty_id
+        ).all()
+        post_teaching = sum(
+            faculty_load.round_hours(
+                ((s.end_time.hour * 60 + s.end_time.minute) - (s.start_time.hour * 60 + s.start_time.minute)) / 60.0
+            ) for s in post_scheds if s.start_time and s.end_time
+        )
+
+        cascade_data = None
+        cascade_note = ""
+        if post_is_ft and post_req_hours is not None and post_teaching > post_req_hours + 0.005:
+            post_overload = faculty_load.round_hours(post_teaching - post_req_hours)
+            if current_user.role in ('admin', 'dean', 'program_chair'):
+                f_obj.overload_approved = True  # type: ignore
+            c_calc = faculty_load.calculate_consultation_workload(post_term_key, post_norm_type, post_overload)
+            c_week = faculty_load.work_week_breakdown(post_term_key, post_norm_type, post_overload)
+            off_c = c_week["off_campus_hours"] if c_week else (2.5 if post_term_key == "1st" or post_norm_type == "full_time_probationary" else 5.5)
+            c_off_ded = c_calc["deducted_from_off_campus"]
+            cascade_note = (
+                f" Workload cascade (+{post_overload:.1f}h overload): "
+                f"{c_calc['deducted_from_office']:.1f}h deducted from office hours ({c_calc['remaining_office']:.1f}h of {c_calc['allocated_office']:.1f}h remaining). "
+            )
+            if c_off_ded > 0:
+                cascade_note += f"{c_off_ded:.1f}h deducted from off-campus hours ({c_calc['remaining_off_campus']:.1f}h of {c_calc['allocated_off_campus']:.1f}h remaining). "
+            else:
+                cascade_note += f"Off-campus hours remain at {c_calc['remaining_off_campus']:.1f}h. "
+            cascade_note += f"Consultation hours are fixed at {c_calc['adjusted_consultation']:.1f}h."
+
+            cascade_data = {
+                "term": post_term_key,
+                "is_full_time": True,
+                "overload_hours": post_overload,
+                "allocated_office": c_calc["allocated_office"],
+                "remaining_office": c_calc["remaining_office"],
+                "deducted_from_office": c_calc["deducted_from_office"],
+                "allocated_off_campus": c_calc["allocated_off_campus"],
+                "remaining_off_campus": c_calc["remaining_off_campus"],
+                "deducted_from_off_campus": c_off_ded,
+                "standard_consultation": c_calc["standard_consultation"],
+                "remaining_consultation": c_calc["adjusted_consultation"],
+                "deducted_from_consultation": 0.0,
+                "off_campus_hours": c_calc["remaining_off_campus"],
+                "policy_review_flag": bool(c_calc.get("policy_review_flag", False)),
+                "flag_reason": c_calc.get("flag_reason"),
+            }
+
+        log_msg = f"Scheduled unplaced subject {c_obj.code} for {fac_name} on {placed_days_str} {placed_times_str}.{cascade_note}"
         log_activity(db, current_user.id, "Resolve Conflict", log_msg, "success", dept_id)
         db.commit()
 
@@ -668,7 +852,10 @@ def solve_conflict(
             "action_taken": "subject_scheduled",
             "title": "Subject Scheduled",
             "message": f"Successfully resolved conflict and scheduled {c_obj.code} for {fac_name}.",
-            "details": f"Assigned time slot {placed_days_str} {placed_times_str}. Teaching capacity was adjusted and recorded in the Activity Log."
+            "details": f"Assigned time slot {placed_days_str} {placed_times_str}.{cascade_note} Teaching capacity was adjusted and recorded in the Activity Log.",
+            "cascade": cascade_data,
+            "curriculum": c_obj.code,
+            "faculty_name": fac_name,
         }
 
     # 4. Fallback: Any other conflict marked resolved by administrative decision

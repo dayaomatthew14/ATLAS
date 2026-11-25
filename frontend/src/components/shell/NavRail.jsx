@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Calendar, BookOpen, Users, Activity, ShieldCheck,
-  CalendarRange, Library, BookCheck,
+  CalendarRange, Library, BookCheck, Monitor,
 } from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';
 import { ROLES } from '../../utils/session';
@@ -30,7 +30,7 @@ const CHAIR_SECTIONS = [
     label: 'Scheduling',
     items: [
       { to: '/dashboard/schedules', label: 'Schedule', icon: Calendar, badge: 'conflicts' },
-      { to: '/dashboard/assigned-subjects', label: 'Assigned Subjects', icon: BookCheck },
+      { to: '/dashboard/assigned-subjects', label: 'Subjects & Rooms', icon: BookCheck },
       { to: '/dashboard/teachers', label: 'Faculty', icon: Users },
     ],
   },

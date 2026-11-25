@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import Modal from '../Modal';
 
@@ -37,8 +38,17 @@ export function ClearSchedulesDialog({ isOpen, onClose, onConfirm }) {
 
 /**
  * Floating restore banner shown immediately after deleting/clearing schedules.
+ * Automatically auto-dismisses after duration ms (default 5000ms / 5s).
  */
-export function UndoBackupToast({ undoBackup, onRestore, onDismiss }) {
+export function UndoBackupToast({ undoBackup, onRestore, onDismiss, duration = 5000 }) {
+  useEffect(() => {
+    if (!undoBackup) return;
+    const timer = setTimeout(() => {
+      onDismiss?.();
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [undoBackup, onDismiss, duration]);
+
   if (!undoBackup) return null;
 
   return (
@@ -56,7 +66,12 @@ export function UndoBackupToast({ undoBackup, onRestore, onDismiss }) {
           <RotateCcw className="w-3.5 h-3.5" />
           Undo / Restore
         </button>
-        <button type="button" onClick={onDismiss} className="text-slate-400 hover:text-white p-1">
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss undo notification"
+          className="text-slate-400 hover:text-white p-1"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>

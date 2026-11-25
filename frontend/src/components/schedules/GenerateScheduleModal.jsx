@@ -33,7 +33,7 @@ export default function GenerateScheduleModal({
     (selectedGenSemester ? semesters.find((s) => s.id === Number(selectedGenSemester)) : null);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="AI Schedule Generation">
+    <Modal isOpen={isOpen} onClose={onClose} title="AI Schedule Generation" maxWidth="sm:max-w-xl">
       <form noValidate onSubmit={onSubmit} className="space-y-6">
         {!generationResults ? (
           <>
@@ -207,11 +207,11 @@ export default function GenerateScheduleModal({
                 </p>
                 <ul className="rounded-panel border border-sem-conflict/25 divide-y divide-sem-conflict/15 max-h-60 overflow-y-auto">
                   {generationResults.unplaced_items.map((item, idx) => (
-                    <li key={idx} className="flex items-center justify-between gap-3 px-4 py-3 bg-sem-conflict-bg/40">
-                      <span className="flex items-center gap-3 min-w-0">
-                        <span className="font-data text-table text-sem-conflict shrink-0">{item.subject}</span>
-                        <span className="min-w-0">
-                          <span className="block font-ui text-caption text-atlas-slate">{item.reason}</span>
+                    <li key={idx} className="flex items-start justify-between gap-3 px-4 py-3 bg-sem-conflict-bg/40">
+                      <span className="flex items-start gap-3 min-w-0 flex-1">
+                        <span className="font-data text-table text-sem-conflict shrink-0 mt-0.5">{item.subject}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-ui text-caption text-atlas-slate leading-relaxed break-words">{item.reason}</span>
                         </span>
                       </span>
                       <AtlasButton
@@ -219,7 +219,7 @@ export default function GenerateScheduleModal({
                         variant="destructive"
                         icon={Sparkles}
                         onClick={() => onSolveConflict(item)}
-                        className="shrink-0"
+                        className="shrink-0 mt-0.5"
                       >
                         Resolve
                       </AtlasButton>
@@ -234,10 +234,10 @@ export default function GenerateScheduleModal({
                 <p className="font-ui text-micro uppercase text-sem-warning mb-2">
                   Teaching load warnings ({generationResults.workload_warnings.length})
                 </p>
-                <ul className="rounded-panel border border-sem-warning/30 divide-y divide-sem-warning/20 max-h-48 overflow-y-auto">
+                <ul className="rounded-panel border border-sem-warning/30 divide-y divide-sem-warning/20 max-h-56 overflow-y-auto">
                   {generationResults.workload_warnings.map((warn, idx) => (
                     <li key={idx} className="flex items-start justify-between gap-3 px-4 py-3 bg-sem-warning-bg/50">
-                      <span className="min-w-0">
+                      <span className="min-w-0 flex-1">
                         <span className="block font-ui text-body text-atlas-ink">
                           {warn.faculty_name}
                           <span className="font-ui text-caption text-atlas-slate ml-2">
@@ -252,16 +252,50 @@ export default function GenerateScheduleModal({
                           {warn.subject_code} adds {warn.additional_hours} hrs
                           {warn.overload_hours != null ? ` · ${warn.overload_hours} hrs overload` : ''}
                         </span>
+                        {/* Workload Cascade Deduction Detail */}
+                        {warn.cascade ? (
+                          <span className="block font-ui text-[11px] text-[#2D6A4F] mt-1 font-semibold leading-relaxed">
+                            Cascade: -{Number(warn.cascade.deducted_from_office).toFixed(1)}h office ({Number(warn.cascade.remaining_office).toFixed(1)}h left)
+                            {Number(warn.cascade.deducted_from_off_campus) > 0
+                              ? `, -${Number(warn.cascade.deducted_from_off_campus).toFixed(1)}h off-campus (${Number(warn.cascade.remaining_off_campus).toFixed(1)}h left)`
+                              : ` · Off-campus: ${Number(warn.cascade.remaining_off_campus ?? warn.cascade.off_campus_hours).toFixed(1)}h`}
+                            {` · Consultation: ${Number(warn.cascade.remaining_consultation ?? 6.0).toFixed(1)}h (fixed)`}
+                          </span>
+                        ) : warn.cascade_summary ? (
+                          <span className="block font-ui text-[11px] text-[#2D6A4F] mt-1 font-semibold leading-relaxed">
+                            {warn.cascade_summary}
+                          </span>
+                        ) : null}
                       </span>
-                      <Badge
-                        status="review"
-                        label={
-                          warn.required_hours != null
-                            ? `+${warn.overload_hours ?? 0}h Overload`
-                            : 'Exceeds Cap'
-                        }
-                        className="shrink-0"
-                      />
+                      <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                        <Badge
+                          status="review"
+                          label={
+                            warn.required_hours != null
+                              ? `+${warn.overload_hours ?? 0}h Overload`
+                              : 'Exceeds Cap'
+                          }
+                          className="shrink-0"
+                        />
+                        {warn.conflict_id && onSolveConflict && (
+                          <AtlasButton
+                            size="row"
+                            variant="secondary"
+                            icon={Sparkles}
+                            onClick={() => onSolveConflict({
+                              conflict_id: warn.conflict_id,
+                              faculty_id: warn.faculty_id,
+                              curriculum_id: warn.curriculum_id,
+                              type: 'Overload',
+                              curriculum: warn.subject_code,
+                              faculty_name: warn.faculty_name
+                            })}
+                            className="shrink-0"
+                          >
+                            Approve
+                          </AtlasButton>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>

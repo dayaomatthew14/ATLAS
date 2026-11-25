@@ -14,6 +14,7 @@ import AcademicSemesters from './pages/dashboard/AcademicSemesters';
 import Profile from './pages/dashboard/Profile';
 import Settings from './pages/dashboard/Settings';
 import Colleges from './pages/dashboard/Colleges';
+import LabRooms from './pages/dashboard/LabRooms';
 import { ToastProvider } from './components/ToastProvider';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import { getRole, ROLES, ALL_ROLES, SCHEDULING_ROLES, ADMIN_AND_DEAN_ROLES } from './utils/session';
@@ -98,6 +99,10 @@ function App() {
             <Route
               path="rooms"
               element={<Navigate to="/dashboard/schedules" replace />}
+            />
+            <Route
+              path="lab-rooms"
+              element={<Navigate to="/dashboard/assigned-subjects" replace />}
             />
             <Route
               path="assigned-subjects"

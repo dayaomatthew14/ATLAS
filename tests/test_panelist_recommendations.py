@@ -220,19 +220,23 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
         self.assertFalse(calc_zero["policy_review_flag"])
 
         # 5. Overload exceeding office hours (10.0h in 2nd term):
-        # Office = 0.0h. Excess = 10.0 - 8.5 = 1.5h. Consultation = 6.0 - 1.5 = 4.5h
+        # Office = 0.0h. Excess = 10.0 - 8.5 = 1.5h deducted from Off-Campus (5.5 - 1.5 = 4.0h). Consultation = 6.0h (fixed)
         calc_high = calculate_consultation_workload("2nd", "full_time_regular", actual_overload=10.0)
         self.assertEqual(calc_high["remaining_office"], 0.0)
         self.assertEqual(calc_high["deducted_from_office"], 8.5)
         self.assertEqual(calc_high["excess_overload"], 1.5)
-        self.assertEqual(calc_high["deducted_from_consultation"], 1.5)
-        self.assertEqual(calc_high["adjusted_consultation"], 4.5)
+        self.assertEqual(calc_high["deducted_from_off_campus"], 1.5)
+        self.assertEqual(calc_high["remaining_off_campus"], 4.0)
+        self.assertEqual(calc_high["deducted_from_consultation"], 0.0)
+        self.assertEqual(calc_high["adjusted_consultation"], 6.0)
         self.assertFalse(calc_high["policy_review_flag"])
 
-        # 6. Extreme overload exceeding office + consultation (> 14.5h in 2nd term):
+        # 6. Extreme overload exceeding office + off-campus (> 14.0h in 2nd term: 8.5 + 5.5 = 14.0h):
         calc_excess = calculate_consultation_workload("2nd", "full_time_regular", actual_overload=15.0)
         self.assertEqual(calc_excess["remaining_office"], 0.0)
-        self.assertEqual(calc_excess["adjusted_consultation"], 0.0)
+        self.assertEqual(calc_excess["remaining_off_campus"], 0.0)
+        self.assertEqual(calc_excess["deducted_from_off_campus"], 5.5)
+        self.assertEqual(calc_excess["adjusted_consultation"], 6.0)
         self.assertTrue(calc_excess["policy_review_flag"])
         self.assertIn("exceeds available office", calc_excess["flag_reason"].lower())
 
@@ -309,6 +313,136 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
             if s.day_of_week in ("Mon", "Wed"):
                 # Must be after 12:00 PM (the unavailable morning period ended at 12:00)
                 self.assertGreaterEqual(s.start_time, time(12, 0))
+
+    def test_solve_conflict_overload_cascade(self):
+        """
+        Verify that resolving an overload conflict applies the DLSAU workload cascade deduction:
+        - 6.0 allotted consultation hours
+        - Off-campus hours: 2.5h (1st term) or 5.5h (2nd/3rd term)
+        - Office hours: max 7.5h (1st term) or 8.5h (2nd/3rd term)
+        - Overload deducted from office hours first; remaining excess deducted from consultation hours.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.app import models
+        from backend.app.routers.ai_scheduler import solve_conflict, SolveConflictRequest
+
+        engine = create_engine("sqlite:///:memory:")
+        models.Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+
+        dept = models.Department(id=1, name="Engineering", code="CEA")
+        db.add(dept)
+        # 2nd term: office 8.5h, off-campus 5.5h, consultation 6.0h
+        sem = models.Semester(id=1, term="2nd", academic_year="2026-2027", is_active=True)
+        db.add(sem)
+        fac = models.Faculty(id=3, first_name="Melanie", last_name="Asuncion", email="melanie@dlsau.edu.ph", type="full_time_regular", department_id=1)
+        db.add(fac)
+        curr = models.Curriculum(id=277, code="COEP170B", name="Computer Lab", units=2, lec_units=0, lab_units=2, type="lab", department_id=1)
+        db.add(curr)
+        db.commit()
+
+        chair_user = models.User(
+            id=1,
+            first_name="Chair",
+            last_name="Person",
+            email="chair@dlsau.edu.ph",
+            password_hash="pw",
+            role="program_chair",
+            department="Engineering",
+            is_verified=True
+        )
+        db.add(chair_user)
+        db.commit()
+
+        # Case 1: 8.0h overload within 8.5h office hours
+        conf1 = models.Conflict(
+            id=1,
+            faculty_id=3,
+            curriculum_id=277,
+            conflict_type="overload",
+            reason="Overload for Engr. Melanie Asuncion (Full-Time Regular): 20.0 + 8.0 hrs/week exceeds the 20.0 hrs/week allowed load by 8.0 hrs"
+        )
+        db.add(conf1)
+        db.commit()
+
+        req1 = SolveConflictRequest(conflict_id=1, faculty_id=3, curriculum_id=277, semester_id=1)
+        res1 = solve_conflict(req1, db, current_user=chair_user)
+
+        self.assertEqual(res1["status"], "success")
+        self.assertEqual(res1["action_taken"], "overload_approved")
+        self.assertIn("cascade", res1)
+        cas1 = res1["cascade"]
+        self.assertEqual(cas1["overload_hours"], 8.0)
+        self.assertEqual(cas1["allocated_office"], 8.5)
+        self.assertEqual(cas1["deducted_from_office"], 8.0)
+        self.assertEqual(cas1["remaining_office"], 0.5)
+        self.assertEqual(cas1["deducted_from_consultation"], 0.0)
+        self.assertEqual(cas1["remaining_consultation"], 6.0)
+        self.assertEqual(cas1["off_campus_hours"], 5.5)
+        self.assertIn("8.0h deducted from office hours (0.5h of 8.5h remaining)", res1["details"])
+        self.assertIn("Off-campus hours remain at 5.5h", res1["details"])
+        self.assertIn("Consultation hours are fixed at 6.0h", res1["details"])
+
+        # Case 2: 10.0h overload exceeding office hours (spills into off-campus hours, consultation fixed at 6.0h)
+        conf2 = models.Conflict(
+            id=2,
+            faculty_id=3,
+            curriculum_id=277,
+            conflict_type="overload",
+            reason="Overload for Engr. Melanie Asuncion (Full-Time Regular): 20.0 + 10.0 hrs/week exceeds the 20.0 hrs/week allowed load by 10.0 hrs"
+        )
+        db.add(conf2)
+        db.commit()
+
+        req2 = SolveConflictRequest(conflict_id=2, faculty_id=3, curriculum_id=277, semester_id=1)
+        res2 = solve_conflict(req2, db, current_user=chair_user)
+
+        self.assertEqual(res2["status"], "success")
+        cas2 = res2["cascade"]
+        self.assertEqual(cas2["overload_hours"], 10.0)
+        self.assertEqual(cas2["deducted_from_office"], 8.5)
+        self.assertEqual(cas2["remaining_office"], 0.0)
+        self.assertEqual(cas2["deducted_from_off_campus"], 1.5)
+        self.assertEqual(cas2["remaining_off_campus"], 4.0)
+        self.assertEqual(cas2["off_campus_hours"], 4.0)
+        self.assertEqual(cas2["deducted_from_consultation"], 0.0)
+        self.assertEqual(cas2["remaining_consultation"], 6.0)
+        self.assertIn("8.5h deducted from office hours (0.0h of 8.5h remaining)", res2["details"])
+        self.assertIn("1.5h deducted from off-campus hours (4.0h of 5.5h remaining)", res2["details"])
+        self.assertIn("Consultation hours are fixed at 6.0h", res2["details"])
+
+        # Case 3: 1st term: office is 7.5h max, off-campus is 2.5h, 9.0h overload
+        sem_t1 = models.Semester(id=2, term="1st", academic_year="2026-2027", is_active=False)
+        db.add(sem_t1)
+        conf3 = models.Conflict(
+            id=3,
+            faculty_id=3,
+            curriculum_id=277,
+            conflict_type="overload",
+            reason="Overload for Engr. Melanie Asuncion (Full-Time Regular): 24.0 + 9.0 hrs/week exceeds the 24.0 hrs/week allowed load by 9.0 hrs"
+        )
+        db.add(conf3)
+        db.commit()
+
+        req3 = SolveConflictRequest(conflict_id=3, faculty_id=3, curriculum_id=277, semester_id=2)
+        res3 = solve_conflict(req3, db, current_user=chair_user)
+
+        self.assertEqual(res3["status"], "success")
+        cas3 = res3["cascade"]
+        self.assertEqual(cas3["overload_hours"], 9.0)
+        self.assertEqual(cas3["allocated_office"], 7.5)
+        self.assertEqual(cas3["deducted_from_office"], 7.5)
+        self.assertEqual(cas3["remaining_office"], 0.0)
+        self.assertEqual(cas3["deducted_from_off_campus"], 1.5)
+        self.assertEqual(cas3["remaining_off_campus"], 1.0)
+        self.assertEqual(cas3["off_campus_hours"], 1.0)
+        self.assertEqual(cas3["deducted_from_consultation"], 0.0)
+        self.assertEqual(cas3["remaining_consultation"], 6.0)
+        self.assertIn("7.5h deducted from office hours (0.0h of 7.5h remaining)", res3["details"])
+        self.assertIn("1.5h deducted from off-campus hours (1.0h of 2.5h remaining)", res3["details"])
+        self.assertIn("Consultation hours are fixed at 6.0h", res3["details"])
 
     def test_converted_tutorial_hours_matrix(self):
         """Verify all 6 subject types across Regular (13+), 9-12, 5-8, and 1-4 students."""
@@ -715,15 +849,18 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
         self.assertEqual(normal["total_hours"], 40.0)
         self.assertEqual(normal["office_hours"], 2.5)
 
-        # Extreme overload: 20h overload -> exhausts 8.5h office + 6.0h consult
+        # Extreme overload: 20h overload -> exhausts 8.5h office + 5.5h off-campus
         # excess_overload_hours = overload - allocated_office = 20.0 - 8.5 = 11.5h
-        # Actual total = 40.0h teaching + 5.5h off-campus + 0 consult + 0 office = 45.5h
+        # unabsorbed_overload_hours = 11.5 - 5.5 = 6.0h
+        # Actual total = 40.0h teaching + 0 off-campus + 6.0h fixed consult + 0 office = 46.0h
         extreme = work_week_breakdown("2nd", "full_time_regular", actual_overload=20.0)
         self.assertEqual(extreme["teaching_hours"], 40.0)
         self.assertEqual(extreme["office_hours"], 0.0)
-        self.assertEqual(extreme["consultation_hours"], 0.0)
+        self.assertEqual(extreme["off_campus_hours"], 0.0)
+        self.assertEqual(extreme["consultation_hours"], 6.0)
         self.assertEqual(extreme["excess_overload_hours"], 11.5)
-        self.assertEqual(extreme["total_hours"], 45.5)
+        self.assertEqual(extreme["unabsorbed_overload_hours"], 6.0)
+        self.assertEqual(extreme["total_hours"], 46.0)
 
     def test_schedule_router_rejects_professor_overlap_and_published_edits(self):
         """

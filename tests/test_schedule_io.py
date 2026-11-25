@@ -96,9 +96,9 @@ class ScheduleIOTest(unittest.TestCase):
         excel_bytes = buffer.getvalue()
         self.assertTrue(excel_bytes.startswith(b"PK"), "Excel files are zip archives starting with PK")
 
-        # Load back with openpyxl to verify rows and headers
+        # Load back with openpyxl to verify rows and headers on the Class Timetable sheet
         wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
-        ws = wb.active
+        ws = wb["Class Timetable"] if "Class Timetable" in wb.sheetnames else wb.active
         self.assertIsNotNone(ws)
         rows = list(ws.iter_rows(values_only=True))
         self.assertGreaterEqual(len(rows), 8)

@@ -618,16 +618,17 @@ def calculate_consultation_workload(
     actual_overload: float = 0.0,
 ) -> dict:
     """
-    Panelist consultation hour and overload cascade deduction rules:
-    - Standard consultation allocation: 6.0 hours per term.
+    Faculty consultation hour, office hours, and overload cascade deduction rules:
+    - Standard consultation allocation: 6.0 hours per term (FIXED, never deducted).
     - Off-campus hours: 2.5h (1st Term), 5.5h (2nd & 3rd Term).
     - Office hours: 7.5h (1st Term), 8.5h (2nd & 3rd Term).
-    - Cascade deduction rule:
+    - Overload cascade deduction sequence:
       1. Overload hours must first be deducted from the allocated office hours.
-      2. If overload exceeds available office hours, the remaining excess must then
-         be deducted from the standard 6.0 consultation hours.
-      3. If excess overload exceeds 6.0 hours, consultation is clamped to 0.0h and flagged.
-      4. Part-time faculty are exempt (have no 40h obligation).
+      2. If overload exceeds available office hours, the remaining excess is then
+         deducted from off-campus hours.
+      3. Consultation hours is fixed at 6.0 hours.
+      4. If excess overload exceeds available off-campus hours, it is flagged for policy review.
+      5. Part-time faculty are exempt (have no 40h obligation).
     """
     norm_term = normalise_term(term)
     norm_type = normalise_employment_type(employment_type)
@@ -637,9 +638,13 @@ def calculate_consultation_workload(
             "adjusted_consultation": 0.0,
             "allocated_office": 0.0,
             "remaining_office": 0.0,
+            "allocated_off_campus": 0.0,
+            "remaining_off_campus": 0.0,
             "deducted_from_office": 0.0,
+            "deducted_from_off_campus": 0.0,
             "deducted_from_consultation": 0.0,
             "excess_overload": 0.0,
+            "unabsorbed_overload": 0.0,
             "max_overload": 0.0,
             "overload_difference": 0.0,
             "policy_review_flag": False,
@@ -651,36 +656,46 @@ def calculate_consultation_workload(
     # so its 40-hour work week uses the 24h non-teaching split (2.5h off-campus, 7.5h office).
     effective_split_term = "1st" if norm_type == "full_time_probationary" else norm_term
     alloc_office = ALLOCATED_OFFICE_HOURS.get(effective_split_term, 8.5)
+    alloc_off_campus = OFF_CAMPUS_HOURS.get(effective_split_term, 5.5)
     overload = round_hours(max(0.0, actual_overload))
 
     # Step 1: Overload hours must first be deducted from allocated office hours
     deducted_from_office = min(alloc_office, overload)
     remaining_office = round_hours(alloc_office - deducted_from_office)
 
-    # Step 2: If overload exceeds office hours, remaining excess is deducted from consultation
+    # Step 2: If overload exceeds office hours, remaining excess is deducted from off-campus hours
     excess_overload = round_hours(max(0.0, overload - alloc_office))
-    deducted_from_consultation = min(std_consultation, excess_overload)
-    remaining_consultation = round_hours(max(0.0, std_consultation - excess_overload))
+    deducted_from_off_campus = min(alloc_off_campus, excess_overload)
+    remaining_off_campus = round_hours(max(0.0, alloc_off_campus - excess_overload))
+    unabsorbed_overload = round_hours(max(0.0, excess_overload - alloc_off_campus))
 
-    # Step 3: Flag for policy review if excess overload exceeds consultation hours
+    # Step 3: Consultation hours is fixed at 6.0 hours (never deducted)
+    adjusted_consultation = std_consultation
+    deducted_from_consultation = 0.0
+
+    # Step 4: Flag for policy review if excess overload exceeds office + off-campus hours
     policy_review = False
     flag_reason = None
-    if excess_overload > std_consultation + _EQUALITY_TOLERANCE:
+    if unabsorbed_overload > _EQUALITY_TOLERANCE:
         policy_review = True
         flag_reason = (
             f"Overload ({overload:.2f}h) exceeds available office ({alloc_office:.2f}h) "
-            f"and consultation ({std_consultation:.2f}h) hours."
+            f"and off-campus ({alloc_off_campus:.2f}h) hours."
         )
 
     return {
         "standard_consultation": std_consultation,
-        "adjusted_consultation": remaining_consultation,
+        "adjusted_consultation": adjusted_consultation,
         "allocated_office": alloc_office,
         "remaining_office": remaining_office,
+        "allocated_off_campus": alloc_off_campus,
+        "remaining_off_campus": remaining_off_campus,
         "deducted_from_office": deducted_from_office,
+        "deducted_from_off_campus": deducted_from_off_campus,
         "deducted_from_consultation": deducted_from_consultation,
         "excess_overload": excess_overload,
-        "max_overload": alloc_office,
+        "unabsorbed_overload": unabsorbed_overload,
+        "max_overload": round_hours(alloc_office + alloc_off_campus),
         "overload_difference": remaining_office,
         "policy_review_flag": policy_review,
         "flag_reason": flag_reason,
@@ -692,22 +707,20 @@ def work_week_breakdown(
     employment_type: Optional[str],
     actual_overload: float = 0.0,
 ) -> Optional[dict]:
-    """The Full-Time 40-hour work week for a term, including office and consultation overload cascade adjustments."""
+    """The Full-Time 40-hour work week for a term, including office and off-campus overload cascade adjustments."""
     key = normalise_term(term)
     if key is None or not is_full_time(employment_type):
         return None
 
     norm_type = normalise_employment_type(employment_type)
     base_teaching = required_teaching_hours(term, norm_type) or FULL_TIME_REGULAR_HOURS[key]
-    effective_split_term = "1st" if norm_type == "full_time_probationary" else key
-    off_campus = OFF_CAMPUS_HOURS[effective_split_term]
     consult_info = calculate_consultation_workload(term, norm_type, actual_overload)
     
     overload = round_hours(max(0.0, actual_overload))
     teaching = round_hours(base_teaching + overload)
     actual_total_hours = round_hours(
         teaching
-        + off_campus
+        + consult_info["remaining_off_campus"]
         + consult_info["adjusted_consultation"]
         + consult_info["remaining_office"]
     )
@@ -716,7 +729,9 @@ def work_week_breakdown(
         "term": key,
         "teaching_hours": teaching,
         "base_teaching_hours": base_teaching,
-        "off_campus_hours": off_campus,
+        "off_campus_hours": consult_info["remaining_off_campus"],
+        "allocated_off_campus_hours": consult_info["allocated_off_campus"],
+        "deducted_from_off_campus": consult_info["deducted_from_off_campus"],
         "consultation_hours": consult_info["adjusted_consultation"],
         "standard_consultation_hours": consult_info["standard_consultation"],
         "adjusted_consultation_hours": consult_info["adjusted_consultation"],
@@ -725,6 +740,7 @@ def work_week_breakdown(
         "deducted_from_office": consult_info["deducted_from_office"],
         "deducted_from_consultation": consult_info["deducted_from_consultation"],
         "excess_overload_hours": consult_info["excess_overload"],
+        "unabsorbed_overload_hours": consult_info["unabsorbed_overload"],
         "max_overload_hours": consult_info["max_overload"],
         "actual_overload_hours": overload,
         "overload_difference": consult_info["overload_difference"],

@@ -53,10 +53,23 @@ Faculty workload is calculated and displayed in **actual teaching HOURS** rather
 | **Part-Time** | Max 20 hours | Max 20 hours | Max 20 hours |
 
 ### Overload & Dean Approval Workflow
-- When a faculty member's assigned or plotted hours exceed the term limit, they are marked with an **OVERLOAD** status requiring Dean approval.
+- When a faculty member's assigned or plotted hours exceed the term limit, they are marked with an **OVERLOAD** status requiring Dean / Program Chair override.
 - The assignment or schedule placement is permitted to proceed.
-- The College Dean can review and officially approve or revoke the overload via `PATCH /api/professors/{id}/overload-approval`.
-- Overload records approved by the Dean display the status `OVERLOAD (DEAN APPROVED)`.
+- The College Dean or Program Chair can review and officially approve the overload via `PATCH /api/professors/{id}/overload-approval` or through conflict resolution (`POST /api/ai-scheduler/solve-conflict`).
+- Overload records approved display the status `OVERLOAD (DEAN APPROVED)`.
+
+### DLSAU Workload Cascade Deduction Rule (40-Hour Faculty Obligation)
+When a faculty member's teaching hours exceed the required teaching-hour limit, the excess is considered overload and triggers a cascade deduction against their non-teaching hours:
+1. **Consultation Hours Allocation**: Faculty members are allotted standard **6.0 consultation hours** across all terms.
+2. **Off-Campus Hours**: Set at **2.5 hours** during the 1st term (and for Full-Time Probationary across all terms) and **5.5 hours** during the 2nd and 3rd terms (Full-Time Regular). Off-campus hours remain protected.
+3. **Office Hours Allocation**: Maximum **7.5 hours** during the 1st term (and Full-Time Probationary) and **8.5 hours** during the 2nd and 3rd terms (Full-Time Regular).
+4. **Cascade Deduction Order**:
+   - Overload hours are **first deducted from allocated office hours** (`deducted_from_office = min(allocated_office, overload)`).
+   - If the overload exceeds the available office hours, the remaining excess is **then deducted from the 6.0 consultation hours** (`deducted_from_consultation = min(6.0, excess_overload)`).
+   - If excess overload exceeds 6.0 hours, consultation is clamped to 0.0h and flagged for administrative policy review.
+   - Part-Time faculty are exempt (have no 40-hour non-teaching obligation).
+5. **Conflict Resolution Integration**:
+   - In `POST /api/ai-scheduler/solve-conflict`, resolving an overload conflict computes and returns the full cascade deduction breakdown (`remaining_office`, `remaining_consultation`, `off_campus_hours`), logs the audit trail in the Activity Log, and surfaces the 3-column deduction card in the confirmation dialog.
 
 ---
 
@@ -98,6 +111,6 @@ The weekly schedule interface and exports feature:
 1. **Monday through Saturday Columns**: Each day represented as an individual column.
 2. **Single Shared Vertical Time Scale**: 07:30 to 19:30 continuous axis.
 3. **Proportional Duration Sizing**: Each subject block height corresponds exactly to its class duration in minutes.
-4. **Class Details**: Clearly displays Subject Code, Section, Room (`TBA` when unassigned), and Time Range.
+4. **Class Details**: Clearly displays Subject Code, Room (`TBA` when unassigned), and Time Range.
 5. **Full Timetable Usability**: Empty periods remain visible as whitespace; all 30-minute intervals are interactive and available for quick-add placement.
 6. **Export Consistency**: PDF and Excel exports include room assignments, teaching duration hours, and a dedicated Timetable Grid worksheet.

@@ -8,7 +8,7 @@ import AtlasButton from '../../components/ui/Button';
 import ConflictLens from '../../components/ui/ConflictLens';
 import { PageHeader } from '../../components/ui/Page';
 import { pluralize } from '../../components/ui/tokens';
-import { canEditSchedules } from '../../utils/session';
+import { canEditSchedules, getDepartment } from '../../utils/session';
 import {
   ALLOWED_DAY_ABBR,
   validateTimeOrder,
@@ -44,7 +44,6 @@ const formatSemesterTerm = (term) => {
 
 const FacultyBoard = React.memo(function FacultyBoard({
   board,
-  color,
   hasClasses,
   canManageSchedules,
   conflictedCurriculumIds,
@@ -56,6 +55,7 @@ const FacultyBoard = React.memo(function FacultyBoard({
   teacher = null,
   activeTerm = '1st',
 }) {
+  const color = React.useMemo(() => getFacultyColor(board.name), [board.name]);
   const handleQuickAddSlot = React.useCallback(
     (day, startStr, endStr) => {
       onQuickAdd(board.name, day, startStr, endStr);
@@ -126,6 +126,7 @@ const FacultyBoard = React.memo(function FacultyBoard({
           <WeeklyTimetableGrid
             schedules={board.classes}
             viewMode="faculty"
+            department={getDepartment()}
             canEditSchedules={canManageSchedules}
             conflictedCurriculumIds={conflictedCurriculumIds}
             isLensOpen={isLensOpen}
@@ -354,12 +355,13 @@ export default function Schedules() {
       addToast(res.message || 'Conflict resolved successfully', 'success');
 
       setResolutionModalData({
+        ...res,
         title: res.title || 'Conflict Resolved',
         message: res.message || 'Conflict resolved successfully.',
         details: res.details || res.message || 'The resolution has been applied.',
         action_taken: res.action_taken || 'resolved',
-        curriculum: item.curriculum || item.subject_code,
-        faculty_name: item.faculty_name,
+        curriculum: item.curriculum || item.subject_code || res.curriculum,
+        faculty_name: item.faculty_name || res.faculty_name,
         conflict_type: item.type,
       });
 
@@ -682,9 +684,16 @@ export default function Schedules() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [globalSchedules, selectedProfessorFilter]);
 
-  const visibleBoards = selectedProfessorFilter
-    ? facultyBoards.filter((b) => b.name === selectedProfessorFilter)
-    : facultyBoards;
+  const visibleBoards = React.useMemo(() => {
+    return selectedProfessorFilter
+      ? facultyBoards.filter((b) => b.name === selectedProfessorFilter)
+      : facultyBoards;
+  }, [facultyBoards, selectedProfessorFilter]);
+
+  const activeSem = React.useMemo(() => {
+    return semesters.find((s) => s.id === (selectedGenSemester || activeSemesterId));
+  }, [semesters, selectedGenSemester, activeSemesterId]);
+  const activeTerm = activeSem?.term || '1st';
 
   const teacherMap = React.useMemo(() => {
     const map = new Map();
@@ -777,7 +786,7 @@ export default function Schedules() {
     if (field === 'end_time') {
       if (!data.end_time) return 'Select an end time.';
       if (!data.start_time) return '';
-      return validateTimeOrder(data.start_time, data.end_time, { contextLabel: 'Schedule' });
+      return validateTimeOrder(data.start_time, data.end_time, { contextLabel: 'Schedule', department: getDepartment() });
     }
     return '';
   };
@@ -802,7 +811,7 @@ export default function Schedules() {
           updated.start_time = validateScheduleField('start_time', next) || undefined;
         }
         if (next.start_time && next.end_time) {
-          updated.end_time = validateTimeOrder(next.start_time, next.end_time, { contextLabel: 'Schedule' }) || undefined;
+          updated.end_time = validateTimeOrder(next.start_time, next.end_time, { contextLabel: 'Schedule', department: getDepartment() }) || undefined;
         } else if (prev.end_time || field === 'end_time') {
           updated.end_time = validateScheduleField('end_time', next) || undefined;
         }
@@ -1489,21 +1498,15 @@ export default function Schedules() {
               )}
 
               {visibleBoards.map((board) => {
-                const color = getFacultyColor(board.name);
                 const hasClasses = board.classes.length > 0;
                 const matchedTeacher =
                   teacherMap.get(board.name) ||
                   (board.classes[0]?.faculty_id ? teacherMap.get(String(board.classes[0].faculty_id)) : null);
-                const activeSem = semesters.find(
-                  (s) => s.id === (selectedGenSemester || activeSemesterId)
-                );
-                const activeTerm = activeSem?.term || '1st';
 
                 return (
                   <FacultyBoard
                     key={board.name}
                     board={board}
-                    color={color}
                     hasClasses={hasClasses}
                     canManageSchedules={canMutateSchedules}
                     conflictedCurriculumIds={conflictedCurriculumIds}

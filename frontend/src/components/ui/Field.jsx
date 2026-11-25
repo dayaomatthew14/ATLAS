@@ -69,7 +69,9 @@ export function Field({
       </label>
 
       <div ref={anchorRef} className="relative" {...anchorHandlers}>
-        {children({ id, describedBy, invalid: Boolean(error) })}
+        {typeof children === 'function'
+          ? children({ id, describedBy, invalid: Boolean(error) })
+          : children}
       </div>
 
       {hint && (

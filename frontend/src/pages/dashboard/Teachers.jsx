@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Users as UsersIcon, Clock, Search, ChevronRight, Eye, BookOpen } from 'lucide-react';
+import { Plus, Users as UsersIcon, Clock, Search, ChevronRight, Eye, BookOpen, AlertTriangle } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import AtlasDialog, { ConfirmDialog as AtlasConfirmDialog } from '../../components/ui/Dialog';
@@ -1095,6 +1095,15 @@ export default function Teachers() {
                       <span className="text-xs text-slate-500 font-medium">
                         {pluralize(t.subject_offerings?.length || 0, 'subject')}
                       </span>
+                      {(t.unavailability_warning || (t.unavailability_hours && t.unavailability_hours > 10)) && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-bold bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs"
+                          title="Faculty members should not exceed 10 hours of unavailability per week."
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" aria-hidden="true" />
+                          {t.unavailability_hours}h unavail (&gt;10h limit)
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1151,6 +1160,7 @@ export default function Teachers() {
         selectedDays={selectedDays}
         setSelectedDays={setSelectedDays}
         setCustomRanges={setCustomRanges}
+        customRanges={customRanges}
         getRangesForDay={getRangesForDay}
         handleAddRange={handleAddRange}
         handleRemoveRange={handleRemoveRange}

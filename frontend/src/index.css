@@ -114,18 +114,15 @@ body {
      Two edges, not one: a bright top rule and a neutral border. The highlight
      is what makes a translucent panel read as a lit pane of glass rather than
      as a washed-out card. */
-  --glass-fill: rgb(255 255 255 / 0.72);
-  --glass-fill-strong: rgb(255 255 255 / 0.86);  /* dialogs, menus — over content */
-  --glass-border: rgb(255 255 255 / 0.55);
-  --glass-edge: rgb(255 255 255 / 0.85);         /* the lit top edge */
-  --glass-blur: 18px;
-  /* Deepened from `0 8px 24px -8px / 0.14`. On a near-white canvas the old
-     value was almost invisible, so panels read as flat regions of the page
-     rather than as panes sitting above it. Every `.glass` surface in the app
-     inherits this, which is why it is tuned here rather than per screen. */
+  --glass-fill: rgb(255 255 255 / 0.88);
+  --glass-fill-strong: rgb(255 255 255 / 0.96);  /* dialogs, menus — over content */
+  --glass-border: rgb(255 255 255 / 0.65);
+  --glass-edge: rgb(255 255 255 / 0.90);         /* the lit top edge */
+  --glass-blur: 8px;
+  /* Optimized clean shadow: fast to composite on GPU */
   --glass-shadow:
     0 1px 2px rgb(5 48 31 / 0.05),
-    0 10px 28px -10px rgb(5 48 31 / 0.20),
+    0 6px 16px -6px rgb(5 48 31 / 0.12),
     inset 0 1px 0 0 var(--glass-edge);
 
   /* On the chrome the same material is dark rather than light. This is the
@@ -181,14 +178,11 @@ body {
     0 14px 30px -10px rgb(5 48 31 / 0.18),
     0 0 0 1px rgb(4 106 56 / 0.10);
 
-  /* --- Motion -------------------------------------------------------------- */
-  --dur-state: 150ms;
-  --dur-overlay: 200ms;
-  --dur-lens: 250ms;
+  /* --- Motion: Fast & Responsive ----------------------------------------- */
+  --dur-state: 100ms;
+  --dur-overlay: 150ms;
+  --dur-lens: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  /* A gentle overshoot for things entering or coming forward. Deliberately
-     mild — the motion data warns that a pronounced back-out on informational
-     UI reads as sloppy, so this settles rather than bounces. */
   --ease-emphasis: cubic-bezier(0.22, 1.2, 0.36, 1);
 
   /* --- Timetable metrics (Comfortable) -------------------------------------
@@ -220,27 +214,24 @@ body {
    ========================================================================== */
 
 .glass {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(246, 250, 247, 0.94) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 250, 247, 0.96) 100%);
   border: 1px solid rgba(4, 106, 56, 0.12);
   box-shadow:
     0 1px 3px rgb(4 106 56 / 0.04),
-    0 10px 28px -10px rgb(4 106 56 / 0.10),
+    0 6px 16px -6px rgb(4 106 56 / 0.08),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.95);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 /*
-  Hover-only glass, for controls that are transparent at rest. `hover:glass`
-  cannot work — Tailwind variants only compose with utilities it generates, and
-  `.glass` is a plain class — so the hover state is declared here instead.
+  Hover-only glass, for controls that are transparent at rest.
+  Uses instant solid/semi-opaque transition without heavy per-hover filter reflows.
 */
 .glass-hover:hover:not(:disabled) {
   background-color: var(--glass-fill);
   border-color: rgba(4, 106, 56, 0.18);
   box-shadow: var(--glass-shadow);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
 }
 
 /* Overlays sit above arbitrary content, so they carry more fill. */
@@ -249,75 +240,75 @@ body {
   border: 1px solid rgba(4, 106, 56, 0.16);
   box-shadow:
     0 4px 14px rgb(4 106 56 / 0.08),
-    0 20px 40px -12px rgb(4 106 56 / 0.18),
+    0 14px 28px -10px rgb(4 106 56 / 0.14),
     inset 0 1px 0 0 rgba(255, 255, 255, 1);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
 }
 
 /* The same material on the green-900 chrome, carrying DLSAU depth. */
 .glass-dark {
-  background: linear-gradient(180deg, rgba(4, 27, 18, 0.97) 0%, rgba(6, 48, 28, 0.97) 100%);
+  background: linear-gradient(180deg, rgba(4, 27, 18, 0.98) 0%, rgba(6, 48, 28, 0.98) 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
-/* Classes: #FBBF24 with authentic ombre gradient effect (aligned with other boxes, pure yellow) */
+/* Classes: #FBBF24 with authentic ombre gradient effect */
 .stat-card-classes {
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.42) 0%, rgba(251, 191, 36, 0.72) 48%, rgba(251, 191, 36, 0.92) 100%);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.52) 0%, rgba(251, 191, 36, 0.82) 48%, rgba(251, 191, 36, 0.95) 100%);
   border: 1px solid rgba(202, 138, 4, 0.32);
   border-top: 2.5px solid #CA8A04;
   box-shadow:
-    0 2px 8px -2px rgba(202, 138, 4, 0.12),
-    0 8px 24px -6px rgba(202, 138, 4, 0.16),
+    0 2px 6px -2px rgba(202, 138, 4, 0.12),
+    0 6px 18px -6px rgba(202, 138, 4, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 /* Faculty: #E3EED4 with ombre gradient effect */
 .stat-card-faculty {
-  background: linear-gradient(135deg, rgba(227, 238, 212, 0.45) 0%, rgba(227, 238, 212, 0.85) 48%, rgba(191, 211, 170, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(227, 238, 212, 0.55) 0%, rgba(227, 238, 212, 0.90) 48%, rgba(191, 211, 170, 0.98) 100%);
   border: 1px solid rgba(120, 154, 91, 0.32);
   border-top: 2.5px solid #789A5B;
   box-shadow:
-    0 2px 8px -2px rgba(120, 154, 91, 0.12),
-    0 8px 24px -6px rgba(120, 154, 91, 0.16),
+    0 2px 6px -2px rgba(120, 154, 91, 0.12),
+    0 6px 18px -6px rgba(120, 154, 91, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 /* Rooms: #AEC3B0 with ombre gradient effect */
 .stat-card-rooms {
-  background: linear-gradient(135deg, rgba(174, 195, 176, 0.40) 0%, rgba(174, 195, 176, 0.72) 48%, rgba(136, 163, 139, 0.90) 100%);
+  background: linear-gradient(135deg, rgba(174, 195, 176, 0.50) 0%, rgba(174, 195, 176, 0.82) 48%, rgba(136, 163, 139, 0.95) 100%);
   border: 1px solid rgba(87, 119, 90, 0.32);
   border-top: 2.5px solid #57775A;
   box-shadow:
-    0 2px 8px -2px rgba(87, 119, 90, 0.12),
-    0 8px 24px -6px rgba(87, 119, 90, 0.16),
+    0 2px 6px -2px rgba(87, 119, 90, 0.12),
+    0 6px 18px -6px rgba(87, 119, 90, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 /* Schedule Health: #6B9071 with ombre gradient effect */
 .stat-card-health {
-  background: linear-gradient(135deg, rgba(107, 144, 113, 0.38) 0%, rgba(107, 144, 113, 0.68) 48%, rgba(72, 110, 78, 0.88) 100%);
+  background: linear-gradient(135deg, rgba(107, 144, 113, 0.48) 0%, rgba(107, 144, 113, 0.78) 48%, rgba(72, 110, 78, 0.92) 100%);
   border: 1px solid rgba(54, 84, 58, 0.35);
   border-top: 2.5px solid #36543A;
   box-shadow:
-    0 2px 8px -2px rgba(54, 84, 58, 0.14),
-    0 8px 24px -6px rgba(54, 84, 58, 0.18),
+    0 2px 6px -2px rgba(54, 84, 58, 0.14),
+    0 6px 18px -6px rgba(54, 84, 58, 0.18),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 /*
   The ambient wash for the dashboard canvas.
-  Soft ambient pools give the dashboard clean, subtle depth without grid lines.
+  Promoted to a dedicated GPU compositing layer to eliminate scrolling and hover reflows.
 */
 .glass-canvas {
   position: relative;
@@ -329,6 +320,8 @@ body {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  transform: translateZ(0);
+  will-change: transform;
   background:
     radial-gradient(58rem 42rem at 12% -8%, var(--glass-ambient-a), transparent 60%),
     radial-gradient(48rem 38rem at 92% 6%, var(--glass-ambient-b), transparent 62%),
@@ -422,11 +415,10 @@ body {
    merely moved. */
 .lift {
   transition:
-    transform var(--dur-overlay) var(--ease-emphasis),
-    box-shadow var(--dur-overlay) var(--ease-emphasis),
-    background-color var(--dur-state) var(--ease-standard),
-    border-color var(--dur-state) var(--ease-standard);
-  will-change: transform;
+    transform 120ms var(--ease-emphasis),
+    box-shadow 120ms var(--ease-emphasis),
+    background-color 100ms var(--ease-standard),
+    border-color 100ms var(--ease-standard);
   box-shadow: var(--shadow-raised);
 }
 .lift:hover:not(:disabled):not([aria-disabled='true']) {
@@ -1079,7 +1071,6 @@ body {
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 @keyframes atlas-validation-pop {

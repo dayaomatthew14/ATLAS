@@ -177,7 +177,7 @@ You can assign subjects from either screen:
 - **Option A — From Faculty (`/dashboard/teachers`):**
   1. Click **Assign Subjects** on a faculty member's row.
   2. Filter curriculum subjects by **Program**, **Year Level**, **Semester**, or search by code/title.
-  3. Enter the **Section** name (e.g. `1A`, `CS-3A`) and click **Assign** to bind the subject to that professor for the active term.
+  3. Click **Assign** to bind the subject to that professor for the active term.
   4. To remove an offering, click **Remove** next to the assigned subject in the dialog.
 
 - **Option B — From Assigned Subjects (`/dashboard/assigned-subjects`):**
@@ -195,12 +195,12 @@ You can assign subjects from either screen:
    - Review the post-generation summary (**Generated**, **Unplaced**, **Skipped GenEd**, and any **Teaching load warnings**).
 3. **Inspect the Timetable:**
    - Toggle between the **Grid View** (Weekly Matrix across Periods 1–8, `07:30 AM – 07:30 PM`, `Mon–Sat`) and the **By-Professor Board**.
-   - Filter by **Professor** or **Section** using the top filter controls.
+   - Filter by **Professor** using the top filter controls.
    - Click any 30-minute interval on the timetable grid to quick-add a class at that exact day and time.
-   - Hover any class block on the grid to open the **Schedule Hover Popover** showing full subject details, section, duration, professor, and a quick **Delete Schedule** button.
+   - Hover any class block on the grid to open the **Schedule Hover Popover** showing full subject details, duration, professor, and a quick **Delete Schedule** button.
    - When a term is marked as **Published**, the grid displays a `Published (Locked)` status badge and disables destructive actions (`Generate`, `Create`, `Clear All`, quick-add, and delete) to prevent accidental changes to official schedules.
 4. **Add or Remove a Class Manually:**
-   - Click **Create** to manually place a class: choose **Subject**, **Professor**, **Section**, **Day** (plus optional paired day), **Start Time**, and **End Time**. Live conflict checks and **AI Slot Suggestions** appear inside the modal before saving.
+   - Click **Create** to manually place a class: choose **Subject**, **Professor**, **Day** (plus optional paired day), **Start Time**, and **End Time** (and Room for laboratories). Live conflict checks and **AI Slot Suggestions** appear inside the modal before saving.
    - If you delete a class or click **Clear All**, an **Undo / Restore** banner appears in the bottom-right corner so you can immediately restore the previous state.
 5. **Resolve Conflicts One at a Time:**
    - If unplaced items or conflicts exist, click the **Conflicts** button in the header (or click **Resolve** inside the generation results) to open the **Conflict Lens**.

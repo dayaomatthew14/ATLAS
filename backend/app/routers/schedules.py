@@ -1,3 +1,4 @@
+from datetime import time
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
@@ -177,6 +178,15 @@ def create_schedule(
         if not dept or (dept.code != current_user.department and dept.name != current_user.department):
              raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Can only create schedules for your department's curriculum")
 
+    # 5:30 PM - 7:30 PM time slot restriction (CVMAS only)
+    curr_dept = db.query(models.Department).filter(models.Department.id == curriculum_item.department_id).first()
+    dept_code = str(getattr(curr_dept, 'code', '') or current_user.department or '').upper()
+    if dept_code != 'CVMAS' and schedule.end_time > time(17, 30):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The 5:30 PM – 7:30 PM time slot is restricted to CVMAS only. Classes for this department must end by 5:30 PM (17:30)."
+        )
+
     # Enforce that major subjects have an assigned professor before scheduling
     from .subject_offerings import is_major_subject
     if is_major_subject(curriculum_item):
@@ -290,6 +300,14 @@ def update_schedule(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Schedule end time ({effective_end.strftime('%I:%M %p')}) must be after start time ({effective_start.strftime('%I:%M %p')}).",
+        )
+    curr_obj = db.query(models.Curriculum).filter(models.Curriculum.id == update_data.get('curriculum_id', db_schedule.curriculum_id)).first()
+    curr_dept = db.query(models.Department).filter(models.Department.id == curr_obj.department_id).first() if curr_obj else None
+    dept_code = str(getattr(curr_dept, 'code', '') or current_user.department or '').upper()
+    if effective_end and dept_code != 'CVMAS' and effective_end > time(17, 30):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The 5:30 PM – 7:30 PM time slot is restricted to CVMAS only. Classes for this department must end by 5:30 PM (17:30)."
         )
     if effective_fac and effective_day and effective_start and effective_end:
         prof_overlap = db.query(models.Schedule).filter(
@@ -650,13 +668,19 @@ def _load_registrar_proposal_subjects(db: Session, dept: Optional[models.Departm
     ).all() if currs else []
     off_by_curr = {o.curriculum_id: o for o in offerings}
 
+    from .subject_offerings import is_major_subject
     items = []
     for c in currs:
         if normalize_term(c.semester_term) != sem_term_norm:
             continue
-        blk = block_map.get(c.block_id)
-        prog_code = (blk.program.code if (blk and blk.program) else None) or (blk.program_name if blk else None) or c.program_code or "PROGRAM"
         off = off_by_curr.get(c.id)
+        # Requirement 4: Remove GenEd subjects that are not handled by the department.
+        # Only include GenEd subjects assigned to or handled by the department.
+        if not is_major_subject(c):
+            if not off or not off.faculty:
+                continue
+        blk = block_map.get(c.block_id)
+        prog_code = (blk.program.code if (blk and blk.program) else c.program_code) or ""
         items.append({
             "curriculum_id": c.id,
             "curriculum": c,

@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Plus, Users as UsersIcon, X, Trash2, UserPlus } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
+import { Plus, Users as UsersIcon, X, Trash2, UserPlus, AlertTriangle } from 'lucide-react';
 import AtlasDialog from '../ui/Dialog';
 import AtlasButton from '../ui/Button';
 import { TextInput, Field, RadioGroup } from '../ui/Field';
@@ -32,9 +32,26 @@ export default function TeacherFormDialog({
   handleRemoveRange,
   handleUpdateRange,
   formatTime,
+  customRanges = {},
 }) {
   const normType = normaliseEmploymentType(formData.type);
   const teachingHoursLimit = getAllowedTeachingHours(normType, activeTerm);
+
+  const totalUnavailabilityHours = useMemo(() => {
+    let totalMins = 0;
+    (selectedDays || []).forEach((day) => {
+      const ranges = (customRanges && customRanges[day]) || (getRangesForDay ? getRangesForDay(day) : []);
+      (ranges || []).forEach((range) => {
+        const startStr = range.active && range.start ? range.start : '07:30';
+        const endStr = range.active && range.end ? range.end : '17:30';
+        const [sh, sm] = startStr.split(':').map(Number);
+        const [eh, em] = endStr.split(':').map(Number);
+        const diff = (eh * 60 + em) - (sh * 60 + sm);
+        if (diff > 0) totalMins += diff;
+      });
+    });
+    return Math.round((totalMins / 60.0) * 10) / 10;
+  }, [selectedDays, customRanges, getRangesForDay]);
 
   useEffect(() => {
     const limit = getAllowedTeachingHours(formData.type, activeTerm);
@@ -173,8 +190,26 @@ export default function TeacherFormDialog({
                 <legend className="font-ui text-micro uppercase text-atlas-slate">
                   Unavailable hours
                 </legend>
-                {badge}
+                <div className="flex items-center gap-2">
+                  <span className={`font-data text-micro px-2 py-0.5 rounded-full font-bold ${
+                    totalUnavailabilityHours > 10
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  }`}>
+                    {totalUnavailabilityHours} / 10.0 hrs/week
+                  </span>
+                  {badge}
+                </div>
               </div>
+
+              {totalUnavailabilityHours > 10 && (
+                <div className="mb-3 p-3 rounded-panel bg-amber-50 border border-amber-300 flex items-start gap-2.5 text-amber-900 shadow-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="font-ui text-caption leading-relaxed">
+                    <span className="font-bold">Unavailability Limit Warning:</span> Faculty members should not exceed <strong>10 hours of unavailability per week</strong>. Current total is <strong>{totalUnavailabilityHours} hrs/week</strong> (exceeds limit by {Math.round((totalUnavailabilityHours - 10) * 10) / 10} hrs).
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-wrap gap-2">
                 {DAYS.map((day) => {

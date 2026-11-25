@@ -487,7 +487,7 @@ class TestLabLecHandling(unittest.TestCase):
 
         # With a second administrator present the guard lifts. Delete the spare
         # rather than id 1, which the scenarios below still rely on.
-        db.add(models.User(id=8, first_name="Second", last_name="Admin", email="admin2@dlsau.edu.ph", role="admin", password_hash="pw"))
+        db.add(models.User(id=8, first_name="Second", last_name="Admin", email="admin2@dlsau.edu.ph", role="admin", department="CAST", password_hash="pw"))
         db.commit()
         delete_user(8, db, AdminUser())
         self.assertIsNone(db.query(models.User).filter(models.User.id == 8).first())

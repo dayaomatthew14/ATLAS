@@ -10,20 +10,20 @@ import {
   isLabSession,
 } from '../../utils/scheduleHelpers';
 import { isCombinedCSubject } from '../../utils/load';
+import { getDepartment } from '../../utils/session';
 
 const GRID_START_MIN = 7 * 60 + 30; // 07:30 AM (450)
-const GRID_END_MIN = 19 * 60 + 30;  // 07:30 PM (1170)
+const GRID_END_MIN_STANDARD = 17 * 60 + 30; // 05:30 PM (1050)
+const GRID_END_MIN_EXTENDED = 19 * 60 + 30; // 07:30 PM (1170)
 
 // 1.35px per minute -> 30m = 40.5px, 60m = 81px, 80m = 108px, 120m = 162px, 240m = 324px
 const PX_PER_MINUTE = 1.35;
-const TOTAL_GRID_MINUTES = GRID_END_MIN - GRID_START_MIN; // 720 mins (12 hours)
 const GRID_PADDING_TOP = 20; // Clear vertical buffer between sticky column header and 07:30 AM line
-const TOTAL_GRID_HEIGHT = Math.round(TOTAL_GRID_MINUTES * PX_PER_MINUTE) + GRID_PADDING_TOP;
 
-/** Generate 30-minute time ticks from 07:30 AM to 07:30 PM for the shared vertical axis. */
-const TIME_TICKS = (() => {
+/** Generate 30-minute time ticks from 07:30 AM up to endMin for the vertical axis. */
+function buildTimeTicks(endMin) {
   const ticks = [];
-  for (let m = GRID_START_MIN; m <= GRID_END_MIN; m += 30) {
+  for (let m = GRID_START_MIN; m <= endMin; m += 30) {
     const h24 = Math.floor(m / 60);
     const mins = m % 60;
     const h12 = h24 % 12 || 12;
@@ -40,17 +40,18 @@ const TIME_TICKS = (() => {
     });
   }
   return ticks;
-})();
+}
 
-/** Precomputed 30-minute background grid slot intervals for zero-overhead rendering */
-const GRID_SLOTS = (() => {
+/** Precomputed 30-minute background grid slot intervals */
+function buildGridSlots(ticks, endMin) {
   const slots = [];
-  for (let i = 0; i < TIME_TICKS.length - 1; i += 1) {
-    const tick = TIME_TICKS[i];
+  for (let i = 0; i < ticks.length - 1; i += 1) {
+    const tick = ticks[i];
     const h24 = Math.floor(tick.minutes / 60);
     const m24 = tick.minutes % 60;
-    const eH24 = Math.floor((tick.minutes + 80) / 60);
-    const eM24 = (tick.minutes + 80) % 60;
+    const quickAddEnd = Math.min(endMin, tick.minutes + 80);
+    const eH24 = Math.floor(quickAddEnd / 60);
+    const eM24 = quickAddEnd % 60;
     const startStr = `${String(h24).padStart(2, '0')}:${String(m24).padStart(2, '0')}`;
     const endStr = `${String(eH24).padStart(2, '0')}:${String(eM24).padStart(2, '0')}`;
 
@@ -64,25 +65,64 @@ const GRID_SLOTS = (() => {
     });
   }
   return slots;
-})();
+}
 
 /**
  * Assign side-by-side lane indices (`laneIndex`, `laneCount`) to any overlapping
  * events on the same day so blocks never visually cover one another.
  */
-function layoutDayEvents(daySchedules) {
+function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD) {
   const sorted = [...daySchedules]
     .map((s) => {
       const rawStart = minutesOf(s.start_time);
       const rawEnd = minutesOf(s.end_time);
-      const clampedStart = Math.max(GRID_START_MIN, Math.min(GRID_END_MIN - 15, rawStart));
-      const clampedEnd = Math.max(clampedStart + 20, Math.min(GRID_END_MIN, rawEnd));
+      const clampedStart = Math.max(GRID_START_MIN, Math.min(endMin - 15, rawStart));
+      const clampedEnd = Math.max(clampedStart + 20, Math.min(endMin, rawEnd));
+      const durMins = Math.max(0, rawEnd - rawStart);
+      const heightPx = Math.max(28, (clampedEnd - clampedStart) * PX_PER_MINUTE);
+      const isLongCard = durMins > 120 || heightPx >= 180;
+      const topPx = (clampedStart - GRID_START_MIN) * PX_PER_MINUTE + GRID_PADDING_TOP;
+      const color = getFacultyColor(s.faculty_name);
+      const isLab = isLabSession(s);
+      const isComb = isCombinedCSubject({
+        code: s.subject_code,
+        type: s.curriculum_type || s.curriculum?.type,
+      });
+      const displayCode = formatSubjectCode(s) || s.subject_code || 'N/A';
+      const subjectTitle =
+        s.subject_name ||
+        (typeof s.subject === 'string' ? s.subject : s.subject?.name) ||
+        s.curriculum?.name ||
+        s.curriculum?.subject_name ||
+        s.curriculum?.subject?.name ||
+        s.curriculum_name ||
+        '';
+      const rawRoom = s.room_name || s.room?.name || '';
+      const hasRoom = Boolean(rawRoom && rawRoom.trim() !== '' && rawRoom.toUpperCase() !== 'TBA');
+      const rawSection = s.section || '';
+      const hasSection = Boolean(rawSection && rawSection.trim() !== '' && rawSection.toLowerCase() !== 'no section');
+      const timeRangeLabel = `${to12h(s.start_time)} – ${to12h(s.end_time)}`;
+
       return {
         sched: s,
         startMin: rawStart,
         endMin: rawEnd,
         clampedStart,
         clampedEnd,
+        durMins,
+        heightPx,
+        isLongCard,
+        topPx,
+        color,
+        isLab,
+        isComb,
+        displayCode,
+        subjectTitle,
+        rawRoom,
+        hasRoom,
+        rawSection,
+        hasSection,
+        timeRangeLabel,
       };
     })
     .sort((a, b) => a.clampedStart - b.clampedStart || a.clampedEnd - b.clampedEnd);
@@ -138,6 +178,7 @@ function layoutDayEvents(daySchedules) {
 function WeeklyTimetableGrid({
   schedules = [],
   viewMode = 'faculty', // 'faculty' | 'section' | 'week'
+  department,
   canEditSchedules = false,
   conflictedCurriculumIds = new Set(),
   isLensOpen = false,
@@ -148,6 +189,17 @@ function WeeklyTimetableGrid({
   onCardEnter,
   onCardLeave,
 }) {
+  const userDept = department || getDepartment();
+  const isCvmas = String(userDept || '').trim().toUpperCase() === 'CVMAS';
+  const hasLateClasses = (schedules || []).some((s) => minutesOf(s.end_time) > GRID_END_MIN_STANDARD);
+  const gridEndMin = (isCvmas || hasLateClasses) ? GRID_END_MIN_EXTENDED : GRID_END_MIN_STANDARD;
+
+  const totalGridMinutes = gridEndMin - GRID_START_MIN;
+  const totalGridHeight = Math.round(totalGridMinutes * PX_PER_MINUTE) + GRID_PADDING_TOP;
+
+  const timeTicks = useMemo(() => buildTimeTicks(gridEndMin), [gridEndMin]);
+  const gridSlots = useMemo(() => buildGridSlots(timeTicks, gridEndMin), [timeTicks, gridEndMin]);
+
   const schedulesByDay = useMemo(() => {
     const map = {};
     for (const d of DAY_ORDER) {
@@ -162,10 +214,10 @@ function WeeklyTimetableGrid({
     }
     const laidOut = {};
     for (const d of DAY_ORDER) {
-      laidOut[d] = layoutDayEvents(map[d]);
+      laidOut[d] = layoutDayEvents(map[d], gridEndMin);
     }
     return laidOut;
-  }, [schedules]);
+  }, [schedules, gridEndMin]);
 
   return (
     <div className="overflow-x-auto bg-white select-none">
@@ -177,7 +229,7 @@ function WeeklyTimetableGrid({
               Time Scale
             </span>
             <span className="font-data text-[12px] font-black text-[#1B432C]">
-              07:30 – 19:30
+              07:30 – {gridEndMin > GRID_END_MIN_STANDARD ? '19:30' : '17:30'}
             </span>
           </div>
           {DAY_ORDER.map((day) => {
@@ -212,13 +264,13 @@ function WeeklyTimetableGrid({
         {/* Proportional Shared-Scale Timetable Body */}
         <div
           className="grid grid-cols-[110px_repeat(6,minmax(150px,1fr))] relative"
-          style={{ height: `${TOTAL_GRID_HEIGHT + 18}px` }}
+          style={{ height: `${totalGridHeight + 18}px` }}
         >
           {/* Left Shared Vertical Time Axis */}
           <div className="relative border-r border-[#E1E5E2] bg-[#FAFBF9]">
-            {TIME_TICKS.map((tick) => {
+            {timeTicks.map((tick) => {
               const isFirstTick = tick.minutes === GRID_START_MIN;
-              const isLastTick = tick.minutes === GRID_END_MIN;
+              const isLastTick = tick.minutes === gridEndMin;
               const isMajor = tick.isHour || isFirstTick || isLastTick;
 
               return (
@@ -254,7 +306,7 @@ function WeeklyTimetableGrid({
                 className="relative border-r last:border-r-0 border-[#E1E5E2] bg-white"
               >
                 {/* 30-minute background horizontal guide lines & quick-add click zones */}
-                {GRID_SLOTS.map((slot) => (
+                {gridSlots.map((slot) => (
                   <div
                     key={slot.minutes}
                     onClick={() => {
@@ -282,40 +334,15 @@ function WeeklyTimetableGrid({
                 ))}
 
                 {/* Plotted Class Blocks (Proportional to Exact Start & End Minutes) */}
-                {dayItems.map(({ sched, startMin, endMin, clampedStart, clampedEnd, laneIndex, laneCount }) => {
-                  const topPx = (clampedStart - GRID_START_MIN) * PX_PER_MINUTE + GRID_PADDING_TOP;
-                  const heightPx = Math.max(28, (clampedEnd - clampedStart) * PX_PER_MINUTE);
-                  const durMins = Math.max(0, endMin - startMin);
-                  const isLongCard = durMins > 120 || heightPx >= 180;
+                {dayItems.map(({ sched, durMins, heightPx, isLongCard, topPx, color, isLab, isComb, displayCode, subjectTitle, hasRoom, rawSection, hasSection, timeRangeLabel, laneIndex, laneCount }) => {
                   const widthPct = 100 / laneCount;
                   const leftPct = laneIndex * widthPct;
 
-                  const color = getFacultyColor(sched.faculty_name);
                   const inConflict =
                     Boolean(sched.isConflicting) ||
                     (conflictedCurriculumIds && conflictedCurriculumIds.has(sched.curriculum_id));
                   const lensDim = isLensOpen && !inConflict;
                   const lensLit = isLensOpen && inConflict;
-
-                  const isLab = isLabSession(sched);
-                  const isComb = isCombinedCSubject({
-                    code: sched.subject_code,
-                    type: sched.curriculum_type || sched.curriculum?.type,
-                  });
-                  const displayCode = formatSubjectCode(sched) || sched.subject_code || 'N/A';
-                  const subjectTitle =
-                    sched.subject_name ||
-                    (typeof sched.subject === 'string' ? sched.subject : sched.subject?.name) ||
-                    sched.curriculum?.name ||
-                    sched.curriculum?.subject_name ||
-                    sched.curriculum?.subject?.name ||
-                    sched.curriculum_name ||
-                    '';
-                  const rawRoom = sched.room_name || sched.room?.name || '';
-                  const hasRoom = Boolean(rawRoom && rawRoom.trim() !== '' && rawRoom.toUpperCase() !== 'TBA');
-                  const rawSection = sched.section || '';
-                  const hasSection = Boolean(rawSection && rawSection.trim() !== '' && rawSection.toLowerCase() !== 'no section');
-                  const timeRangeLabel = `${to12h(sched.start_time)} – ${to12h(sched.end_time)}`;
 
                   return (
                     <div

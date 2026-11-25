@@ -687,8 +687,14 @@ def build_schedule_excel(
         cell.alignment = Alignment(horizontal='center', vertical='center')
     grid_ws.row_dimensions[1].height = 26
 
-    # Build 30-minute bands from 07:30 to 19:30, with 12:00-13:00 as a single 1-hour Lunch Break row
-    time_bands = [
+    # Build 30-minute bands from 07:30 to 17:30 (or 19:30 if CVMAS or classes exist after 17:30)
+    has_late = any(
+        r.get("end_time_obj") and (r["end_time_obj"].hour * 60 + r["end_time_obj"].minute) > 1050
+        for r in rows
+    )
+    max_band_end = 1170 if ("CVMAS" in str(dept_name or "").upper() or has_late) else 1050
+
+    all_time_bands = [
         (450, 480, "07:30 AM - 08:00 AM"),
         (480, 510, "08:00 AM - 08:30 AM"),
         (510, 540, "08:30 AM - 09:00 AM"),
@@ -714,6 +720,7 @@ def build_schedule_excel(
         (1110, 1140, "06:30 PM - 07:00 PM"),
         (1140, 1170, "07:00 PM - 07:30 PM"),
     ]
+    time_bands = [b for b in all_time_bands if b[1] <= max_band_end]
     lunch_fill = PatternFill(start_color='FEF3C7', end_color='FEF3C7', fill_type='solid')
     lunch_font = Font(name='Segoe UI', size=9, bold=True, color='92400E')
     class_fill = PatternFill(start_color='E6F4EA', end_color='E6F4EA', fill_type='solid')

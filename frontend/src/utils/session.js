@@ -149,6 +149,23 @@ export function canPublishSchedule() {
   return isAdmin();
 }
 
+export function isCastUser() {
+  const dept = (getDepartment() || '').toUpperCase();
+  return dept === 'CAST';
+}
+
+export const PRIORITY_LAB_PROGRAM_CODES = ['BSCS', 'BSCPE', 'CS', 'COE'];
+
+export function isPriorityLabProgram(programCode) {
+  if (!programCode) return false;
+  return PRIORITY_LAB_PROGRAM_CODES.includes(String(programCode).trim().toUpperCase());
+}
+
+/** Only CAST Program Chairs (and CAST Dean/Admin) may manage CAST Laboratory Rooms. */
+export function canManageCastLabRooms() {
+  return isCastUser() && (SCHEDULING_ROLES.includes(getRole()) || isAdmin() || isDean());
+}
+
 export function getDepartment() {
   if (typeof window === 'undefined') return '';
   return localStorage.getItem('atlas_department') || '';

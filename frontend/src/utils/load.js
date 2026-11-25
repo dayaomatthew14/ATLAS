@@ -71,15 +71,16 @@ export function getAllowedTeachingHours(type, term = '1st') {
 }
 
 /**
- * Calculate consultation hours and office hours cascade deduction for Full-Time faculty:
- * - 6 consultation hours standard allocation
+ * Calculate consultation hours, office hours, and off-campus hours cascade deduction for Full-Time faculty:
+ * - 6 consultation hours standard allocation (FIXED, never deducted)
  * - Off-campus: 2.5h (1st term), 5.5h (2nd & 3rd term)
  * - Office: 7.5h (1st term), 8.5h (2nd & 3rd term)
  * - Overload cascade rule:
  *   1. Overload hours must first be deducted from allocated office hours.
  *   2. If overload exceeds available office hours, the remaining excess must then
- *      be deducted from the standard 6.0 consultation hours.
- *   3. If excess overload exceeds 6.0 hours, consultation is clamped to 0.0h and flagged.
+ *      be deducted from off-campus hours.
+ *   3. Consultation hours is fixed at 6.0 hours.
+ *   4. If excess overload exceeds available off-campus hours, it is flagged for policy review.
  */
 export function calculateConsultationWorkload(term = '1st', type = 'full_time_regular', actualOverload = 0) {
   const normTerm = normaliseTermKey(term);
@@ -90,9 +91,13 @@ export function calculateConsultationWorkload(term = '1st', type = 'full_time_re
       adjustedConsultation: 0,
       allocatedOffice: 0,
       remainingOffice: 0,
+      allocatedOffCampus: 0,
+      remainingOffCampus: 0,
       deductedFromOffice: 0,
+      deductedFromOffCampus: 0,
       deductedFromConsultation: 0,
       excessOverload: 0,
+      unabsorbedOverload: 0,
       maxOverload: 0,
       overloadDifference: 0,
       policyReviewFlag: false,
@@ -103,32 +108,42 @@ export function calculateConsultationWorkload(term = '1st', type = 'full_time_re
   const stdConsultation = CONSULTATION_HOURS[normTerm] ?? 6.0;
   const effectiveSplitTerm = normType === 'full_time_probationary' ? '1st' : normTerm;
   const allocOffice = ALLOCATED_OFFICE_HOURS[effectiveSplitTerm] ?? 8.5;
+  const allocOffCampus = OFF_CAMPUS_HOURS[effectiveSplitTerm] ?? 5.5;
   const overload = Math.max(0, Number(actualOverload) || 0);
 
   // Step 1: Overload hours must first be deducted from allocated office hours
   const deductedFromOffice = Math.min(allocOffice, overload);
   const remainingOffice = Number((allocOffice - deductedFromOffice).toFixed(2));
 
-  // Step 2: If overload exceeds office hours, remaining excess is deducted from consultation
+  // Step 2: If overload exceeds office hours, remaining excess is deducted from off-campus hours
   const excessOverload = Number(Math.max(0, overload - allocOffice).toFixed(2));
-  const deductedFromConsultation = Math.min(stdConsultation, excessOverload);
-  const remainingConsultation = Number(Math.max(0, stdConsultation - excessOverload).toFixed(2));
+  const deductedFromOffCampus = Math.min(allocOffCampus, excessOverload);
+  const remainingOffCampus = Number(Math.max(0, allocOffCampus - excessOverload).toFixed(2));
+  const unabsorbedOverload = Number(Math.max(0, excessOverload - allocOffCampus).toFixed(2));
 
-  // Step 3: Flag if excess overload exceeds consultation hours
-  const policyReviewFlag = excessOverload > stdConsultation;
+  // Step 3: Consultation hours is fixed at 6.0 hours (never deducted)
+  const adjustedConsultation = stdConsultation;
+  const deductedFromConsultation = 0;
+
+  // Step 4: Flag if excess overload exceeds available off-campus hours
+  const policyReviewFlag = unabsorbedOverload > 0.005;
   const flagReason = policyReviewFlag
-    ? `Overload (${overload.toFixed(1)}h) exceeds available office (${allocOffice.toFixed(1)}h) and consultation (${stdConsultation.toFixed(1)}h) hours.`
+    ? `Overload (${overload.toFixed(1)}h) exceeds available office (${allocOffice.toFixed(1)}h) and off-campus (${allocOffCampus.toFixed(1)}h) hours.`
     : null;
 
   return {
     standardConsultation: stdConsultation,
-    adjustedConsultation: remainingConsultation,
+    adjustedConsultation,
     allocatedOffice: allocOffice,
-    remainingOffice: remainingOffice,
+    remainingOffice,
+    allocatedOffCampus: allocOffCampus,
+    remainingOffCampus,
     deductedFromOffice: Number(deductedFromOffice.toFixed(2)),
-    deductedFromConsultation: Number(deductedFromConsultation.toFixed(2)),
+    deductedFromOffCampus: Number(deductedFromOffCampus.toFixed(2)),
+    deductedFromConsultation,
     excessOverload,
-    maxOverload: allocOffice,
+    unabsorbedOverload,
+    maxOverload: Number((allocOffice + allocOffCampus).toFixed(2)),
     overloadDifference: remainingOffice,
     policyReviewFlag,
     flagReason,
@@ -136,7 +151,7 @@ export function calculateConsultationWorkload(term = '1st', type = 'full_time_re
 }
 
 /**
- * Full-time 40-hour work week breakdown including office and consultation overload cascade adjustments.
+ * Full-time 40-hour work week breakdown including office and off-campus overload cascade adjustments.
  */
 export function getWorkWeekBreakdown(term = '1st', type = 'full_time_regular', actualOverload = 0) {
   const normTerm = normaliseTermKey(term);
@@ -144,15 +159,13 @@ export function getWorkWeekBreakdown(term = '1st', type = 'full_time_regular', a
   if (!isFullTimeType(normType)) return null;
 
   const baseTeaching = getAllowedTeachingHours(normType, normTerm);
-  const effectiveSplitTerm = normType === 'full_time_probationary' ? '1st' : normTerm;
-  const offCampus = OFF_CAMPUS_HOURS[effectiveSplitTerm] ?? 5.5;
   const consultInfo = calculateConsultationWorkload(normTerm, normType, actualOverload);
   const overload = Math.max(0, Number(actualOverload) || 0);
   const teaching = Number((baseTeaching + overload).toFixed(2));
   const actualTotalHours = Number(
     (
       teaching +
-      offCampus +
+      consultInfo.remainingOffCampus +
       consultInfo.adjustedConsultation +
       consultInfo.remainingOffice
     ).toFixed(2)
@@ -162,7 +175,9 @@ export function getWorkWeekBreakdown(term = '1st', type = 'full_time_regular', a
     term: normTerm,
     teaching_hours: teaching,
     base_teaching_hours: baseTeaching,
-    off_campus_hours: offCampus,
+    off_campus_hours: consultInfo.remainingOffCampus,
+    allocated_off_campus_hours: consultInfo.allocatedOffCampus,
+    deducted_from_off_campus: consultInfo.deductedFromOffCampus,
     consultation_hours: consultInfo.adjustedConsultation,
     standard_consultation_hours: consultInfo.standardConsultation,
     adjusted_consultation_hours: consultInfo.adjustedConsultation,
@@ -171,6 +186,7 @@ export function getWorkWeekBreakdown(term = '1st', type = 'full_time_regular', a
     deducted_from_office: consultInfo.deductedFromOffice,
     deducted_from_consultation: consultInfo.deductedFromConsultation,
     excess_overload_hours: consultInfo.excessOverload,
+    unabsorbed_overload_hours: consultInfo.unabsorbedOverload,
     max_overload_hours: consultInfo.maxOverload,
     actual_overload_hours: overload,
     overload_difference: consultInfo.overloadDifference,

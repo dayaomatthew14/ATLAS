@@ -46,7 +46,33 @@ export default function ConflictResolutionDialog({ data, onClose }) {
       combined.match(/(?:for|on)\s+((?:Engr\.|Dr\.|Prof\.|Mr\.|Ms\.)\s+[A-Za-z\s.]+?)(?=\s*(?:\(|$|\bon\b|\bexceeds\b|\bis\b))/i)?.[1]?.trim() ||
       null;
 
-    // 5. Clean up duplicate "Recorded in the Activity Log."
+    // 5. Detect cascade deduction details if present
+    const cascade = data.cascade || null;
+    let cascadeFromText = null;
+    if (!cascade) {
+      const officeMatch = text.match(/(\d+(?:\.\d+)?)\s*h\s+deducted from office hours\s*\(\s*(\d+(?:\.\d+)?)\s*h\s+of\s+(\d+(?:\.\d+)?)\s*h remaining\)/i);
+      const offMatch = text.match(/(\d+(?:\.\d+)?)\s*h\s+deducted from off-campus hours\s*\(\s*(\d+(?:\.\d+)?)\s*h\s+of\s+(\d+(?:\.\d+)?)\s*h remaining\)/i);
+      const offRemainMatch = text.match(/off-campus hours remain(?: protected)? at\s*(\d+(?:\.\d+)?)\s*h/i);
+      const consultMatch = text.match(/consultation hours are fixed at\s*(\d+(?:\.\d+)?)\s*h/i);
+      if (officeMatch) {
+        cascadeFromText = {
+          deducted_from_office: parseFloat(officeMatch[1]),
+          remaining_office: parseFloat(officeMatch[2]),
+          allocated_office: parseFloat(officeMatch[3]),
+          deducted_from_off_campus: offMatch ? parseFloat(offMatch[1]) : 0.0,
+          remaining_off_campus: offMatch ? parseFloat(offMatch[2]) : (offRemainMatch ? parseFloat(offRemainMatch[1]) : 5.5),
+          allocated_off_campus: offMatch ? parseFloat(offMatch[3]) : (offRemainMatch ? parseFloat(offRemainMatch[1]) : 5.5),
+          deducted_from_consultation: 0.0,
+          remaining_consultation: consultMatch ? parseFloat(consultMatch[1]) : 6.0,
+          standard_consultation: 6.0,
+          off_campus_hours: offMatch ? parseFloat(offMatch[2]) : (offRemainMatch ? parseFloat(offRemainMatch[1]) : 5.5),
+          is_full_time: true,
+        };
+      }
+    }
+    const activeCascade = cascade || cascadeFromText;
+
+    // 6. Clean up duplicate "Recorded in the Activity Log."
     const clean = text
       .replace(/\s*(?:and\s+)?recorded in the (?:system\s+)?activity log\.?/gi, '')
       .trim()
@@ -57,7 +83,7 @@ export default function ConflictResolutionDialog({ data, onClose }) {
           .replace(/[\s,]+$/, '') + '.'
       : '';
 
-    return { clean, load, slot, curriculum, facultyName };
+    return { clean, load, slot, curriculum, facultyName, activeCascade };
   }, [data]);
 
   if (!isOpen) return null;
@@ -186,6 +212,96 @@ export default function ConflictResolutionDialog({ data, onClose }) {
                   <div className="text-[10px] uppercase font-bold text-[#0F2A1D]">Total Load</div>
                   <div className="text-xs font-black text-[#0F2A1D] font-data">{parsed.load.total.toFixed(1)} hrs</div>
                 </div>
+              </div>
+            )}
+
+            {/* Workload Cascade Deduction Card */}
+            {parsed.activeCascade && parsed.activeCascade.is_full_time !== false && (
+              <div className="mb-3 p-3 rounded-xl bg-white/95 border border-[#AEC3B0]/60 shadow-2xs font-ui">
+                <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-[#AEC3B0]/30">
+                  <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-[#0F2A1D]">
+                    <Clock className="w-3.5 h-3.5 text-[#2D6A4F]" />
+                    <span>Workload Cascade Deduction</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500">
+                    40-Hour Faculty Obligation
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {/* 1. Office Hours (1st to deduct) */}
+                  <div className="p-2 rounded-xl bg-amber-50/80 border border-amber-200/80 flex flex-col justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wider text-amber-900">
+                        Office Hours
+                      </div>
+                      <div className="text-[9px] font-semibold text-amber-700 mt-0.5">
+                        1st to deduct
+                      </div>
+                    </div>
+                    <div className="my-1">
+                      <div className="text-xs sm:text-sm font-black text-slate-900 font-data">
+                        {Number(parsed.activeCascade.remaining_office).toFixed(1)} / {Number(parsed.activeCascade.allocated_office).toFixed(1)} hrs
+                      </div>
+                    </div>
+                    <div className="text-[9px] font-extrabold text-amber-800 bg-amber-100/90 rounded px-1 py-0.5">
+                      -{Number(parsed.activeCascade.deducted_from_office).toFixed(1)}h deducted
+                    </div>
+                  </div>
+
+                  {/* 2. Off-Campus Hours */}
+                  <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">
+                        Off-Campus
+                      </div>
+                      <div className="text-[9px] font-semibold text-slate-500 mt-0.5">
+                        {Number(parsed.activeCascade.allocated_off_campus || 5.5).toFixed(1)} hrs alloc.
+                      </div>
+                    </div>
+                    <div className="my-1">
+                      <div className="text-xs sm:text-sm font-black text-slate-800 font-data">
+                        {Number(parsed.activeCascade.remaining_off_campus ?? parsed.activeCascade.off_campus_hours).toFixed(1)} / {Number(parsed.activeCascade.allocated_off_campus || 5.5).toFixed(1)} hrs
+                      </div>
+                    </div>
+                    <div className={`text-[9px] font-extrabold rounded px-1 py-0.5 ${
+                      Number(parsed.activeCascade.deducted_from_off_campus || 0) > 0
+                        ? 'text-amber-800 bg-amber-100/90'
+                        : 'text-slate-600 bg-slate-200/70 font-bold'
+                    }`}>
+                      {Number(parsed.activeCascade.deducted_from_off_campus || 0) > 0
+                        ? `-${Number(parsed.activeCascade.deducted_from_off_campus).toFixed(1)}h deducted`
+                        : 'Untouched'}
+                    </div>
+                  </div>
+
+                  {/* 3. Consultation Hours (allotted 6.0h fixed) */}
+                  <div className="p-2 rounded-xl bg-emerald-50/80 border border-emerald-200/80 flex flex-col justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wider text-emerald-900">
+                        Consultation
+                      </div>
+                      <div className="text-[9px] font-semibold text-emerald-700 mt-0.5">
+                        allotted 6.0 hrs
+                      </div>
+                    </div>
+                    <div className="my-1">
+                      <div className="text-xs sm:text-sm font-black text-slate-900 font-data">
+                        {Number(parsed.activeCascade.remaining_consultation || 6.0).toFixed(1)} hrs
+                      </div>
+                    </div>
+                    <div className="text-[9px] font-extrabold rounded px-1 py-0.5 text-emerald-800 bg-emerald-100/90">
+                      Fixed (6.00h)
+                    </div>
+                  </div>
+                </div>
+
+                {parsed.activeCascade.policy_review_flag && (
+                  <div className="mt-2 flex items-start gap-1.5 p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                    <span>⚠</span>
+                    <span>Policy Review Required: Overload exceeds combined available office and off-campus hours.</span>
+                  </div>
+                )}
               </div>
             )}
 

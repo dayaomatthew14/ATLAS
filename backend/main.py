@@ -15,7 +15,7 @@ from app.routers import (
     auth_router, curriculum, rooms, 
     users, schedules, semesters, ai_scheduler, logs, ai_rules,
     notifications_router, conflicts, subject_offerings, professors,
-    academics_router
+    academics_router, lab_rooms
 )
 
 from sqlalchemy import text, inspect, func
@@ -301,8 +301,9 @@ async def lifespan(app: FastAPI):
     try:
         with database.SessionLocal() as db:
             seed_dean_accounts(db)
+            lab_rooms.ensure_cast_computer_labs(db)
     except Exception as e:
-        print(f"Startup Dean seeder result: {e}")
+        print(f"Startup seeder result: {e}")
 
     # Say out loud whether codes can actually reach anyone. A misconfigured
     # deployment used to start up looking perfectly healthy and then fail every
@@ -365,6 +366,7 @@ app.include_router(conflicts.router)
 app.include_router(subject_offerings.router)
 app.include_router(professors.router)
 app.include_router(academics_router.router)
+app.include_router(lab_rooms.router)
 
 @app.get("/api/health")
 def health_check():

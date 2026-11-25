@@ -196,6 +196,20 @@ export default function ConflictLens({
                     {current?.reason || 'Overlapping time or resource constraint.'}
                   </p>
 
+                  {/* DLSAU Overload Cascade Rule Callout */}
+                  {Boolean(
+                    current?.conflict_type === 'overload' ||
+                    /overload/i.test(String(current?.type || '')) ||
+                    /overload/i.test(String(current?.reason || ''))
+                  ) && (
+                    <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-[12px] font-ui text-amber-950 leading-relaxed">
+                      <span className="font-black text-amber-900 block mb-0.5">DLSAU Workload Cascade Rule:</span>
+                      <span>
+                        Overload teaching hours are deducted first from allocated office hours (max 7.5h 1st term / 8.5h 2nd–3rd term). Any excess is then deducted from the 6 allotted consultation hours. Off-campus hours remain protected.
+                      </span>
+                    </div>
+                  )}
+
                   {/* Metadata Chips (Subject, Faculty, Dean Approval) */}
                   <div className="mt-2.5 flex items-center gap-2 flex-wrap">
                     {current?.curriculum && (

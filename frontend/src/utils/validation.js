@@ -484,7 +484,7 @@ export function validateIntegerRange(
 /**
  * Validate start/end time strings ("HH:MM") so end time strictly follows start time.
  */
-export function validateTimeOrder(startTime, endTime, { contextLabel = 'Schedule' } = {}) {
+export function validateTimeOrder(startTime, endTime, { contextLabel = 'Schedule', department = '' } = {}) {
   const start = String(startTime ?? '').trim();
   const end = String(endTime ?? '').trim();
   if (!start) return 'Select a start time.';
@@ -496,6 +496,12 @@ export function validateTimeOrder(startTime, endTime, { contextLabel = 'Schedule
   const [eh, em] = end.split(':').map(Number);
   if (eh * 60 + em <= sh * 60 + sm) {
     return `${contextLabel} end time (${formatTime12h(end)}) must be after start time (${formatTime12h(start)}).`;
+  }
+  const dept = String(department || '').trim().toUpperCase();
+  if (dept && dept !== 'CVMAS') {
+    if (eh * 60 + em > 17 * 60 + 30) {
+      return 'The 5:30 PM – 7:30 PM time slot is restricted to CVMAS only. Classes for this department must end by 5:30 PM (17:30).';
+    }
   }
   return '';
 }

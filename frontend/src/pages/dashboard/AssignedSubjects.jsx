@@ -7,6 +7,11 @@ import {
   UserX,
   Search,
   RefreshCw,
+  Monitor,
+  ShieldCheck,
+  Building2,
+  Check,
+  X,
 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -22,6 +27,7 @@ import {
   CT_TIER_OPTIONS,
   CT_TIERS,
 } from '../../utils/load';
+import { canManageCastLabRooms, isCastUser, isPriorityLabProgram } from '../../utils/session';
 
 const formatYearLevel = (val) => {
   if (!val) return '—';
@@ -41,17 +47,26 @@ export default function AssignedSubjects() {
   const [data, setData] = useState({
     active_semester: null,
     department: null,
-    summary: { total: 0, assigned: 0, unassigned: 0, all_assigned: true },
+    summary: { total: 0, assigned: 0, unassigned: 0, ct_count: 0, lab_count: 0, lab_assigned_room_count: 0, pending_room_approval_count: 0, all_assigned: true },
     subjects: []
   });
 
   // Filter states
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned' | 'ct'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned' | 'ct' | 'lab' | 'pending_room'
   const [courseFilter, setCourseFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
   const [professorFilter, setProfessorFilter] = useState('all'); // 'all' | professor_name
+  const [roomFilter, setRoomFilter] = useState('all'); // 'all' | 'assigned' | 'unassigned' | 'pending_approval' | room_name
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [updatingCtId, setUpdatingCtId] = useState(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Professor roster for assignment modal
   const [allProfessors, setAllProfessors] = useState([]);
@@ -61,9 +76,25 @@ export default function AssignedSubjects() {
   const [assignError, setAssignError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Lab Rooms roster and modal
+  const [labRooms, setLabRooms] = useState([]);
+  const [roomModalOpen, setRoomModalOpen] = useState(false);
+  const [selectedRoomSubject, setSelectedRoomSubject] = useState(null);
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [roomSubmitting, setRoomSubmitting] = useState(false);
+  const [roomError, setRoomError] = useState('');
+
+  // Review modal state (for CS/COE chair approving/rejecting non-priority programs)
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewSubject, setReviewSubject] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+
   // Confirmation modal for Gen Ed subject assignment / override
   const [confirmOverrideModalOpen, setConfirmOverrideModalOpen] = useState(false);
   const [pendingOverrideData, setPendingOverrideData] = useState(null);
+
+  const canManageLabs = canManageCastLabRooms();
 
   // Fetch assigned subjects for active term
   const fetchAssignedSubjects = useCallback(async () => {
@@ -73,7 +104,7 @@ export default function AssignedSubjects() {
       setData(res || {
         active_semester: null,
         department: null,
-        summary: { total: 0, assigned: 0, unassigned: 0, all_assigned: true },
+        summary: { total: 0, assigned: 0, unassigned: 0, ct_count: 0, lab_count: 0, lab_assigned_room_count: 0, pending_room_approval_count: 0, all_assigned: true },
         subjects: []
       });
     } catch (err) {
@@ -98,12 +129,23 @@ export default function AssignedSubjects() {
     }
   }, []);
 
+  // Fetch available CAST lab rooms
+  const fetchLabRooms = useCallback(async () => {
+    try {
+      const rooms = await api.get('/subject-offerings/available-lab-rooms').catch(() => []);
+      setLabRooms(Array.isArray(rooms) ? rooms : []);
+    } catch (e) {
+      console.error('Failed to load lab rooms:', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAssignedSubjects();
     fetchProfessors();
-  }, [fetchAssignedSubjects, fetchProfessors]);
+    fetchLabRooms();
+  }, [fetchAssignedSubjects, fetchProfessors, fetchLabRooms]);
 
-  // Unique list of programs / courses for dropdown (basis is what we have in curriculum)
+  // Unique list of programs / courses for dropdown
   const courseOptions = useMemo(() => {
     const set = new Set();
     if (Array.isArray(data.curriculum_courses)) {
@@ -143,14 +185,16 @@ export default function AssignedSubjects() {
 
   // Filtered subjects
   const filteredSubjects = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     return (data.subjects || []).filter(sub => {
-      // 1. Status filter
+      // 1. Status tab filter
       if (statusFilter === 'assigned' && sub.status !== 'assigned') return false;
       if (statusFilter === 'unassigned' && sub.status !== 'unassigned') return false;
       if (statusFilter === 'ct' && !sub.is_ct) return false;
+      if (statusFilter === 'lab' && !sub.is_lab) return false;
+      if (statusFilter === 'pending_room' && sub.room_approval_status !== 'pending_approval') return false;
 
-      // 2. Course filter (matching curriculum program)
+      // 2. Course filter
       if (courseFilter !== 'all') {
         const progName = (sub.program_name || '').trim();
         const progCode = (sub.program_code || '').trim();
@@ -169,17 +213,29 @@ export default function AssignedSubjects() {
         if (!matchesProf) return false;
       }
 
-      // 5. Search query
+      // 5. Consolidated Laboratory Room filter
+      if (roomFilter === 'assigned') {
+        if (!sub.room_id) return false;
+      } else if (roomFilter === 'unassigned') {
+        if (!sub.is_lab || sub.room_id) return false;
+      } else if (roomFilter === 'pending_approval') {
+        if (sub.room_approval_status !== 'pending_approval') return false;
+      } else if (roomFilter !== 'all') {
+        if (sub.room_name !== roomFilter) return false;
+      }
+
+      // 6. Search query
       if (q) {
         const matchCode = (sub.code || '').toLowerCase().includes(q);
         const matchName = (sub.name || '').toLowerCase().includes(q);
+        const matchRoom = (sub.room_name || '').toLowerCase().includes(q);
         const matchProf = sub.assigned_professors?.some(p => p.faculty_name.toLowerCase().includes(q));
-        if (!matchCode && !matchName && !matchProf) return false;
+        if (!matchCode && !matchName && !matchProf && !matchRoom) return false;
       }
 
       return true;
     });
-  }, [data.subjects, statusFilter, courseFilter, yearFilter, professorFilter, searchQuery]);
+  }, [data.subjects, statusFilter, courseFilter, yearFilter, professorFilter, roomFilter, debouncedQuery]);
 
   // Open assignment modal for a subject
   const handleOpenAssignModal = (subject) => {
@@ -193,14 +249,27 @@ export default function AssignedSubjects() {
     setAssignModalOpen(true);
   };
 
+  // Open room modal for a laboratory subject
+  const handleOpenRoomModal = (subject) => {
+    setSelectedRoomSubject(subject);
+    setRoomError('');
+    setSelectedRoomId(subject.room_id ? String(subject.room_id) : '');
+    setRoomModalOpen(true);
+  };
+
+  // Open approval review modal for a pending room assignment
+  const handleOpenReviewModal = (subject) => {
+    setReviewSubject(subject);
+    setRejectReason('');
+    setReviewModalOpen(true);
+  };
+
   // Perform the actual API assignment / reassignment
   const executeAssignment = async (subject, profId) => {
     setIsSubmitting(true);
     try {
-      // Backend POST /subject-offerings updates any existing offering for this
-      // subject in-place (preserving CT tier & cleaning up old professor's draft schedules).
       await api.post('/subject-offerings', {
-        faculty_id: parseInt(profId),
+        faculty_id: parseInt(profId, 10),
         curriculum_id: subject.curriculum_id,
         semester_id: data.active_semester.id
       });
@@ -260,8 +329,6 @@ export default function AssignedSubjects() {
     const isOverride = Boolean(currentOffering && String(currentOffering.faculty_id) !== String(selectedProfId));
     const targetProf = allProfessors.find(p => String(p.id) === String(selectedProfId));
 
-    // If the subject is not a major subject (Gen Ed):
-    // Prompt confirmation before the assignment is overridden (or assigned)
     if (!selectedSubject.is_major) {
       setPendingOverrideData({
         subject: selectedSubject,
@@ -274,8 +341,91 @@ export default function AssignedSubjects() {
       return;
     }
 
-    // Major subject: proceed directly
     await executeAssignment(selectedSubject, selectedProfId);
+  };
+
+  // Save room assignment for a laboratory subject
+  const handleSaveRoomAssignment = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedRoomSubject || !data.active_semester) return;
+    setRoomSubmitting(true);
+    setRoomError('');
+    try {
+      const res = await api.post('/subject-offerings/assign-room', {
+        curriculum_id: selectedRoomSubject.curriculum_id,
+        semester_id: data.active_semester.id,
+        room_id: selectedRoomId ? parseInt(selectedRoomId, 10) : null,
+      });
+      addToast(res.message || 'Room assignment saved.', 'success');
+      setRoomModalOpen(false);
+      fetchAssignedSubjects();
+    } catch (err) {
+      console.error(err);
+      const parsed = parseErrorResponse(err, 'Failed to assign room.');
+      setRoomError(parsed.message);
+      addToast(parsed.message || 'Failed to assign room.', 'error');
+    } finally {
+      setRoomSubmitting(false);
+    }
+  };
+
+  // Clear room assignment
+  const handleUnassignRoom = async () => {
+    if (!selectedRoomSubject || !data.active_semester) return;
+    setRoomSubmitting(true);
+    try {
+      await api.post('/subject-offerings/assign-room', {
+        curriculum_id: selectedRoomSubject.curriculum_id,
+        semester_id: data.active_semester.id,
+        room_id: null,
+      });
+      addToast(`Cleared room assignment for ${selectedRoomSubject.code}.`, 'success');
+      setRoomModalOpen(false);
+      fetchAssignedSubjects();
+    } catch (err) {
+      console.error(err);
+      addToast(err.message || 'Failed to clear room assignment.', 'error');
+    } finally {
+      setRoomSubmitting(false);
+    }
+  };
+
+  // Approve a pending room assignment
+  const handleApproveRoom = async () => {
+    const offId = reviewSubject?.offering_id || reviewSubject?.assigned_professors?.[0]?.offering_id;
+    if (!offId) return;
+    setReviewSubmitting(true);
+    try {
+      await api.post(`/subject-offerings/${offId}/approve-room`);
+      addToast(`Approved room assignment for ${reviewSubject.code}.`, 'success');
+      setReviewModalOpen(false);
+      fetchAssignedSubjects();
+    } catch (err) {
+      console.error(err);
+      addToast(err.message || 'Failed to approve room assignment.', 'error');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  // Decline a pending room assignment
+  const handleRejectRoom = async () => {
+    const offId = reviewSubject?.offering_id || reviewSubject?.assigned_professors?.[0]?.offering_id;
+    if (!offId) return;
+    setReviewSubmitting(true);
+    try {
+      await api.post(`/subject-offerings/${offId}/reject-room`, {
+        reason: rejectReason.trim() || 'Room request declined by CS/COE Program Chair.',
+      });
+      addToast(`Declined room request for ${reviewSubject.code}.`, 'warning');
+      setReviewModalOpen(false);
+      fetchAssignedSubjects();
+    } catch (err) {
+      console.error(err);
+      addToast(err.message || 'Failed to decline room request.', 'error');
+    } finally {
+      setReviewSubmitting(false);
+    }
   };
 
   // Inline update for Converted Tutorial (CT) tier
@@ -330,10 +480,24 @@ export default function AssignedSubjects() {
     }
   };
 
-  const summary = data?.summary || { total: 0, assigned: 0, unassigned: 0, ct_count: 0, all_assigned: true };
+  const summary = data?.summary || {
+    total: 0,
+    assigned: 0,
+    unassigned: 0,
+    ct_count: 0,
+    lab_count: 0,
+    lab_assigned_room_count: 0,
+    pending_room_approval_count: 0,
+    all_assigned: true,
+  };
   const ctCount = summary.ct_count ?? (data?.subjects || []).filter((s) => s.is_ct).length;
+  const labCount = summary.lab_count ?? (data?.subjects || []).filter((s) => s.is_lab).length;
+  const labAssignedCount = summary.lab_assigned_room_count ?? (data?.subjects || []).filter((s) => s.is_lab && s.room_id).length;
+  const pendingApprovalCount = summary.pending_room_approval_count ?? (data?.subjects || []).filter((s) => s.room_approval_status === 'pending_approval').length;
   const active_semester = data?.active_semester;
   const department = data?.department;
+
+  const isRoomSubjectPriority = selectedRoomSubject ? isPriorityLabProgram(selectedRoomSubject.program_code || selectedRoomSubject.program_name) : false;
 
   return (
     <div className="w-full max-w-[1640px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -347,11 +511,11 @@ export default function AssignedSubjects() {
             </span>
             <span className="text-slate-400">·</span>
             <span className="font-ui text-xs font-semibold text-slate-500">
-              Major Subjects & Assigned Gen Ed · Active Term
+              Major Subjects, General Education & Laboratory Rooms · Active Term
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Assigned Subjects
+            Subjects & Rooms
           </h1>
           <p className="font-ui text-sm text-slate-600 mt-1">
             {active_semester
@@ -376,8 +540,8 @@ export default function AssignedSubjects() {
         </div>
       </div>
 
-      {/* KPI Stat Tiles (Total, Assigned, Unassigned) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* KPI Stat Tiles (Total, Assigned, Lab Rooms, Unassigned) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Subjects */}
         <div className="glass rounded-panel p-5 border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
@@ -396,18 +560,18 @@ export default function AssignedSubjects() {
           </div>
         </div>
 
-        {/* Assigned Subjects */}
+        {/* Assigned Faculty */}
         <div className="glass rounded-panel p-5 border border-emerald-200/80 bg-emerald-50/40 shadow-xs flex items-center justify-between">
           <div>
             <p className="font-ui text-xs font-bold uppercase tracking-wider text-emerald-900">
-              Assigned Subjects
+              Assigned Faculty
             </p>
             <p className="text-3xl font-extrabold text-emerald-950 mt-1 tabular-nums">
               {summary.assigned}
             </p>
             <p className="font-ui text-xs text-emerald-800 mt-1">
               {summary.total > 0
-                ? `${Math.round((summary.assigned / summary.total) * 100)}% covered`
+                ? `${Math.round((summary.assigned / summary.total) * 100)}% faculty assigned`
                 : 'Ready for scheduling'}
             </p>
           </div>
@@ -416,7 +580,33 @@ export default function AssignedSubjects() {
           </div>
         </div>
 
-        {/* Unassigned Subjects */}
+        {/* Laboratory Rooms Assigned */}
+        <div className="glass rounded-panel p-5 border border-teal-200/80 bg-teal-50/40 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="font-ui text-xs font-bold uppercase tracking-wider text-teal-900">
+              Lab Rooms Assigned
+            </p>
+            <p className="text-3xl font-extrabold text-teal-950 mt-1 tabular-nums">
+              {labAssignedCount}
+              <span className="text-base font-normal text-teal-700 ml-1.5">/ {labCount}</span>
+            </p>
+            <p className="font-ui text-xs text-teal-800 mt-1">
+              {pendingApprovalCount > 0 ? (
+                <span className="font-bold text-amber-800 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  {pendingApprovalCount} pending CS/COE approval
+                </span>
+              ) : (
+                'Computer lab allocations'
+              )}
+            </p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center shrink-0">
+            <Monitor className="w-6 h-6 stroke-[2]" />
+          </div>
+        </div>
+
+        {/* Unassigned Faculty */}
         <div className={`glass rounded-panel p-5 border shadow-xs flex items-center justify-between ${
           summary.unassigned > 0
             ? 'border-amber-300 bg-amber-50/60 ring-2 ring-amber-300/40'
@@ -427,7 +617,7 @@ export default function AssignedSubjects() {
               <p className={`font-ui text-xs font-bold uppercase tracking-wider ${
                 summary.unassigned > 0 ? 'text-amber-900' : 'text-slate-500'
               }`}>
-                Unassigned Subjects
+                Unassigned Faculty
               </p>
               {summary.unassigned > 0 && (
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
@@ -454,16 +644,15 @@ export default function AssignedSubjects() {
         </div>
       </div>
 
-
-      {/* Filter Toolbar (Status, Course, Professor, Search) */}
-      <div className="glass rounded-panel p-4 border border-slate-200 shadow-xs space-y-3">
+      {/* Filter Toolbar */}
+      <div className="glass rounded-panel p-4 border border-slate-200 shadow-xs space-y-4">
+        {/* Row 1: Segmented Status Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Segmented Status Filter Tabs */}
-          <div className="inline-flex items-center rounded-xl bg-slate-100/90 p-1 border border-slate-200/80">
+          <div className="inline-flex items-center rounded-xl bg-slate-100/90 p-1 border border-slate-200/80 flex-wrap gap-1">
             <button
               type="button"
               onClick={() => setStatusFilter('all')}
-              className={`px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'all'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -474,7 +663,7 @@ export default function AssignedSubjects() {
             <button
               type="button"
               onClick={() => setStatusFilter('unassigned')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'unassigned'
                   ? 'bg-amber-500 text-white shadow-xs'
                   : summary.unassigned > 0
@@ -490,7 +679,7 @@ export default function AssignedSubjects() {
             <button
               type="button"
               onClick={() => setStatusFilter('assigned')}
-              className={`px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'assigned'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -501,7 +690,7 @@ export default function AssignedSubjects() {
             <button
               type="button"
               onClick={() => setStatusFilter('ct')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
                 statusFilter === 'ct'
                   ? 'bg-teal-700 text-white shadow-xs'
                   : ctCount > 0
@@ -511,10 +700,35 @@ export default function AssignedSubjects() {
             >
               Converted Tutorial ({ctCount})
             </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('lab')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+                statusFilter === 'lab'
+                  ? 'bg-purple-700 text-white shadow-xs'
+                  : 'text-purple-800 hover:bg-purple-100/60'
+              }`}
+            >
+              Laboratory Only ({labCount})
+            </button>
+            {pendingApprovalCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setStatusFilter('pending_room')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-ui text-[13px] font-bold transition-all ${
+                  statusFilter === 'pending_room'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-amber-800 hover:bg-amber-100/60'
+                }`}
+              >
+                Pending Room Approvals ({pendingApprovalCount})
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              </button>
+            )}
           </div>
 
-          {/* Quick Clear Filters if active */}
-          {(statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || searchQuery) && (
+          {/* Quick Clear Filters */}
+          {(statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || roomFilter !== 'all' || searchQuery) && (
             <button
               type="button"
               onClick={() => {
@@ -522,19 +736,19 @@ export default function AssignedSubjects() {
                 setCourseFilter('all');
                 setYearFilter('all');
                 setProfessorFilter('all');
+                setRoomFilter('all');
                 setSearchQuery('');
               }}
-              className="font-ui text-[13px] font-semibold text-emerald-800 hover:underline"
+              className="font-ui text-[13px] font-semibold text-emerald-800 hover:underline cursor-pointer"
             >
               Reset Filters
             </button>
           )}
         </div>
 
-        {/* Dropdowns & Search */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-
-          {/* Course / Program Filter */}
+        {/* Row 2: 5 Clean, Balanced Filter Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 pt-1">
+          {/* 1. Course / Program Filter */}
           <div>
             <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Course / Program
@@ -544,7 +758,7 @@ export default function AssignedSubjects() {
               onChange={(e) => setCourseFilter(e.target.value)}
               className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 focus:outline-hidden ${focusRing}`}
             >
-              <option value="all">All Courses</option>
+              <option value="all">All Programs</option>
               {courseOptions.map((prog) => (
                 <option key={prog} value={prog}>
                   {prog}
@@ -553,7 +767,7 @@ export default function AssignedSubjects() {
             </select>
           </div>
 
-          {/* Year Level Filter */}
+          {/* 2. Year Level Filter */}
           <div>
             <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Year Level
@@ -563,7 +777,7 @@ export default function AssignedSubjects() {
               onChange={(e) => setYearFilter(e.target.value)}
               className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 focus:outline-hidden ${focusRing}`}
             >
-              <option value="all">All Year Levels</option>
+              <option value="all">All Years</option>
               {yearOptions.map((y) => (
                 <option key={y} value={y}>
                   {formatYearLevel(y)}
@@ -572,7 +786,7 @@ export default function AssignedSubjects() {
             </select>
           </div>
 
-          {/* Professor Filter */}
+          {/* 3. Professor Filter */}
           <div>
             <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
               Professor
@@ -591,16 +805,42 @@ export default function AssignedSubjects() {
             </select>
           </div>
 
-          {/* Search Query */}
+          {/* 4. Laboratory Room Filter (Consolidated) */}
           <div>
             <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Search Code or Title
+              Laboratory Room
+            </label>
+            <select
+              value={roomFilter}
+              onChange={(e) => setRoomFilter(e.target.value)}
+              className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 focus:outline-hidden ${focusRing}`}
+            >
+              <option value="all">All Rooms</option>
+              <option value="assigned">Room Assigned</option>
+              <option value="unassigned">Unassigned Lab Room</option>
+              {pendingApprovalCount > 0 && (
+                <option value="pending_approval">
+                  Pending Approval ({pendingApprovalCount})
+                </option>
+              )}
+              {labRooms.map((r) => (
+                <option key={r.id} value={r.name}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 5. Search Query */}
+          <div>
+            <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+              Search Code / Title / Room
             </label>
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input
                 type="text"
-                placeholder="e.g. CS101, Programming..."
+                placeholder="e.g. CS101, 608..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`w-full h-10 pl-9 pr-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden ${focusRing}`}
@@ -610,7 +850,7 @@ export default function AssignedSubjects() {
         </div>
       </div>
 
-      {/* Subjects Table */}
+      {/* Subjects & Rooms Table */}
       <div className="bg-white rounded-panel overflow-hidden border border-slate-200 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -622,7 +862,7 @@ export default function AssignedSubjects() {
                 <th className="px-3.5 py-3.5 whitespace-nowrap">Class Mode (CT)</th>
                 <th className="px-3.5 py-3.5 whitespace-nowrap">Course & Year</th>
                 <th className="px-3.5 py-3.5 whitespace-nowrap">Assigned Professor</th>
-                <th className="px-3.5 py-3.5 whitespace-nowrap">Status</th>
+                <th className="px-3.5 py-3.5 whitespace-nowrap">Laboratory Room</th>
                 <th className="pl-3 pr-5 py-3.5 text-right whitespace-nowrap">Action</th>
               </tr>
             </thead>
@@ -631,7 +871,7 @@ export default function AssignedSubjects() {
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-slate-500">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-700 mb-2" />
-                    Loading assigned subjects...
+                    Loading subjects and laboratory rooms...
                   </td>
                 </tr>
               ) : filteredSubjects.length === 0 ? (
@@ -640,7 +880,7 @@ export default function AssignedSubjects() {
                     <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-slate-800">No subjects found</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {searchQuery || statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all'
+                      {searchQuery || statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || subjectTypeFilter !== 'all' || roomFilter !== 'all' || approvalFilter !== 'all'
                         ? 'Try clearing or adjusting your filters.'
                         : 'No major curriculum subjects found for the active term.'}
                     </p>
@@ -668,12 +908,12 @@ export default function AssignedSubjects() {
                           </span>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
-                              subject.type === 'lab'
+                              subject.is_lab
                                 ? 'bg-purple-100 text-purple-900 border border-purple-200'
                                 : 'bg-blue-100 text-blue-900 border border-blue-200'
                             }`}
                           >
-                            {subject.type}
+                            {subject.is_lab ? 'LAB' : 'LEC'}
                           </span>
                         </div>
                       </td>
@@ -791,17 +1031,75 @@ export default function AssignedSubjects() {
                         )}
                       </td>
 
-                      {/* Status */}
-                      <td className="px-3.5 py-3.5 whitespace-nowrap">
-                        {isAssigned ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[13px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            Assigned
-                          </span>
+                      {/* Laboratory Room Column */}
+                      <td className="px-3.5 py-3.5 whitespace-nowrap min-w-[170px]">
+                        {subject.is_lab ? (
+                          subject.room_name ? (
+                            <div className="flex flex-col gap-1 items-start">
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-300">
+                                  <Monitor className="w-3.5 h-3.5 text-emerald-700" />
+                                  {subject.room_name}
+                                </span>
+                                {subject.room_approval_status === 'approved' && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    Approved
+                                  </span>
+                                )}
+                                {subject.room_approval_status === 'pending_approval' && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                                    Pending
+                                  </span>
+                                )}
+                                {subject.room_approval_status === 'rejected' && (
+                                  <span
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-300"
+                                    title={subject.room_rejection_reason || 'Declined'}
+                                  >
+                                    Declined
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-xs">
+                                {canManageLabs && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenRoomModal(subject)}
+                                    className="font-medium text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer"
+                                  >
+                                    Change
+                                  </button>
+                                )}
+                                {subject.room_approval_status === 'pending_approval' && canManageLabs && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenReviewModal(subject)}
+                                    className="font-bold text-amber-800 hover:text-amber-950 hover:underline cursor-pointer"
+                                  >
+                                    Review Request
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            canManageLabs ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenRoomModal(subject)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-2xs cursor-pointer"
+                              >
+                                <Monitor className="w-3.5 h-3.5 text-emerald-700" />
+                                + Assign Room
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs text-amber-800 bg-amber-50 border border-amber-200">
+                                Unassigned Room
+                              </span>
+                            )
+                          )
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[13px] font-semibold bg-amber-100/80 text-amber-900 border border-amber-300">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                            Unassigned
+                          <span className="text-xs text-slate-400 italic">
+                            — Lecture (Centrally Assigned)
                           </span>
                         )}
                       </td>
@@ -859,6 +1157,11 @@ export default function AssignedSubjects() {
                   ) : (
                     <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-violet-100 text-violet-800 border border-violet-300">
                       Gen Ed
+                    </span>
+                  )}
+                  {selectedSubject.is_lab && (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-900 border border-purple-300">
+                      Lab
                     </span>
                   )}
                 </div>
@@ -953,6 +1256,192 @@ export default function AssignedSubjects() {
               </div>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* Laboratory Room Assignment Modal */}
+      <Modal
+        isOpen={roomModalOpen}
+        onClose={() => setRoomModalOpen(false)}
+        title={selectedRoomSubject?.room_id ? 'Change Laboratory Room' : 'Assign Laboratory Room'}
+      >
+        {selectedRoomSubject && (
+          <form noValidate onSubmit={handleSaveRoomAssignment} className="space-y-5">
+            {/* Subject Context Box */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl font-bold flex items-center justify-center shrink-0 border bg-purple-100 text-purple-900 border-purple-300">
+                <Monitor className="w-5 h-5 text-purple-800" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-bold text-slate-900">
+                    {selectedRoomSubject.code}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    ({selectedRoomSubject.units} units · {selectedRoomSubject.lab_units || 0} Lab)
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-300">
+                    Computer Lab Subject
+                  </span>
+                </div>
+                <p className="font-ui text-sm text-slate-700 font-medium truncate mt-0.5">
+                  {selectedRoomSubject.name}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Program: {selectedRoomSubject.program_name || selectedRoomSubject.program_code}
+                </p>
+              </div>
+            </div>
+
+            {/* Room Selection */}
+            <div>
+              <label
+                htmlFor="select-lab-room"
+                className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5"
+              >
+                Computer Laboratory Room <span className="text-red-600">*</span>
+              </label>
+              <select
+                id="select-lab-room"
+                value={selectedRoomId}
+                onChange={(e) => {
+                  setSelectedRoomId(e.target.value);
+                  if (roomError) setRoomError('');
+                }}
+                className={`w-full h-11 px-3 rounded-lg bg-white border font-ui text-sm text-slate-900 focus:outline-hidden ${focusRing} ${
+                  roomError ? 'border-rose-400 ring-1 ring-rose-400' : 'border-slate-300'
+                }`}
+              >
+                <option value="">-- Choose a Laboratory Room --</option>
+                {labRooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    {room.name} — {room.building || 'Main Building'} ({room.capacity || 45} capacity)
+                  </option>
+                ))}
+              </select>
+              {roomError && (
+                <p className="text-xs text-rose-600 mt-1">{roomError}</p>
+              )}
+            </div>
+
+            {/* Priority & Approval Notice */}
+            <div className={`p-3.5 rounded-xl border text-xs space-y-1 ${
+              isRoomSubjectPriority
+                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                : 'bg-amber-50/70 border-amber-200 text-amber-950'
+            }`}>
+              <div className="flex items-center gap-2 font-bold">
+                {isRoomSubjectPriority ? (
+                  <>
+                    <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                    <span>CS / COE Priority Program</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4 text-amber-700" />
+                    <span>Requires CS/COE Chair Approval</span>
+                  </>
+                )}
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                {isRoomSubjectPriority
+                  ? 'Computer Science and Computer Engineering subjects have priority and room assignments are confirmed immediately.'
+                  : 'Room assignments for other CAST programs are flagged as pending until reviewed and approved by the CS/COE Program Chair.'}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-4 flex items-center justify-between gap-3 border-t border-slate-200">
+              <div>
+                {selectedRoomSubject?.room_id && (
+                  <button
+                    type="button"
+                    onClick={handleUnassignRoom}
+                    disabled={roomSubmitting}
+                    className="text-xs font-semibold text-rose-700 hover:text-rose-800 hover:underline disabled:opacity-50 cursor-pointer"
+                  >
+                    Unassign Room
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => setRoomModalOpen(false)}
+                  disabled={roomSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={roomSubmitting}
+                >
+                  Save Room Assignment
+                </Button>
+              </div>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Review Pending Room Approval Modal */}
+      <Modal
+        isOpen={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+        title="Review Laboratory Room Request"
+      >
+        {reviewSubject && (
+          <div className="space-y-5">
+            <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-950 space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-700" />
+                <span className="font-bold text-sm">Pending Room Approval</span>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed">
+                <strong className="text-slate-900">{reviewSubject.program_name || reviewSubject.program_code}</strong> has requested assignment of <strong className="text-slate-900">{reviewSubject.room_name || 'Laboratory Room'}</strong> for <strong className="font-mono text-slate-900">{reviewSubject.code}</strong> ({reviewSubject.name}).
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-ui text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Decline Reason (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Reserved for CS/COE major laboratory schedule"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className={`w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-ui text-sm text-slate-900 focus:outline-hidden ${focusRing}`}
+              />
+            </div>
+
+            <div className="pt-4 flex items-center justify-between gap-3 border-t border-slate-200">
+              <Button
+                variant="destructive"
+                onClick={handleRejectRoom}
+                loading={reviewSubmitting}
+              >
+                Decline Request
+              </Button>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setReviewModalOpen(false)}
+                  disabled={reviewSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleApproveRoom}
+                  loading={reviewSubmitting}
+                >
+                  Approve Assignment
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </Modal>
 

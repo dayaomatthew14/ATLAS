@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
+from datetime import datetime, timezone
 from .. import auth, models, schemas
 from ..services import faculty_load
 from ..database import get_db
@@ -121,7 +122,7 @@ def _load_offerings_by_curriculum(
     raw_offerings = db.query(
         models.SubjectOffering,
         models.Faculty,
-    ).join(
+    ).outerjoin(
         models.Faculty, models.SubjectOffering.faculty_id == models.Faculty.id
     ).filter(
         models.SubjectOffering.semester_id == semester_id,
@@ -152,9 +153,10 @@ def _format_subject_offering_entry(
             "ct_tier": faculty_load.normalise_ct_tier(enrolled_students=off.enrolled_students),
         }
         for off, fac in assigned_list
+        if fac is not None
     ]
-    is_assigned = len(assigned_list) > 0
-    primary_off = assigned_list[0][0] if is_assigned else None
+    is_assigned = len(profs) > 0
+    primary_off = assigned_list[0][0] if assigned_list else None
     enrolled_students = primary_off.enrolled_students if primary_off else None
     ct_tier = faculty_load.normalise_ct_tier(enrolled_students=enrolled_students)
     is_ct = ct_tier != faculty_load.CT_TIER_REGULAR
@@ -165,6 +167,24 @@ def _format_subject_offering_entry(
     reg_hrs = faculty_load.round_hours(reg_mins / 60.0)
     req_mins = faculty_load.subject_required_minutes(curriculum_item, enrolled_students=enrolled_students)
     req_hrs = faculty_load.round_hours(req_mins / 60.0)
+
+    # Room details
+    room_id = primary_off.room_id if primary_off else None
+    room_name = primary_off.room.name if (primary_off and primary_off.room) else None
+    room_type = primary_off.room.type if (primary_off and primary_off.room) else None
+    room_capacity = primary_off.room.capacity if (primary_off and primary_off.room) else None
+    room_approval_status = primary_off.room_approval_status if (primary_off and primary_off.room_id) else None
+    room_rejection_reason = primary_off.room_rejection_reason if (primary_off and primary_off.room_id) else None
+    room_requested_by = primary_off.room_requested_by if primary_off else None
+    room_approved_by = primary_off.room_approved_by if primary_off else None
+
+    # Laboratory classification:
+    is_lab = (
+        (curriculum_item.type or "").lower() == "lab"
+        or (curriculum_item.lab_units or 0) > 0
+        or (curriculum_item.code or "").strip().upper().endswith("B")
+    )
+
     return {
         "curriculum_id": curriculum_item.id,
         "offering_id": primary_off.id if primary_off else None,
@@ -174,6 +194,7 @@ def _format_subject_offering_entry(
         "lec_units": curriculum_item.lec_units,
         "lab_units": curriculum_item.lab_units,
         "type": curriculum_item.type,
+        "is_lab": is_lab,
         "is_combined_c": faculty_load.is_combined_c_subject(curriculum_item),
         "enrolled_students": enrolled_students,
         "ct_tier": ct_tier,
@@ -194,6 +215,14 @@ def _format_subject_offering_entry(
         "status": "assigned" if is_assigned else "unassigned",
         "assigned_professors": profs,
         "professor_name": profs[0]["faculty_name"] if profs else "Unassigned",
+        "room_id": room_id,
+        "room_name": room_name,
+        "room_type": room_type,
+        "room_capacity": room_capacity,
+        "room_approval_status": room_approval_status,
+        "room_rejection_reason": room_rejection_reason,
+        "room_requested_by": room_requested_by,
+        "room_approved_by": room_approved_by,
     }
 
 
@@ -268,6 +297,9 @@ def get_active_term_assigned_subjects(
     assigned_count = sum(1 for s in subject_list if s["status"] == "assigned")
     unassigned_count = total - assigned_count
     ct_count = sum(1 for s in subject_list if s.get("is_ct"))
+    lab_count = sum(1 for s in subject_list if s.get("is_lab"))
+    lab_assigned_room_count = sum(1 for s in subject_list if s.get("is_lab") and s.get("room_id"))
+    pending_room_approval_count = sum(1 for s in subject_list if s.get("room_approval_status") == "pending_approval")
     all_major_assigned = not any(s["is_major"] and s["status"] == "unassigned" for s in subject_list)
 
     curriculum_courses = [
@@ -289,6 +321,9 @@ def get_active_term_assigned_subjects(
             "assigned": assigned_count,
             "unassigned": unassigned_count,
             "ct_count": ct_count,
+            "lab_count": lab_count,
+            "lab_assigned_room_count": lab_assigned_room_count,
+            "pending_room_approval_count": pending_room_approval_count,
             "all_assigned": all_major_assigned
         },
         "subjects": subject_list
@@ -623,3 +658,252 @@ def delete_subject_offering(
     db.delete(offering)
     db.commit()
     return {"message": "Subject offering deleted successfully"}
+
+
+@router.get("/available-lab-rooms")
+def get_available_lab_rooms(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    from .lab_rooms import ensure_cast_computer_labs
+    rooms = ensure_cast_computer_labs(db)
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "building": r.building or "Main Building",
+            "capacity": r.capacity or 45,
+            "type": r.type or "computer_lab",
+        }
+        for r in rooms
+    ]
+
+
+@router.post("/assign-room")
+def assign_lab_room(
+    payload: schemas.SubjectOfferingRoomAssign,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Assign or update a Computer Laboratory room for a laboratory subject."""
+    if current_user.role not in ['program_chair', 'coordinator', 'admin', 'dean']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    curriculum = db.query(models.Curriculum).filter(models.Curriculum.id == payload.curriculum_id).first()
+    if not curriculum:
+        raise HTTPException(status_code=404, detail="Curriculum subject not found")
+
+    is_lab = (
+        (curriculum.type or "").lower() == "lab"
+        or (curriculum.lab_units or 0) > 0
+        or (curriculum.code or "").strip().upper().endswith("B")
+    )
+    if not is_lab:
+        raise HTTPException(status_code=400, detail="Only laboratory subjects can be assigned to Computer Laboratory rooms.")
+
+    # Check CAST scope
+    caller_dept = auth.resolve_user_department(db, current_user)
+    if current_user.role != 'admin' and (not caller_dept or caller_dept.code != 'CAST'):
+        raise HTTPException(status_code=403, detail="Laboratory room assignments are restricted to CAST Program Chairs.")
+
+    from .lab_rooms import ensure_cast_computer_labs, is_user_or_curr_priority
+    lab_rooms = ensure_cast_computer_labs(db)
+    valid_room_ids = {r.id: r for r in lab_rooms}
+
+    selected_room = None
+    if payload.room_id is not None:
+        if payload.room_id not in valid_room_ids:
+            raise HTTPException(status_code=400, detail="Selected room is not a recognized CAST Computer Laboratory room.")
+        selected_room = valid_room_ids[payload.room_id]
+
+    offering = db.query(models.SubjectOffering).filter(
+        models.SubjectOffering.curriculum_id == payload.curriculum_id,
+        models.SubjectOffering.semester_id == payload.semester_id,
+    ).first()
+
+    has_priority = is_user_or_curr_priority(curriculum)
+    now = datetime.now(timezone.utc)
+
+    if payload.room_id is None:
+        if offering:
+            setattr(offering, "room_id", None)
+            setattr(offering, "room_approval_status", None)
+            setattr(offering, "room_rejection_reason", None)
+            setattr(offering, "room_requested_by", None)
+            setattr(offering, "room_approved_by", None)
+            setattr(offering, "room_approved_at", None)
+            matching_schedules = db.query(models.Schedule).filter(
+                models.Schedule.semester_id == payload.semester_id,
+                models.Schedule.curriculum_id == payload.curriculum_id,
+            ).all()
+            for s in matching_schedules:
+                setattr(s, "room_id", None)
+                setattr(s, "room_approval_status", None)
+            db.commit()
+            db.refresh(offering)
+        return {"message": "Room assignment removed successfully", "room_id": None}
+
+    approval_status = "approved" if has_priority else "pending_approval"
+    approved_by = current_user.id if has_priority else None
+    approved_at = now if has_priority else None
+    requested_by = current_user.id if not has_priority else None
+
+    # Check for schedule overlap if matching schedules already have plotted times
+    matching_schedules = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == payload.semester_id,
+        models.Schedule.curriculum_id == payload.curriculum_id,
+    ).all()
+
+    if matching_schedules:
+        for sched in matching_schedules:
+            if sched.day_of_week and sched.start_time and sched.end_time:
+                overlap = db.query(models.Schedule).filter(
+                    models.Schedule.semester_id == payload.semester_id,
+                    models.Schedule.room_id == payload.room_id,
+                    models.Schedule.day_of_week == sched.day_of_week,
+                    models.Schedule.id != sched.id,
+                    models.Schedule.room_approval_status != 'rejected',
+                    models.Schedule.start_time < sched.end_time,
+                    models.Schedule.end_time > sched.start_time,
+                ).first()
+                if overlap:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Room {selected_room.name} has a scheduling conflict on {sched.day_of_week} ({sched.start_time.strftime('%H:%M')}–{sched.end_time.strftime('%H:%M')}).",
+                    )
+
+    if offering:
+        setattr(offering, "room_id", payload.room_id)
+        setattr(offering, "room_approval_status", approval_status)
+        setattr(offering, "room_requested_by", requested_by)
+        setattr(offering, "room_approved_by", approved_by)
+        setattr(offering, "room_approved_at", approved_at)
+        setattr(offering, "room_rejection_reason", None)
+    else:
+        offering = models.SubjectOffering(
+            faculty_id=None,
+            curriculum_id=payload.curriculum_id,
+            semester_id=payload.semester_id,
+            assigned_by=current_user.id,
+            room_id=payload.room_id,
+            room_approval_status=approval_status,
+            room_requested_by=requested_by,
+            room_approved_by=approved_by,
+            room_approved_at=approved_at,
+        )
+        db.add(offering)
+
+    for s in matching_schedules:
+        setattr(s, "room_id", payload.room_id)
+        setattr(s, "room_approval_status", approval_status)
+        setattr(s, "room_requested_by", requested_by)
+        setattr(s, "room_approved_by", approved_by)
+        setattr(s, "room_approved_at", approved_at)
+
+    status_label = "Confirmed (Priority CS/COE)" if has_priority else "Pending Approval by CS/COE Chair"
+    log_activity(
+        db,
+        current_user.id,
+        "Assign Laboratory Room",
+        f"Assigned {selected_room.name} to {curriculum.code} ({status_label})",
+        "success",
+        department_id=getattr(curriculum, "department_id", None),
+    )
+    db.commit()
+    db.refresh(offering)
+
+    return {
+        "message": f"{selected_room.name} assigned to {curriculum.code} successfully.",
+        "offering_id": offering.id,
+        "curriculum_id": curriculum.id,
+        "room_id": selected_room.id,
+        "room_name": selected_room.name,
+        "room_approval_status": approval_status,
+        "has_priority": has_priority,
+    }
+
+
+@router.post("/{offering_id}/approve-room")
+def approve_lab_room(
+    offering_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Approve a pending laboratory room assignment (CS/COE Program Chairs or Admin)."""
+    if current_user.role not in ['program_chair', 'admin', 'dean']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    offering = db.query(models.SubjectOffering).filter(models.SubjectOffering.id == offering_id).first()
+    if not offering or not offering.room_id:
+        raise HTTPException(status_code=404, detail="Subject offering or room assignment not found")
+
+    now = datetime.now(timezone.utc)
+    setattr(offering, "room_approval_status", "approved")
+    setattr(offering, "room_approved_by", current_user.id)
+    setattr(offering, "room_approved_at", now)
+    setattr(offering, "room_rejection_reason", None)
+
+    matching_schedules = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == offering.semester_id,
+        models.Schedule.curriculum_id == offering.curriculum_id,
+    ).all()
+    for s in matching_schedules:
+        setattr(s, "room_approval_status", "approved")
+        setattr(s, "room_approved_by", current_user.id)
+        setattr(s, "room_approved_at", now)
+        setattr(s, "room_rejection_reason", None)
+
+    curr_code = offering.curriculum.code if offering.curriculum else f"offering #{offering.id}"
+    room_name = offering.room.name if offering.room else "lab room"
+    log_activity(
+        db,
+        current_user.id,
+        "Approve Laboratory Room",
+        f"Approved assignment of {room_name} for {curr_code}",
+        "success",
+        department_id=getattr(offering.curriculum, "department_id", None) if offering.curriculum else None,
+    )
+    db.commit()
+    db.refresh(offering)
+    return {"message": f"Room assignment for {curr_code} approved successfully.", "room_approval_status": "approved"}
+
+
+@router.post("/{offering_id}/reject-room")
+def reject_lab_room(
+    offering_id: int,
+    payload: schemas.SubjectOfferingRoomRejection,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Reject a pending laboratory room assignment."""
+    if current_user.role not in ['program_chair', 'admin', 'dean']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    offering = db.query(models.SubjectOffering).filter(models.SubjectOffering.id == offering_id).first()
+    if not offering or not offering.room_id:
+        raise HTTPException(status_code=404, detail="Subject offering or room assignment not found")
+
+    reason = payload.reason or "Room request declined by CS/COE Program Chair."
+    setattr(offering, "room_approval_status", "rejected")
+    setattr(offering, "room_rejection_reason", reason)
+
+    matching_schedules = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == offering.semester_id,
+        models.Schedule.curriculum_id == offering.curriculum_id,
+    ).all()
+    for s in matching_schedules:
+        setattr(s, "room_approval_status", "rejected")
+        setattr(s, "room_rejection_reason", reason)
+
+    curr_code = offering.curriculum.code if offering.curriculum else f"offering #{offering.id}"
+    log_activity(
+        db,
+        current_user.id,
+        "Reject Laboratory Room",
+        f"Declined lab room assignment for {curr_code}: {reason}",
+        "warning",
+        department_id=getattr(offering.curriculum, "department_id", None) if offering.curriculum else None,
+    )
+    db.commit()
+    db.refresh(offering)
+    return {"message": f"Room assignment for {curr_code} rejected.", "room_approval_status": "rejected", "reason": reason}

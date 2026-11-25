@@ -293,7 +293,9 @@ export default function FacultyPreviewDialog({
                 {formatHours(workWeek.off_campus_hours)}h
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
-                Outside campus
+                {workWeek.deducted_from_off_campus > 0
+                  ? `Adjusted (−${formatHours(workWeek.deducted_from_off_campus)}h)`
+                  : 'Outside campus'}
               </div>
             </div>
 
@@ -321,9 +323,7 @@ export default function FacultyPreviewDialog({
                 {formatHours(workWeek.consultation_hours)}h
               </div>
               <div className="text-[11px] text-emerald-700 mt-0.5 font-medium">
-                {workWeek.excess_overload_hours > 0
-                  ? `Adjusted (−${formatHours(workWeek.deducted_from_consultation)}h)`
-                  : 'Standard 6.00h'}
+                Standard 6.00h (Fixed)
               </div>
             </div>
           </div>
@@ -342,13 +342,16 @@ export default function FacultyPreviewDialog({
               </p>
               {workWeek.excess_overload_hours > 0 ? (
                 <p className="text-slate-600 leading-relaxed font-medium">
-                  2. <strong>Consultation Hours Deduction:</strong> Overload exceeded office hours by {formatHours(workWeek.excess_overload_hours)}h. Deducted from 6.00h standard consultation = <code className="px-1.5 py-0.5 rounded bg-white border border-emerald-300 font-mono text-emerald-950">{formatHours(workWeek.consultation_hours)}h remaining</code>.
+                  2. <strong>Off-Campus Hours Deduction:</strong> Overload exceeded office hours by {formatHours(workWeek.excess_overload_hours)}h. Deducted from {formatHours(workWeek.allocated_off_campus_hours)}h allocated = <code className="px-1.5 py-0.5 rounded bg-white border border-emerald-300 font-mono text-emerald-950">{formatHours(workWeek.off_campus_hours)}h remaining</code>.
                 </p>
               ) : (
                 <p className="text-slate-600 leading-relaxed font-medium">
-                  2. <strong>Consultation Hours:</strong> Overload was fully absorbed by office hours. Consultation remains untouched at <code className="px-1.5 py-0.5 rounded bg-white border border-emerald-300 font-mono text-emerald-950">6.00h standard</code>.
+                  2. <strong>Off-Campus Hours:</strong> Overload was fully absorbed by office hours. Off-campus remains untouched at <code className="px-1.5 py-0.5 rounded bg-white border border-emerald-300 font-mono text-emerald-950">{formatHours(workWeek.off_campus_hours)}h</code>.
                 </p>
               )}
+              <p className="text-slate-600 leading-relaxed font-medium">
+                3. <strong>Consultation Hours:</strong> Consultation hours remain fixed at <code className="px-1.5 py-0.5 rounded bg-white border border-emerald-300 font-mono text-emerald-950">6.00h standard</code>.
+              </p>
               {workWeek.policy_review_flag && (
                 <p className="font-bold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg p-2 mt-1">
                   ⚠️ {workWeek.flag_reason}

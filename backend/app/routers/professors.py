@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional, cast
+from typing import List, Optional, Any, cast
 from .. import models, schemas, database, auth
 from ..services import faculty_load
 from .logs import log_activity
@@ -11,6 +11,19 @@ router = APIRouter(
 )
 
 SCOPED_ROLES = ['dean', 'program_chair']
+
+
+def calculate_unavailability_hours(unavailabilities: List[Any]) -> float:
+    """Sum total unavailability hours across all blocks per week."""
+    total_minutes = 0
+    for u in unavailabilities or []:
+        st = getattr(u, 'start_time', None)
+        et = getattr(u, 'end_time', None)
+        if st and et:
+            diff = (et.hour * 60 + et.minute) - (st.hour * 60 + st.minute)
+            if diff > 0:
+                total_minutes += diff
+    return round(total_minutes / 60.0, 2)
 
 
 def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=None) -> dict:
@@ -48,6 +61,8 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
         "current_units": current_u,
         "remaining_units": max(0, max_u - current_u),
         "unavailability": faculty.unavailabilities,
+        "unavailability_hours": calculate_unavailability_hours(faculty.unavailabilities),
+        "unavailability_warning": calculate_unavailability_hours(faculty.unavailabilities) > 10.0,
         **load,
     }
 
@@ -233,6 +248,8 @@ def get_professors(
             "current_units": curr_u,
             "remaining_units": max(0, max_u - curr_u),
             "unavailability": f.unavailabilities,
+            "unavailability_hours": calculate_unavailability_hours(f.unavailabilities),
+            "unavailability_warning": calculate_unavailability_hours(f.unavailabilities) > 10.0,
             **loads.get(f_id, {}),
         })
 

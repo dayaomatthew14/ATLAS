@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from .. import models, database, auth, schemas
-from ..services.schedule_generator import is_lunch_break_conflict
+from ..services.schedule_generator import faculty_has_flexible_lunch_break, GENERAL_MAX_END_TIME
 
 router = APIRouter(
     prefix="/api/conflicts",
@@ -93,6 +93,21 @@ def validate_schedule_conflict(
 
     conflicts = []
 
+    # Check 5:30 PM - 7:30 PM time slot restriction (CVMAS only)
+    dept_code = str(current_user.department or "").upper()
+    if getattr(validation_data, 'curriculum_id', None):
+        c_item = db.query(models.Curriculum).filter(models.Curriculum.id == validation_data.curriculum_id).first()
+        if c_item and c_item.department_id:
+            c_dept = db.query(models.Department).filter(models.Department.id == c_item.department_id).first()
+            if c_dept and c_dept.code:
+                dept_code = str(c_dept.code).upper()
+
+    if dept_code != "CVMAS" and validation_data.end_time > GENERAL_MAX_END_TIME:
+        conflicts.append(schemas.ConflictDetail(
+            type="time_restriction",
+            existing_schedule=None,
+            message="The 5:30 PM – 7:30 PM time slot is restricted to CVMAS only. Classes must end by 5:30 PM (17:30)."
+        ))
 
     # 1. Base query for overlaps in the same semester and day
     base_query = db.query(models.Schedule).filter(
@@ -136,6 +151,23 @@ def validate_schedule_conflict(
                 type="faculty_unavailability",
                 existing_schedule=None,
                 message=f"Faculty is marked unavailable on {validation_data.day_of_week} from {unavail.start_time} to {unavail.end_time}"
+            ))
+
+        # Check flexible 1-hour lunch break
+        same_day_scheds_for_lunch = base_query.filter(
+            models.Schedule.faculty_id == validation_data.faculty_id
+        ).all()
+        if not faculty_has_flexible_lunch_break(
+            faculty_id=validation_data.faculty_id,
+            day=validation_data.day_of_week,
+            cand_start=validation_data.start_time,
+            cand_end=validation_data.end_time,
+            all_schedules=same_day_scheds_for_lunch,
+        ):
+            conflicts.append(schemas.ConflictDetail(
+                type="lunch_break",
+                existing_schedule=None,
+                message=f"Faculty schedule must include a 1-hour lunch break each day. Placing this class leaves less than 1 continuous hour free between 11:00 AM and 02:30 PM on {validation_data.day_of_week}."
             ))
 
 
