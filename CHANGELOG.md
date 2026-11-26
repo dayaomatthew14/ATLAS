@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] - 2026-11-27
+
+### Added
+- **Unassigned Subjects Reference Grid (`UNASSIGNED PROFESSOR`)**:
+  - Added a one-click **Plot Unassigned Subjects** button inside the AI Schedule Generation modal (`POST /api/ai-scheduler/generate-unassigned/{semester_id}`) that plots 100% of remaining unassigned major subjects into a single **`UNASSIGNED PROFESSOR`** board (`faculty_id = NULL`), bypassing teaching-hour caps and distributing across a balanced **7:30 AM – 5:30 PM** morning/afternoon spread.
+  - Added **conflict-safe automatic slot transfer**: assigning a professor to an unassigned subject automatically moves its `UNASSIGNED PROFESSOR` sessions directly onto that professor's timetable at the exact same day/time if they are free, or clears the placeholder cleanly on conflict.
+  - Isolated `UNASSIGNED PROFESSOR` placeholders from AI generation conflict checks, lab room booking checks, official Excel/PDF exports, and term publishing (auto-cleared on publish).
+- **Interactive Solitaire Stack & Cool Non-Warning Timetable Palette**:
+  - Overlapping classes on the same day render as an interactive **Solitaire card stack** at full column width — the active card sits in front showing its exact start-to-finish span, while back cards collapse neatly behind the top edge showing **Subject Code + Type + Subject Description** and expand to the front when clicked (cycling the previous front card to the back).
+  - Replaced warm/warning card tints with an 8-color calm cool/neutral pastel palette (no red, orange, or yellow banner colors).
+- **Per-Professor Clear Schedule with Undo**:
+  - Added a **Clear schedule** button inside each professor's timetable board header (including `UNASSIGNED PROFESSOR`), backed by `DELETE /api/schedules/clear-all?semester_id=&faculty_id=&unassigned_only=`, with confirmation dialog and 5-second **Undo** restore that re-hydrates CT and room-approval metadata.
+- **Converted Tutorial (CT) Instant Timetable Auto-Adjustment**:
+  - Updating a subject's CT tier or enrolled student count in **Subjects & Rooms** automatically contracts/adjusts plotted schedule end times immediately without manual regeneration, while respecting the 5:30 PM non-CVMAS (7:30 PM CVMAS) daily cutoff on expansion.
+- **Performance, Memory Leak & Concurrency Hardening**:
+  - Enabled SQLite WAL mode (`PRAGMA journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`), PostgreSQL `pool_pre_ping`/`pool_recycle`, FastAPI `GZipMiddleware`, Alembic performance indexes (`a1b2c3d4e5f6`), atomic single-transaction schedule generation with per-(department, semester) locks, and N+1 query elimination.
+  - Eliminated frontend GPU backdrop-blur stutter on nearly-opaque surfaces, fixed `AppShell` sidebar hover layout thrashing, isolated `Schedules` hover popover state, added `AbortController` request cancellation + 401 deduplication, fixed `ToastProvider` timer leaks, and added route-level `React.lazy` code splitting.
+
+### Changed
+- **CAST Laboratory Room Priority**: CS/COE lab room assignments (`BSCS`, `BSCPE`, `CC*`/`CS*`/`CPE*`) auto-approve and plot immediately; only Psychology (`ABPSY`) requests require CS/COE Program Chair approval.
+- **Overload Handling**: Suppressed overload warnings and conflict records by default since overload is allowable when assigned by the chair.
+- **Faculty Load Status (`NOT_PLOTTED`)**: Professors with `0.00` plotted hours (including 0 assigned subjects) now display **`Not yet plotted`** instead of `UNDERLOAD`.
+- **Table Hover Spotlight**: Scoped row hover-blur (`table-spotlight`) strictly to **Subjects & Rooms** (`AssignedSubjects.jsx`).
+
+### Fixed
+- Fixed `ReferenceError: rawRoom is not defined` in `WeeklyTimetableGrid.jsx` when rendering schedules with lab rooms.
+- Fixed `ReferenceError` (`subjectTypeFilter` / `approvalFilter` undefined) on empty filter state in `AssignedSubjects.jsx`.
+- Removed 15 dead/obsolete files (4 empty 0-byte leftover DBs, unreferenced `ClassCard.jsx` & `LabRooms.jsx`, 3 one-off debug scripts, and 6 obsolete/manual-only test files) and added `*.db-wal` / `*.db-shm` to `.gitignore`.
+
+---
+
 ## [1.6.0] - 2026-11-20
 
 ### Added

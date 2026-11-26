@@ -38,7 +38,14 @@ Teaching hours are calculated based on subject lecture and laboratory units for 
 
 > [!NOTE]
 > - **Component Separation**: Separate Lecture (A) and Laboratory (B) components are calculated individually. A 2-unit Lecture (A) plus 1-unit Laboratory (B) requires 6 hours and 40 minutes weekly (160m + 240m = 400m), whereas a genuine 3-unit Combined (C) requires 4 hours weekly (240m).
-> - **Converted Tutorial (CT) & Small Class Sizes**: For courses with under 13 students, ATLAS supports the DLSAU Converted Tutorial policy tiered by enrollment: 9–12 students, 5–8 students, and 1–4 students. Program Chairs and Deans can specify `enrolled_students` or apply an explicit `credited_hours_override` directly on the subject offering.
+> - **Converted Tutorial (CT) Auto-Adjustment**: For courses with under 13 students, ATLAS supports DLSAU Converted Tutorial tiers (9–12, 5–8, and 1–4 students). Changing a subject's CT tier automatically contracts/adjusts its plotted timetable end times immediately with zero conflicts, while respecting the daily cutoff (`17:30` non-CVMAS / `19:30` CVMAS) when expanding back to Regular.
+
+---
+
+## 2.1 Daily Time Cutoff, Lab Room Priority & Unassigned Reference Grid
+- **5:30 PM Daily Cutoff**: Non-CVMAS colleges must end classes by `17:30` (5:30 PM); the `17:30 – 19:30` window is reserved exclusively for **CVMAS**.
+- **CAST Laboratory Room Priority**: CS and COE subjects (`BSCS`, `BSCPE`, and `CC*`/`CS*`/`CPE*` codes) assigned to CAST computer labs (`Room 608`, `Room 609`, `Cyberneta`) are confirmed and plotted immediately (`approved`); only **Psychology (`ABPSY`)** requests require CS/COE Program Chair review (`pending_approval`).
+- **Unassigned Subjects Grid (`UNASSIGNED PROFESSOR`)**: Program Chairs can plot 100% of remaining unassigned major subjects into a single `UNASSIGNED PROFESSOR` reference board via `POST /api/ai-scheduler/generate-unassigned/{semester_id}`. It spreads classes evenly across morning and afternoon (`07:30 – 17:30`), bypasses teaching-hour limits, never blocks real professors or lab bookings, and automatically transfers exact slots onto a professor's timetable when assigned (if conflict-free).
 
 ---
 
@@ -52,11 +59,9 @@ Faculty workload is calculated and displayed in **actual teaching HOURS** rather
 | **Full-Time Regular** | 24 hours | 20 hours | 20 hours |
 | **Part-Time** | Max 20 hours | Max 20 hours | Max 20 hours |
 
-### Overload & Dean Approval Workflow
-- When a faculty member's assigned or plotted hours exceed the term limit, they are marked with an **OVERLOAD** status requiring Dean / Program Chair override.
-- The assignment or schedule placement is permitted to proceed.
-- The College Dean or Program Chair can review and officially approve the overload via `PATCH /api/professors/{id}/overload-approval` or through conflict resolution (`POST /api/ai-scheduler/solve-conflict`).
-- Overload records approved display the status `OVERLOAD (DEAN APPROVED)`.
+### Overload Handling
+- Overload is allowable by default when a Program Chair assigns subjects exceeding normal term teaching hours; no blocking overload warnings or conflict records are generated.
+- The 40-hour Full-Time duty breakdown and overload badge remain visible directly in the professor's timetable board header and Faculty & Load summary.
 
 ### DLSAU Workload Cascade Deduction Rule (40-Hour Faculty Obligation)
 When a faculty member's teaching hours exceed the required teaching-hour limit, the excess is considered overload and triggers a cascade deduction against their non-teaching hours:

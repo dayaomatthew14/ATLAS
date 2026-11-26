@@ -70,20 +70,20 @@ const buildSteps = (subjectScope) => [
   },
   {
     n: 3,
-    title: 'Assign subject offerings',
+    title: 'Assign subjects & lab rooms',
     desc:
-      `Still on the Faculty screen, assign ${subjectScope} to the people who teach them. ` +
-      'Nothing reaches the timetable until subjects are assigned to someone.',
-    to: '/dashboard/teachers',
-    linkText: 'Faculty',
+      `On Subjects & Rooms (or Faculty), assign ${subjectScope} to professors, set Converted Tutorial (CT) tiers, ` +
+      'and assign CAST laboratory rooms (CS/COE labs confirm immediately; Psychology requests go for review).',
+    to: '/dashboard/assigned-subjects',
+    linkText: 'Subjects & Rooms',
     icon: BookOpen,
   },
   {
     n: 4,
-    title: 'Generate, then resolve',
+    title: 'Generate, check unassigned, then export',
     desc:
-      'Generate the timetable for the active term, then work through anything it could not place, ' +
-      'one conflict at a time. Export once it is clean.',
+      'Generate schedules for selected professors, optionally plot remaining unassigned subjects into the ' +
+      'UNASSIGNED PROFESSOR reference grid to match free slots, resolve any conflicts, and export once clean.',
     to: '/dashboard/schedules',
     linkText: 'Schedules',
     icon: Sliders,
@@ -103,11 +103,20 @@ const RULES = [
       'always the slot length doubled.',
   },
   {
-    name: 'Slot lengths are fixed',
+    name: 'Weekly teaching hours & CT auto-adjust',
     icon: Clock,
     text:
-      'Lectures run 80 minutes, which is 2.67 hrs a week. BS Computer Engineering lectures run two ' +
-      'hours, 4.00 a week. Laboratories are two hours in every college.',
+      '3-unit lectures and 1-unit labs run 4.00 hrs/week, 2-unit lectures run 2.67 hrs/week, and 1-unit ' +
+      'lectures run 1.33 hrs/week. Setting a Converted Tutorial (CT) tier automatically adjusts plotted ' +
+      'timetable durations immediately.',
+  },
+  {
+    name: 'Unassigned subjects reference grid',
+    icon: Users,
+    text:
+      'Use Plot Unassigned Subjects in Generate to view remaining unassigned subjects under UNASSIGNED ' +
+      'PROFESSOR (7:30 AM – 5:30 PM). Click back cards in a Solitaire stack to bring them forward; ' +
+      'assigning a free professor transfers that exact slot automatically.',
   },
   {
     name: 'Load is hours, not units',
@@ -165,10 +174,11 @@ const FAQS = [
       'it keyboard focus and press Delete or Backspace.',
   },
   {
-    q: 'Can I get a cleared timetable back?',
+    q: 'Can I clear just one professor’s schedule or undo a clear?',
     a:
-      'Yes. Deleting a class or clearing the timetable leaves an Undo / Restore banner in the ' +
-      'bottom-right corner.',
+      'Yes. Click Clear schedule in any professor’s board header (including UNASSIGNED PROFESSOR) to ' +
+      'clear only that board. Deleting a class or clearing a schedule shows an Undo / Restore banner in ' +
+      'the bottom-right corner that restores classes along with CT and room metadata.',
   },
   {
     q: 'Do I need to save my work?',

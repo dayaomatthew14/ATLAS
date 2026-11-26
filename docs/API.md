@@ -167,17 +167,16 @@ The 40 hours are the total duty week, not 40 teaching hours: Full-Time Regular i
 24 / 2.5 / 6 / 7.5 in the 1st term and 20 / 5.5 / 6 / 8.5 in the 2nd and 3rd terms.
 Full-Time Probationary maintains 24 teaching hours and 24 / 2.5 / 6 / 7.5 across all three terms.
 
-`NOT_PLOTTED` exists because a faculty member with subjects assigned and no
-generated timetable reads 0.00 hrs, exactly like a genuine underload. Counting
-the two together turns "nobody has generated this term yet" into an alarm about
-faculty and hides the real underloads among them. A member with no subjects at
-all is still reported as `UNDERLOAD` — that one is real.
+`NOT_PLOTTED` applies whenever a faculty member has `0.00` plotted schedule hours
+in the active term (whether subjects are assigned or not yet assigned), preventing
+unplotted faculty from triggering false `UNDERLOAD` alarms.
 
-**Generated lecture hours.** The generator plots standard programmes on an
-80-minute grid (2.67 hrs/week) and BSCPE on a 2-hour grid (4.00 hrs/week);
-laboratories are 2 hours in both (4.00 hrs/week). The grids exist so generated
-timetables carry the college's actual weekly hours — a single 90-minute grid
-would put every lecture at 3.00 hrs/week, a figure matching neither pattern.
+**Generated lecture & lab hours.** Under the unified DLSAU subject-hour rules,
+3-unit Lecture (A) runs 4.00 hrs/week (2 × 2h), 2-unit Lecture (A) runs 2.67 hrs/week
+(2 × 80m), 1-unit Lecture (A) runs 1.33 hrs/week (80m), Laboratory (B) runs 4.00 hrs/week
+per unit, and Combined (C) runs 4.00 hrs/week. Converted Tutorial (CT) tiers
+automatically adjust plotted schedule durations on `PATCH /api/subject-offerings/{id}/ct`
+within the college daily cutoff (`17:30` non-CVMAS / `19:30` CVMAS).
 
 #### `POST /api/faculty/`
 Creates a new faculty record.
@@ -211,6 +210,24 @@ Bulk assigns faculty members to curriculum subjects for an active semester.
 ---
 
 ### 2.6 AI Schedule Generator (`/api/ai-scheduler`)
+
+#### `POST /api/ai-scheduler/generate-unassigned/{semester_id}`
+Plots 100% of remaining unassigned major subjects for the caller's college and active term into a single **`UNASSIGNED PROFESSOR`** reference grid (`faculty_id = null`), bypassing teaching-hour caps and distributing across a balanced **7:30 AM – 5:30 PM** morning/afternoon spread.
+- **Auth**: Bearer Token required (`dean`, `program_chair`, or college-scoped `admin`)
+- **Path Parameter**: `semester_id` (int)
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "msg": "Unassigned subjects plotted under UNASSIGNED PROFESSOR",
+    "subjects_plotted": 9,
+    "schedules_created": 18
+  }
+  ```
+- **Isolation & Auto-Transfer**: `faculty_id = null` rows are excluded from real AI generation checks, room bookings, official Registrar exports, and publishing. Assigning a professor via `POST /api/subject-offerings` automatically transfers the exact slot to that professor if conflict-free, or removes the placeholder otherwise.
+
+#### `DELETE /api/schedules/clear-all`
+Clears draft/unlocked schedules for a semester and returns a backup payload for immediate Undo (`POST /api/schedules/restore`).
+- **Query Parameters**: `semester_id` (int, required), `faculty_id` (int, optional — clears only one professor), `unassigned_only` (bool, optional — clears only `UNASSIGNED PROFESSOR`).
 
 #### `POST /api/ai-scheduler/generate/{semester_id}`
 Triggers the algorithmic constraint-satisfaction schedule generator.

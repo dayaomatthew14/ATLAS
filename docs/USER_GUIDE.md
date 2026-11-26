@@ -180,35 +180,31 @@ You can assign subjects from either screen:
   3. Click **Assign** to bind the subject to that professor for the active term.
   4. To remove an offering, click **Remove** next to the assigned subject in the dialog.
 
-- **Option B — From Assigned Subjects (`/dashboard/assigned-subjects`):**
-  1. Click **Assigned Subjects** in the left navigation rail to see the complete active-term subject list and assignment summary (`Total`, `Assigned`, `Unassigned`).
-  2. Filter by **Status** (`All`, `Assigned`, `Unassigned`), **Program**, **Year Level**, or **Professor**.
-  3. Click **Assign** (or **Change** on an already-assigned subject), pick a professor from your roster, and confirm. (The table protects against accidental subject offering deletions by focusing actions on assigning and reassigning).
-  4. If assigning or overriding a **General Education (GenEd)** subject, confirm the prompt in the confirmation dialog.
+- **Option B — From Subjects & Rooms (`/dashboard/assigned-subjects`):**
+  1. Click **Subjects & Rooms** in the left navigation rail to see the complete active-term subject list and assignment summary (`Total`, `Assigned`, `Unassigned`).
+  2. Filter by **Status** (`All`, `Assigned`, `Unassigned`), **Program**, **Year Level**, **Professor**, or **Room**.
+  3. Click **Assign** (or **Change** on an already-assigned subject), pick a professor from your roster, and confirm. If the subject was plotted on the **UNASSIGNED PROFESSOR** grid and the chosen professor is free at that exact day/time, it transfers directly onto their schedule automatically.
+  4. **Converted Tutorial (CT):** Set the enrolled student count / CT tier on any assigned subject to automatically adjust its plotted timetable duration immediately.
+  5. **CAST Laboratory Rooms:** Assign `Room 608`, `Room 609`, or `Cyberneta` to lab subjects — CS/COE subjects are confirmed and plotted immediately, while Psychology (`ABPSY`) requests route for CS/COE Chair approval.
 
-### 3B.5 Generate the Timetable, Resolve Conflicts & Export (`/dashboard/schedules`)
+### 3B.5 Generate the Timetable, Plot Unassigned Subjects, Resolve Conflicts & Export (`/dashboard/schedules`)
 1. Click **Schedule** in the left navigation rail.
-2. **Generate Timetable with AI:**
-   - Click **Generate Schedule**.
-   - Verify the active academic term at the top of the modal. (If unassigned major subjects remain, a notice appears with a **Review Assigned Subjects** shortcut.)
-   - Select the professors to include (defaults to all professors) and click **Generate Schedule**. Midday slots (e.g. 11:30 AM – 01:30 PM) are naturally utilized without a rigid lunch break lock.
-   - Review the post-generation summary (**Generated**, **Unplaced**, **Skipped GenEd**, and any **Teaching load warnings**).
-3. **Inspect the Timetable:**
-   - Toggle between the **Grid View** (Weekly Matrix across Periods 1–8, `07:30 AM – 07:30 PM`, `Mon–Sat`) and the **By-Professor Board**.
-   - Filter by **Professor** using the top filter controls.
-   - Click any 30-minute interval on the timetable grid to quick-add a class at that exact day and time.
-   - Hover any class block on the grid to open the **Schedule Hover Popover** showing full subject details, duration, professor, and a quick **Delete Schedule** button.
-   - When a term is marked as **Published**, the grid displays a `Published (Locked)` status badge and disables destructive actions (`Generate`, `Create`, `Clear All`, quick-add, and delete) to prevent accidental changes to official schedules.
+2. **Generate Timetable or Plot Unassigned Subjects:**
+   - Click **Generate**.
+   - Verify the active academic term at the top of the modal. If unassigned major subjects remain, click **Plot Unassigned Subjects** inside the notice banner to plot all remaining unassigned subjects into a single **`UNASSIGNED PROFESSOR`** reference board (spread across 7:30 AM – 5:30 PM) so you can match them against professors' free windows.
+   - Select one or more professors to schedule and click **Generate Schedule**.
+3. **Inspect & Manage the Timetable:**
+   - Overlapping classes on the same day render as an interactive **Solitaire card stack** — click any back card's top tab to bring it to the front (sized to its full start-to-finish duration) and send the previous front card to the back.
+   - Filter by **Professor** using the top filter controls, or click any 30-minute interval on a professor's board to quick-add a class.
+   - Hover any class block to open the **Schedule Hover Popover** with full details and quick **Delete**.
+   - Click **Clear schedule** inside any professor's board header (including `UNASSIGNED PROFESSOR`) to delete only that single board's schedule — an **Undo / Restore** banner appears for 5 seconds and preserves CT and room metadata.
+   - When a term is **Published**, the grid displays `Published (Locked)` and disables mutations.
 4. **Add or Remove a Class Manually:**
-   - Click **Create** to manually place a class: choose **Subject**, **Professor**, **Day** (plus optional paired day), **Start Time**, and **End Time** (and Room for laboratories). Live conflict checks and **AI Slot Suggestions** appear inside the modal before saving.
-   - If you delete a class or click **Clear All**, an **Undo / Restore** banner appears in the bottom-right corner so you can immediately restore the previous state.
+   - Click **Create** to manually place a class with live conflict checks and **Slot Suggestions**.
 5. **Resolve Conflicts One at a Time:**
-   - If unplaced items or conflicts exist, click the **Conflicts** button in the header (or click **Resolve** inside the generation results) to open the **Conflict Lens**.
-   - The timetable dims unrelated classes and highlights only the clashing blocks. Resolve each item individually; each resolution is recorded in the **Activity Log** and summarized in the **Conflict Resolved** dialog.
+   - If unplaced items or conflicts exist, click **Conflicts** to open the **Conflict Lens** and resolve items individually.
 6. **Export Official Schedule to Excel (`.xlsx`):**
-   - Click **Export Excel** in the header.
-   - In the **Export Schedule to Excel** dialog, choose **Faculty Scope** (current filtered professor or **All Professors**), inspect the live **Document Preview** table, and click **Download Excel (.xlsx)**.
-   - Submit the downloaded DLSAU-formatted `.xlsx` workbook to the Registrar for room assignment.
+   - Click **Export** in the header, preview the table, and download the DLSAU-formatted `.xlsx` workbook (`UNASSIGNED PROFESSOR` placeholders are automatically excluded from official Registrar exports).
 
 ### 3B.6 Review Departmental Activity (`/dashboard/logs`)
 1. Click **Activity** in the left navigation rail to review recent schedule generations, conflict resolutions, and subject assignment changes in your department.

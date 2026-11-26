@@ -6,11 +6,11 @@
 
 ## 1. Overview & Connection Architecture
 
-ATLAS utilizes **SQLAlchemy 2.0 ORM** for database interaction. The system is designed for multi-environment compatibility:
-- **Local / Development**: Embedded **SQLite** database stored at `backend/atlas_v3.db`.
-- **Production**: Relational **PostgreSQL** database specified via `DATABASE_URL` environment variable.
+ATLAS utilizes **SQLAlchemy 2.0 ORM** and **Alembic** migrations for database interaction. The system is designed for multi-environment compatibility:
+- **Local / Development**: Embedded **SQLite** database stored at `backend/atlas_v3.db` with WAL concurrency enabled (`PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`, `PRAGMA synchronous=NORMAL`, `PRAGMA foreign_keys=ON`).
+- **Production**: Relational **PostgreSQL** database specified via `DATABASE_URL` with `pool_pre_ping=True` and `pool_recycle=1800`.
 
-The database initialization routine (`init_db()` in `backend/main.py`) handles schema migrations automatically on startup without data loss.
+Schema changes are managed via Alembic migrations in `backend/alembic/versions/` (current head: `a1b2c3d4e5f6`, which adds performance indexes on frequently queried foreign keys across `curriculum`, `curriculum_blocks`, `rooms`, `faculty`, `schedules`, `conflicts`, and `subject_offerings`).
 
 > [!IMPORTANT]
 > **User Accounts vs. Faculty Records**:
