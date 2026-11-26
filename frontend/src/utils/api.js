@@ -21,6 +21,45 @@ const BASE_URL = rawBaseUrl;
  */
 export const API_BASE = BASE_URL;
 
+// Deduplicate concurrent 401 logout/redirect storms when several parallel
+// requests expire at the same moment.
+let pendingUnauthorizedRedirect = null;
+
+function handleUnauthorizedSession() {
+  if (!pendingUnauthorizedRedirect) {
+    pendingUnauthorizedRedirect = (async () => {
+      clearSession();
+      try {
+        // The session cookie is HttpOnly, so this request is the only thing
+        // that can clear it -- `clearSession()` above reaches localStorage and
+        // nothing else. A failure here is not cosmetic: the browser keeps
+        // sending a credential the user believes they have surrendered. It
+        // used to be swallowed in silence, which is why that could not be
+        // noticed from the outside.
+        const res = await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+        if (!res.ok) {
+          console.error(
+            `ATLAS: sign-out did not complete (HTTP ${res.status}). The session cookie may still be set. `
+            + 'Close the browser to be sure the session has ended.'
+          );
+        }
+      } catch (err) {
+        console.error(
+          'ATLAS: sign-out request failed, so the session cookie may still be set. '
+          + 'Close the browser to be sure the session has ended.',
+          err
+        );
+      }
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    })().finally(() => {
+      pendingUnauthorizedRedirect = null;
+    });
+  }
+  return pendingUnauthorizedRedirect;
+}
+
 async function request(endpoint, options = {}) {
   const isFormData = options.body instanceof FormData;
   let url = `${BASE_URL}${endpoint}`;
@@ -53,8 +92,12 @@ async function request(endpoint, options = {}) {
     ...options.headers,
   };
 
+  const { signal: rawSignal, ...restOptions } = options;
+  const validSignal = rawSignal && typeof rawSignal.aborted === 'boolean' ? rawSignal : undefined;
+
   const config = {
-    ...options,
+    ...restOptions,
+    ...(validSignal ? { signal: validSignal } : {}),
     headers,
     credentials: 'include',
   };
@@ -63,31 +106,7 @@ async function request(endpoint, options = {}) {
     const response = await fetch(url, config);
 
     if (response.status === 401 && !endpoint.includes('/auth/login')) {
-      clearSession();
-      try {
-        // The session cookie is HttpOnly, so this request is the only thing
-        // that can clear it -- `clearSession()` above reaches localStorage and
-        // nothing else. A failure here is not cosmetic: the browser keeps
-        // sending a credential the user believes they have surrendered. It
-        // used to be swallowed in silence, which is why that could not be
-        // noticed from the outside.
-        const res = await fetch(`${BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-        if (!res.ok) {
-          console.error(
-            `ATLAS: sign-out did not complete (HTTP ${res.status}). The session cookie may still be set. `
-            + 'Close the browser to be sure the session has ended.'
-          );
-        }
-      } catch (err) {
-        console.error(
-          'ATLAS: sign-out request failed, so the session cookie may still be set. '
-          + 'Close the browser to be sure the session has ended.',
-          err
-        );
-      }
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
+      await handleUnauthorizedSession();
       // Throw rather than returning undefined: callers that immediately do
       // data.map(...) would otherwise crash with a confusing TypeError before
       // the redirect completes.
@@ -131,7 +150,9 @@ async function request(endpoint, options = {}) {
 
     return data;
   } catch (error) {
-    console.error('API Error:', error);
+    if (error?.name !== 'AbortError') {
+      console.error('API Error:', error);
+    }
     throw error;
   }
 }
@@ -159,11 +180,11 @@ async function requestBlob(endpoint, options = {}) {
   const response = await fetch(url, {
     method: 'GET',
     credentials: 'include',
+    signal: options.signal,
   });
 
   if (response.status === 401) {
-    clearSession();
-    if (window.location.pathname !== '/login') window.location.href = '/login';
+    await handleUnauthorizedSession();
     const authError = new Error('Your session has expired. Please sign in again.');
     authError.status = 401;
     throw authError;

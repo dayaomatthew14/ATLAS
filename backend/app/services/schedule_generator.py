@@ -1,5 +1,7 @@
+import math
 import re
 import logging
+import threading
 from datetime import time
 from typing import List, Dict, Any, Optional, Tuple, Set, cast
 from sqlalchemy.orm import Session
@@ -7,6 +9,87 @@ from .. import models
 from . import faculty_load
 
 logger = logging.getLogger(__name__)
+
+# Per-(department_id, semester_id) lock to serialize concurrent timetable generation.
+_generation_locks_guard = threading.Lock()
+_generation_locks: Dict[Tuple[int, int], threading.Lock] = {}
+
+
+def _get_generation_lock(department_id: int, semester_id: int) -> threading.Lock:
+    key = (int(department_id), int(semester_id))
+    with _generation_locks_guard:
+        lock = _generation_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _generation_locks[key] = lock
+        return lock
+
+
+class IndexedScheduleList(list):
+    """
+    A list of Schedule objects indexed by (faculty_id, day) and (cohort_key, day)
+    so candidate-slot conflict checks run in O(1) bucket lookups instead of
+    scanning every schedule in the semester.
+    """
+
+    def __init__(self, items=(), cohort_by_curr_id: Optional[Dict[Any, Tuple[str, Any, str]]] = None):
+        super().__init__()
+        self._cohort_by_curr_id: Dict[Any, Tuple[str, Any, str]] = cohort_by_curr_id or {}
+        self._by_faculty_day: Dict[Tuple[str, str], List[Any]] = {}
+        self._by_cohort_day: Dict[Tuple[Any, str], List[Any]] = {}
+        if items:
+            self.extend(items)
+
+    def _index_one(self, item: Any) -> None:
+        day = getattr(item, 'day_of_week', None)
+        if not day:
+            return
+        fid = getattr(item, 'faculty_id', None)
+        if fid is not None:
+            self._by_faculty_day.setdefault((str(fid), day), []).append(item)
+        cid = getattr(item, 'curriculum_id', None)
+        if cid is not None and self._cohort_by_curr_id:
+            ck = self._cohort_by_curr_id.get(cid)
+            if ck is not None:
+                self._by_cohort_day.setdefault((ck, day), []).append(item)
+
+    def append(self, item: Any) -> None:
+        super().append(item)
+        self._index_one(item)
+
+    def extend(self, items) -> None:
+        items_list = list(items)
+        super().extend(items_list)
+        for item in items_list:
+            self._index_one(item)
+
+    def for_faculty_day(self, faculty_id: Any, day: str) -> List[Any]:
+        if faculty_id is None or not day:
+            return []
+        return self._by_faculty_day.get((str(faculty_id), day), [])
+
+    def for_cohort_day(self, cohort_key: Any, day: str) -> List[Any]:
+        if cohort_key is None or not day:
+            return []
+        return self._by_cohort_day.get((cohort_key, day), [])
+
+
+class IndexedUnavailList(list):
+    """A list of FacultyUnavailability rows indexed by (faculty_id, day)."""
+
+    def __init__(self, items=()):
+        super().__init__(items)
+        self._by_faculty_day: Dict[Tuple[str, str], List[Any]] = {}
+        for item in self:
+            fid = getattr(item, 'faculty_id', None)
+            day = getattr(item, 'day_of_week', None)
+            if fid is not None and day:
+                self._by_faculty_day.setdefault((str(fid), day), []).append(item)
+
+    def for_faculty_day(self, faculty_id: Any, day: str) -> List[Any]:
+        if faculty_id is None or not day:
+            return []
+        return self._by_faculty_day.get((str(faculty_id), day), [])
 
 # Lunch break is flexible and not a fixed hard block at 12:00 PM - 01:00 PM.
 # Classes can be scheduled across midday as needed.
@@ -270,7 +353,12 @@ def faculty_has_flexible_lunch_break(
                 intervals.append((es_m, ee_m))
 
     if all_schedules and faculty_id is not None:
-        for s in all_schedules:
+        candidates = (
+            all_schedules.for_faculty_day(faculty_id, day)
+            if isinstance(all_schedules, IndexedScheduleList)
+            else all_schedules
+        )
+        for s in candidates:
             s_fid = getattr(s, 'faculty_id', None)
             if s_fid is not None and str(s_fid) == str(faculty_id):
                 s_day = getattr(s, 'day_of_week', None)
@@ -384,6 +472,13 @@ def is_cohort_conflict(
     if not cohort_by_curr_id or curriculum_id not in cohort_by_curr_id:
         return False
     target_cohort = cohort_by_curr_id[curriculum_id]
+    if isinstance(all_scheds, IndexedScheduleList):
+        for d in days:
+            for s in all_scheds.for_cohort_day(target_cohort, d):
+                if s.curriculum_id != curriculum_id:
+                    if s.start_time and s.end_time and check_overlap(start_t, end_t, s.start_time, s.end_time):
+                        return True
+        return False
     for s in all_scheds:
         if s.day_of_week in days and s.curriculum_id != curriculum_id:
             if cohort_by_curr_id.get(s.curriculum_id) == target_cohort:
@@ -408,6 +503,12 @@ def _violates_after_order(
 
 
 def is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_scheds):
+    if isinstance(all_scheds, IndexedScheduleList):
+        for d in (day1, day2):
+            for s in all_scheds.for_faculty_day(faculty_id, d):
+                if check_overlap(s.start_time, s.end_time, start_t, end_t):
+                    return True
+        return False
     for s in all_scheds:
         if s.faculty_id == faculty_id and s.day_of_week in (day1, day2):
             if check_overlap(s.start_time, s.end_time, start_t, end_t):
@@ -416,6 +517,12 @@ def is_prof_conflict(faculty_id, day1, day2, start_t, end_t, all_scheds):
 
 
 def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
+    if isinstance(all_unavails, IndexedUnavailList):
+        for d in (day1, day2):
+            for u in all_unavails.for_faculty_day(faculty_id, d):
+                if check_overlap(u.start_time, u.end_time, start_t, end_t):
+                    return True
+        return False
     for u in all_unavails:
         if u.faculty_id == faculty_id and u.day_of_week in (day1, day2):
             if check_overlap(u.start_time, u.end_time, start_t, end_t):
@@ -424,6 +531,11 @@ def is_prof_unavail(faculty_id, day1, day2, start_t, end_t, all_unavails):
 
 
 def is_prof_conflict_single(faculty_id, day, start_t, end_t, all_scheds):
+    if isinstance(all_scheds, IndexedScheduleList):
+        for s in all_scheds.for_faculty_day(faculty_id, day):
+            if check_overlap(s.start_time, s.end_time, start_t, end_t):
+                return True
+        return False
     for s in all_scheds:
         if s.faculty_id == faculty_id and s.day_of_week == day:
             if check_overlap(s.start_time, s.end_time, start_t, end_t):
@@ -432,6 +544,11 @@ def is_prof_conflict_single(faculty_id, day, start_t, end_t, all_scheds):
 
 
 def is_prof_unavail_single(faculty_id, day, start_t, end_t, all_unavails):
+    if isinstance(all_unavails, IndexedUnavailList):
+        for u in all_unavails.for_faculty_day(faculty_id, day):
+            if check_overlap(u.start_time, u.end_time, start_t, end_t):
+                return True
+        return False
     for u in all_unavails:
         if u.faculty_id == faculty_id and u.day_of_week == day:
             if check_overlap(u.start_time, u.end_time, start_t, end_t):
@@ -954,7 +1071,35 @@ def generate_schedules(
     - Combined (C): 3u = 240m per week (only for genuine 'C' subjects)
     - Mandatory 1-hour Lunch Break (12:00 PM - 01:00 PM, Mon-Fri; Sat exempt)
     - Overload flagged for Program Chair override rather than blocking placement.
+
+    Serialized per (department_id, semester_id) and kept in a single atomic
+    transaction so a mid-run failure never wipes an existing draft timetable.
     """
+    with _get_generation_lock(department_id, semester_id):
+        try:
+            return _generate_schedules_locked(
+                db=db,
+                semester_id=semester_id,
+                faculty_ids=faculty_ids,
+                department_id=department_id,
+                auto_bump_units=auto_bump_units,
+            )
+        except Exception:
+            db.rollback()
+            raise
+
+
+def _generate_schedules_locked(
+    db: Session,
+    semester_id: int,
+    faculty_ids: List[int],
+    department_id: int,
+    auto_bump_units: bool = True,
+) -> Dict[str, Any]:
+    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    if not semester:
+        return {"error": "Invalid semester ID"}
+
     if faculty_ids:
         draft_scheds = db.query(models.Schedule).join(models.Curriculum).filter(
             models.Schedule.semester_id == semester_id,
@@ -966,7 +1111,7 @@ def generate_schedules(
         draft_ids = [s.id for s in draft_scheds]
         if draft_ids:
             db.query(models.Schedule).filter(models.Schedule.id.in_(draft_ids)).delete(synchronize_session=False)
-            db.commit()
+            db.flush()
 
         # Scope conflict cleanup to this department's curricula and this semester's schedules
         dept_curr_ids = [
@@ -980,7 +1125,7 @@ def generate_schedules(
                 models.Conflict.curriculum_id.in_(dept_curr_ids),
                 models.Conflict.resolved_at == None,
             ).delete(synchronize_session=False)
-            db.commit()
+            db.flush()
 
     subject_offerings = db.query(models.SubjectOffering).join(models.Curriculum).filter(
         models.Curriculum.department_id == department_id,
@@ -992,21 +1137,23 @@ def generate_schedules(
     faculty_objs: Dict[int, models.Faculty] = {cast(int, f.id): f for f in faculties}
 
     faculty_hours_used: Dict[int, float] = {cast(int, f.id): 0.0 for f in faculties}
-    all_schedules = db.query(models.Schedule).filter(models.Schedule.semester_id == semester_id).all()
-    for s in all_schedules:
+    # Ignore UNASSIGNED PROFESSOR reference placeholders (faculty_id IS NULL) so they
+    # never cause false student-cohort or room conflicts for real faculty.
+    raw_schedules = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == semester_id,
+        models.Schedule.faculty_id.isnot(None),
+    ).all()
+    for s in raw_schedules:
         s_fid = cast(Optional[int], s.faculty_id)
         if s_fid is not None and s_fid in faculty_hours_used and s.start_time and s.end_time:
             faculty_hours_used[s_fid] += get_duration_hours(s.start_time, s.end_time, s.day_of_week)
 
-    all_unavails = db.query(models.FacultyUnavailability).filter(
+    raw_unavails = db.query(models.FacultyUnavailability).filter(
         models.FacultyUnavailability.faculty_id.in_(faculty_ids)
     ).all()
+    all_unavails = IndexedUnavailList(raw_unavails)
 
     rooms_by_type = {}
-
-    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
-    if not semester:
-        return {"error": "Invalid semester ID"}
 
     dept_obj = db.query(models.Department).filter(models.Department.id == department_id).first()
     is_cvmas = bool(dept_obj and getattr(dept_obj, 'code', '').upper() == 'CVMAS')
@@ -1019,28 +1166,34 @@ def generate_schedules(
     skipped_gened = 0
 
     scheduled_offerings: Set[Tuple[int, Any]] = set()
-    for s in all_schedules:
+    for s in raw_schedules:
         if s.faculty_id and s.curriculum_id:
             scheduled_offerings.add((cast(int, s.faculty_id), s.curriculum_id))
 
-    # Build Program + Year Level cohort map and curriculum code lookup
+    # Build Program + Year Level cohort map and in-memory curriculum lookup
     cohort_by_curr_id: Dict[Any, Tuple[str, Any, str]] = {}
     curr_code_map: Dict[Any, str] = {}
+    curr_by_id: Dict[Any, models.Curriculum] = {}
     all_dept_currs = db.query(models.Curriculum).filter(
         models.Curriculum.department_id == department_id
     ).all()
     for dc in all_dept_currs:
+        curr_by_id[dc.id] = dc
         curr_code_map[dc.id] = dc.code
         ck = _cohort_key(dc)
         if ck is not None:
             cohort_by_curr_id[dc.id] = ck
-    extra_sched_cids = {s.curriculum_id for s in all_schedules if s.curriculum_id and s.curriculum_id not in cohort_by_curr_id}
+    extra_sched_cids = {s.curriculum_id for s in raw_schedules if s.curriculum_id and s.curriculum_id not in curr_by_id}
     if extra_sched_cids:
         for ec in db.query(models.Curriculum).filter(models.Curriculum.id.in_(extra_sched_cids)).all():
+            curr_by_id[ec.id] = ec
             curr_code_map[ec.id] = ec.code
             ck = _cohort_key(ec)
             if ck is not None:
                 cohort_by_curr_id[ec.id] = ck
+
+    # Pre-index existing schedules by (faculty_id, day) and (cohort_key, day)
+    all_schedules = IndexedScheduleList(raw_schedules, cohort_by_curr_id=cohort_by_curr_id)
 
     offerings_by_faculty: Dict[int, List[models.SubjectOffering]] = {}
     for off in subject_offerings:
@@ -1049,7 +1202,7 @@ def generate_schedules(
         pid = cast(int, off.faculty_id)
         if pid not in faculty_objs:
             continue
-        c = db.query(models.Curriculum).filter(models.Curriculum.id == off.curriculum_id).first()
+        c = curr_by_id.get(off.curriculum_id)
         if not c:
             continue
         # Explicitly assigned offerings (including assigned GenEd) are scheduled;
@@ -1063,7 +1216,7 @@ def generate_schedules(
 
         off_currs = {}
         for off in offs:
-            c = db.query(models.Curriculum).filter(models.Curriculum.id == off.curriculum_id).first()
+            c = curr_by_id.get(off.curriculum_id)
             if c:
                 off_currs[off.id] = c
 
@@ -1867,8 +2020,9 @@ def _commit_generation_results(
             db.add_all(pending_schedules)
         if pending_conflicts:
             db.add_all(pending_conflicts)
-        if pending_schedules or pending_conflicts:
-            db.commit()
+        # Always commit so flushed draft schedule/conflict deletions commit atomically
+        # together with newly generated rows.
+        db.commit()
 
         for item in unplaced:
             for conf in pending_conflicts:
@@ -1891,3 +2045,217 @@ def _commit_generation_results(
         "skipped_gened": skipped_gened,
         "bumped_warnings": bumped_warnings,
     }
+
+
+def _unassigned_time_buckets(session_mins: int, max_end_time: time) -> Tuple[List[Tuple[time, time]], List[Tuple[time, time]]]:
+    """
+    Return (primary_slots, midday_slots) ordered to alternate Morning and Afternoon
+    across the full 07:30-17:30 window (up to 19:30 for CVMAS) so unassigned
+    subjects stay balanced across the day instead of clustering in the morning.
+    """
+    if session_mins >= 210:
+        primary_starts = [time(7, 30), time(13, 30), time(15, 30)]
+        midday_starts = [time(9, 30)]
+    elif session_mins >= 100:
+        primary_starts = [time(7, 30), time(13, 30), time(9, 30), time(15, 30), time(17, 30)]
+        midday_starts = [time(11, 30)]
+    else:
+        primary_starts = [time(7, 30), time(13, 0), time(9, 0), time(14, 30), time(10, 30), time(16, 0), time(17, 30)]
+        midday_starts = [time(11, 40)]
+
+    max_end_min = max_end_time.hour * 60 + max_end_time.minute
+
+    def _fit(starts: List[time]) -> List[Tuple[time, time]]:
+        out: List[Tuple[time, time]] = []
+        for st in starts:
+            st_m = st.hour * 60 + st.minute
+            en_m = st_m + session_mins
+            if en_m <= max_end_min:
+                out.append((st, time(en_m // 60, en_m % 60)))
+        return out
+
+    primary = _fit(primary_starts)
+    midday = _fit(midday_starts)
+    if not primary and not midday:
+        en_m = min(23 * 60 + 55, 7 * 60 + 30 + max(30, session_mins))
+        primary = [(time(7, 30), time(en_m // 60, en_m % 60))]
+    return primary, midday
+
+
+def _build_balanced_slot_order(days_list: List[Any], primary: List[Tuple[time, time]], midday: List[Tuple[time, time]]) -> List[Tuple[Any, Tuple[time, time]]]:
+    """
+    Build a duplicate-free sequence of (day_or_pair, (start, end)) slots that
+    alternates morning and afternoon across every day before using midday slots
+    or stacking in parallel lanes.
+    """
+    ordered: List[Tuple[Any, Tuple[time, time]]] = []
+    d_len = len(days_list)
+    p_len = len(primary)
+    if d_len > 0 and p_len > 0:
+        period = (d_len * p_len) // math.gcd(d_len, p_len)
+        for step in range(d_len * p_len):
+            d_idx = step % d_len
+            b_idx = (step + (step // period)) % p_len
+            ordered.append((days_list[d_idx], primary[b_idx]))
+    for m_slot in midday:
+        for d in days_list:
+            ordered.append((d, m_slot))
+    return ordered
+
+
+def generate_unassigned_schedules(
+    db: Session,
+    semester_id: int,
+    department_id: int,
+) -> Dict[str, Any]:
+    """
+    Plot all remaining unassigned major subjects for a college and semester into
+    a single UNASSIGNED PROFESSOR timetable grid (faculty_id=None).
+
+    Bypasses teaching-hour limits, overload caps, faculty unavailability, and
+    time/room conflict restrictions. Distributes subjects across Mon-Sat first
+    for readability and allows overlapping/stacked slots so 100% of unassigned
+    subjects are always plotted.
+    """
+    from ..routers.subject_offerings import is_major_subject, normalize_term
+
+    lock = _get_generation_lock(department_id, semester_id)
+    with lock:
+        semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+        if not semester:
+            return {"error": "Invalid semester ID"}
+
+        dept_obj = db.query(models.Department).filter(models.Department.id == department_id).first()
+        is_cvmas = bool(dept_obj and getattr(dept_obj, "code", "").upper() == "CVMAS")
+        max_end_time = CVMAS_MAX_END_TIME if is_cvmas else GENERAL_MAX_END_TIME
+
+        published_block_ids = [
+            bid for (bid,) in db.query(models.CurriculumBlock.id).filter(
+                models.CurriculumBlock.department_id == department_id,
+                models.CurriculumBlock.status == "PUBLISHED",
+            ).all()
+        ]
+
+        sem_term_norm = normalize_term(semester.term)
+        unassigned_currs: List[models.Curriculum] = []
+        room_offering_by_curr: Dict[int, models.SubjectOffering] = {}
+
+        if published_block_ids:
+            all_block_currs = db.query(models.Curriculum).filter(
+                models.Curriculum.block_id.in_(published_block_ids)
+            ).order_by(models.Curriculum.code).all()
+
+            major_currs = [
+                c for c in all_block_currs
+                if is_major_subject(c) and normalize_term(c.semester_term) == sem_term_norm
+            ]
+            major_ids = [c.id for c in major_currs]
+
+            assigned_curr_ids: Set[int] = set()
+            if major_ids:
+                existing_offs = db.query(models.SubjectOffering).filter(
+                    models.SubjectOffering.semester_id == semester_id,
+                    models.SubjectOffering.curriculum_id.in_(major_ids),
+                ).all()
+                for off in existing_offs:
+                    if off.faculty_id is not None:
+                        assigned_curr_ids.add(cast(int, off.curriculum_id))
+                    elif off.room_id is not None:
+                        room_offering_by_curr[cast(int, off.curriculum_id)] = off
+
+            unassigned_currs = [c for c in major_currs if c.id not in assigned_curr_ids]
+
+        try:
+            # Remove only previous draft/unlocked UNASSIGNED PROFESSOR schedules for this dept & term
+            dept_curr_ids = [
+                cid for (cid,) in db.query(models.Curriculum.id).filter(
+                    models.Curriculum.department_id == department_id
+                ).all()
+            ]
+            if dept_curr_ids:
+                db.query(models.Schedule).filter(
+                    models.Schedule.semester_id == semester_id,
+                    models.Schedule.faculty_id.is_(None),
+                    models.Schedule.curriculum_id.in_(dept_curr_ids),
+                    (models.Schedule.status == "draft") | (models.Schedule.status.is_(None)),
+                    (models.Schedule.is_locked == False) | (models.Schedule.is_locked.is_(None)),  # noqa: E712
+                ).delete(synchronize_session=False)
+                db.flush()
+
+            pair_days = [("Mon", "Wed"), ("Tue", "Thu"), ("Fri", "Sat")]
+            single_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            pair_cursor = 0
+            single_cursor = 0
+            slot_order_cache: Dict[Tuple[str, int], List[Tuple[Any, Tuple[time, time]]]] = {}
+            pending_schedules: List[models.Schedule] = []
+
+            for curr in unassigned_currs:
+                req_mins = max(60, faculty_load.subject_required_minutes(curr))
+                is_comb = faculty_load.is_combined_c_subject(curr)
+                is_lab = faculty_load.is_lab_b_subject(curr)
+                # Keep room_id=None on UNASSIGNED PROFESSOR placeholders so physical
+                # lab rooms are never blocked for real professors (room_id remains saved
+                # on SubjectOffering and applies once a professor is assigned).
+                room_id = None
+                room_status = "approved"
+
+                if is_comb or (not is_lab and req_mins <= 90):
+                    cache_key = ("single", req_mins)
+                    ordered_slots = slot_order_cache.get(cache_key)
+                    if ordered_slots is None:
+                        primary, midday = _unassigned_time_buckets(req_mins, max_end_time)
+                        ordered_slots = _build_balanced_slot_order(single_days, primary, midday)
+                        slot_order_cache[cache_key] = ordered_slots
+                    day, (st, en) = ordered_slots[single_cursor % len(ordered_slots)]
+                    single_cursor += 1
+                    pending_schedules.append(
+                        models.Schedule(
+                            semester_id=semester_id,
+                            curriculum_id=curr.id,
+                            faculty_id=None,
+                            room_id=room_id,
+                            room_approval_status=room_status,
+                            day_of_week=day,
+                            start_time=st,
+                            end_time=en,
+                            status="draft",
+                            is_locked=False,
+                        )
+                    )
+                else:
+                    per_session_mins = max(60, req_mins // 2)
+                    cache_key = ("pair", per_session_mins)
+                    ordered_slots = slot_order_cache.get(cache_key)
+                    if ordered_slots is None:
+                        primary, midday = _unassigned_time_buckets(per_session_mins, max_end_time)
+                        ordered_slots = _build_balanced_slot_order(pair_days, primary, midday)
+                        slot_order_cache[cache_key] = ordered_slots
+                    (d1, d2), (st, en) = ordered_slots[pair_cursor % len(ordered_slots)]
+                    pair_cursor += 1
+                    for day in (d1, d2):
+                        pending_schedules.append(
+                            models.Schedule(
+                                semester_id=semester_id,
+                                curriculum_id=curr.id,
+                                faculty_id=None,
+                                room_id=room_id,
+                                room_approval_status=room_status,
+                                day_of_week=day,
+                                start_time=st,
+                                end_time=en,
+                                status="draft",
+                                is_locked=False,
+                            )
+                        )
+
+            if pending_schedules:
+                db.add_all(pending_schedules)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            return {"error": str(e)}
+
+        return {
+            "subjects_plotted": len(unassigned_currs),
+            "schedules_created": len(pending_schedules),
+        }

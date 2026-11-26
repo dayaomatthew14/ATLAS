@@ -290,7 +290,7 @@ def toggle_user_verification(
     return {"id": db_user.id, "is_verified": db_user.is_verified, "msg": f"Verification status updated"}
 
 @router.post("/{user_id}/upload-picture")
-async def upload_profile_picture(
+def upload_profile_picture(
     user_id: int, 
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
@@ -317,7 +317,7 @@ async def upload_profile_picture(
             detail=f"Unsupported image type. Allowed: {', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}"
         )
 
-    contents = await file.read()
+    contents = file.file.read()
     if len(contents) > MAX_PROFILE_PICTURE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

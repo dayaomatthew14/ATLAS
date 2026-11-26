@@ -35,8 +35,10 @@ export default function AppShell({
 
   const isExpanded = isHovered || isFocused || profileMenuOpen;
 
-  // Collapse side panel whenever the user clicks outside on the panel/page
+  // Collapse side panel whenever the user clicks outside on the panel/page.
+  // Only attached while expanded so normal clicks do not trigger a listener.
   React.useEffect(() => {
+    if (!isExpanded) return;
     const handlePointerDown = (e) => {
       if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
         setIsHovered(false);
@@ -50,7 +52,7 @@ export default function AppShell({
 
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, []);
+  }, [isExpanded]);
 
   // Close the drawer on Escape and restore focus, matching Dialog behaviour.
   React.useEffect(() => {
@@ -110,9 +112,12 @@ export default function AppShell({
               setIsFocused(false);
             }
           }}
-          className={`absolute top-0 left-0 bottom-0 glass-dark border-y-0 border-l-0 border-r border-emerald-500/20
-                     flex flex-col transition-[width] duration-150 ease-out overflow-hidden z-topbar
-                     ${isExpanded ? 'w-60 shadow-2xl' : 'w-16 shadow-none'}`}
+          style={{
+            clipPath: isExpanded ? 'inset(0 -40px 0 0)' : 'inset(0 176px 0 0)',
+          }}
+          className={`absolute top-0 left-0 bottom-0 w-60 glass-dark border-y-0 border-l-0 border-r border-emerald-500/20
+                     flex flex-col transition-[clip-path] duration-150 ease-out overflow-hidden z-topbar
+                     ${isExpanded ? 'shadow-2xl' : 'shadow-none'}`}
         >
           {/* Institutional Lockup in Sidebar Header (h-14 / 56px, aligns with TopBar) */}
           <div className="h-14 shrink-0 flex items-center border-b border-emerald-500/20 px-3 overflow-hidden">
@@ -247,19 +252,7 @@ export default function AppShell({
       )}
 
       {/* Main viewport: TopBar on top, content below */}
-      <div
-        className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden"
-        onPointerDown={() => {
-          if (isHovered || isFocused || profileMenuOpen) {
-            setIsHovered(false);
-            setIsFocused(false);
-            setProfileMenuOpen(false);
-          }
-          if (sidebarRef.current?.contains(document.activeElement)) {
-            document.activeElement?.blur();
-          }
-        }}
-      >
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <TopBar
           termLabel={termLabel}
           onOpenTerm={onOpenTerm}

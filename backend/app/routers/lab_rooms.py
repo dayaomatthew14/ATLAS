@@ -1,10 +1,10 @@
 import logging
 from datetime import datetime, timezone, time
-from typing import List, Optional, Any, Dict
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from .. import models, database, auth, schemas
+from .. import models, database, auth
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,7 @@ def list_lab_rooms(
     if sem:
         scheds = db.query(models.Schedule).filter(
             models.Schedule.semester_id == sem.id,
+            models.Schedule.faculty_id.isnot(None),
             models.Schedule.room_id.in_(room_ids),
         ).all()
 
@@ -324,9 +325,10 @@ def assign_lab_room(
             detail="The 5:30 PM – 7:30 PM time slot is restricted to CVMAS only. Classes must end by 5:30 PM (17:30)."
         )
 
-    # Overlap prevention check
+    # Overlap prevention check (ignore UNASSIGNED PROFESSOR reference placeholders)
     overlap_query = db.query(models.Schedule).filter(
         models.Schedule.semester_id == sem_id,
+        models.Schedule.faculty_id.isnot(None),
         models.Schedule.room_id == req.room_id,
         models.Schedule.day_of_week == day,
         models.Schedule.start_time < end_t,

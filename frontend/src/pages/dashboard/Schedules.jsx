@@ -49,6 +49,7 @@ const FacultyBoard = React.memo(function FacultyBoard({
   conflictedCurriculumIds,
   isLensOpen,
   onDeleteSchedule,
+  onClearBoard,
   onQuickAdd,
   onCardEnter,
   onCardLeave,
@@ -63,8 +64,9 @@ const FacultyBoard = React.memo(function FacultyBoard({
     [onQuickAdd, board.name]
   );
 
+  const isUnassignedBoard = board.name === 'UNASSIGNED PROFESSOR';
   const empType = teacher?.type || 'full_time_regular';
-  const isFullTime = isFullTimeType(empType);
+  const isFullTime = !isUnassignedBoard && isFullTimeType(empType);
   const requiredHours = getAllowedTeachingHours(empType, activeTerm);
   const actualHours = board.hours || 0;
   const actualOverload = Math.max(0, Number((actualHours - requiredHours).toFixed(2)));
@@ -74,14 +76,22 @@ const FacultyBoard = React.memo(function FacultyBoard({
   return (
     <section
       aria-label={`Schedule for ${board.name}`}
-      className="rounded-3xl border border-[#AEC3B0]/35 bg-white/95 overflow-hidden break-inside-avoid shadow-xs hover:shadow-sm transition-shadow duration-150"
+      className={`rounded-3xl border bg-white/95 overflow-hidden break-inside-avoid shadow-xs hover:shadow-sm transition-shadow duration-150 ${
+        isUnassignedBoard ? 'border-slate-300/90' : 'border-[#AEC3B0]/35'
+      }`}
       style={{ contentVisibility: 'auto', containIntrinsicSize: '0 850px' }}
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-[#AEC3B0]/30 bg-gradient-to-r from-[#E3EED4]/35 via-white/80 to-transparent">
+      <header
+        className={`flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b ${
+          isUnassignedBoard
+            ? 'border-slate-200 bg-gradient-to-r from-slate-100/80 via-white/80 to-transparent'
+            : 'border-[#AEC3B0]/30 bg-gradient-to-r from-[#E3EED4]/35 via-white/80 to-transparent'
+        }`}
+      >
         <div className="flex items-center gap-3.5 min-w-0">
           <span
             className="w-4 h-4 rounded-full shrink-0 shadow-2xs"
-            style={{ backgroundColor: color.accent }}
+            style={{ backgroundColor: isUnassignedBoard ? '#475569' : color.accent }}
             aria-hidden="true"
           />
           <h3 className="font-ui text-[18px] font-black text-[#0F2A1D] truncate tracking-tight">
@@ -114,11 +124,33 @@ const FacultyBoard = React.memo(function FacultyBoard({
           </div>
         )}
 
-        <span className="font-ui text-[13px] font-black px-4 py-1.5 rounded-full bg-[#E3EED4]/90 border border-[#AEC3B0]/60 text-[#0F2A1D] tabular-nums shadow-2xs">
-          {hasClasses
-            ? `${pluralize(board.classes.length, 'class', 'classes')} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
-            : 'No classes scheduled'}
-        </span>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span
+            className={`font-ui text-[13px] font-black px-4 py-1.5 rounded-full border tabular-nums shadow-2xs ${
+              isUnassignedBoard
+                ? 'bg-slate-100 border-slate-300 text-slate-800'
+                : 'bg-[#E3EED4]/90 border-[#AEC3B0]/60 text-[#0F2A1D]'
+            }`}
+          >
+            {hasClasses
+              ? isUnassignedBoard
+                ? `${pluralize(board.classes.length, 'class', 'classes')} · Unassigned Reference Pool`
+                : `${pluralize(board.classes.length, 'class', 'classes')} · ${board.hours % 1 === 0 ? board.hours : board.hours.toFixed(1)} hrs / week`
+              : 'No classes scheduled'}
+          </span>
+
+          {canManageSchedules && hasClasses && onClearBoard && (
+            <button
+              type="button"
+              onClick={() => onClearBoard(board, teacher)}
+              className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-rose-200 bg-rose-50/90 text-rose-700 hover:bg-rose-100 hover:border-rose-300 font-ui text-[12px] font-bold transition-colors cursor-pointer"
+              title={`Delete entire schedule for ${board.name}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Clear schedule</span>
+            </button>
+          )}
+        </div>
       </header>
 
       {hasClasses ? (
@@ -131,7 +163,7 @@ const FacultyBoard = React.memo(function FacultyBoard({
             conflictedCurriculumIds={conflictedCurriculumIds}
             isLensOpen={isLensOpen}
             onDeleteSchedule={onDeleteSchedule}
-            onQuickAdd={handleQuickAddSlot}
+            onQuickAdd={isUnassignedBoard ? undefined : handleQuickAddSlot}
             onCardEnter={onCardEnter}
             onCardLeave={onCardLeave}
           />
@@ -147,7 +179,6 @@ const FacultyBoard = React.memo(function FacultyBoard({
 
 export default function Schedules() {
   const { addToast } = useToast();
-  const [schedules, setSchedules] = useState([]);
   const [formConflicts, setFormConflicts] = useState([]);
   // A cohort overlap is advisory; a faculty / room / session-order clash is blocking.
   const blockingFormConflicts = formConflicts.filter((c) => c.severity !== 'advisory');
@@ -166,6 +197,7 @@ export default function Schedules() {
   const [selectedGenProfessors, setSelectedGenProfessors] = useState([]);
   const [generationResults, setGenerationResults] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPlottingUnassigned, setIsPlottingUnassigned] = useState(false);
 
   const [globalSchedules, setGlobalSchedules] = useState([]);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
@@ -203,98 +235,17 @@ export default function Schedules() {
   // down, next to `lensConflicts`, because it is that combined list -- not the
   // server list alone -- that decides whether anything is left to show.
 
-  // Hover state for timetable class cards
-  const [hoveredSchedule, setHoveredSchedule] = useState(null);
-  const hoverTimerRef = React.useRef(null);
+  // Hover state is isolated inside ScheduleHoverPopover via imperative ref so
+  // hovering a class card never re-renders Schedules or its modal children.
+  const hoverPopoverRef = React.useRef(null);
 
   const handleCardMouseEnter = React.useCallback((sched, color, day, inConflict, event) => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    const target = event.currentTarget;
-    // Debounce hover popover (200ms) so fast cursor movement across cards
-    // does not trigger synchronous layout reflows or React re-render thrashing.
-    hoverTimerRef.current = setTimeout(() => {
-      if (!target) return;
-      const rect = target.getBoundingClientRect();
-      setHoveredSchedule({ sched, color, day, rect, inConflict });
-    }, 200);
+    hoverPopoverRef.current?.show(sched, color, day, inConflict, event.currentTarget);
   }, []);
 
   const handleCardMouseLeave = React.useCallback(() => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredSchedule(null);
-    }, 120);
+    hoverPopoverRef.current?.scheduleHide();
   }, []);
-
-  const handlePopoverMouseEnter = React.useCallback(() => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-  }, []);
-
-  const handlePopoverMouseLeave = React.useCallback(() => {
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredSchedule(null);
-    }, 120);
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      if (hoverTimerRef.current) {
-        clearTimeout(hoverTimerRef.current);
-        hoverTimerRef.current = null;
-      }
-      setHoveredSchedule((prev) => (prev ? null : prev));
-    };
-    // Use passive listener to avoid blocking browser scrolling thread
-    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll, { capture: true });
-      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    };
-  }, []);
-
-  const getPopoverStyle = (rect) => {
-    if (!rect) return { display: 'none' };
-    const popoverWidth = 300;
-    const popoverHeight = 250;
-    const padding = 12;
-
-    // Prefer placing popover to the right of the card
-    let left = rect.right + 12;
-    if (left + popoverWidth > window.innerWidth - padding) {
-      // If overflowing right viewport edge, flip to the left of the card
-      left = rect.left - popoverWidth - 12;
-    }
-    // If still offscreen on the left, clamp to padding
-    if (left < padding) {
-      left = Math.max(padding, window.innerWidth - popoverWidth - padding);
-    }
-
-    // Align vertically with card top, clamped within viewport
-    let top = rect.top;
-    if (top + popoverHeight > window.innerHeight - padding) {
-      top = Math.max(padding, window.innerHeight - popoverHeight - padding);
-    }
-    if (top < padding) {
-      top = padding;
-    }
-
-    return {
-      position: 'fixed',
-      top: `${top}px`,
-      left: `${left}px`,
-      width: `${popoverWidth}px`,
-      zIndex: 60,
-    };
-  };
 
   // Custom Faculty Filter Dropdown state
   const [isFacultyDropdownOpen, setIsFacultyDropdownOpen] = useState(false);
@@ -322,6 +273,7 @@ export default function Schedules() {
 
   const [undoBackup, setUndoBackup] = useState(null);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [clearTargetBoard, setClearTargetBoard] = useState(null);
 
   const fetchActiveConflicts = React.useCallback(async (semesterId = null) => {
     try {
@@ -414,24 +366,49 @@ export default function Schedules() {
    * in the lens so each resolution is a decision someone actually made.
    */
 
+  const handleRequestClearBoard = React.useCallback((board, matchedTeacher) => {
+    const isUnassigned = board.name === 'UNASSIGNED PROFESSOR';
+    const resolvedFacultyId = isUnassigned
+      ? null
+      : (board.classes.find((c) => c.faculty_id != null)?.faculty_id ?? matchedTeacher?.id ?? null);
+    setClearTargetBoard({
+      name: board.name,
+      facultyId: resolvedFacultyId,
+      isUnassigned,
+      count: board.classes.length,
+    });
+    setIsClearConfirmOpen(true);
+  }, []);
+
   const handleClearAllSchedules = async () => {
     const semId = selectedGenSemester || activeSemesterId;
     if (!semId) return addToast('Select a semester first', 'error');
     try {
-      const res = await api.delete(`/schedules/clear-all?semester_id=${semId}`);
+      const params = new URLSearchParams({ semester_id: String(semId) });
+      if (clearTargetBoard?.isUnassigned) {
+        params.set('unassigned_only', 'true');
+      } else if (clearTargetBoard?.facultyId != null) {
+        params.set('faculty_id', String(clearTargetBoard.facultyId));
+      }
+      const res = await api.delete(`/schedules/clear-all?${params.toString()}`);
       if (res?.backup?.length > 0) {
         setUndoBackup({
-          label: `Cleared ${res.deleted_count} schedule entries`,
+          label: clearTargetBoard
+            ? `Cleared ${res.deleted_count} classes for ${clearTargetBoard.name}`
+            : `Cleared ${res.deleted_count} schedule entries`,
           items: res.backup
         });
       }
-      setSelectedProfessorFilter('');
-      setGlobalSchedules([]);
-      setSchedules([]);
+      if (!clearTargetBoard) {
+        setSelectedProfessorFilter('');
+        setGlobalSchedules([]);
+      } else if (selectedProfessorFilter === clearTargetBoard.name) {
+        setSelectedProfessorFilter('');
+      }
       fetchGlobalSchedules(semId);
-      fetchSchedules();
       fetchActiveConflicts();
       setIsClearConfirmOpen(false);
+      setClearTargetBoard(null);
     } catch (e) {
       addToast(e.message || 'Failed to clear schedules', 'error');
     }
@@ -441,11 +418,10 @@ export default function Schedules() {
     if (!undoBackup || !undoBackup.items?.length) return;
     try {
       await api.post('/schedules/restore', { items: undoBackup.items });
-      addToast('Schedules successfully restored! ✨', 'success');
+      addToast('Schedules successfully restored.', 'success');
       setUndoBackup(null);
       const semId = selectedGenSemester || activeSemesterId;
       if (semId) fetchGlobalSchedules(semId);
-      fetchSchedules();
       fetchActiveConflicts();
     } catch (e) {
       addToast(e.message || 'Failed to restore schedules', 'error');
@@ -481,18 +457,37 @@ export default function Schedules() {
     }
   };
 
+  const globalSchedAbortRef = React.useRef(null);
+
   const fetchGlobalSchedules = React.useCallback(async (semesterId) => {
     if (!semesterId) return;
+    if (globalSchedAbortRef.current) {
+      globalSchedAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    globalSchedAbortRef.current = controller;
     setIsGlobalLoading(true);
     try {
-      const data = await api.get(`/ai-scheduler/global-schedule?semester_id=${semesterId}`);
-      setGlobalSchedules(Array.isArray(data) ? data : []);
+      const data = await api.get(`/ai-scheduler/global-schedule?semester_id=${semesterId}`, {
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) {
+        setGlobalSchedules(Array.isArray(data) ? data : []);
+      }
     } catch (e) {
+      if (e?.name === 'AbortError' || controller.signal.aborted) return;
       addToast('Failed to fetch global schedule', 'error');
     } finally {
-      setIsGlobalLoading(false);
+      if (!controller.signal.aborted) {
+        setIsGlobalLoading(false);
+      }
     }
   }, [addToast]);
+
+  const checkedGlobalSchedules = React.useMemo(
+    () => checkScheduleIntegrity(globalSchedules),
+    [globalSchedules]
+  );
 
   const [selectedProfessorFilter, setSelectedProfessorFilter] = useState('');
   const [allTeachers, setAllTeachers] = useState([]);
@@ -605,7 +600,9 @@ export default function Schedules() {
   };
 
   useEffect(() => {
-    api.get('/semesters').then(sems => {
+    const controller = new AbortController();
+    api.get('/semesters', { signal: controller.signal }).then(sems => {
+      if (controller.signal.aborted) return;
       const safeSems = Array.isArray(sems) ? sems : [];
       // Also kept in state on mount, not only when the Generate modal opens.
       // The print header and the export file name both name the term, and both
@@ -620,15 +617,27 @@ export default function Schedules() {
       } else {
         fetchActiveConflicts();
       }
-    }).catch(console.error);
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') console.error(err);
+    });
 
-    api.get('/professors').then(data => {
+    api.get('/professors', { signal: controller.signal }).then(data => {
+      if (controller.signal.aborted) return;
       const formatted = (Array.isArray(data) ? data : []).map(t => ({
         ...t,
         name: `${t.first_name} ${t.last_name}`
       }));
       setAllTeachers(formatted);
-    }).catch(console.error);
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') console.error(err);
+    });
+
+    return () => {
+      controller.abort();
+      if (globalSchedAbortRef.current) {
+        globalSchedAbortRef.current.abort();
+      }
+    };
     // Load once on mount; the fetchers are re-created each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -640,14 +649,14 @@ export default function Schedules() {
    * no professor cards are rendered so the empty state is properly displayed.
    */
   const facultyBoards = React.useMemo(() => {
-    if (!globalSchedules || globalSchedules.length === 0) {
+    if (!checkedGlobalSchedules || checkedGlobalSchedules.length === 0) {
       return [];
     }
 
     const boards = new Map();
 
-    globalSchedules.forEach((s) => {
-      const name = s.faculty_name || 'Unassigned';
+    checkedGlobalSchedules.forEach((s) => {
+      const name = s.faculty_name || 'UNASSIGNED PROFESSOR';
       if (!boards.has(name)) boards.set(name, { name, classes: [] });
       boards.get(name).classes.push(s);
     });
@@ -681,8 +690,12 @@ export default function Schedules() {
           hours: Number(totalHours.toFixed(2)),
         };
       })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [globalSchedules, selectedProfessorFilter]);
+      .sort((a, b) => {
+        if (a.name === 'UNASSIGNED PROFESSOR') return -1;
+        if (b.name === 'UNASSIGNED PROFESSOR') return 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [checkedGlobalSchedules, selectedProfessorFilter]);
 
   const visibleBoards = React.useMemo(() => {
     return selectedProfessorFilter
@@ -725,7 +738,6 @@ export default function Schedules() {
       });
       setGenerationResults(res);
       addToast('Generation complete', 'success');
-      fetchSchedules();
       fetchGlobalSchedules(selectedGenSemester);
       fetchActiveConflicts();
     } catch (e) {
@@ -734,6 +746,36 @@ export default function Schedules() {
       addToast(parsed.message || 'Generation failed', 'error');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handlePlotUnassigned = async () => {
+    const targetSem = selectedGenSemester || activeSemesterId;
+    if (!targetSem) {
+      setGenErrors({ semester: 'No active academic term configured. Activate a semester first.' });
+      return;
+    }
+    setIsPlottingUnassigned(true);
+    setGenErrors({});
+    try {
+      const res = await api.post(`/ai-scheduler/generate-unassigned/${targetSem}`);
+      const count = res?.subjects_plotted ?? 0;
+      addToast(
+        count > 0
+          ? `Plotted ${pluralize(count, 'unassigned subject', 'unassigned subjects')} under UNASSIGNED PROFESSOR.`
+          : 'No remaining unassigned major subjects to plot.',
+        'success'
+      );
+      setIsGenerateModalOpen(false);
+      setGenerationResults(null);
+      fetchGlobalSchedules(targetSem);
+      fetchActiveConflicts();
+    } catch (e) {
+      const parsed = parseErrorResponse(e, 'Failed to plot unassigned subjects');
+      setGenErrors({ submit: parsed.message });
+      addToast(parsed.message || 'Failed to plot unassigned subjects', 'error');
+    } finally {
+      setIsPlottingUnassigned(false);
     }
   };
 
@@ -982,7 +1024,6 @@ export default function Schedules() {
   useEffect(() => {
     if (formData.subject_id && formData.start_time) {
       const selectedSub = subjects.find((s) => String(s.id) === String(formData.subject_id));
-      const pool = globalSchedules.length > 0 ? globalSchedules : schedules;
       const conflicts = detectConflicts(
         {
           ...formData,
@@ -993,13 +1034,13 @@ export default function Schedules() {
           year_level: selectedSub?.year_level,
           teacher: teachers.find((t) => t.id === parseInt(formData.faculty_id, 10))?.name,
         },
-        pool
+        checkedGlobalSchedules
       );
       setFormConflicts(conflicts);
     } else {
       setFormConflicts([]);
     }
-  }, [formData, schedules, globalSchedules, teachers, subjects]);
+  }, [formData, checkedGlobalSchedules, teachers, subjects]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1026,7 +1067,6 @@ export default function Schedules() {
         section: ''
       };
       await api.post('/schedules', submissionData);
-      fetchSchedules();
       fetchGlobalSchedules(activeSemesterId);
       fetchActiveConflicts();
       setIsModalOpen(false);
@@ -1062,27 +1102,6 @@ export default function Schedules() {
     }
   };
 
-  const fetchSchedules = React.useCallback(async (semesterOverride = null) => {
-    const semId = semesterOverride || activeSemesterId;
-    if (!semId) {
-      setSchedules([]);
-      return;
-    }
-    try {
-      const rawData = await api.get('/schedules', {
-        params: { semester_id: semId, limit: 1000 },
-      });
-      const formattedData = Array.isArray(rawData) ? rawData.map(s => ({
-        ...s,
-        date: s.date ? new Date(s.date) : new Date()
-      })) : [];
-      setSchedules(checkScheduleIntegrity(formattedData));
-    } catch (error) {
-      console.error('Failed to fetch schedules', error);
-      setSchedules([]);
-    }
-  }, [activeSemesterId]);
-
   const handleDeleteSchedule = React.useCallback(
     async (sched) => {
       try {
@@ -1096,29 +1115,21 @@ export default function Schedules() {
         const semToFetch = selectedGenSemester || activeSemesterId;
         if (semToFetch) {
           fetchGlobalSchedules(semToFetch);
-          fetchSchedules(semToFetch);
           fetchActiveConflicts(semToFetch);
         } else {
-          fetchSchedules();
           fetchActiveConflicts();
         }
       } catch (e) {
         addToast(e.message || 'Failed to delete schedule', 'error');
       }
     },
-    [selectedGenSemester, activeSemesterId, fetchGlobalSchedules, fetchSchedules, fetchActiveConflicts, addToast]
+    [selectedGenSemester, activeSemesterId, fetchGlobalSchedules, fetchActiveConflicts, addToast]
   );
 
   // `handleAutoResolveAll` was removed with the button that called it. It
   // looped the single-conflict resolver, which force-placed into the first free
   // room on failure, so one click could double-book a whole term and report
   // success. `handleAIGeneration` was a one-line wrapper nothing referenced.
-
-  useEffect(() => {
-    if (activeSemesterId) {
-      fetchSchedules(activeSemesterId);
-    }
-  }, [activeSemesterId, fetchSchedules]);
 
   /**
    * The conflict count had two competing sources: this button counted overlaps
@@ -1130,7 +1141,7 @@ export default function Schedules() {
    */
   const localOverlaps = React.useMemo(
     () =>
-      schedules
+      checkedGlobalSchedules
         .filter((s) => s.isConflicting)
         .map((s) => ({
           id: `local-${s.id}`,
@@ -1138,7 +1149,7 @@ export default function Schedules() {
           type: 'Unsaved Overlap',
           reason:
             'This class overlaps another in the grid. The server has not recorded it as a conflict yet.',
-          curriculum: s.curriculum?.code || s.subject || 'Subject',
+          curriculum: s.subject_code || s.curriculum?.code || s.subject || 'Subject',
           faculty_name: s.faculty_name || s.teacher || 'Faculty',
           curriculum_id: s.curriculum_id ?? null,
           faculty_id: s.faculty_id ?? null,
@@ -1149,7 +1160,7 @@ export default function Schedules() {
           // action that would fail.
           unresolvable: true,
         })),
-    [schedules]
+    [checkedGlobalSchedules]
   );
 
   // Previously `Math.max(activeConflicts.length, localOverlapCount)`. That is
@@ -1298,7 +1309,10 @@ export default function Schedules() {
                       variant="destructive"
                       icon={Trash2}
                       disabled={isSchedulePublished}
-                      onClick={() => setIsClearConfirmOpen(true)}
+                      onClick={() => {
+                        setClearTargetBoard(null);
+                        setIsClearConfirmOpen(true);
+                      }}
                       title={isSchedulePublished ? 'Schedule is published and locked' : 'Clear all schedules for this semester'}
                       className="no-print"
                     >
@@ -1473,9 +1487,9 @@ export default function Schedules() {
                       <span>·</span>
                       <span>
                         <strong className="text-[#0F2A1D]">
-                          {facultyBoards.filter((b) => b.classes.length > 0).length}
+                          {facultyBoards.filter((b) => b.classes.length > 0 && b.name !== 'UNASSIGNED PROFESSOR').length}
                         </strong>{' '}
-                        of {allTeachers.length > 0 ? allTeachers.length : facultyBoards.length} professors scheduled
+                        of {allTeachers.length > 0 ? allTeachers.length : facultyBoards.filter((b) => b.name !== 'UNASSIGNED PROFESSOR').length} professors scheduled
                       </span>
                     </>
                   )}
@@ -1512,6 +1526,7 @@ export default function Schedules() {
                     conflictedCurriculumIds={conflictedCurriculumIds}
                     isLensOpen={isLensOpen}
                     onDeleteSchedule={handleDeleteSchedule}
+                    onClearBoard={handleRequestClearBoard}
                     onQuickAdd={handleQuickAdd}
                     onCardEnter={handleCardMouseEnter}
                     onCardLeave={handleCardMouseLeave}
@@ -1525,15 +1540,9 @@ export default function Schedules() {
         </div>
 
         <ScheduleHoverPopover
-          hoveredSchedule={hoveredSchedule}
-          getPopoverStyle={getPopoverStyle}
-          onMouseEnter={handlePopoverMouseEnter}
-          onMouseLeave={handlePopoverMouseLeave}
+          ref={hoverPopoverRef}
           canManageSchedules={canMutateSchedules}
-          onDeleteSchedule={(sched) => {
-            handleDeleteSchedule(sched);
-            setHoveredSchedule(null);
-          }}
+          onDeleteSchedule={handleDeleteSchedule}
         />
         <div className="print-footer mt-4 pt-2 font-ui text-caption">
           Generated {new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -1630,6 +1639,8 @@ export default function Schedules() {
           setIsGenerateModalOpen(false);
           navigate('/dashboard/assigned-subjects');
         }}
+        onPlotUnassigned={handlePlotUnassigned}
+        isPlottingUnassigned={isPlottingUnassigned}
         allTeachers={allTeachers}
         selectedGenProfessors={selectedGenProfessors}
         setSelectedGenProfessors={setSelectedGenProfessors}
@@ -1659,8 +1670,12 @@ export default function Schedules() {
 
       <ClearSchedulesDialog
         isOpen={isClearConfirmOpen}
-        onClose={() => setIsClearConfirmOpen(false)}
+        onClose={() => {
+          setIsClearConfirmOpen(false);
+          setClearTargetBoard(null);
+        }}
         onConfirm={handleClearAllSchedules}
+        targetBoard={clearTargetBoard}
       />
 
       <UndoBackupToast

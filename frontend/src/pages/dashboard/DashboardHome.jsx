@@ -45,18 +45,25 @@ export default function DashboardHome() {
   const [facultyMissingAvail, setFacultyMissingAvail] = useState(0);
   const [curriculumCount, setCurriculumCount] = useState(0);
 
-  const fetchStats = async () => {
+  const fetchStats = async (signal) => {
     setIsLoading(true);
     try {
+      const reqOpts = signal ? { signal } : undefined;
+      const swallowNonAbort = (fallback) => (err) => {
+        if (err?.name === 'AbortError') throw err;
+        return fallback;
+      };
       const [semesters, faculty, conflicts, curriculum] = await Promise.all([
-        api.get('/semesters').catch(() => []),
-        api.get('/professors').catch(() => []),
-        api.get('/conflicts/count').catch((err) => {
+        api.get('/semesters', reqOpts).catch(swallowNonAbort([])),
+        api.get('/professors', reqOpts).catch(swallowNonAbort([])),
+        api.get('/conflicts/count', reqOpts).catch((err) => {
+          if (err?.name === 'AbortError') throw err;
           console.error('ATLAS: conflict count could not be read.', err);
           return { count: null };
         }),
-        api.get('/curriculum').catch(() => []),
+        api.get('/curriculum', reqOpts).catch(swallowNonAbort([])),
       ]);
+      if (signal?.aborted) return;
 
       const safeSemesters = Array.isArray(semesters) ? semesters : [];
       const safeFaculty = Array.isArray(faculty) ? faculty : [];
@@ -66,8 +73,9 @@ export default function DashboardHome() {
       setActiveSemester(activeSem || null);
 
       const schedules = activeSem
-        ? await api.get('/schedules', { params: { semester_id: activeSem.id, limit: 1000 } }).catch(() => [])
+        ? await api.get('/schedules', { params: { semester_id: activeSem.id, limit: 1000 }, ...(reqOpts || {}) }).catch(swallowNonAbort([]))
         : [];
+      if (signal?.aborted) return;
       const safeSchedules = Array.isArray(schedules) ? schedules : [];
 
       setSchedulesCount(safeSchedules.length);
@@ -76,14 +84,17 @@ export default function DashboardHome() {
       setFacultyMissingAvail(safeFaculty.filter((f) => (!f.max_units || f.max_units === 0) && (!f.allowed_hours || f.allowed_hours === 0)).length);
       setCurriculumCount(safeCurriculum.length);
     } catch (e) {
+      if (e?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to fetch dashboard stats', e);
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStats();
+    const controller = new AbortController();
+    fetchStats(controller.signal);
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -211,7 +222,7 @@ export default function DashboardHome() {
             variant="secondary"
             icon={RefreshCw}
             loading={isLoading}
-            onClick={fetchStats}
+            onClick={() => fetchStats()}
           >
             Refresh
           </Button>

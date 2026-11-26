@@ -22,7 +22,6 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from .. import models
 from . import faculty_load
-from .schedule_generator import is_lunch_break_conflict, LUNCH_BREAK_DAYS, LUNCH_BREAK_START, LUNCH_BREAK_END
 
 
 def _attachment_header(stem: str, ext: str) -> dict:

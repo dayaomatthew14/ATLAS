@@ -1,4 +1,4 @@
-import { useMemo, memo } from 'react';
+import { useMemo, useState, useCallback, memo } from 'react';
 import { Lock, Unlock, Trash2, AlertTriangle } from 'lucide-react';
 import {
   DAY_ORDER,
@@ -42,36 +42,47 @@ function buildTimeTicks(endMin) {
   return ticks;
 }
 
-/** Precomputed 30-minute background grid slot intervals */
-function buildGridSlots(ticks, endMin) {
-  const slots = [];
-  for (let i = 0; i < ticks.length - 1; i += 1) {
-    const tick = ticks[i];
-    const h24 = Math.floor(tick.minutes / 60);
-    const m24 = tick.minutes % 60;
-    const quickAddEnd = Math.min(endMin, tick.minutes + 80);
-    const eH24 = Math.floor(quickAddEnd / 60);
-    const eM24 = quickAddEnd % 60;
-    const startStr = `${String(h24).padStart(2, '0')}:${String(m24).padStart(2, '0')}`;
-    const endStr = `${String(eH24).padStart(2, '0')}:${String(eM24).padStart(2, '0')}`;
+const HALF_HOUR_PX = 30 * PX_PER_MINUTE;
+const HOUR_PX = 60 * PX_PER_MINUTE;
+const GRID_LINES_BACKGROUND = `repeating-linear-gradient(
+  to bottom,
+  transparent 0px,
+  transparent ${HALF_HOUR_PX - 1}px,
+  #D5DFD9 ${HALF_HOUR_PX - 1}px,
+  #D5DFD9 ${HALF_HOUR_PX}px,
+  transparent ${HALF_HOUR_PX}px,
+  transparent ${HOUR_PX - 1}px,
+  #EEF3EF ${HOUR_PX - 1}px,
+  #EEF3EF ${HOUR_PX}px
+)`;
 
-    slots.push({
-      minutes: tick.minutes,
-      topPx: tick.topPx,
-      isHour: tick.isHour,
-      label: tick.label,
-      startStr,
-      endStr,
-    });
+// Soft, low-saturation cool/neutral palette (no red, orange, or yellow warning tones) — distinct yet easy on the eyes.
+const SOFT_SUBJECT_PALETTE = [
+  { bg: '#EFF6F0', border: '#BDD4C2', accent: '#3B6E52', badgeBg: '#DCECE0', badgeText: '#1A402B', title: '#132E1F', time: '#2A553D' }, // Soft Sage
+  { bg: '#EFF5FA', border: '#BDD3E6', accent: '#3A6B94', badgeBg: '#DCEAF5', badgeText: '#1C3F5E', title: '#132A40', time: '#2B5478' }, // Soft Sky
+  { bg: '#F4F1FA', border: '#CFC4E6', accent: '#685199', badgeBg: '#E6DDF5', badgeText: '#3A2863', title: '#261A42', time: '#513D7D' }, // Soft Lavender
+  { bg: '#EDF7F6', border: '#B5DBD7', accent: '#2D756E', badgeBg: '#D6ECE9', badgeText: '#154540', title: '#0E2E2B', time: '#215B55' }, // Soft Teal
+  { bg: '#F1F3FA', border: '#C4CBE6', accent: '#4A5D9E', badgeBg: '#DFE4F5', badgeText: '#233163', title: '#172145', time: '#384880' }, // Soft Periwinkle
+  { bg: '#EDF6F2', border: '#B7D9CA', accent: '#2E7058', badgeBg: '#D6EBE1', badgeText: '#144232', title: '#0E2D22', time: '#215744' }, // Soft Mint
+  { bg: '#F1F5F9', border: '#CBD5E1', accent: '#475569', badgeBg: '#E2E8F0', badgeText: '#1E293B', title: '#0F172A', time: '#334155' }, // Soft Slate Blue
+  { bg: '#F0F6FA', border: '#BBD6E3', accent: '#356D85', badgeBg: '#D8EAF2', badgeText: '#173E4F', title: '#102A36', time: '#275569' }, // Soft Mist Cyan
+];
+
+function getSoftPaletteIndex(seed) {
+  const str = String(seed || 'SUBJ');
+  let hash = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   }
-  return slots;
+  return hash % SOFT_SUBJECT_PALETTE.length;
 }
 
 /**
- * Assign side-by-side lane indices (`laneIndex`, `laneCount`) to any overlapping
- * events on the same day so blocks never visually cover one another.
+ * Stack overlapping events on the same day vertically at full column width so
+ * subject codes, titles, and time ranges remain completely readable, and assign
+ * distinct soft pastel colors to overlapping or unassigned-pool cards.
  */
-function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD) {
+function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD, dayKey = '', stackOrders = {}) {
   const sorted = [...daySchedules]
     .map((s) => {
       const rawStart = minutesOf(s.start_time);
@@ -82,13 +93,15 @@ function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD) {
       const heightPx = Math.max(28, (clampedEnd - clampedStart) * PX_PER_MINUTE);
       const isLongCard = durMins > 120 || heightPx >= 180;
       const topPx = (clampedStart - GRID_START_MIN) * PX_PER_MINUTE + GRID_PADDING_TOP;
-      const color = getFacultyColor(s.faculty_name);
+      const isUnassigned = s.faculty_id == null || s.faculty_name === 'UNASSIGNED PROFESSOR';
+      const displayCode = formatSubjectCode(s) || s.subject_code || 'N/A';
+      const softIdx = getSoftPaletteIndex(displayCode || s.curriculum_id || s.id);
+      const color = isUnassigned ? SOFT_SUBJECT_PALETTE[softIdx] : getFacultyColor(s.faculty_name);
       const isLab = isLabSession(s);
       const isComb = isCombinedCSubject({
         code: s.subject_code,
         type: s.curriculum_type || s.curriculum?.type,
       });
-      const displayCode = formatSubjectCode(s) || s.subject_code || 'N/A';
       const subjectTitle =
         s.subject_name ||
         (typeof s.subject === 'string' ? s.subject : s.subject?.name) ||
@@ -114,6 +127,7 @@ function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD) {
         isLongCard,
         topPx,
         color,
+        softIdx,
         isLab,
         isComb,
         displayCode,
@@ -123,6 +137,7 @@ function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD) {
         rawSection,
         hasSection,
         timeRangeLabel,
+        isStacked: false,
       };
     })
     .sort((a, b) => a.clampedStart - b.clampedStart || a.clampedEnd - b.clampedEnd);
@@ -147,29 +162,86 @@ function layoutDayEvents(daySchedules, endMin = GRID_END_MIN_STANDARD) {
 
   const positioned = [];
   for (const cluster of clusters) {
-    const lanes = [];
-    for (const item of cluster) {
-      let assignedLane = -1;
-      for (let i = 0; i < lanes.length; i += 1) {
-        if (lanes[i] <= item.clampedStart) {
-          assignedLane = i;
-          lanes[i] = item.clampedEnd;
-          break;
-        }
-      }
-      if (assignedLane === -1) {
-        assignedLane = lanes.length;
-        lanes.push(item.clampedEnd);
-      }
-      item.laneIndex = assignedLane;
+    if (cluster.length === 1) {
+      positioned.push({
+        ...cluster[0],
+        isStacked: false,
+        stackIndex: 0,
+        isBackCard: false,
+        zIndex: 10,
+        clusterKey: null,
+        clusterIds: null,
+      });
+      continue;
     }
-    const laneCount = Math.max(1, lanes.length);
-    for (const item of cluster) {
+
+    // Build stable cluster key & default Solitaire order (Back -> Front):
+    // The first subject sits in the very front (last element), with the remaining
+    // overlapping subjects stacked cleanly behind it at the top.
+    const sortedByStart = [...cluster].sort(
+      (a, b) => a.clampedStart - b.clampedStart || Number(a.sched.id) - Number(b.sched.id)
+    );
+    const canonicalIds = sortedByStart.map((i) => i.sched.id).sort((a, b) => Number(a) - Number(b));
+    const clusterKey = `${dayKey}::${canonicalIds.join('-')}`;
+    const defaultOrderIds = [
+      ...sortedByStart.slice(1).map((i) => i.sched.id),
+      sortedByStart[0].sched.id,
+    ];
+
+    const savedOrder = stackOrders[clusterKey];
+    const itemById = new Map(cluster.map((i) => [i.sched.id, i]));
+    let activeOrderIds = defaultOrderIds;
+    if (
+      Array.isArray(savedOrder) &&
+      savedOrder.length === cluster.length &&
+      savedOrder.every((id) => itemById.has(id))
+    ) {
+      activeOrderIds = savedOrder;
+    }
+
+    const orderedCluster = activeOrderIds.map((id) => itemById.get(id));
+    const frontItem = orderedCluster[orderedCluster.length - 1];
+    const frontDurPx = Math.max(72, (frontItem.clampedEnd - frontItem.clampedStart) * PX_PER_MINUTE);
+    const peekPx = Math.min(
+      34,
+      Math.max(26, Math.floor((frontDurPx - 68) / Math.max(1, orderedCluster.length - 1)))
+    );
+
+    const usedColorIndices = new Set();
+    // Anchor stacked Solitaire cards to the cluster's earliest start so bringing an
+    // earlier-starting card to the front never shifts it downward past its real start time.
+    const clusterMinStart = Math.min(...orderedCluster.map((i) => i.clampedStart));
+    const clusterMinTopPx = (clusterMinStart - GRID_START_MIN) * PX_PER_MINUTE + GRID_PADDING_TOP;
+
+    orderedCluster.forEach((item, idx) => {
+      let cIdx = item.softIdx;
+      while (usedColorIndices.has(cIdx) && usedColorIndices.size < SOFT_SUBJECT_PALETTE.length) {
+        cIdx = (cIdx + 1) % SOFT_SUBJECT_PALETTE.length;
+      }
+      usedColorIndices.add(cIdx);
+
+      const isBackCard = idx < orderedCluster.length - 1;
+      const naturalBottomPx = (item.clampedEnd - GRID_START_MIN) * PX_PER_MINUTE + GRID_PADDING_TOP;
+      const cardTopPx = clusterMinTopPx + idx * peekPx;
+      // Back cards collapse neatly behind the front card and only expand to full duration when clicked to front
+      const cardHeightPx = isBackCard
+        ? peekPx + 18
+        : Math.max(58, naturalBottomPx - cardTopPx);
+
       positioned.push({
         ...item,
-        laneCount,
+        topPx: cardTopPx,
+        heightPx: cardHeightPx,
+        isStacked: true,
+        stackIndex: idx,
+        isBackCard,
+        zIndex: 10 + idx,
+        clusterKey,
+        clusterIds: activeOrderIds,
+        isLongCard: !isBackCard && (item.durMins > 120 || cardHeightPx >= 180),
+        color: SOFT_SUBJECT_PALETTE[cIdx],
       });
-    }
+    });
   }
 
   return positioned;
@@ -198,7 +270,43 @@ function WeeklyTimetableGrid({
   const totalGridHeight = Math.round(totalGridMinutes * PX_PER_MINUTE) + GRID_PADDING_TOP;
 
   const timeTicks = useMemo(() => buildTimeTicks(gridEndMin), [gridEndMin]);
-  const gridSlots = useMemo(() => buildGridSlots(timeTicks, gridEndMin), [timeTicks, gridEndMin]);
+
+  const handleDayColumnClick = (day, e) => {
+    if (!canEditSchedules || !onQuickAdd) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top - GRID_PADDING_TOP;
+    if (offsetY < 0 || offsetY >= totalGridMinutes * PX_PER_MINUTE) return;
+    const slotIndex = Math.floor(offsetY / HALF_HOUR_PX);
+    const slotMin = GRID_START_MIN + slotIndex * 30;
+    if (slotMin >= gridEndMin) return;
+    const h24 = Math.floor(slotMin / 60);
+    const m24 = slotMin % 60;
+    const quickAddEnd = Math.min(gridEndMin, slotMin + 80);
+    const eH24 = Math.floor(quickAddEnd / 60);
+    const eM24 = quickAddEnd % 60;
+    const startStr = `${String(h24).padStart(2, '0')}:${String(m24).padStart(2, '0')}`;
+    const endStr = `${String(eH24).padStart(2, '0')}:${String(eM24).padStart(2, '0')}`;
+    onQuickAdd(day, startStr, endStr);
+  };
+
+  const [stackOrders, setStackOrders] = useState({});
+
+  const handleBringCardToFront = useCallback((clusterKey, currentIds, clickedId) => {
+    if (!clusterKey || !Array.isArray(currentIds) || currentIds.length < 2) return;
+    setStackOrders((prev) => {
+      const order = Array.isArray(prev[clusterKey]) && prev[clusterKey].length === currentIds.length
+        ? prev[clusterKey]
+        : currentIds;
+      const oldFrontId = order[order.length - 1];
+      if (clickedId === oldFrontId) return prev;
+      const middle = order.filter((id) => id !== clickedId && id !== oldFrontId);
+      // Put previous front card at the very back (index 0), clicked card at the very front (last)
+      return {
+        ...prev,
+        [clusterKey]: [oldFrontId, ...middle, clickedId],
+      };
+    });
+  }, []);
 
   const schedulesByDay = useMemo(() => {
     const map = {};
@@ -214,10 +322,10 @@ function WeeklyTimetableGrid({
     }
     const laidOut = {};
     for (const d of DAY_ORDER) {
-      laidOut[d] = layoutDayEvents(map[d], gridEndMin);
+      laidOut[d] = layoutDayEvents(map[d], gridEndMin, d, stackOrders);
     }
     return laidOut;
-  }, [schedules, gridEndMin]);
+  }, [schedules, gridEndMin, stackOrders]);
 
   return (
     <div className="overflow-x-auto bg-white select-none">
@@ -303,69 +411,71 @@ function WeeklyTimetableGrid({
             return (
               <div
                 key={day}
-                className="relative border-r last:border-r-0 border-[#E1E5E2] bg-white"
+                onClick={(e) => handleDayColumnClick(day, e)}
+                title={
+                  canEditSchedules && onQuickAdd
+                    ? `Click any empty time slot to add a class on ${DAY_LABEL[day]}`
+                    : undefined
+                }
+                style={{
+                  backgroundImage: GRID_LINES_BACKGROUND,
+                  backgroundPosition: `0 ${GRID_PADDING_TOP}px`,
+                  backgroundSize: `100% ${totalGridMinutes * PX_PER_MINUTE}px`,
+                  backgroundRepeat: 'no-repeat',
+                }}
+                className={`relative border-r last:border-r-0 border-[#E1E5E2] bg-white ${
+                  canEditSchedules && onQuickAdd ? 'cursor-pointer' : ''
+                }`}
               >
-                {/* 30-minute background horizontal guide lines & quick-add click zones */}
-                {gridSlots.map((slot) => (
-                  <div
-                    key={slot.minutes}
-                    onClick={() => {
-                      if (canEditSchedules && onQuickAdd) {
-                        onQuickAdd(day, slot.startStr, slot.endStr);
-                      }
-                    }}
-                    className={`absolute left-0 right-0 border-b ${
-                      slot.isHour ? 'border-[#D5DFD9]' : 'border-[#EEF3EF]'
-                    } ${
-                      canEditSchedules && onQuickAdd
-                        ? 'hover:bg-[#E3EED4]/35 cursor-pointer transition-colors'
-                        : ''
-                    }`}
-                    style={{
-                      top: `${slot.topPx}px`,
-                      height: `${30 * PX_PER_MINUTE}px`,
-                    }}
-                    title={
-                      canEditSchedules && onQuickAdd
-                        ? `Click to add class on ${DAY_LABEL[day]} at ${slot.label}`
-                        : undefined
-                    }
-                  />
-                ))}
-
-                {/* Plotted Class Blocks (Proportional to Exact Start & End Minutes) */}
-                {dayItems.map(({ sched, durMins, heightPx, isLongCard, topPx, color, isLab, isComb, displayCode, subjectTitle, rawRoom, hasRoom, rawSection, hasSection, timeRangeLabel, laneIndex, laneCount }) => {
-                  const widthPct = 100 / laneCount;
-                  const leftPct = laneIndex * widthPct;
+                {/* Plotted Class Blocks (Proportional to Exact Start & End Minutes; Interactive Solitaire Stack on Overlap) */}
+                {dayItems.map(({ sched, durMins, heightPx, isLongCard, isStacked, stackIndex = 0, isBackCard = false, zIndex = 10, clusterKey, clusterIds, topPx, color, isLab, isComb, displayCode, subjectTitle, rawRoom, hasRoom, rawSection, hasSection, timeRangeLabel }) => {
+                  const isUltraCompact = heightPx < 74;
+                  const isCompactBanner = !isUltraCompact && heightPx < 112;
+                  const solitaireStepPx = isStacked ? Math.min(10, stackIndex * 3) : 0;
 
                   const inConflict =
                     Boolean(sched.isConflicting) ||
                     (conflictedCurriculumIds && conflictedCurriculumIds.has(sched.curriculum_id));
                   const lensDim = isLensOpen && !inConflict;
                   const lensLit = isLensOpen && inConflict;
+                  const cardGap = isStacked ? 2 : 3;
 
                   return (
                     <div
                       key={sched.id}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isBackCard && clusterKey && clusterIds) {
+                          handleBringCardToFront(clusterKey, clusterIds, sched.id);
+                          return;
+                        }
                         if (canEditSchedules && onEditSchedule) onEditSchedule(sched);
                       }}
                       onMouseEnter={(e) =>
                         onCardEnter && onCardEnter(sched, color, day, inConflict, e)
                       }
                       onMouseLeave={() => onCardLeave && onCardLeave()}
+                      title={isBackCard ? `Click to bring ${displayCode} (${timeRangeLabel}) to front` : undefined}
                       style={{
-                        top: `${topPx + 3}px`,
-                        height: `${Math.max(28, heightPx - 6)}px`,
-                        left: `calc(${leftPct}% + 4px)`,
-                        width: `calc(${widthPct}% - 8px)`,
+                        top: `${topPx + cardGap}px`,
+                        height: `${Math.max(46, heightPx - cardGap * 2)}px`,
+                        left: `${4 + solitaireStepPx}px`,
+                        width: `calc(100% - ${8 + solitaireStepPx}px)`,
+                        zIndex,
                         backgroundColor: inConflict ? '#FEF2F2' : color.bg,
                         borderColor: inConflict ? '#F87171' : color.border,
                         color: color.title,
                       }}
-                      className={`group absolute z-10 rounded-xl border px-3 py-2 shadow-xs hover:shadow-md hover:z-20 transition-[box-shadow,border-color,background-color] duration-150 overflow-hidden flex flex-col justify-between ${
-                        canEditSchedules && onEditSchedule ? 'cursor-pointer' : 'cursor-default'
+                      className={`group absolute rounded-xl border transition-[top,height,box-shadow,border-color,background-color,transform] duration-200 overflow-hidden flex flex-col justify-between ${
+                        isBackCard
+                          ? 'shadow-[0_-1px_4px_rgba(15,23,42,0.06)] hover:-translate-y-1 hover:shadow-md hover:brightness-[0.97] cursor-pointer'
+                          : isStacked
+                          ? 'shadow-[0_-3px_10px_rgba(15,23,42,0.12),0_3px_8px_rgba(15,23,42,0.08)] hover:shadow-lg'
+                          : 'shadow-xs hover:shadow-md hover:z-20'
+                      } ${
+                        isUltraCompact || isBackCard ? 'px-2.5 py-1.5' : isCompactBanner ? 'px-2.5 py-1.5' : 'px-3 py-2'
+                      } ${
+                        !isBackCard && (canEditSchedules && onEditSchedule ? 'cursor-pointer' : 'cursor-default')
                       } ${lensDim ? 'lens-dimmed' : ''} ${lensLit ? 'lens-conflict' : ''}`}
                     >
                       {/* Left Accent Stripe */}
@@ -374,27 +484,39 @@ function WeeklyTimetableGrid({
                         style={{ backgroundColor: inConflict ? '#DC2626' : color.accent }}
                       />
 
-                      {/* Top Row: Subject Code + Component Badge + Quick Actions */}
+                      {/* Top Row: Subject Code + Component Badge (+ inline Title & Time on back/ultra-compact Solitaire strip) */}
                       <div className={`pl-1 min-w-0 ${isLongCard ? 'shrink-0' : ''}`}>
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className={`flex items-center gap-1.5 min-w-0 ${isUltraCompact || isBackCard ? 'flex-nowrap overflow-hidden' : 'flex-wrap'}`}>
                             {sched.is_locked && (
                               <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" title="Locked" />
                             )}
                             {inConflict && (
                               <AlertTriangle
-                                className="w-4 h-4 text-rose-600 shrink-0"
+                                className="w-3.5 h-3.5 text-rose-600 shrink-0"
                                 title="Schedule Conflict"
                               />
                             )}
                             <span
-                              className="font-mono text-[13.5px] font-black px-2 py-0.5 rounded leading-tight truncate shadow-2xs"
+                              className={`font-mono font-black rounded leading-tight shrink-0 shadow-2xs ${
+                                isUltraCompact || isBackCard
+                                  ? 'text-[11px] px-1.5 py-0.5'
+                                  : isCompactBanner
+                                  ? 'text-[12px] px-1.5 py-0.5'
+                                  : 'text-[13.5px] px-2 py-0.5'
+                              }`}
                               style={{ backgroundColor: color.badgeBg, color: color.badgeText }}
                             >
                               {displayCode}
                             </span>
                             <span
-                              className={`font-mono text-[11.5px] font-black uppercase px-2 py-0.5 rounded leading-tight shrink-0 ${
+                              className={`font-mono font-black uppercase rounded leading-tight shrink-0 ${
+                                isUltraCompact || isBackCard
+                                  ? 'text-[10px] px-1.5 py-0.5'
+                                  : isCompactBanner
+                                  ? 'text-[10.5px] px-1.5 py-0.5'
+                                  : 'text-[11.5px] px-2 py-0.5'
+                              } ${
                                 isComb
                                   ? 'bg-purple-100 text-purple-900 border border-purple-300/80'
                                   : isLab
@@ -406,53 +528,68 @@ function WeeklyTimetableGrid({
                             </span>
                             {(sched.is_ct || (sched.ct_tier && sched.ct_tier !== 'regular')) && (
                               <span
-                                className="font-mono text-[10.5px] font-black uppercase px-1.5 py-0.5 rounded leading-tight shrink-0 bg-teal-50 text-teal-800 border border-teal-300"
+                                className="font-mono text-[10px] font-black uppercase px-1.5 py-0.5 rounded leading-tight shrink-0 bg-teal-50 text-teal-800 border border-teal-300"
                                 title="Converted Tutorial (CT)"
                               >
                                 CT
                               </span>
                             )}
+                            {(isUltraCompact || isBackCard) && subjectTitle && (
+                              <span
+                                className="font-ui text-[11.5px] font-extrabold truncate min-w-0"
+                                style={{ color: color.title }}
+                                title={subjectTitle}
+                              >
+                                {subjectTitle}
+                              </span>
+                            )}
                           </div>
 
-                          {canEditSchedules && (
-                            <div
-                              className="hidden group-hover:flex items-center gap-0.5 bg-white/95 rounded-md px-1 py-0.5 shadow-2xs border border-[#D5DFD9] shrink-0 no-print"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {onToggleLock && (
-                                <button
-                                  type="button"
-                                  onClick={() => onToggleLock(sched)}
-                                  className="p-0.5 rounded hover:bg-slate-100 text-slate-600"
-                                  title={sched.is_locked ? 'Unlock' : 'Lock'}
-                                >
-                                  {sched.is_locked ? (
-                                    <Unlock className="w-3.5 h-3.5 text-amber-600" />
-                                  ) : (
-                                    <Lock className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
-                              )}
-                              {!sched.is_locked && onDeleteSchedule && (
-                                <button
-                                  type="button"
-                                  onClick={() => onDeleteSchedule(sched)}
-                                  className="p-0.5 rounded hover:bg-rose-50 text-rose-600"
-                                  title="Delete class"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!isBackCard && canEditSchedules && (
+                              <div
+                                className="hidden group-hover:flex items-center gap-0.5 bg-white/95 rounded-md px-1 py-0.5 shadow-2xs border border-[#D5DFD9] shrink-0 no-print"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {onToggleLock && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleLock(sched)}
+                                    className="p-0.5 rounded hover:bg-slate-100 text-slate-600"
+                                    title={sched.is_locked ? 'Unlock' : 'Lock'}
+                                  >
+                                    {sched.is_locked ? (
+                                      <Unlock className="w-3.5 h-3.5 text-amber-600" />
+                                    ) : (
+                                      <Lock className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
+                                {!sched.is_locked && onDeleteSchedule && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteSchedule(sched)}
+                                    className="p-0.5 rounded hover:bg-rose-50 text-rose-600"
+                                    title="Delete class"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Standard/Short Card: Subject Name sits under badges */}
-                        {!isLongCard && (
+                        {/* Standard/Compact Card: Subject Name sits under badges */}
+                        {!isLongCard && !isUltraCompact && !isBackCard && (
                           <>
-                            {heightPx >= 50 && subjectTitle && (
+                            {subjectTitle && (
                               <div
-                                className="font-ui text-[14px] font-black leading-snug line-clamp-2 mt-1.5 text-left"
+                                className={`font-ui font-black leading-snug text-left ${
+                                  isCompactBanner
+                                    ? 'text-[12.5px] truncate mt-0.5'
+                                    : 'text-[14px] line-clamp-2 mt-1.5'
+                                }`}
                                 style={{ color: color.title }}
                                 title={subjectTitle}
                               >
@@ -460,7 +597,7 @@ function WeeklyTimetableGrid({
                               </div>
                             )}
 
-                            {(hasSection || hasRoom) && (
+                            {!isCompactBanner && (hasSection || hasRoom) && (
                               <div className="font-ui text-[13px] font-extrabold mt-1 leading-tight truncate text-[#0F2A1D] text-left">
                                 {hasSection && <span>{rawSection}</span>}
                                 {hasSection && hasRoom && <span className="mx-1 opacity-50">·</span>}
@@ -472,7 +609,7 @@ function WeeklyTimetableGrid({
                               </div>
                             )}
 
-                            {viewMode !== 'faculty' && sched.faculty_name && heightPx >= 88 && (
+                            {viewMode !== 'faculty' && sched.faculty_name && heightPx >= 112 && (
                               <div className="font-ui text-[12px] font-bold text-[#1B432C] truncate mt-0.5 text-left">
                                 {sched.faculty_name}
                               </div>
@@ -514,15 +651,25 @@ function WeeklyTimetableGrid({
                         </div>
                       )}
 
-                      {/* Bottom Row: Exact Scheduled Class Time & Duration */}
-                      <div className="pl-1 pt-1.5 border-t border-[#AEC3B0]/40 flex items-center justify-between gap-1 text-[13px] font-data font-black tabular-nums truncate shrink-0">
-                        <span className="truncate" style={{ color: color.time }}>
-                          {timeRangeLabel}
-                        </span>
-                        <span className="text-[11.5px] font-black text-[#1B432C] shrink-0">
-                          {Number((durMins / 60).toFixed(2))}h
-                        </span>
-                      </div>
+                      {/* Bottom Row: Exact Scheduled Class Time & Duration (shown on active/front cards) */}
+                      {!isBackCard && (
+                        <div
+                          className={`pl-1 flex items-center justify-between gap-1 font-data font-black tabular-nums shrink-0 ${
+                            isUltraCompact
+                              ? 'pt-0.5 text-[11px]'
+                              : isCompactBanner
+                              ? 'pt-1 border-t border-black/10 text-[11.5px]'
+                              : 'pt-1.5 border-t border-[#AEC3B0]/40 text-[13px]'
+                          }`}
+                        >
+                          <span className="truncate" style={{ color: color.time }}>
+                            {timeRangeLabel}
+                          </span>
+                          <span className="text-[11px] font-black shrink-0" style={{ color: color.time }}>
+                            {Number((durMins / 60).toFixed(2))}h
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

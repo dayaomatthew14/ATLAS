@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Calendar, BookOpen, Users, Activity, ShieldCheck,
-  CalendarRange, Library, BookCheck, Monitor,
+  CalendarRange, Library, BookCheck,
 } from 'lucide-react';
 import { focusRingOnDark } from '../ui/tokens';
 import { ROLES } from '../../utils/session';

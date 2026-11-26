@@ -21,11 +21,17 @@ if "postgresql" in SQLALCHEMY_DATABASE_URL and "sslmode=" not in SQLALCHEMY_DATA
     SQLALCHEMY_DATABASE_URL = f"{SQLALCHEMY_DATABASE_URL}{delimiter}sslmode=require"
 
 connect_args = {}
+engine_kwargs = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+    connect_args = {"check_same_thread": False, "timeout": 15}
+else:
+    engine_kwargs = {
+        "pool_pre_ping": True,
+        "pool_recycle": 1800,
+    }
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args=connect_args
+    SQLALCHEMY_DATABASE_URL, connect_args=connect_args, **engine_kwargs
 )
 
 from sqlalchemy.engine import Engine
@@ -36,6 +42,9 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

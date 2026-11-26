@@ -250,3 +250,260 @@ class AdditionalSchedulingRequirementsTest(unittest.TestCase):
         sched_db = self.db.query(models.Schedule).filter(models.Schedule.id == sched_id).first()
         self.assertEqual(sched_db.room_approval_status, "approved")
         self.assertEqual(sched_db.room_approved_by, self.chair_cs.id)
+
+    # Requirement 6: Plot all remaining unassigned major subjects under UNASSIGNED PROFESSOR
+    def test_generate_unassigned_subjects_grid_and_cleanup(self):
+        """All unassigned major subjects plot under faculty_id=None (UNASSIGNED PROFESSOR) bypassing hours/overlaps, and clean up when assigned."""
+        from backend.app.routers.ai_scheduler import generate_unassigned_schedule, get_global_schedule
+        from backend.app.routers.subject_offerings import create_subject_offering
+
+        # Add 20 unassigned major subjects in the same term to force stacking/overlapping slots
+        unassigned_currs = []
+        for idx in range(1, 21):
+            c = models.Curriculum(
+                id=100 + idx,
+                code=f"CS{200 + idx}A",
+                name=f"Unassigned CS Subject {idx}",
+                units=3,
+                lec_units=3,
+                lab_units=0,
+                department_id=1,
+                type="lecture",
+                block_id=self.block_cs.id,
+                semester_term="1st",
+                is_major=True,
+            )
+            unassigned_currs.append(c)
+        self.db.add_all(unassigned_currs)
+
+        # Also add an existing assigned professor's schedule to confirm it is untouched
+        existing_prof_sched = models.Schedule(
+            semester_id=self.sem.id,
+            curriculum_id=self.curr_cs.id,
+            faculty_id=self.fac_cs.id,
+            day_of_week="Mon",
+            start_time=time(7, 30),
+            end_time=time(9, 30),
+            status="draft",
+        )
+        self.db.add(existing_prof_sched)
+        self.db.commit()
+
+        # 1. Plot all unassigned major subjects
+        res = generate_unassigned_schedule(self.sem.id, db=self.db, current_user=self.chair_cs)
+        self.assertEqual(res["subjects_plotted"], 20)
+        self.assertEqual(res["schedules_created"], 40)  # 20 x 2 sessions/week
+
+        # No Conflict records created, and existing assigned professor's schedule untouched
+        self.assertEqual(self.db.query(models.Conflict).count(), 0)
+        self.assertIsNotNone(
+            self.db.query(models.Schedule).filter(models.Schedule.id == existing_prof_sched.id).first()
+        )
+
+        # 2. Global schedule returns them with faculty_name == "UNASSIGNED PROFESSOR"
+        # and spreads them across both morning (07:30-11:30) and afternoon (13:30-17:30)
+        global_rows = get_global_schedule(self.sem.id, db=self.db, current_user=self.chair_cs)
+        unassigned_rows = [r for r in global_rows if r["faculty_name"] == "UNASSIGNED PROFESSOR"]
+        self.assertEqual(len(unassigned_rows), 40)
+        self.assertTrue(all(r["faculty_id"] is None for r in unassigned_rows))
+        morning_rows = [r for r in unassigned_rows if r["start_time"] < "12:00"]
+        afternoon_rows = [r for r in unassigned_rows if r["start_time"] >= "13:00"]
+        self.assertGreater(len(morning_rows), 0)
+        self.assertGreater(len(afternoon_rows), 0)
+        self.assertTrue(any(r["end_time"] == "17:30" for r in afternoon_rows))
+
+        # 3. Re-running replaces cleanly without duplicating
+        res2 = generate_unassigned_schedule(self.sem.id, db=self.db, current_user=self.chair_cs)
+        self.assertEqual(res2["subjects_plotted"], 20)
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(models.Schedule.faculty_id.is_(None)).count(),
+            40,
+        )
+
+        # 4a. Assigning a professor whose slot CONFLICTS (Mon 07:30-09:30 already occupied)
+        # removes the UNASSIGNED PROFESSOR placeholder cleanly without double-booking
+        conflict_curr = unassigned_currs[0]  # plotted on Mon/Wed 07:30-09:30
+        create_subject_offering(
+            schemas.SubjectOfferingCreate(
+                faculty_id=self.fac_cs.id,
+                curriculum_id=conflict_curr.id,
+                semester_id=self.sem.id,
+            ),
+            db=self.db,
+            current_user=self.chair_cs,
+        )
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(
+                models.Schedule.semester_id == self.sem.id,
+                models.Schedule.curriculum_id == conflict_curr.id,
+            ).count(),
+            0,
+        )
+
+        # 4b. Assigning a professor who IS FREE during that exact day/time transfers
+        # the UNASSIGNED PROFESSOR sessions directly to that professor at the same day/time
+        free_curr = unassigned_currs[1]  # plotted on Tue/Thu 13:30-15:30 (fac_cs is free)
+        before_slots = sorted(
+            (s.day_of_week, s.start_time, s.end_time)
+            for s in self.db.query(models.Schedule).filter(
+                models.Schedule.semester_id == self.sem.id,
+                models.Schedule.curriculum_id == free_curr.id,
+                models.Schedule.faculty_id.is_(None),
+            ).all()
+        )
+        create_subject_offering(
+            schemas.SubjectOfferingCreate(
+                faculty_id=self.fac_cs.id,
+                curriculum_id=free_curr.id,
+                semester_id=self.sem.id,
+            ),
+            db=self.db,
+            current_user=self.chair_cs,
+        )
+        # Gone from UNASSIGNED PROFESSOR...
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(
+                models.Schedule.semester_id == self.sem.id,
+                models.Schedule.curriculum_id == free_curr.id,
+                models.Schedule.faculty_id.is_(None),
+            ).count(),
+            0,
+        )
+        # ...and now plotted on fac_cs at the exact same days and times!
+        after_slots = sorted(
+            (s.day_of_week, s.start_time, s.end_time)
+            for s in self.db.query(models.Schedule).filter(
+                models.Schedule.semester_id == self.sem.id,
+                models.Schedule.curriculum_id == free_curr.id,
+                models.Schedule.faculty_id == self.fac_cs.id,
+            ).all()
+        )
+        self.assertEqual(after_slots, before_slots)
+
+    # Requirement 7: Delete entire schedule per professor (and UNASSIGNED PROFESSOR)
+    def test_clear_schedule_per_professor_and_unassigned(self):
+        """Clearing a single professor deletes only their schedules; other professors and unassigned remain untouched."""
+        from backend.app.routers.schedules import clear_all_schedules
+
+        fac_other = models.Faculty(
+            id=99, first_name="Alan", last_name="Turing", department_id=1, email="turing@dlsau.edu.ph"
+        )
+        self.db.add(fac_other)
+        self.db.add_all([
+            models.Schedule(
+                semester_id=self.sem.id, curriculum_id=self.curr_cs.id, faculty_id=self.fac_cs.id,
+                day_of_week="Mon", start_time=time(7, 30), end_time=time(9, 30), status="draft",
+            ),
+            models.Schedule(
+                semester_id=self.sem.id, curriculum_id=self.curr_cs.id, faculty_id=self.fac_cs.id,
+                day_of_week="Wed", start_time=time(7, 30), end_time=time(9, 30), status="draft",
+            ),
+            models.Schedule(
+                semester_id=self.sem.id, curriculum_id=self.curr_cs.id, faculty_id=fac_other.id,
+                day_of_week="Tue", start_time=time(9, 30), end_time=time(11, 30), status="draft",
+            ),
+            models.Schedule(
+                semester_id=self.sem.id, curriculum_id=self.curr_cs.id, faculty_id=None,
+                day_of_week="Thu", start_time=time(13, 30), end_time=time(15, 30), status="draft",
+            ),
+        ])
+        self.db.commit()
+
+        # Clear only fac_cs
+        res_prof = clear_all_schedules(
+            semester_id=self.sem.id, faculty_id=self.fac_cs.id, db=self.db, current_user=self.chair_cs
+        )
+        self.assertEqual(res_prof["deleted_count"], 2)
+        self.assertEqual(len(res_prof["backup"]), 2)
+        # fac_other and unassigned remain intact
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(models.Schedule.faculty_id == fac_other.id).count(), 1
+        )
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(models.Schedule.faculty_id.is_(None)).count(), 1
+        )
+
+        # Clear only UNASSIGNED PROFESSOR
+        res_unassigned = clear_all_schedules(
+            semester_id=self.sem.id, unassigned_only=True, db=self.db, current_user=self.chair_cs
+        )
+        self.assertEqual(res_unassigned["deleted_count"], 1)
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(models.Schedule.faculty_id == fac_other.id).count(), 1
+        )
+        self.assertEqual(
+            self.db.query(models.Schedule).filter(models.Schedule.faculty_id.is_(None)).count(), 0
+        )
+
+    # Requirement 8: UNASSIGNED PROFESSOR isolation, CT 5:30 PM expansion guard, and Undo CT re-hydration
+    def test_unassigned_isolation_ct_cutoff_and_undo_rehydration(self):
+        """
+        1) UNASSIGNED PROFESSOR placeholders do not leak into exports/publishing or block real generation.
+        2) Restoring a late-afternoon CT subject to Regular never silently expands past 17:30 (non-CVMAS).
+        3) Undo/restore re-hydrates CT metadata from the active SubjectOffering.
+        """
+        from backend.app.routers.schedules import (
+            _load_export_schedules,
+            get_schedule_status,
+            clear_all_schedules,
+            restore_schedules,
+            RestoreSchedulesRequest,
+        )
+        from backend.app.routers.subject_offerings import update_subject_offering_ct
+
+        # Seed 1 real professor schedule (late afternoon 16:00-17:00 CT) + 1 UNASSIGNED PROFESSOR placeholder
+        self.off_cs.enrolled_students = 4
+        self.off_cs.credited_hours_override = 1.0
+        self.db.add_all([
+            models.Schedule(
+                semester_id=self.sem.id, curriculum_id=self.curr_cs.id, faculty_id=self.fac_cs.id,
+                day_of_week="Mon", start_time=time(16, 0), end_time=time(17, 0),
+                status="draft", enrolled_students=4, credited_hours_override=1.0,
+            ),
+            models.Schedule(
+                semester_id=self.sem.id, curriculum_id=self.curr_cs.id, faculty_id=None,
+                day_of_week="Mon", start_time=time(7, 30), end_time=time(9, 30),
+                status="draft",
+            ),
+        ])
+        self.db.commit()
+
+        # 1. Official export and publish status exclude UNASSIGNED PROFESSOR rows
+        export_rows, _, _, _ = _load_export_schedules(self.db, self.chair_cs, self.sem.id)
+        self.assertEqual(len(export_rows), 1)
+        self.assertEqual(export_rows[0].faculty_id, self.fac_cs.id)
+
+        pub_status = get_schedule_status(self.sem.id, db=self.db, current_user=self.chair_cs)
+        self.assertEqual(pub_status["total"], 1)
+
+        # 2. Restoring CS101 (starts 16:00, 1 session) from CT (1h) back to Regular (4h -> 20:00)
+        # must NOT silently auto-expand past 17:30 for non-CVMAS
+        ct_res = update_subject_offering_ct(
+            self.off_cs.id, schemas.SubjectOfferingCTUpdate(ct_tier="regular"), self.db, self.chair_cs
+        )
+        self.assertFalse(ct_res["auto_adjusted"])
+        self.assertTrue(ct_res["needs_reschedule"])
+        sched_after = self.db.query(models.Schedule).filter(
+            models.Schedule.faculty_id == self.fac_cs.id
+        ).first()
+        self.assertEqual(sched_after.end_time, time(17, 0))
+
+        # 3. Re-flag CT, clear professor, then Undo/Restore -> CT metadata must be preserved!
+        update_subject_offering_ct(
+            self.off_cs.id, schemas.SubjectOfferingCTUpdate(ct_tier="ct_1_4"), self.db, self.chair_cs
+        )
+        cleared = clear_all_schedules(
+            semester_id=self.sem.id, db=self.db, current_user=self.chair_cs, faculty_id=self.fac_cs.id
+        )
+        self.assertEqual(cleared["deleted_count"], 1)
+        restore_schedules(
+            RestoreSchedulesRequest(items=[schemas.ScheduleCreate(**item) for item in cleared["backup"]]),
+            db=self.db,
+            current_user=self.chair_cs,
+        )
+        restored = self.db.query(models.Schedule).filter(
+            models.Schedule.faculty_id == self.fac_cs.id
+        ).first()
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.enrolled_students, 4)
+        self.assertEqual(restored.credited_hours_override, 1.0)

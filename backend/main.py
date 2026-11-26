@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 import os
 from fastapi.staticfiles import StaticFiles
@@ -317,6 +318,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ATLAS Backend API", redirect_slashes=False, lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Mount static directory for uploads. The URL stays /uploads; where those
 # files actually sit is UPLOAD_DIR, which a deployment points at a mounted

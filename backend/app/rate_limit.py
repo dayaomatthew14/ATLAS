@@ -41,16 +41,36 @@ class SlidingWindowLimiter:
         self.window_seconds = window_seconds
         self._events: Dict[str, Deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._last_sweep: float = time.monotonic()
 
     def _prune(self, key: str, now: float):
         cutoff = now - self.window_seconds
-        events = self._events[key]
+        events = self._events.get(key)
+        if not events:
+            self._events.pop(key, None)
+            return
         while events and events[0] <= cutoff:
             events.popleft()
         if not events:
             # Keys are unbounded otherwise -- one entry per address ever seen,
             # held for the life of the process.
             self._events.pop(key, None)
+
+    def _sweep_expired(self, now: float):
+        """Periodically evict expired keys that never made a second request."""
+        elapsed = now - self._last_sweep
+        if elapsed < self.window_seconds:
+            # Under high cardinality, allow an earlier sweep but never on every request.
+            if len(self._events) < 1024 or elapsed < 5.0:
+                return
+        self._last_sweep = now
+        cutoff = now - self.window_seconds
+        stale_keys = [
+            k for k, ev in self._events.items()
+            if not ev or ev[-1] <= cutoff
+        ]
+        for k in stale_keys:
+            self._events.pop(k, None)
 
     def check(self, key: str) -> Optional[int]:
         """
@@ -61,6 +81,7 @@ class SlidingWindowLimiter:
         """
         now = time.monotonic()
         with self._lock:
+            self._sweep_expired(now)
             self._prune(key, now)
             events = self._events[key]
             if len(events) >= self.limit:

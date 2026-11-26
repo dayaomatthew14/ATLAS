@@ -540,8 +540,9 @@ class PanelistRecommendationsTestCase(unittest.TestCase):
         self.assertEqual(post_summary["load_status"], "REGULAR")
         self.assertEqual(post_summary["work_week"]["office_hours"], 8.5)
         self.assertEqual(post_summary["work_week"]["consultation_hours"], 6.0)
-        # Also verify needs_reschedule flag was returned because plotted block (4h) != CT (2h)
-        self.assertTrue(res1["needs_reschedule"])
+        # Plotted blocks are automatically contracted to match the new CT duration (2h)
+        self.assertTrue(res1["auto_adjusted"])
+        self.assertFalse(res1["needs_reschedule"])
         self.assertEqual(res1["plotted_schedules_count"], 2)
 
     def test_reassign_preserves_ct_and_cleans_orphan_schedules(self):

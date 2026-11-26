@@ -10,7 +10,8 @@ sprawl happened.
 
 import re
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -174,15 +175,53 @@ def list_colleges(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    colleges = _seeded_colleges(db)
+    query = (
+        db.query(models.Department)
+        .options(selectinload(models.Department.programs))
+        .filter(models.Department.code.in_(COLLEGE_CODES))
+        .order_by(models.Department.code)
+    )
     if current_user.department:
-        colleges = [c for c in colleges if c.code == current_user.department]
+        query = query.filter(models.Department.code == current_user.department)
+    colleges = query.all()
+
+    program_ids = [int(p.id) for c in colleges for p in (c.programs or [])]
+    block_counts = {}
+    subject_counts = {}
+    if program_ids:
+        for pid, cnt in (
+            db.query(models.CurriculumBlock.program_id, func.count(models.CurriculumBlock.id))
+            .filter(models.CurriculumBlock.program_id.in_(program_ids))
+            .group_by(models.CurriculumBlock.program_id)
+            .all()
+        ):
+            block_counts[int(pid)] = int(cnt)
+
+        for pid, cnt in (
+            db.query(models.CurriculumBlock.program_id, func.count(models.Curriculum.id))
+            .join(models.Curriculum, models.Curriculum.block_id == models.CurriculumBlock.id)
+            .filter(models.CurriculumBlock.program_id.in_(program_ids))
+            .group_by(models.CurriculumBlock.program_id)
+            .all()
+        ):
+            subject_counts[int(pid)] = int(cnt)
+
     return [
         CollegeOut(
             id=int(c.id),  # type: ignore
             code=str(c.code),  # type: ignore
             name=str(c.name),  # type: ignore
-            programs=[_program_out(db, p) for p in sorted(list(c.programs or []), key=lambda p: str(getattr(p, 'name', '')))],  # type: ignore
+            programs=[
+                ProgramOut(
+                    id=int(p.id),  # type: ignore
+                    code=str(p.code),  # type: ignore
+                    name=str(p.name),  # type: ignore
+                    department_id=int(p.department_id),  # type: ignore
+                    block_count=block_counts.get(int(p.id), 0),  # type: ignore
+                    subject_count=subject_counts.get(int(p.id), 0),  # type: ignore
+                )
+                for p in sorted(list(c.programs or []), key=lambda p: str(getattr(p, 'name', '')))
+            ],
         )
         for c in colleges
     ]
@@ -212,18 +251,26 @@ def list_unassigned_blocks(
     if current_user.role not in ('admin', 'dean'):
         query = query.filter(models.CurriculumBlock.status == 'PUBLISHED')
     blocks = query.all()
-    out = []
-    for b in blocks:
-        out.append({
+    block_ids = [b.id for b in blocks]
+    subj_counts = {}
+    if block_ids:
+        for bid, cnt in (
+            db.query(models.Curriculum.block_id, func.count(models.Curriculum.id))
+            .filter(models.Curriculum.block_id.in_(block_ids))
+            .group_by(models.Curriculum.block_id)
+            .all()
+        ):
+            subj_counts[bid] = int(cnt)
+    return [
+        {
             "id": b.id,
             "program_name": b.program_name,
             "academic_year": b.academic_year,
             "status": getattr(b, "status", "PUBLISHED") or "PUBLISHED",
-            "subject_count": db.query(models.Curriculum).filter(
-                models.Curriculum.block_id == b.id
-            ).count(),
-        })
-    return out
+            "subject_count": subj_counts.get(b.id, 0),
+        }
+        for b in blocks
+    ]
 
 
 @router.post("/blocks/{block_id}/assign/{program_id}")

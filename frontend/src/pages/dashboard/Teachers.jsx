@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Plus, Users as UsersIcon, Clock, Search, ChevronRight, Eye, BookOpen, AlertTriangle } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -106,6 +106,8 @@ export default function Teachers() {
   const [hasPublishedCurriculum, setHasPublishedCurriculum] = useState(true);
   const [isLoadingSubjects, setIsLoadingSubjects] = useState(false);
 
+  const openSubjectModalRef = useRef(null);
+
   /**
    * The week, as six day marks.
    *
@@ -114,7 +116,7 @@ export default function Teachers() {
    * also differs in fill and glyph, and the whole strip has one accessible name
    * rather than six tooltips a keyboard user cannot reach.
    */
-  const columns = [
+  const columns = useMemo(() => [
     {
       key: 'name',
       label: 'Faculty',
@@ -202,7 +204,7 @@ export default function Teachers() {
             >
               {n}
             </span>
-            <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => handleOpenSubjectModal(item)}>
+            <AtlasButton size="row" variant="secondary" className={ROW_CONTROL} onClick={() => openSubjectModalRef.current?.(item)}>
               Manage
             </AtlasButton>
           </span>
@@ -219,7 +221,7 @@ export default function Teachers() {
         </span>
       ),
     },
-  ];
+  ], []);
 
   /* The preview needs two things the table never had to load: what each
      offering actually *is* (offerings carry only ids), and when the professor
@@ -325,7 +327,7 @@ export default function Teachers() {
     }, 0);
   }, [assignedSubjectsList, teacherOfferingByCurrId]);
 
-  const handleOpenSubjectModal = async (teacher) => {
+  const handleOpenSubjectModal = useCallback(async (teacher) => {
     setSelectedTeacherForSubjects(teacher);
     setIsSubjectModalOpen(true);
     setCourseCodeFilter('All');
@@ -373,7 +375,9 @@ export default function Teachers() {
     } finally {
       setIsLoadingSubjects(false);
     }
-  };
+  }, [addToast]);
+
+  openSubjectModalRef.current = handleOpenSubjectModal;
 
   const confirmAssignSubject = async (subject) => {
     try {
@@ -510,24 +514,32 @@ export default function Teachers() {
     }
   };
 
-  const fetchTeachers = async () => {
+  const fetchTeachers = async (signal) => {
     setIsLoading(true);
     try {
-      const data = await api.get('/professors');
+      const reqOpts = signal ? { signal } : undefined;
+      const data = await api.get('/professors', reqOpts);
+      if (signal?.aborted) return;
 
       let offerings = [];
       let activeSemesterId = null;
       try {
-        const sems = await api.get('/semesters');
+        const sems = await api.get('/semesters', reqOpts);
+        if (signal?.aborted) return;
         const activeSem = sems.find(s => s.is_active);
         setActiveSemester(activeSem || null);
         if (activeSem) {
           activeSemesterId = activeSem.id;
-          offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`).catch(() => []);
+          offerings = await api.get(`/subject-offerings?semester_id=${activeSem.id}`, reqOpts).catch((err) => {
+            if (err?.name === 'AbortError') throw err;
+            return [];
+          });
         }
       } catch (e) {
+        if (e?.name === 'AbortError') return;
         console.error('Could not fetch offerings', e);
       }
+      if (signal?.aborted) return;
 
       const enrichedData = (Array.isArray(data) ? data : []).map(t => ({
         ...t,
@@ -538,16 +550,19 @@ export default function Teachers() {
 
       await loadPreviewData(activeSemesterId);
     } catch (error) {
+      if (error?.name === 'AbortError' || signal?.aborted) return;
       console.error('Failed to fetch teachers', error);
       setTeachers([]);
       addToast('Failed to load teachers', 'error');
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTeachers();
+    const controller = new AbortController();
+    fetchTeachers(controller.signal);
+    return () => controller.abort();
     // Load once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

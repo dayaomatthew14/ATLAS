@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Button from './Button';
 
 /**
@@ -14,7 +15,7 @@ import Button from './Button';
  * vertically — the existing tables render capacities and units as bold sans,
  * which cannot be compared down a column.
  */
-export default function DataTable({
+function DataTable({
   columns = [],
   rows = [],
   keyField = 'id',
@@ -29,7 +30,7 @@ export default function DataTable({
   selectedId,
   caption,
   rowActions,
-  spotlight = true,
+  spotlight = false,
 }) {
   const headCell =
     'sticky top-0 z-sticky bg-slate-50 px-5 py-4 ' +
@@ -174,3 +175,5 @@ export default function DataTable({
     </div>
   );
 }
+
+export default memo(DataTable);

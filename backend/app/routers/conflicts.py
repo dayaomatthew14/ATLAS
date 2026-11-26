@@ -2,7 +2,7 @@ import re
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from .. import models, database, auth, schemas
 from ..services.schedule_generator import faculty_has_flexible_lunch_break, GENERAL_MAX_END_TIME
 
@@ -47,14 +47,9 @@ def get_conflict_count(
     # inner join on schedule_id_1 dropped the entire second group, so this
     # count read 0 while the conflicts panel listed them. Outer-join instead
     # and resolve the department through whichever link the row actually has.
-    query = db.query(models.Conflict).outerjoin(
+    query = db.query(func.count(models.Conflict.id)).outerjoin(
         models.Schedule,
         models.Conflict.schedule_id_1 == models.Schedule.id
-    ).outerjoin(
-        models.Curriculum,
-        models.Curriculum.id == func.coalesce(
-            models.Conflict.curriculum_id, models.Schedule.curriculum_id
-        )
     ).filter(
         models.Conflict.resolved_at == None,
         # Keep semester scoping where a schedule link exists; generator
@@ -62,7 +57,8 @@ def get_conflict_count(
         (models.Schedule.id == None) | (models.Schedule.semester_id == active_semester.id)
     )
 
-    # 3. Apply department scoping for Deans and Program Chairs
+    # 3. Apply department scoping for Deans and Program Chairs using indexed
+    # curriculum_id lookups instead of a COALESCE() join that defeats indexes.
     if current_user.role in ['dean', 'program_chair']:
         if not current_user.department:
             return {"count": 0}
@@ -74,9 +70,18 @@ def get_conflict_count(
         if not dept:
             return {"count": 0}
 
-        query = query.filter(models.Curriculum.department_id == dept.id)
+        dept_curr_subq = db.query(models.Curriculum.id).filter(
+            models.Curriculum.department_id == dept.id
+        )
+        query = query.filter(
+            models.Conflict.curriculum_id.in_(dept_curr_subq) |
+            (
+                (models.Conflict.curriculum_id == None) &
+                models.Schedule.curriculum_id.in_(dept_curr_subq)
+            )
+        )
 
-    return {"count": query.count()}
+    return {"count": query.scalar() or 0}
  
 @router.post("/validate", response_model=List[schemas.ConflictDetail])
 def validate_schedule_conflict(
@@ -95,10 +100,11 @@ def validate_schedule_conflict(
 
     # Check 5:30 PM - 7:30 PM time slot restriction (CVMAS only)
     dept_code = str(current_user.department or "").upper()
+    target_curr = None
     if getattr(validation_data, 'curriculum_id', None):
-        c_item = db.query(models.Curriculum).filter(models.Curriculum.id == validation_data.curriculum_id).first()
-        if c_item and c_item.department_id:
-            c_dept = db.query(models.Department).filter(models.Department.id == c_item.department_id).first()
+        target_curr = db.query(models.Curriculum).filter(models.Curriculum.id == validation_data.curriculum_id).first()
+        if target_curr and target_curr.department_id:
+            c_dept = db.query(models.Department).filter(models.Department.id == target_curr.department_id).first()
             if c_dept and c_dept.code:
                 dept_code = str(c_dept.code).upper()
 
@@ -126,12 +132,22 @@ def validate_schedule_conflict(
     )
     
     # A. Faculty Conflict
+    same_day_faculty_scheds = []
     if validation_data.faculty_id:
-        # Check existing schedules
-        faculty_overlap = base_query.filter(
-            models.Schedule.faculty_id == validation_data.faculty_id,
-            time_filter
-        ).first()
+        # Load same-day schedules once with eager-loaded curriculum (reused for
+        # overlap, flexible lunch break, and session order checks).
+        same_day_faculty_scheds = (
+            base_query.options(joinedload(models.Schedule.curriculum))
+            .filter(models.Schedule.faculty_id == validation_data.faculty_id)
+            .all()
+        )
+        faculty_overlap = next(
+            (
+                s for s in same_day_faculty_scheds
+                if s.start_time < validation_data.end_time and s.end_time > validation_data.start_time
+            ),
+            None,
+        )
         if faculty_overlap:
             conflicts.append(schemas.ConflictDetail(
                 type="faculty",
@@ -154,15 +170,12 @@ def validate_schedule_conflict(
             ))
 
         # Check flexible 1-hour lunch break
-        same_day_scheds_for_lunch = base_query.filter(
-            models.Schedule.faculty_id == validation_data.faculty_id
-        ).all()
         if not faculty_has_flexible_lunch_break(
             faculty_id=validation_data.faculty_id,
             day=validation_data.day_of_week,
             cand_start=validation_data.start_time,
             cand_end=validation_data.end_time,
-            all_schedules=same_day_scheds_for_lunch,
+            all_schedules=same_day_faculty_scheds,
         ):
             conflicts.append(schemas.ConflictDetail(
                 type="lunch_break",
@@ -172,55 +185,49 @@ def validate_schedule_conflict(
 
 
     # D. Session Order Conflict (Lecture must precede Laboratory on the same day)
-    if getattr(validation_data, 'curriculum_id', None) and validation_data.faculty_id:
-        target_curr = db.query(models.Curriculum).filter(models.Curriculum.id == validation_data.curriculum_id).first()
-        if target_curr:
-            target_code = str(target_curr.code or "")
-            target_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", target_code, flags=re.IGNORECASE).strip().upper()
-            is_target_lab = (target_curr.type == 'lab' or (target_curr.lab_units or 0) > 0 or target_code.upper().endswith('B'))
-            is_target_lec = (target_curr.type == 'lecture' or (target_curr.lec_units or 0) > 0 or target_code.upper().endswith('A'))
+    if target_curr and validation_data.faculty_id:
+        target_code = str(target_curr.code or "")
+        target_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", target_code, flags=re.IGNORECASE).strip().upper()
+        is_target_lab = (target_curr.type == 'lab' or (target_curr.lab_units or 0) > 0 or target_code.upper().endswith('B'))
+        is_target_lec = (target_curr.type == 'lecture' or (target_curr.lec_units or 0) > 0 or target_code.upper().endswith('A'))
 
-            same_day_scheds = base_query.filter(
-                models.Schedule.faculty_id == validation_data.faculty_id
-            ).all()
+        for s in same_day_faculty_scheds:
+            if validation_data.ignore_schedule_id and s.id == validation_data.ignore_schedule_id:
+                continue
+            other_curr = s.curriculum
+            if not other_curr:
+                continue
+            other_code = str(other_curr.code or "")
+            other_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", other_code, flags=re.IGNORECASE).strip().upper()
 
-            for s in same_day_scheds:
-                if validation_data.ignore_schedule_id and s.id == validation_data.ignore_schedule_id:
-                    continue
-                other_curr = s.curriculum
-                if not other_curr:
-                    continue
-                other_code = str(other_curr.code or "")
-                other_base = re.sub(r"[_\-\s]*(?:A/B|[AB])$", "", other_code, flags=re.IGNORECASE).strip().upper()
+            is_same_subject = (target_base and target_base == other_base) or (
+                target_curr.id == other_curr.id and (target_curr.lec_units or 0) > 0 and (target_curr.lab_units or 0) > 0
+            )
+            if not is_same_subject:
+                continue
 
-                is_same_subject = (target_base and target_base == other_base) or (
-                    target_curr.id == other_curr.id and (target_curr.lec_units or 0) > 0 and (target_curr.lab_units or 0) > 0
-                )
-                if not is_same_subject:
-                    continue
+            # Skip session-order comparison when both rows reference the exact same
+            # curriculum row (single combined A/B row has both lec_units & lab_units > 0,
+            # so comparing it against itself produces a false-positive violation).
+            if target_curr.id == other_curr.id:
+                continue
 
-                # Skip session-order comparison when both rows reference the exact same
-                # curriculum row (single combined A/B row has both lec_units & lab_units > 0,
-                # so comparing it against itself produces a false-positive violation).
-                if target_curr.id == other_curr.id:
-                    continue
+            is_other_lab = (other_curr.type == 'lab' or ((other_curr.lab_units or 0) > 0 and (other_curr.lec_units or 0) == 0) or other_code.upper().endswith('B'))
+            is_other_lec = (other_curr.type == 'lecture' or ((other_curr.lec_units or 0) > 0 and (other_curr.lab_units or 0) == 0) or other_code.upper().endswith('A'))
 
-                is_other_lab = (other_curr.type == 'lab' or ((other_curr.lab_units or 0) > 0 and (other_curr.lec_units or 0) == 0) or other_code.upper().endswith('B'))
-                is_other_lec = (other_curr.type == 'lecture' or ((other_curr.lec_units or 0) > 0 and (other_curr.lab_units or 0) == 0) or other_code.upper().endswith('A'))
-
-                if is_target_lab and is_other_lec:
-                    if validation_data.start_time < s.end_time:
-                        conflicts.append(schemas.ConflictDetail(
-                            type="session_order",
-                            existing_schedule=schemas.ScheduleResponse.model_validate(s),
-                            message=f"Session order violation: Laboratory ({target_code}) must be scheduled after its Lecture ({other_code}, ending at {s.end_time.strftime('%I:%M %p')}) on {validation_data.day_of_week}."
-                        ))
-                elif is_target_lec and is_other_lab:
-                    if validation_data.end_time > s.start_time:
-                        conflicts.append(schemas.ConflictDetail(
-                            type="session_order",
-                            existing_schedule=schemas.ScheduleResponse.model_validate(s),
-                            message=f"Session order violation: Lecture ({target_code}) must be scheduled before its Laboratory ({other_code}, starting at {s.start_time.strftime('%I:%M %p')}) on {validation_data.day_of_week}."
-                        ))
+            if is_target_lab and is_other_lec:
+                if validation_data.start_time < s.end_time:
+                    conflicts.append(schemas.ConflictDetail(
+                        type="session_order",
+                        existing_schedule=schemas.ScheduleResponse.model_validate(s),
+                        message=f"Session order violation: Laboratory ({target_code}) must be scheduled after its Lecture ({other_code}, ending at {s.end_time.strftime('%I:%M %p')}) on {validation_data.day_of_week}."
+                    ))
+            elif is_target_lec and is_other_lab:
+                if validation_data.end_time > s.start_time:
+                    conflicts.append(schemas.ConflictDetail(
+                        type="session_order",
+                        existing_schedule=schemas.ScheduleResponse.model_validate(s),
+                        message=f"Session order violation: Lecture ({target_code}) must be scheduled before its Laboratory ({other_code}, starting at {s.start_time.strftime('%I:%M %p')}) on {validation_data.day_of_week}."
+                    ))
 
     return conflicts

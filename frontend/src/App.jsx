@@ -1,23 +1,30 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Schedules from './pages/dashboard/Schedules';
-import CurriculumRoute from './pages/dashboard/CurriculumRoute';
-import CurriculumDetail from './pages/dashboard/CurriculumDetail';
-import Teachers from './pages/dashboard/Teachers';
-import AssignedSubjects from './pages/dashboard/AssignedSubjects';
-import Overview from './pages/dashboard/Overview';
-import SystemLogs from './pages/dashboard/SystemLogs';
-import UserManagement from './pages/dashboard/UserManagement';
-import AcademicSemesters from './pages/dashboard/AcademicSemesters';
-import Profile from './pages/dashboard/Profile';
-import Settings from './pages/dashboard/Settings';
-import Colleges from './pages/dashboard/Colleges';
-import LabRooms from './pages/dashboard/LabRooms';
 import { ToastProvider } from './components/ToastProvider';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import { getRole, ROLES, ALL_ROLES, SCHEDULING_ROLES, ADMIN_AND_DEAN_ROLES } from './utils/session';
+
+const Schedules = lazy(() => import('./pages/dashboard/Schedules'));
+const CurriculumRoute = lazy(() => import('./pages/dashboard/CurriculumRoute'));
+const CurriculumDetail = lazy(() => import('./pages/dashboard/CurriculumDetail'));
+const Teachers = lazy(() => import('./pages/dashboard/Teachers'));
+const AssignedSubjects = lazy(() => import('./pages/dashboard/AssignedSubjects'));
+const Overview = lazy(() => import('./pages/dashboard/Overview'));
+const SystemLogs = lazy(() => import('./pages/dashboard/SystemLogs'));
+const UserManagement = lazy(() => import('./pages/dashboard/UserManagement'));
+const AcademicSemesters = lazy(() => import('./pages/dashboard/AcademicSemesters'));
+const Profile = lazy(() => import('./pages/dashboard/Profile'));
+const Settings = lazy(() => import('./pages/dashboard/Settings'));
+const Colleges = lazy(() => import('./pages/dashboard/Colleges'));
+
+const RouteFallback = () => (
+  <div className="min-h-[50vh] flex items-center justify-center p-8" role="status" aria-label="Loading page">
+    <div className="w-7 h-7 rounded-full border-2 border-atlas-300 border-t-atlas-700 animate-spin" />
+  </div>
+);
 
 const Unauthorized403 = () => (
   <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center">
@@ -54,6 +61,7 @@ function App() {
     <AppErrorBoundary>
       <ToastProvider>
         <Router>
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
@@ -157,6 +165,7 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
         </Router>
       </ToastProvider>
     </AppErrorBoundary>

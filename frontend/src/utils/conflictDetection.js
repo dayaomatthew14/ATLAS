@@ -153,32 +153,54 @@ export const detectConflicts = (newSchedule, existingSchedules) => {
 
 /**
  * Checks if a specific schedule item in a list has any conflicts with others in that same list.
+ * Groups by (day, faculty_id) and pre-parses minute bounds so typical checks run in O(N)
+ * instead of O(N^2) across the full schedule list.
  */
 export const checkScheduleIntegrity = (schedules) => {
-  return schedules.map(item => {
-    const start = item.start_time || item.startTime;
-    const end = item.end_time || item.endTime;
-    const day = item.day_of_week || item.dayOfWeek;
-    
-    const conflicts = schedules.filter(other => {
-      if (other.id === item.id) return false;
-      // Never compare classes from different semesters against each other
-      if (item.semester_id != null && other.semester_id != null && item.semester_id !== other.semester_id) {
-        return false;
+  if (!Array.isArray(schedules) || schedules.length === 0) return [];
+
+  const buckets = new Map();
+  const parsed = schedules.map((item) => {
+    const day = item.day_of_week || item.dayOfWeek || '';
+    const facId = item.faculty_id || item.teacherId;
+    const startMin = parseTimeToMinutes(item.start_time || item.startTime);
+    const endMin = parseTimeToMinutes(item.end_time || item.endTime);
+    const bucketKey = day && facId ? `${day}::${String(facId)}` : null;
+
+    const entry = { item, day, facId, startMin, endMin, bucketKey };
+    if (bucketKey && startMin !== null && endMin !== null) {
+      let group = buckets.get(bucketKey);
+      if (!group) {
+        group = [];
+        buckets.set(bucketKey, group);
       }
-      const otherDay = other.day_of_week || other.dayOfWeek;
-      if (!otherDay || !day || otherDay !== day) return false;
-      
-      const otherStart = other.start_time || other.startTime;
-      const otherEnd = other.end_time || other.endTime;
-      if (!isTimeOverlap(start, end, otherStart, otherEnd)) return false;
+      group.push(entry);
+    }
+    return entry;
+  });
 
-      const itemFacId = item.faculty_id || item.teacherId;
-      const otherFacId = other.faculty_id || other.teacherId;
-      const teacherConflict = Boolean(itemFacId && otherFacId && String(itemFacId) === String(otherFacId));
-
-      return teacherConflict;
-    });
+  return parsed.map(({ item, startMin, endMin, bucketKey }) => {
+    const conflicts = [];
+    if (bucketKey && startMin !== null && endMin !== null) {
+      const group = buckets.get(bucketKey);
+      if (group && group.length > 1) {
+        for (let i = 0; i < group.length; i += 1) {
+          const other = group[i];
+          if (other.item.id === item.id) continue;
+          // Never compare classes from different semesters against each other
+          if (
+            item.semester_id != null &&
+            other.item.semester_id != null &&
+            item.semester_id !== other.item.semester_id
+          ) {
+            continue;
+          }
+          if (startMin < other.endMin && endMin > other.startMin) {
+            conflicts.push(other.item);
+          }
+        }
+      }
+    }
 
     return {
       ...item,

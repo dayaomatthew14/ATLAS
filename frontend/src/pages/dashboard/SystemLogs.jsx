@@ -451,7 +451,6 @@ export default function SystemLogs() {
         onClearFilters={clearFilters}
         emptyTitle="No activity recorded yet."
         emptyBody="Actions appear here as people use the system."
-        spotlight
       />
 
       <p className="mt-3 font-ui text-caption text-atlas-slate">

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import logging
 import re
 from .. import models, database, auth
-from ..services.schedule_generator import generate_schedules
+from ..services.schedule_generator import generate_schedules, generate_unassigned_schedules
 from ..services import faculty_load
 from .logs import log_activity
 
@@ -135,6 +135,71 @@ def generate_schedule(
         "workload_warnings": workload_warnings
     }
 
+
+@router.post("/generate-unassigned/{semester_id}")
+def generate_unassigned_schedule(
+    semester_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """
+    Plot all remaining unassigned major subjects for the caller's college and
+    semester into a single UNASSIGNED PROFESSOR timetable grid (faculty_id=None),
+    bypassing teaching-hour limits and allowing overlapping slots.
+    """
+    if current_user.role in ['dean', 'program_chair'] or (current_user.role == 'admin' and current_user.department):
+        if not current_user.department:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your account is not assigned to a college. Ask an administrator to set one.",
+            )
+        dept = db.query(models.Department).filter(
+            (models.Department.code == current_user.department) |
+            (models.Department.name == current_user.department)
+        ).first()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Institutional administrators do not generate schedules. This is done by the college Dean or Program Chair.",
+        )
+
+    if not dept:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department not found")
+
+    from .schedules import _assert_term_not_published
+    _assert_term_not_published(db, semester_id, cast(int, dept.id))
+
+    semester = db.query(models.Semester).filter(models.Semester.id == semester_id).first()
+    if not semester:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Semester {semester_id} not found. Create the academic term before generating schedules.",
+        )
+
+    results = generate_unassigned_schedules(db, semester_id, cast(int, dept.id))
+    if results.get("error"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to plot unassigned subjects: {results['error']}",
+        )
+
+    subjects_plotted = results.get("subjects_plotted", 0)
+    schedules_created = results.get("schedules_created", 0)
+    log_activity(
+        db,
+        int(getattr(current_user, "id")),
+        "Plot Unassigned Subjects",
+        f"Plotted {subjects_plotted} unassigned major subject(s) ({schedules_created} class session(s)) under UNASSIGNED PROFESSOR for {dept.name} ({semester.academic_year} {semester.term}).",
+        "success",
+        department_id=dept.id,  # type: ignore
+    )
+
+    return {
+        "msg": "Unassigned subjects plotted under UNASSIGNED PROFESSOR",
+        "subjects_plotted": subjects_plotted,
+        "schedules_created": schedules_created,
+    }
+
 @router.get("/conflicts")
 def get_conflicts(
     skip: int = 0,
@@ -199,12 +264,63 @@ def get_conflicts(
 
     conflicts = query.offset(skip).limit(limit).all()
 
+    # Batch-load related curriculum, faculty, and schedule rows to avoid N+1 queries.
+    # If any batch lookup fails (e.g. partial DB failure), fall back to per-row
+    # lookups inside the try/except below so unreadable rows surface as degraded
+    # placeholders rather than crashing the entire conflict listing.
+    from sqlalchemy.orm import joinedload as _joinedload
+    curr_ids = {c.curriculum_id for c in conflicts if c.curriculum_id}
+    fac_ids = {c.faculty_id for c in conflicts if c.faculty_id}
+    sched_ids = {c.schedule_id_1 for c in conflicts if c.schedule_id_1}
+
+    curr_map = None
+    if curr_ids:
+        try:
+            curr_map = {
+                row.id: row
+                for row in db.query(models.Curriculum).filter(models.Curriculum.id.in_(curr_ids)).all()
+            }
+        except Exception:
+            curr_map = None
+
+    fac_map = None
+    if fac_ids:
+        try:
+            fac_map = {
+                row.id: row
+                for row in db.query(models.Faculty).filter(models.Faculty.id.in_(fac_ids)).all()
+            }
+        except Exception:
+            fac_map = None
+
+    sched_map = None
+    if sched_ids:
+        try:
+            sched_map = {
+                row.id: row
+                for row in db.query(models.Schedule)
+                .options(_joinedload(models.Schedule.curriculum), _joinedload(models.Schedule.faculty))
+                .filter(models.Schedule.id.in_(sched_ids))
+                .all()
+            }
+        except Exception:
+            sched_map = None
+
     res = []
     for c in conflicts:
         try:
-            curr = db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first() if c.curriculum_id else None
-            fac = db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first() if c.faculty_id else None
-            s1 = db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first() if c.schedule_id_1 else None
+            if c.curriculum_id:
+                curr = curr_map.get(c.curriculum_id) if curr_map is not None else db.query(models.Curriculum).filter(models.Curriculum.id == c.curriculum_id).first()
+            else:
+                curr = None
+            if c.faculty_id:
+                fac = fac_map.get(c.faculty_id) if fac_map is not None else db.query(models.Faculty).filter(models.Faculty.id == c.faculty_id).first()
+            else:
+                fac = None
+            if c.schedule_id_1:
+                s1 = sched_map.get(c.schedule_id_1) if sched_map is not None else db.query(models.Schedule).filter(models.Schedule.id == c.schedule_id_1).first()
+            else:
+                s1 = None
 
             curriculum_code = curr.code if curr else (s1.curriculum.code if s1 and s1.curriculum else "Subject Issue")
             faculty_name = f"{fac.first_name} {fac.last_name}" if fac else (f"{s1.faculty.first_name} {s1.faculty.last_name}" if s1 and s1.faculty else "Faculty")
@@ -280,7 +396,7 @@ def get_global_schedule(
         models.Schedule.credited_hours_override.label("sched_credited_hours_override"),
     ).join(
         models.Curriculum, models.Schedule.curriculum_id == models.Curriculum.id
-    ).join(
+    ).outerjoin(
         models.Faculty, models.Schedule.faculty_id == models.Faculty.id
     ).join(
         models.Department, models.Curriculum.department_id == models.Department.id
@@ -371,7 +487,11 @@ def get_global_schedule(
             "subject_code": display_code,
             "subject_name": s.subject_name,
             "curriculum_type": s.curriculum_type,
-            "faculty_name": f"{s.first_name} {s.last_name}",
+            "faculty_name": (
+                f"{s.first_name} {s.last_name}".strip()
+                if s.faculty_id is not None and (s.first_name or s.last_name)
+                else "UNASSIGNED PROFESSOR"
+            ),
             "room_id": s.room_id,
             "room_name": resolved_room,
             "room_building": (s.room_building or "") if resolved_room else "",

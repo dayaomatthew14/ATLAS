@@ -3,17 +3,26 @@ import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import Modal from '../Modal';
 
 /**
- * Confirmation modal before clearing all generated schedules for the term.
+ * Confirmation modal before clearing all generated schedules for the term
+ * or clearing a single professor's (or UNASSIGNED PROFESSOR's) schedule.
  */
-export function ClearSchedulesDialog({ isOpen, onClose, onConfirm }) {
+export function ClearSchedulesDialog({ isOpen, onClose, onConfirm, targetBoard = null }) {
+  const isSingle = Boolean(targetBoard?.name);
+  const title = isSingle ? 'Clear Professor Schedule' : 'Clear All Schedules';
+  const countLabel = targetBoard?.count === 1 ? '1 class' : `${targetBoard?.count || 0} classes`;
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Clear All Schedules">
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
       <div className="space-y-4">
         <p className="text-sm font-bold text-slate-700">
-          Are you sure you want to delete all generated schedules for this semester?
+          {isSingle
+            ? `Are you sure you want to delete all ${countLabel} scheduled for ${targetBoard.name} in this semester?`
+            : 'Are you sure you want to delete all generated schedules for this semester?'}
         </p>
         <p className="text-xs text-slate-500 font-medium">
-          You will be able to restore them immediately using the Undo button after clearing.
+          {isSingle
+            ? 'Other professors’ schedules and all subject assignments will remain untouched. You can restore immediately using Undo.'
+            : 'You will be able to restore them immediately using the Undo button after clearing.'}
         </p>
         <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
           <button
@@ -28,7 +37,7 @@ export function ClearSchedulesDialog({ isOpen, onClose, onConfirm }) {
             onClick={onConfirm}
             className="h-10 px-4 rounded-control glass font-ui font-medium text-body text-sem-conflict !border-sem-conflict/40 hover:bg-sem-conflict-bg/80 transition-colors duration-state ease-standard"
           >
-            Yes, Clear All
+            {isSingle ? 'Yes, Clear Schedule' : 'Yes, Clear All'}
           </button>
         </div>
       </div>

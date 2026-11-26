@@ -1,29 +1,124 @@
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { AlertTriangle, Clock, MapPin, Trash2, User } from 'lucide-react';
 import { DAY_LABEL, durationHours, formatSubjectCode, to12h } from '../../utils/scheduleHelpers';
 import { ctTierShortLabel } from '../../utils/load';
 
+function getPopoverStyle(rect) {
+  if (!rect) return { display: 'none' };
+  const popoverWidth = 300;
+  const popoverHeight = 250;
+  const padding = 12;
+
+  let left = rect.right + 12;
+  if (left + popoverWidth > window.innerWidth - padding) {
+    left = rect.left - popoverWidth - 12;
+  }
+  if (left < padding) {
+    left = Math.max(padding, window.innerWidth - popoverWidth - padding);
+  }
+
+  let top = rect.top;
+  if (top + popoverHeight > window.innerHeight - padding) {
+    top = Math.max(padding, window.innerHeight - popoverHeight - padding);
+  }
+  if (top < padding) {
+    top = padding;
+  }
+
+  return {
+    position: 'fixed',
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${popoverWidth}px`,
+    zIndex: 60,
+  };
+}
+
 /**
  * Floating detail preview popover shown on hover/focus of a grid schedule card.
+ * Owns its own hover state and debounce timer so hovering cards never re-renders
+ * the parent Schedules page or its modals.
  */
-export default function ScheduleHoverPopover({
-  hoveredSchedule,
-  getPopoverStyle,
-  onMouseEnter,
-  onMouseLeave,
-  canManageSchedules,
-  onDeleteSchedule,
-}) {
+const ScheduleHoverPopover = forwardRef(function ScheduleHoverPopover(
+  { canManageSchedules, onDeleteSchedule },
+  ref
+) {
+  const [hoveredSchedule, setHoveredSchedule] = useState(null);
+  const hoverTimerRef = useRef(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      show(sched, color, day, inConflict, target) {
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = null;
+        }
+        hoverTimerRef.current = setTimeout(() => {
+          if (!target || !target.isConnected) return;
+          const rect = target.getBoundingClientRect();
+          setHoveredSchedule({ sched, color, day, rect, inConflict });
+        }, 200);
+      },
+      scheduleHide() {
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = null;
+        }
+        hoverTimerRef.current = setTimeout(() => {
+          setHoveredSchedule(null);
+        }, 120);
+      },
+      hideNow() {
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current);
+          hoverTimerRef.current = null;
+        }
+        setHoveredSchedule(null);
+      },
+    }),
+    []
+  );
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      setHoveredSchedule((prev) => (prev ? null : prev));
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll, { capture: true });
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
   if (!hoveredSchedule) return null;
 
   const { sched, color, day, inConflict, rect } = hoveredSchedule;
   const dur = durationHours(sched);
 
+  const handlePopoverMouseEnter = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+
+  const handlePopoverMouseLeave = () => {
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredSchedule(null);
+    }, 120);
+  };
+
   return (
     <div
       style={getPopoverStyle(rect)}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className="no-print pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-[#AEC3B0]/60 overflow-hidden transition-all duration-150 animate-in fade-in zoom-in-95 z-50"
+      onMouseEnter={handlePopoverMouseEnter}
+      onMouseLeave={handlePopoverMouseLeave}
+      className="no-print pointer-events-auto bg-white/95 rounded-2xl shadow-2xl border border-[#AEC3B0]/60 overflow-hidden z-50"
     >
       <div className="h-1.5 w-full shrink-0" style={{ backgroundColor: color.accent }} />
 
@@ -100,7 +195,10 @@ export default function ScheduleHoverPopover({
           <div className="pt-2 border-t border-[#E8EFE8]">
             <button
               type="button"
-              onClick={() => onDeleteSchedule(sched)}
+              onClick={() => {
+                onDeleteSchedule(sched);
+                setHoveredSchedule(null);
+              }}
               className="w-full py-1.5 px-3 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -111,5 +209,7 @@ export default function ScheduleHoverPopover({
       </div>
     </div>
   );
-}
+});
+
+export default ScheduleHoverPopover;
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from .. import auth, models, schemas
 from ..services import faculty_load
 from ..database import get_db
@@ -119,9 +119,12 @@ def _load_offerings_by_curriculum(
     """Batch-load subject offerings joined with faculty keyed by curriculum_id."""
     if not curriculum_ids:
         return {}
+    from sqlalchemy.orm import joinedload as _joinedload
     raw_offerings = db.query(
         models.SubjectOffering,
         models.Faculty,
+    ).options(
+        _joinedload(models.SubjectOffering.room)
     ).outerjoin(
         models.Faculty, models.SubjectOffering.faculty_id == models.Faculty.id
     ).filter(
@@ -258,7 +261,10 @@ def get_active_term_assigned_subjects(
         }
 
     dept_meta = {"id": dept.id, "name": dept.name, "code": dept.code}
-    published_blocks = db.query(models.CurriculumBlock).filter(
+    from sqlalchemy.orm import joinedload as _joinedload
+    published_blocks = db.query(models.CurriculumBlock).options(
+        _joinedload(models.CurriculumBlock.program)
+    ).filter(
         models.CurriculumBlock.department_id == dept.id,
         models.CurriculumBlock.status == 'PUBLISHED'
     ).all()
@@ -403,6 +409,92 @@ def get_subject_offerings(
         })
     return response
 
+def _transfer_or_clear_unassigned_schedules(
+    db: Session,
+    semester_id: int,
+    curriculum_id: int,
+    target_faculty_id: int,
+    enrolled_val: Optional[int] = None,
+    eff_hrs: Optional[float] = None,
+) -> bool:
+    """
+    When an unassigned subject is assigned to a professor:
+    - If every draft UNASSIGNED PROFESSOR (faculty_id IS NULL) session fits
+      without overlapping the professor's existing classes, unavailability, or
+      booked room, transfer those exact day/time slots directly to the professor.
+    - Otherwise, delete the unassigned placeholders so no conflict is introduced.
+    Returns True if transferred, False if cleared (or none existed).
+    """
+    placeholders = db.query(models.Schedule).filter(
+        models.Schedule.semester_id == semester_id,
+        models.Schedule.curriculum_id == curriculum_id,
+        models.Schedule.faculty_id.is_(None),
+        (models.Schedule.status == 'draft') | (models.Schedule.status.is_(None)),
+        (models.Schedule.is_locked == False) | (models.Schedule.is_locked.is_(None)),  # noqa: E712
+    ).all()
+    if not placeholders:
+        return False
+
+    already_plotted_for_prof = db.query(models.Schedule.id).filter(
+        models.Schedule.semester_id == semester_id,
+        models.Schedule.curriculum_id == curriculum_id,
+        models.Schedule.faculty_id == target_faculty_id,
+    ).first() is not None
+
+    can_transfer = not already_plotted_for_prof
+    if can_transfer:
+        for s in placeholders:
+            if not (s.day_of_week and s.start_time and s.end_time):
+                can_transfer = False
+                break
+            prof_overlap = db.query(models.Schedule.id).filter(
+                models.Schedule.semester_id == semester_id,
+                models.Schedule.faculty_id == target_faculty_id,
+                models.Schedule.day_of_week == s.day_of_week,
+                models.Schedule.start_time < s.end_time,
+                models.Schedule.end_time > s.start_time,
+            ).first()
+            if prof_overlap:
+                can_transfer = False
+                break
+            unavail_hit = db.query(models.FacultyUnavailability.id).filter(
+                models.FacultyUnavailability.faculty_id == target_faculty_id,
+                models.FacultyUnavailability.day_of_week == s.day_of_week,
+                models.FacultyUnavailability.start_time < s.end_time,
+                models.FacultyUnavailability.end_time > s.start_time,
+            ).first()
+            if unavail_hit:
+                can_transfer = False
+                break
+            if s.room_id:
+                room_overlap = db.query(models.Schedule.id).filter(
+                    models.Schedule.id != s.id,
+                    models.Schedule.semester_id == semester_id,
+                    models.Schedule.faculty_id.isnot(None),
+                    models.Schedule.room_id == s.room_id,
+                    models.Schedule.day_of_week == s.day_of_week,
+                    models.Schedule.room_approval_status != 'rejected',
+                    models.Schedule.start_time < s.end_time,
+                    models.Schedule.end_time > s.start_time,
+                ).first()
+                if room_overlap:
+                    can_transfer = False
+                    break
+
+    if can_transfer:
+        for s in placeholders:
+            setattr(s, "faculty_id", target_faculty_id)
+            if enrolled_val is not None:
+                setattr(s, "enrolled_students", enrolled_val)
+            if eff_hrs is not None:
+                setattr(s, "credited_hours_override", eff_hrs)
+        return True
+
+    for s in placeholders:
+        db.delete(s)
+    return False
+
+
 @router.post("", response_model=schemas.SubjectOfferingResponse)
 def create_subject_offering(
     offering: schemas.SubjectOfferingCreate,
@@ -489,11 +581,30 @@ def create_subject_offering(
                 (models.Schedule.status == 'draft') | (models.Schedule.status.is_(None)),
                 (models.Schedule.is_locked == False) | (models.Schedule.is_locked.is_(None)),  # noqa: E712
             ).delete(synchronize_session=False)
+        # Transfer UNASSIGNED PROFESSOR slots directly if professor is free, else clear them
+        _transfer_or_clear_unassigned_schedules(
+            db,
+            offering.semester_id,
+            offering.curriculum_id,
+            offering.faculty_id,
+            enrolled_val=prior_offering.enrolled_students,
+            eff_hrs=prior_offering.credited_hours_override,
+        )
         if current_user.role not in ('admin', 'dean'):
             setattr(faculty_mem, "overload_approved", False)
         db.commit()
         db.refresh(prior_offering)
         return prior_offering
+
+    # Transfer UNASSIGNED PROFESSOR slots directly if professor is free, else clear them
+    _transfer_or_clear_unassigned_schedules(
+        db,
+        offering.semester_id,
+        offering.curriculum_id,
+        offering.faculty_id,
+        enrolled_val=enrolled_val,
+        eff_hrs=eff_hrs,
+    )
 
     new_offering = models.SubjectOffering(
         faculty_id=offering.faculty_id,
@@ -577,6 +688,12 @@ def update_subject_offering_ct(
     valid_scheds = [s for s in matching_schedules if s.start_time and s.end_time]
     auto_adjusted = False
     if valid_scheds and req_mins > 0:
+        dept_obj = db.query(models.Department).filter(
+            models.Department.id == curriculum.department_id
+        ).first() if curriculum.department_id else None
+        is_cvmas = bool(dept_obj and getattr(dept_obj, "code", "").upper() == "CVMAS")
+        max_end_min = (19 * 60 + 30) if is_cvmas else (17 * 60 + 30)
+
         n_scheds = len(valid_scheds)
         base_mins = req_mins // n_scheds
         rem_mins = req_mins % n_scheds
@@ -588,6 +705,16 @@ def update_subject_offering_ct(
             start_m = sched.start_time.hour * 60 + sched.start_time.minute
             old_end_m = sched.end_time.hour * 60 + sched.end_time.minute
             new_end_m = start_m + alloc
+
+            # Never auto-expand past the college's allowed daily cutoff (17:30 non-CVMAS / 19:30 CVMAS)
+            if new_end_m > old_end_m and new_end_m > max_end_min:
+                can_adjust_all = False
+                break
+
+            # Guard against 24:00 overflow
+            if new_end_m >= 24 * 60:
+                can_adjust_all = False
+                break
 
             # If expanding beyond previous end_time, check for conflicts
             if new_end_m > old_end_m:
@@ -605,6 +732,7 @@ def update_subject_offering_ct(
                     overlap_room = db.query(models.Schedule).filter(
                         models.Schedule.id != sched.id,
                         models.Schedule.semester_id == sched.semester_id,
+                        models.Schedule.faculty_id.isnot(None),
                         models.Schedule.room_id == sched.room_id,
                         models.Schedule.day_of_week == sched.day_of_week,
                         models.Schedule.room_approval_status != 'rejected',

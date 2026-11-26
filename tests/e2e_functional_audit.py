@@ -343,18 +343,18 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         self.db.add_all([bscpe, bscs])
         self.db.commit()
 
+        # Under the unified DLSAU subject-hour rules, 3-unit Lecture (A) is 4.0h/week
+        # across all programs, and 2-unit Lecture (A) is 2.67h/week (160 mins).
         self.assertEqual(weekly_hours(sg.lecture_slots_for(bscpe)), {4.00})
-        self.assertEqual(weekly_hours(sg.lecture_slots_for(bscs)), {2.67})
+        self.assertEqual(weekly_hours(sg.lecture_slots_for(bscs)), {4.00})
 
-        # A subject with no programme recorded must not silently take the
-        # engineering pattern; standard is the safe default.
-        no_code = models.Curriculum(
-            code="GEN100", name="Unmapped", units=3,
-            department_id=1, type="lecture", lec_units=3, lab_units=0,
+        lec_2u = models.Curriculum(
+            code="GEN100", name="Two-Unit Lecture", units=2,
+            department_id=1, type="lecture", lec_units=2, lab_units=0,
         )
-        self.db.add(no_code)
+        self.db.add(lec_2u)
         self.db.commit()
-        self.assertEqual(weekly_hours(sg.lecture_slots_for(no_code)), {2.67})
+        self.assertEqual(weekly_hours(sg.lecture_slots_for(lec_2u)), {2.67})
 
         # The exact required loads must be reachable, or REGULAR is unreachable
         # and every faculty member reads as under or over for ever.
@@ -377,10 +377,10 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         # The required figure still shows, so a chair can see what is coming.
         self.assertEqual(assigned_unplotted["required_hours"], 24.0)
 
-        # No subjects at all is a real underload -- that member has no work.
+        # No subjects and no plotted schedule also displays NOT_PLOTTED.
         unassigned = fl.summarise(0.0, '1st', 'full_time', has_offerings=False)
-        self.assertEqual(unassigned["load_status"], fl.UNDERLOAD)
-        self.assertEqual(unassigned["remaining_hours"], 24.0)
+        self.assertEqual(unassigned["load_status"], fl.NOT_PLOTTED)
+        self.assertIsNone(unassigned["remaining_hours"])
 
         # No active term: no schedule to measure and no figure to measure it
         # against, so no verdict may be given about anyone.

@@ -772,13 +772,13 @@ def summarise(
 
     if normalise_term(term) is None:
         status = NO_ACTIVE_TERM
-    elif actual == 0.0 and (has_offerings or assigned > 0.0):
+    elif actual == 0.0:
         status = NOT_PLOTTED
 
     overload = None
     remaining = None
     limit_for_diff = required if required is not None else allowed
-    if limit_for_diff is not None and normalise_term(term) is not None:
+    if limit_for_diff is not None and normalise_term(term) is not None and status != NOT_PLOTTED:
         diff = actual - limit_for_diff
         if diff > _EQUALITY_TOLERANCE:
             overload = round_hours(diff)

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext();
@@ -35,6 +35,14 @@ export const ToastProvider = ({ children }) => {
   const [assertiveMsg, setAssertiveMsg] = useState('');
   const timers = useRef(new Map());
 
+  useEffect(() => {
+    const activeTimers = timers.current;
+    return () => {
+      activeTimers.forEach((timer) => clearTimeout(timer));
+      activeTimers.clear();
+    };
+  }, []);
+
   const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
     const timer = timers.current.get(id);
@@ -46,6 +54,8 @@ export const ToastProvider = ({ children }) => {
 
   const scheduleDismiss = useCallback(
     (id) => {
+      const existing = timers.current.get(id);
+      if (existing) clearTimeout(existing);
       const timer = setTimeout(() => removeToast(id), DISMISS_MS);
       timers.current.set(id, timer);
     },
@@ -60,7 +70,18 @@ export const ToastProvider = ({ children }) => {
       setToasts((prev) => {
         const next = [...prev, { id, message, type: safeType }];
         // A fourth toast replaces the oldest rather than stacking off-screen.
-        return next.slice(-MAX_VISIBLE);
+        if (next.length > MAX_VISIBLE) {
+          const evicted = next.slice(0, next.length - MAX_VISIBLE);
+          for (const item of evicted) {
+            const evictedTimer = timers.current.get(item.id);
+            if (evictedTimer) {
+              clearTimeout(evictedTimer);
+              timers.current.delete(item.id);
+            }
+          }
+          return next.slice(-MAX_VISIBLE);
+        }
+        return next;
       });
 
       // Errors interrupt; everything else waits for a pause in speech.
@@ -73,6 +94,8 @@ export const ToastProvider = ({ children }) => {
     [scheduleDismiss]
   );
 
+  const contextValue = useMemo(() => ({ addToast }), [addToast]);
+
   const pause = (id) => {
     const timer = timers.current.get(id);
     if (timer) {
@@ -82,7 +105,7 @@ export const ToastProvider = ({ children }) => {
   };
 
   return (
-    <ToastContext.Provider value={{ addToast }}>
+    <ToastContext.Provider value={contextValue}>
       {children}
 
       {/*

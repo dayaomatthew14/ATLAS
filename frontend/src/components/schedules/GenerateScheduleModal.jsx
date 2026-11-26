@@ -20,6 +20,8 @@ export default function GenerateScheduleModal({
   formatSemesterTerm,
   unassignedOfferingsData,
   onReviewAssigned,
+  onPlotUnassigned,
+  isPlottingUnassigned = false,
   allTeachers,
   selectedGenProfessors,
   setSelectedGenProfessors,
@@ -76,15 +78,27 @@ export default function GenerateScheduleModal({
                   <p className="font-ui text-xs text-amber-800 mt-1 leading-relaxed">
                     Unassigned subjects will be skipped until assigned to a professor. You can still proceed to generate schedules for the selected professors below.
                   </p>
-                  <div className="mt-2.5">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
                     <AtlasButton
                       size="small"
                       variant="secondary"
                       className="bg-white border-amber-300 text-amber-900 hover:bg-amber-100"
                       onClick={onReviewAssigned}
+                      disabled={isGenerating || isPlottingUnassigned}
                     >
                       Review Assigned Subjects
                     </AtlasButton>
+                    {onPlotUnassigned && (
+                      <AtlasButton
+                        size="small"
+                        variant="primary"
+                        onClick={onPlotUnassigned}
+                        loading={isPlottingUnassigned}
+                        disabled={isGenerating || isPlottingUnassigned}
+                      >
+                        Plot Unassigned Subjects
+                      </AtlasButton>
+                    )}
                   </div>
                 </div>
               </div>

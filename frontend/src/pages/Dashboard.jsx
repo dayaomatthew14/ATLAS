@@ -92,25 +92,13 @@ export default function Dashboard() {
   // "No active term" during the fetch, which is a false negative shown on
   // every page load — the opposite of what the context bar exists to do.
   const [termLoading, setTermLoading] = useState(true);
-  // Navigation rail width. Persisted, because it is a working preference: an
-  // admin on a laptop wants the labels, the same admin on the timetable wants
-  // the 176px back. Defaults to collapsed on narrower desktops, where the rail
-  // and a 904px-minimum grid do not both fit.
-  const [railCollapsed, setRailCollapsed] = useState(() => {
-    const stored = localStorage.getItem('atlas_rail_collapsed');
-    if (stored !== null) return stored === 'true';
-    return typeof window !== 'undefined' && window.innerWidth < 1440;
-  });
 
   useEffect(() => {
-    localStorage.setItem('atlas_rail_collapsed', String(railCollapsed));
-  }, [railCollapsed]);
-
-  useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     const loadActiveTerm = () => {
-      api.get('/semesters')
+      api.get('/semesters', { signal: controller.signal })
         .then((sems) => {
           if (cancelled) return;
           const list = Array.isArray(sems) ? sems : [];
@@ -129,6 +117,7 @@ export default function Dashboard() {
     window.addEventListener('atlas_term_changed', loadActiveTerm);
     return () => {
       cancelled = true;
+      controller.abort();
       window.removeEventListener('atlas_term_changed', loadActiveTerm);
     };
   }, []);
@@ -160,11 +149,18 @@ export default function Dashboard() {
   // nothing, so the poll is scoped to the roles that can act on the answer.
   useEffect(() => {
     if (isAdmin) return;
+    let cancelled = false;
+    let controller = null;
+
     const fetchConflictCount = async () => {
+      if (document.hidden) return;
+      if (controller) controller.abort();
+      controller = new AbortController();
       try {
-        const data = await api.get('/conflicts/count');
-        setConflictCount(data.count || 0);
+        const data = await api.get('/conflicts/count', { signal: controller.signal });
+        if (!cancelled) setConflictCount(data.count || 0);
       } catch (err) {
+        if (err?.name === 'AbortError' || cancelled) return;
         // Not `0`. A failed request tells us nothing about how many conflicts
         // exist, and reporting none would clear the badge on a schedule that
         // may well be broken. `null` is the "unknown" the rail renders as "?".
@@ -172,9 +168,20 @@ export default function Dashboard() {
         setConflictCount(null);
       }
     };
+
+    const handleVisibility = () => {
+      if (!document.hidden) fetchConflictCount();
+    };
+
     fetchConflictCount();
     const interval = setInterval(fetchConflictCount, 30000);
-    return () => clearInterval(interval);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      cancelled = true;
+      if (controller) controller.abort();
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [isAdmin]);
 
   const handleLogout = useCallback(async () => {
@@ -221,9 +228,7 @@ export default function Dashboard() {
         profileName={profileName}
         profilePicture={profilePicture}
         getProfilePictureUrl={getProfilePictureUrl}
-        railCollapsed={railCollapsed}
         onOpenTerm={() => navigate('/dashboard/semesters')}
-        onToggleRail={() => setRailCollapsed((v) => !v)}
         onOpenGuide={!isAdmin && showGuide ? () => setIsGuideOpen(true) : undefined}
         onLogout={handleLogout}
       >

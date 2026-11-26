@@ -30,6 +30,7 @@ export default function useCountUp(value, duration = 700) {
 
   useEffect(() => {
     const commit = (v) => {
+      if (shownRef.current === v) return;
       shownRef.current = v;
       setDisplay(v);
     };

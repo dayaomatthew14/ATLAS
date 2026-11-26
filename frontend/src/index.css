@@ -220,8 +220,6 @@ body {
     0 1px 3px rgb(4 106 56 / 0.04),
     0 6px 16px -6px rgb(4 106 56 / 0.08),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.95);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
 /*
@@ -242,16 +240,12 @@ body {
     0 4px 14px rgb(4 106 56 / 0.08),
     0 14px 28px -10px rgb(4 106 56 / 0.14),
     inset 0 1px 0 0 rgba(255, 255, 255, 1);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
 }
 
 /* The same material on the green-900 chrome, carrying DLSAU depth. */
 .glass-dark {
   background: linear-gradient(180deg, rgba(4, 27, 18, 0.98) 0%, rgba(6, 48, 28, 0.98) 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
 /* Classes: Fresh Mint Emerald with authentic ombre gradient effect */
@@ -263,8 +257,6 @@ body {
     0 2px 6px -2px rgba(70, 133, 91, 0.12),
     0 6px 18px -6px rgba(70, 133, 91, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
 /* Faculty: #E3EED4 with ombre gradient effect */
@@ -276,8 +268,6 @@ body {
     0 2px 6px -2px rgba(120, 154, 91, 0.12),
     0 6px 18px -6px rgba(120, 154, 91, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
 /* Rooms: #AEC3B0 with ombre gradient effect */
@@ -289,8 +279,6 @@ body {
     0 2px 6px -2px rgba(87, 119, 90, 0.12),
     0 6px 18px -6px rgba(87, 119, 90, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
 /* Schedule Health: #6B9071 with ombre gradient effect */
@@ -302,8 +290,6 @@ body {
     0 2px 6px -2px rgba(54, 84, 58, 0.14),
     0 6px 18px -6px rgba(54, 84, 58, 0.18),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
 /*
@@ -416,7 +402,6 @@ body {
 .lift {
   transition:
     transform 120ms var(--ease-emphasis),
-    box-shadow 120ms var(--ease-emphasis),
     background-color 100ms var(--ease-standard),
     border-color 100ms var(--ease-standard);
   box-shadow: var(--shadow-raised);
@@ -603,12 +588,7 @@ body {
   background-size: cover;
   background-position: center;
   opacity: 0.11;
-  animation: auth-drift 60s ease-in-out infinite;
-  will-change: transform;
-}
-@keyframes auth-drift {
-  0%, 100% { transform: scale(1.03) translate3d(0, 0, 0); }
-  50%      { transform: scale(1.09) translate3d(-1.4%, -1%, 0); }
+  transform: scale(1.04);
 }
 
 /* Three light sources, drifting on different periods so they never repeat a
@@ -616,7 +596,6 @@ body {
 .auth-blob {
   position: absolute;
   border-radius: 50%;
-  will-change: transform;
 }
 .auth-blob-1 {
   width: 46vmax; height: 46vmax; left: -13vmax; top: -16vmax;
@@ -626,12 +605,10 @@ body {
 .auth-blob-2 {
   width: 38vmax; height: 38vmax; right: -12vmax; top: 8vmax;
   background: radial-gradient(circle, rgb(var(--atlas-green-300-rgb) / 0.42), transparent 70%);
-  animation: auth-blob-b 42s ease-in-out infinite;
 }
 .auth-blob-3 {
   width: 32vmax; height: 32vmax; left: 28vmax; bottom: -18vmax;
   background: radial-gradient(circle, rgb(var(--atlas-gold-500-rgb) / 0.38), transparent 68%);
-  animation: auth-blob-c 38s ease-in-out infinite;
 }
 @keyframes auth-blob-a {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }

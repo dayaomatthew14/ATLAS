@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional, Any, cast
 from .. import models, schemas, database, auth
 from ..services import faculty_load
@@ -47,6 +47,8 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
     )
     current_u = _unit_load(db, fac_id, semester)
 
+    unavail_hours = calculate_unavailability_hours(faculty.unavailabilities)
+
     return {
         "id": faculty.id,
         "first_name": faculty.first_name,
@@ -61,8 +63,8 @@ def serialise_faculty(db: Session, faculty: models.Faculty, semester=None, load=
         "current_units": current_u,
         "remaining_units": max(0, max_u - current_u),
         "unavailability": faculty.unavailabilities,
-        "unavailability_hours": calculate_unavailability_hours(faculty.unavailabilities),
-        "unavailability_warning": calculate_unavailability_hours(faculty.unavailabilities) > 10.0,
+        "unavailability_hours": unavail_hours,
+        "unavailability_warning": unavail_hours > 10.0,
         **load,
     }
 
@@ -191,7 +193,7 @@ def get_professors(
     if current_user.role not in ['admin', 'dean', 'program_chair']:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    query = db.query(models.Faculty)
+    query = db.query(models.Faculty).options(selectinload(models.Faculty.unavailabilities))
     
     if current_user.department or current_user.role in SCOPED_ROLES:
         # Fail closed. Confine every college-scoped user (including College Deans)
@@ -224,7 +226,7 @@ def get_professors(
             if faculty_id is not None:
                 unit_loads[faculty_id] = unit_loads.get(faculty_id, 0) + (units or 0)
 
-    active_sem = semester or faculty_load.active_semester(db)
+    active_sem = semester
     result = []
     for f in faculty_members:
         f_id = cast(int, f.id)
@@ -234,6 +236,7 @@ def get_professors(
             f.max_units if (f.max_units and f.max_units > 0) else (24 if norm_type.startswith('full_time') else 20)
         )
         curr_u = unit_loads.get(f_id, 0)
+        unavail_hours = calculate_unavailability_hours(f.unavailabilities)
         result.append({
             "id": f.id,
             "first_name": f.first_name,
@@ -248,8 +251,8 @@ def get_professors(
             "current_units": curr_u,
             "remaining_units": max(0, max_u - curr_u),
             "unavailability": f.unavailabilities,
-            "unavailability_hours": calculate_unavailability_hours(f.unavailabilities),
-            "unavailability_warning": calculate_unavailability_hours(f.unavailabilities) > 10.0,
+            "unavailability_hours": unavail_hours,
+            "unavailability_warning": unavail_hours > 10.0,
             **loads.get(f_id, {}),
         })
 

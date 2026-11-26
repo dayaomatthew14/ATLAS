@@ -102,10 +102,10 @@ class CurriculumBlock(Base):
     program_name = Column(String(255), nullable=False)
     academic_year = Column(String(50), nullable=False)
     filename = Column(String(255), nullable=True)
-    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True)
     # Nullable on purpose: a block that matches no seeded programme stays
     # visible in the Unassigned group rather than being hidden or deleted.
-    program_id = Column(Integer, ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
+    program_id = Column(Integer, ForeignKey("programs.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(String(20), default='PUBLISHED') # DRAFT, PUBLISHED, ARCHIVED
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     department = relationship("Department", back_populates="blocks")
@@ -115,11 +115,11 @@ class CurriculumBlock(Base):
 class Curriculum(Base):
     __tablename__ = "curriculum"
     id = Column(Integer, primary_key=True, index=True)
-    block_id = Column(Integer, ForeignKey("curriculum_blocks.id", ondelete="CASCADE"), nullable=True)
+    block_id = Column(Integer, ForeignKey("curriculum_blocks.id", ondelete="CASCADE"), nullable=True, index=True)
     code = Column(String(50), nullable=False)
     name = Column(String(255), nullable=False)
     units = Column(Integer, nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True)
     type = Column(Enum('lecture', 'lab', name='subject_types'), nullable=False)
     program_code = Column(String(50), nullable=True)
     year_level = Column(String(20), nullable=True)
@@ -158,7 +158,7 @@ class Room(Base):
     building = Column(String(100), nullable=False)
     capacity = Column(Integer, nullable=False)
     type = Column(Enum('lecture', 'lab', 'computer_lab', name='room_types'), nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
 
     department = relationship("Department")
     schedules = relationship("Schedule", back_populates="room")
@@ -185,7 +185,7 @@ class Faculty(Base):
     load_unit = Column(String(10), nullable=False, default='hours')
     type = Column(String(40), nullable=False, default='full_time_regular')
     overload_approved = Column(Boolean, nullable=False, default=False)
-    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"))
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True)
 
     department = relationship("Department", back_populates="faculty_members")
     schedules = relationship("Schedule", back_populates="faculty")
@@ -204,7 +204,7 @@ class Schedule(Base):
     __tablename__ = "schedules"
     id = Column(Integer, primary_key=True, index=True)
     semester_id = Column(Integer, ForeignKey("semesters.id"), index=True)
-    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"))
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), index=True)
     faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), index=True)
     room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True, index=True)
     day_of_week = Column(Enum('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', name='days'), index=True)
@@ -231,13 +231,13 @@ class Schedule(Base):
 class Conflict(Base):
     __tablename__ = "conflicts"
     id = Column(Integer, primary_key=True, index=True)
-    schedule_id_1 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=True)
-    schedule_id_2 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=True)
-    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=True)
-    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=True)
+    schedule_id_1 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=True, index=True)
+    schedule_id_2 = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=True, index=True)
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=True, index=True)
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=True, index=True)
     conflict_type = Column(String(50), nullable=True)
     reason = Column(String(500), nullable=True)
-    resolved_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class SystemLog(Base):
@@ -276,13 +276,13 @@ class FacultyUnavailability(Base):
 class SubjectOffering(Base):
     __tablename__ = "subject_offerings"
     id = Column(Integer, primary_key=True, index=True)
-    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=True)
-    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=False)
-    semester_id = Column(Integer, ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False)
+    faculty_id = Column(Integer, ForeignKey("faculty.id", ondelete="CASCADE"), nullable=True, index=True)
+    curriculum_id = Column(Integer, ForeignKey("curriculum.id", ondelete="CASCADE"), nullable=False, index=True)
+    semester_id = Column(Integer, ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False, index=True)
     assigned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     enrolled_students = Column(Integer, nullable=True)
     credited_hours_override = Column(Float, nullable=True)
-    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, index=True)
     room_approval_status = Column(String(30), nullable=True, default='approved')
     room_requested_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     room_approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)

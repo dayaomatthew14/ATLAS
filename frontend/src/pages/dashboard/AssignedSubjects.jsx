@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BookOpen,
-  CheckCircle2,
   AlertTriangle,
   UserCheck,
   UserX,
@@ -9,9 +8,6 @@ import {
   RefreshCw,
   Monitor,
   ShieldCheck,
-  Building2,
-  Check,
-  X,
 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
@@ -27,7 +23,7 @@ import {
   CT_TIER_OPTIONS,
   CT_TIERS,
 } from '../../utils/load';
-import { canManageCastLabRooms, isCastUser, isPriorityLabProgram } from '../../utils/session';
+import { canManageCastLabRooms, isPriorityLabProgram } from '../../utils/session';
 
 const formatYearLevel = (val) => {
   if (!val) return '—';
@@ -882,7 +878,7 @@ export default function AssignedSubjects() {
                     <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-slate-800">No subjects found</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {searchQuery || statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || subjectTypeFilter !== 'all' || roomFilter !== 'all' || approvalFilter !== 'all'
+                      {searchQuery || statusFilter !== 'all' || courseFilter !== 'all' || yearFilter !== 'all' || professorFilter !== 'all' || roomFilter !== 'all'
                         ? 'Try clearing or adjusting your filters.'
                         : 'No major curriculum subjects found for the active term.'}
                     </p>
