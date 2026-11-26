@@ -567,12 +567,62 @@ def update_subject_offering_ct(
     setattr(offering, "enrolled_students", enrolled_val)
     setattr(offering, "credited_hours_override", req_hrs if is_ct else None)
 
-    # Sync onto plotted schedules for this offering so cards/popovers/load stay aligned
+    # Sync onto plotted schedules for this offering and auto-adjust duration to match req_mins
     matching_schedules = db.query(models.Schedule).filter(
         models.Schedule.semester_id == offering.semester_id,
         models.Schedule.curriculum_id == offering.curriculum_id,
         models.Schedule.faculty_id == offering.faculty_id,
-    ).all()
+    ).order_by(models.Schedule.id).all()
+
+    valid_scheds = [s for s in matching_schedules if s.start_time and s.end_time]
+    auto_adjusted = False
+    if valid_scheds and req_mins > 0:
+        n_scheds = len(valid_scheds)
+        base_mins = req_mins // n_scheds
+        rem_mins = req_mins % n_scheds
+
+        can_adjust_all = True
+        adjusted_times = []
+        for idx, sched in enumerate(valid_scheds):
+            alloc = base_mins + (rem_mins if idx == 0 else 0)
+            start_m = sched.start_time.hour * 60 + sched.start_time.minute
+            old_end_m = sched.end_time.hour * 60 + sched.end_time.minute
+            new_end_m = start_m + alloc
+
+            # If expanding beyond previous end_time, check for conflicts
+            if new_end_m > old_end_m:
+                new_end_time = time(new_end_m // 60, new_end_m % 60)
+                overlap_fac = db.query(models.Schedule).filter(
+                    models.Schedule.id != sched.id,
+                    models.Schedule.semester_id == sched.semester_id,
+                    models.Schedule.faculty_id == sched.faculty_id,
+                    models.Schedule.day_of_week == sched.day_of_week,
+                    models.Schedule.start_time < new_end_time,
+                    models.Schedule.end_time > sched.start_time,
+                ).first()
+                overlap_room = None
+                if sched.room_id:
+                    overlap_room = db.query(models.Schedule).filter(
+                        models.Schedule.id != sched.id,
+                        models.Schedule.semester_id == sched.semester_id,
+                        models.Schedule.room_id == sched.room_id,
+                        models.Schedule.day_of_week == sched.day_of_week,
+                        models.Schedule.room_approval_status != 'rejected',
+                        models.Schedule.start_time < new_end_time,
+                        models.Schedule.end_time > sched.start_time,
+                    ).first()
+                if overlap_fac or overlap_room:
+                    can_adjust_all = False
+                    break
+
+            new_end_time = time(new_end_m // 60, new_end_m % 60)
+            adjusted_times.append((sched, new_end_time))
+
+        if can_adjust_all:
+            for sched, new_end_time in adjusted_times:
+                sched.end_time = new_end_time
+            auto_adjusted = True
+
     plotted_clock_mins = 0
     for sched in matching_schedules:
         setattr(sched, "enrolled_students", enrolled_val)
@@ -615,6 +665,7 @@ def update_subject_offering_ct(
         "required_hours_label": hours_label,
         "plotted_schedules_count": len(matching_schedules),
         "needs_reschedule": needs_reschedule,
+        "auto_adjusted": auto_adjusted,
     }
 
 @router.delete("/{id}")
@@ -721,7 +772,7 @@ def assign_lab_room(
         models.SubjectOffering.semester_id == payload.semester_id,
     ).first()
 
-    has_priority = is_user_or_curr_priority(curriculum)
+    has_priority = is_user_or_curr_priority(curriculum, user=current_user, db=db)
     now = datetime.now(timezone.utc)
 
     if payload.room_id is None:

@@ -66,6 +66,7 @@ LAB_SLOTS = [
     (time(8, 50), time(10, 50)),
     (time(9, 30), time(11, 30)),
     (time(10, 0), time(12, 0)),
+    (time(10, 10), time(12, 10)),
     (time(11, 0), time(13, 0)),
     (time(11, 30), time(13, 30)),
     (time(12, 0), time(14, 0)),
@@ -448,145 +449,9 @@ def _calculate_workload_warnings(
     current_hours: float
 ) -> Tuple[Optional[Dict[str, Any]], Optional[models.Conflict]]:
     """
-    Evaluate teaching workload against the professor's term teaching-hour limit:
-    - Full-Time Probationary: 24h / 24h / 24h
-    - Full-Time Regular:      24h / 20h / 20h
-    - Part-Time:              Maximum 20h / 20h / 20h
-    Exceeding the limit does NOT block schedule placement; instead it flags the
-    overload for Program Chair override.
+    Overload is allowable by the user upon subject assignment,
+    so no warnings or conflict records are generated for teaching-load overload.
     """
-    term_val = getattr(semester, 'term', None)
-    raw_type = getattr(f_obj, 'type', None)
-    norm_type = faculty_load.normalise_employment_type(raw_type)
-    emp_label = faculty_load.employment_type_label(norm_type)
-    required_hours = faculty_load.required_teaching_hours(term_val, norm_type)
-    allowed_hours = faculty_load.allowed_teaching_hours(term_val, norm_type)
-    overload_approved = bool(getattr(f_obj, 'overload_approved', False))
-
-    projected_hours = current_hours + proposed_hours_total
-
-    if required_hours is not None and projected_hours > required_hours + 0.005:
-        fac_fname = getattr(f_obj, 'first_name', '')
-        fac_lname = getattr(f_obj, 'last_name', '')
-        fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
-        current_hrs = faculty_load.round_hours(current_hours)
-        over_by = faculty_load.round_hours(projected_hours - required_hours)
-        cascade_calc = faculty_load.calculate_consultation_workload(term_val, norm_type, over_by)
-        norm_t = faculty_load.normalise_term(term_val) or "2nd"
-        off_ded = cascade_calc["deducted_from_off_campus"]
-        rem_off = cascade_calc["remaining_off_campus"]
-        alloc_off = cascade_calc["allocated_off_campus"]
-        rem_consult = cascade_calc["adjusted_consultation"]
-        cascade_summary = (
-            f"Cascade deduction: -{cascade_calc['deducted_from_office']:.1f}h office "
-            f"({cascade_calc['remaining_office']:.1f}h of {cascade_calc['allocated_office']:.1f}h remaining)"
-        )
-        if off_ded > 0:
-            cascade_summary += f", -{off_ded:.1f}h off-campus ({rem_off:.1f}h of {alloc_off:.1f}h remaining)"
-        else:
-            cascade_summary += f" · Off-campus: {rem_off:.1f}h"
-        cascade_summary += f" · Consultation: {rem_consult:.1f}h (fixed)"
-        reason_msg = (
-            f"Overload for {fac_name} ({emp_label}): {current_hrs} + "
-            f"{faculty_load.round_hours(proposed_hours_total)} hrs/week exceeds the "
-            f"{required_hours} hrs/week allowed load by {over_by} hrs. {cascade_summary}."
-        )
-
-        warning = {
-            "faculty_id": pid,
-            "faculty_name": fac_name,
-            "employment_type": emp_label,
-            "employment_type_code": norm_type,
-            "current_hours": current_hrs,
-            "required_hours": required_hours,
-            "allowed_hours": allowed_hours,
-            "additional_hours": faculty_load.round_hours(proposed_hours_total),
-            "overload_hours": over_by,
-            "subject_code": c.code,
-            "curriculum_id": c.id,
-            "part_type": part_type,
-            "overload_approved": overload_approved,
-            "requires_dean_approval": False,
-            "cascade": {
-                "term": norm_t,
-                "is_full_time": True,
-                "overload_hours": over_by,
-                "allocated_office": cascade_calc["allocated_office"],
-                "remaining_office": cascade_calc["remaining_office"],
-                "deducted_from_office": cascade_calc["deducted_from_office"],
-                "allocated_off_campus": alloc_off,
-                "remaining_off_campus": rem_off,
-                "deducted_from_off_campus": off_ded,
-                "standard_consultation": rem_consult,
-                "remaining_consultation": rem_consult,
-                "deducted_from_consultation": 0.0,
-                "off_campus_hours": rem_off,
-                "policy_review_flag": bool(cascade_calc.get("policy_review_flag", False)),
-                "flag_reason": cascade_calc.get("flag_reason"),
-            },
-            "cascade_summary": cascade_summary,
-            "message": (
-                f"Faculty '{fac_name}' ({emp_label}) exceeds the {required_hours} hrs/week limit: "
-                f"{c.code} brings total load to {faculty_load.round_hours(projected_hours)} hrs/week "
-                f"(+{over_by} hrs overload). {cascade_summary}."
-            )
-        }
-        conflict = None
-        if not overload_approved:
-            conflict = models.Conflict(
-                faculty_id=pid,
-                curriculum_id=c.id,
-                conflict_type="overload",
-                reason=reason_msg
-            )
-        return warning, conflict
-
-    elif required_hours is None and not faculty_load.is_full_time(norm_type):
-        ceiling = allowed_hours or faculty_load.PART_TIME_CEILING_HOURS
-        if projected_hours > ceiling + 0.005:
-            fac_fname = getattr(f_obj, 'first_name', '')
-            fac_lname = getattr(f_obj, 'last_name', '')
-            fac_name = f"{fac_fname} {fac_lname}".strip() or f"Faculty #{pid}"
-            over_by = faculty_load.round_hours(projected_hours - ceiling)
-            reason_msg = (
-                f"Part-Time load for {fac_name}: "
-                f"{faculty_load.round_hours(projected_hours)} hrs/week exceeds the "
-                f"{ceiling} hrs/week Part-Time maximum by {over_by} hrs (exempt from 40h obligation)."
-            )
-
-            warning = {
-                "faculty_id": pid,
-                "faculty_name": fac_name,
-                "employment_type": "Part-Time",
-                "employment_type_code": "part_time",
-                "current_hours": faculty_load.round_hours(current_hours),
-                "required_hours": None,
-                "allowed_hours": ceiling,
-                "part_time_ceiling_hours": ceiling,
-                "additional_hours": faculty_load.round_hours(proposed_hours_total),
-                "overload_hours": over_by,
-                "subject_code": c.code,
-                "curriculum_id": c.id,
-                "part_type": part_type,
-                "overload_approved": overload_approved,
-                "requires_dean_approval": False,
-                "cascade_summary": "Part-Time faculty are exempt from 40h office/consultation obligations.",
-                "message": (
-                    f"Faculty '{fac_name}' (Part-Time) reaches "
-                    f"{faculty_load.round_hours(projected_hours)} hrs/week with {c.code}, exceeding "
-                    f"the {ceiling} hrs/week Part-Time limit by {over_by} hrs."
-                )
-            }
-            conflict = None
-            if not overload_approved:
-                conflict = models.Conflict(
-                    faculty_id=pid,
-                    curriculum_id=c.id,
-                    conflict_type="part_time_ceiling",
-                    reason=reason_msg
-                )
-            return warning, conflict
-
     return None, None
 
 
@@ -678,7 +543,7 @@ def diagnose_unplaced_reason(
 
                 for l_st, l_et in lecture_slots:
                     for b_st, b_et in lab_slots:
-                        if l_et <= b_st:
+                        if l_et == b_st or b_et == l_st:
                             for d in days_list:
                                 for s in all_schedules:
                                     if s.faculty_id == faculty_id and s.day_of_week == d and s.start_time and s.end_time:
@@ -974,19 +839,34 @@ def _place_consecutive_lec_lab_slot(
 ) -> Optional[Tuple[models.Schedule, models.Schedule, models.Schedule, models.Schedule]]:
     """
     Attempt to place a consecutive lecture and laboratory session on the same day pair:
-    1. Lecture scheduled first, followed by laboratory on the same day (lec_end <= lab_start).
-    2. Prioritized by lecture start time and minimal gap between Lecture and Lab.
-    3. Neither session may overlap the Mon-Fri 12:00 PM - 01:00 PM lunch break or any
-       existing scheduled class/unavailability or same-cohort class.
+    1. Lecture and laboratory must not be separated across the day — strictly back-to-back (zero gap).
+    2. Primary preference: Lecture immediately followed by laboratory on the same day (lec_end == lab_start).
+    3. Secondary preference: Laboratory immediately followed by lecture on the same day (lab_end == lec_start).
+    4. Neither session may overlap the lunch break, faculty unavailabilities, or same-cohort classes.
     """
     candidate_pairs = []
+    # 1. Lecture followed immediately by Lab with zero gap (contiguous)
     for l_start, l_end in lecture_slots:
         for b_start, b_end in lab_slots:
-            if l_end <= b_start:
-                gap = (b_start.hour * 60 + b_start.minute) - (l_end.hour * 60 + l_end.minute)
-                candidate_pairs.append((l_start, l_end, b_start, b_end, gap))
+            if l_end == b_start:
+                candidate_pairs.append((l_start, l_end, b_start, b_end, 0))
 
-    candidate_pairs.sort(key=lambda x: (x[0], x[4]))
+    # 2. Lab followed immediately by Lecture with zero gap (contiguous)
+    for b_start, b_end in lab_slots:
+        for l_start, l_end in lecture_slots:
+            if b_end == l_start:
+                candidate_pairs.append((l_start, l_end, b_start, b_end, 0))
+
+    # 3. Fallback: if no exact zero-gap pair exists in provided slots, accept minimal gap
+    if not candidate_pairs:
+        for l_start, l_end in lecture_slots:
+            for b_start, b_end in lab_slots:
+                if l_end <= b_start:
+                    gap = (b_start.hour * 60 + b_start.minute) - (l_end.hour * 60 + l_end.minute)
+                    candidate_pairs.append((l_start, l_end, b_start, b_end, gap))
+
+    # Sort strictly by gap (0 gap first), then by start time
+    candidate_pairs.sort(key=lambda x: (x[4], x[0]))
 
     for days_pair in day_pairs_to_try:
         day1, day2 = days_pair[0], days_pair[1]

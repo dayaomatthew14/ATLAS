@@ -17,8 +17,8 @@ import { getDepartment } from '../../utils/session';
 const STAT_VARIANTS = {
   classes: {
     card: 'stat-card-classes',
-    chip: 'bg-[#714E03]/12 border-[#714E03]/20',
-    hover: 'hover:border-[#CA8A04]/60',
+    chip: 'bg-[#2E583A]/12 border-[#2E583A]/20',
+    hover: 'hover:border-[#46855B]/60',
   },
   faculty: {
     card: 'stat-card-faculty',

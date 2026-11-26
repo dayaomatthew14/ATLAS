@@ -6,7 +6,7 @@ import {
   CalendarPlus,
   DoorOpen,
   Info,
-  Sparkles,
+  Sliders,
   UserCheck,
 } from 'lucide-react';
 import AtlasDialog from '../ui/Dialog';
@@ -165,7 +165,7 @@ export default function CreateScheduleModal({
         <div className="w-full flex flex-wrap items-center justify-between gap-3">
           <AtlasButton
             variant="secondary"
-            icon={Sparkles}
+            icon={Sliders}
             loading={isFetchingSuggestions}
             disabled={isFetchingSuggestions || isSubmitting}
             onClick={onGetSuggestions}
@@ -398,7 +398,7 @@ export default function CreateScheduleModal({
         {aiSuggestions.length > 0 && (
           <div className="pt-4 border-t border-emerald-900/10 space-y-3">
             <h4 className="font-ui text-caption font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+              <Sliders className="w-4 h-4 text-emerald-700" aria-hidden="true" />
               Recommended Assignments
             </h4>
             <div className="space-y-2.5">

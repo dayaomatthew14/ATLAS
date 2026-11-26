@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, AlertTriangle, Sparkles, User, Trash2, X, Download, ChevronDown, Check, Lock } from 'lucide-react';
+import { Plus, AlertTriangle, Sliders, Loader2, User, Trash2, X, Download, ChevronDown, Check, Lock } from 'lucide-react';
 import { api } from '../../utils/api';
 import { useToast } from '../../components/ToastProvider';
 import { detectConflicts, checkScheduleIntegrity } from '../../utils/conflictDetection';
@@ -1266,7 +1266,7 @@ export default function Schedules() {
                 {canManageSchedules && (
                   <>
                     <AtlasButton
-                      icon={Sparkles}
+                      icon={Sliders}
                       className="no-print"
                       disabled={isSchedulePublished}
                       title={isSchedulePublished ? 'Schedule is published and locked' : 'Auto-generate schedule'}
@@ -1485,7 +1485,7 @@ export default function Schedules() {
           )}
 
           {isGlobalLoading ? (
-            <div className="flex justify-center py-20"><Sparkles className="w-8 h-8 text-indigo-400 animate-spin" /></div>
+            <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-emerald-600 animate-spin" /></div>
           ) : (
             <div className="print-grid mt-8 flex flex-col gap-8">
               {visibleBoards.length === 0 && (

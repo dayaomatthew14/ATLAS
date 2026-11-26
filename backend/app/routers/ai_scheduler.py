@@ -149,7 +149,10 @@ def get_conflicts(
     if current_user.role not in ['admin', 'dean', 'program_chair', 'coordinator']:
         return []
 
-    query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
+    query = db.query(models.Conflict).filter(
+        models.Conflict.resolved_at == None,
+        models.Conflict.conflict_type.notin_(['overload', 'part_time_ceiling']),
+    )
 
     target_sem_id = semester_id
     if target_sem_id is None:

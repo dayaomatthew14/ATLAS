@@ -48,7 +48,10 @@ def _count_scoped_unresolved_conflicts(
     dept_id: Optional[int],
 ) -> int:
     """Count unresolved conflicts scoped strictly to one department and semester."""
-    query = db.query(models.Conflict).filter(models.Conflict.resolved_at == None)
+    query = db.query(models.Conflict).filter(
+        models.Conflict.resolved_at == None,
+        models.Conflict.conflict_type.notin_(['overload', 'part_time_ceiling']),
+    )
 
     if dept_id is not None:
         dept_curr_ids = [
@@ -228,6 +231,24 @@ def create_schedule(
                 detail="This professor already has a class scheduled during that time slot."
             )
 
+    # Reject overlapping schedules for the same room at the API level
+    if schedule.room_id and schedule.semester_id and schedule.day_of_week and schedule.start_time and schedule.end_time:
+        room_overlap = db.query(models.Schedule).filter(
+            models.Schedule.semester_id == schedule.semester_id,
+            models.Schedule.room_id == schedule.room_id,
+            models.Schedule.day_of_week == schedule.day_of_week,
+            models.Schedule.room_approval_status != 'rejected',
+            models.Schedule.start_time < schedule.end_time,
+            models.Schedule.end_time > schedule.start_time,
+        ).first()
+        if room_overlap:
+            room_obj = db.query(models.Room).filter(models.Room.id == schedule.room_id).first()
+            room_name = room_obj.name if room_obj else "This room"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{room_name} already has a class scheduled during that time slot."
+            )
+
     sched_payload = schedule.model_dump()
     # Program chairs always create draft schedules (publishing is admin/dean-only)
     sched_payload["status"] = "draft"
@@ -246,10 +267,6 @@ def create_schedule(
             setattr(new_schedule, "enrolled_students", matched_off.enrolled_students)
             setattr(new_schedule, "credited_hours_override", matched_off.credited_hours_override)
     db.add(new_schedule)
-    if schedule.faculty_id and current_user.role not in ('admin', 'dean'):
-        fac_obj = db.query(models.Faculty).filter(models.Faculty.id == schedule.faculty_id).first()
-        if fac_obj:
-            setattr(fac_obj, "overload_approved", False)
     db.commit()
     db.refresh(new_schedule)
     dept_id_val = getattr(curriculum_item, 'department_id', None)
@@ -333,6 +350,25 @@ def update_schedule(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This professor is marked unavailable during that time slot.",
+            )
+
+    effective_room = update_data.get('room_id', db_schedule.room_id)
+    if effective_room and effective_day and effective_start and effective_end:
+        room_overlap = db.query(models.Schedule).filter(
+            models.Schedule.id != db_schedule.id,
+            models.Schedule.semester_id == effective_sem,
+            models.Schedule.room_id == effective_room,
+            models.Schedule.day_of_week == effective_day,
+            models.Schedule.room_approval_status != 'rejected',
+            models.Schedule.start_time < effective_end,
+            models.Schedule.end_time > effective_start,
+        ).first()
+        if room_overlap:
+            room_obj = db.query(models.Room).filter(models.Room.id == effective_room).first()
+            room_name = room_obj.name if room_obj else "This room"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{room_name} already has a class scheduled during that time slot.",
             )
     for key, value in update_data.items():
         setattr(db_schedule, key, value)

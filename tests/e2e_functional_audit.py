@@ -427,16 +427,13 @@ class EndToEndFunctionalAudit(unittest.TestCase):
         self.db.commit()
 
         res = generate_schedules(self.db, cast(int, sem.id), [cast(int, fac.id)], department_id=1, auto_bump_units=False)
-        self.assertGreater(len(res["bumped_warnings"]), 0)
-
-        warning = res["bumped_warnings"][0]
-        self.assertEqual(warning["required_hours"], 24.0)
-        self.assertGreater(warning["overload_hours"], 0)
+        # Overload is allowable by the user: no warnings and no conflict records generated
+        self.assertEqual(len(res["bumped_warnings"]), 0)
 
         conf = self.db.query(models.Conflict).filter(models.Conflict.conflict_type == "overload").first()
-        self.assertIsNotNone(conf)
+        self.assertIsNone(conf)
 
-        # Overload warns; it does not refuse. The subject is still plotted.
+        # The subject is still plotted cleanly.
         self.assertGreater(res["generated"], 0)
 
     def test_10b_part_time_ceiling_warning(self):
@@ -470,15 +467,13 @@ class EndToEndFunctionalAudit(unittest.TestCase):
 
         res = generate_schedules(self.db, cast(int, sem.id), [cast(int, fac.id)], department_id=1, auto_bump_units=False)
 
-        self.assertGreater(len(res["bumped_warnings"]), 0)
-        warning = res["bumped_warnings"][0]
-        self.assertIsNone(warning["required_hours"])
-        self.assertEqual(warning["part_time_ceiling_hours"], 20.0)
+        # Part-Time load is allowable by the user: no warnings and no conflict records generated
+        self.assertEqual(len(res["bumped_warnings"]), 0)
 
         conf = self.db.query(models.Conflict).filter(
             models.Conflict.conflict_type == "part_time_ceiling"
         ).first()
-        self.assertIsNotNone(conf)
+        self.assertIsNone(conf)
 
     # ----------------------------------------------------------------------
     # 5. LOCKING, PUBLISHING & EXPORTS

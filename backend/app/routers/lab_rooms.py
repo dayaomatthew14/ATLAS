@@ -19,7 +19,16 @@ COMPUTER_LAB_SPECS = [
     {"name": "Cyberneta", "building": "Main Building", "capacity": 50, "type": "computer_lab"},
 ]
 
-PRIORITY_PROGRAM_CODES = {"BSCS", "BSCPE", "CS", "COE"}
+PRIORITY_PROGRAM_CODES = {
+    "BSCS", "BSCPE", "CS", "COE", "CE", "UPDA",
+    "COMPUTER SCIENCE", "COMPUTER ENGINEERING",
+    "BS COMPUTER SCIENCE", "BS COMPUTER ENGINEERING"
+}
+
+PSYCHOLOGY_PROGRAM_CODES = {
+    "ABPSY", "BSPSY", "PSY", "PSYCH", "PSYC",
+    "BA PSYCHOLOGY", "BS PSYCHOLOGY", "PSYCHOLOGY"
+}
 
 
 def ensure_cast_computer_labs(db: Session) -> List[models.Room]:
@@ -75,18 +84,100 @@ def assert_cast_access(db: Session, current_user: models.User) -> models.Departm
     return dept
 
 
-def is_user_or_curr_priority(curr: Optional[models.Curriculum], program_code: Optional[str] = None) -> bool:
-    """Check if the assignment has priority (BSCS or BSCPE)."""
+def is_psychology_program(
+    curr: Optional[models.Curriculum] = None,
+    program_code: Optional[str] = None,
+    db: Optional[Session] = None
+) -> bool:
+    """Check if the subject or requesting program is Psychology (requires CS/COE chair approval)."""
     if program_code:
-        return program_code.strip().upper() in PRIORITY_PROGRAM_CODES
+        p_up = str(program_code).strip().upper()
+        if p_up in PSYCHOLOGY_PROGRAM_CODES or "PSYCH" in p_up:
+            return True
     if curr:
         p_code = str(getattr(curr, "program_code", "") or "").strip().upper()
-        if p_code:
-            return p_code in PRIORITY_PROGRAM_CODES
-        if hasattr(curr, "block") and curr.block:
-            blk_prog = getattr(curr.block, "program", None)
-            if blk_prog and blk_prog.code:
-                return str(blk_prog.code).strip().upper() in PRIORITY_PROGRAM_CODES
+        if p_code in PSYCHOLOGY_PROGRAM_CODES or "PSYCH" in p_code:
+            return True
+        c_code = str(getattr(curr, "code", "") or "").strip().upper()
+        if c_code.startswith("PSY"):
+            return True
+        blk = getattr(curr, "block", None)
+        if not blk and db and getattr(curr, "block_id", None):
+            blk = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == curr.block_id).first()
+        if blk:
+            b_name = str(getattr(blk, "program_name", "") or "").strip().upper()
+            if "PSYCH" in b_name:
+                return True
+            b_prog = getattr(blk, "program", None)
+            if not b_prog and db and getattr(blk, "program_id", None):
+                b_prog = db.query(models.Program).filter(models.Program.id == blk.program_id).first()
+            if b_prog and str(getattr(b_prog, "code", "") or "").strip().upper() in PSYCHOLOGY_PROGRAM_CODES:
+                return True
+    return False
+
+
+def is_user_or_curr_priority(
+    curr: Optional[models.Curriculum] = None,
+    program_code: Optional[str] = None,
+    user: Optional[models.User] = None,
+    db: Optional[Session] = None
+) -> bool:
+    """
+    Check if the laboratory room assignment has priority (CS / COE).
+    CS and COE assignments are confirmed and plotted immediately without approval.
+    Only requests from Psychology (ABPSY) require approval from the CS/COE Program Chair.
+    """
+    # 1. Admin or Dean always has priority
+    if user and getattr(user, "role", None) in ("admin", "dean"):
+        return True
+
+    # 2. Check if explicitly Psychology - Psychology requires approval
+    if is_psychology_program(curr, program_code, db=db):
+        return False
+
+    # 3. If program_code is explicitly provided
+    if program_code:
+        norm_p = str(program_code).strip().upper()
+        if norm_p in PRIORITY_PROGRAM_CODES or "COMP" in norm_p or "CS" in norm_p or "COE" in norm_p or "CE" in norm_p:
+            return True
+
+    # 4. Check Curriculum code, block, and program
+    if curr:
+        c_code = str(getattr(curr, "code", "") or "").strip().upper()
+        # Common computer / CS / COE course codes
+        if c_code.startswith(("CC", "COSC", "CS", "COEC", "COEP", "CPE", "CE", "IT", "IS")):
+            return True
+
+        p_code = str(getattr(curr, "program_code", "") or "").strip().upper()
+        if p_code in PRIORITY_PROGRAM_CODES or p_code in ("UPDA", "CE", "BSCS", "BSCPE", "CS", "COE") or "COMP" in p_code:
+            return True
+
+        # Check curriculum block
+        blk = getattr(curr, "block", None)
+        if not blk and db and getattr(curr, "block_id", None):
+            blk = db.query(models.CurriculumBlock).filter(models.CurriculumBlock.id == curr.block_id).first()
+
+        if blk:
+            blk_name = str(getattr(blk, "program_name", "") or "").strip().upper()
+            if any(term in blk_name for term in ("COMPUTER", "SCIENCE", "ENGINEERING", "CS", "COE")):
+                return True
+            blk_prog = getattr(blk, "program", None)
+            if not blk_prog and db and getattr(blk, "program_id", None):
+                blk_prog = db.query(models.Program).filter(models.Program.id == blk.program_id).first()
+            if blk_prog:
+                bp_code = str(getattr(blk_prog, "code", "") or "").strip().upper()
+                if bp_code in PRIORITY_PROGRAM_CODES or bp_code in ("BSCS", "BSCPE", "CS", "COE") or "CS" in bp_code or "COE" in bp_code:
+                    return True
+                bp_name = str(getattr(blk_prog, "name", "") or "").strip().upper()
+                if any(term in bp_name for term in ("COMPUTER", "SCIENCE", "ENGINEERING")):
+                    return True
+
+    # 5. Check user: If the user is a CAST Program Chair or CS/COE Chair assigning a non-psychology lab
+    if user and getattr(user, "role", None) in ("program_chair", "coordinator"):
+        dept = str(getattr(user, "department", "") or "").strip().upper()
+        if dept in ("CAST", "CS", "COE", "BSCS", "BSCPE"):
+            return True
+
     return False
 
 
@@ -181,7 +272,7 @@ def list_lab_rooms(
         } if sem else None,
         "is_priority_role": (
             current_user.role in ("admin", "dean")
-            or is_user_or_curr_priority(None, getattr(current_user, "department", None))
+            or is_user_or_curr_priority(None, getattr(current_user, "department", None), user=current_user, db=db)
         ),
     }
 
@@ -262,7 +353,7 @@ def assign_lab_room(
         )
 
     # Priority determination
-    is_priority = is_user_or_curr_priority(curr, req.program_code) or current_user.role in ("admin", "dean")
+    is_priority = is_user_or_curr_priority(curr, req.program_code, user=current_user, db=db) or current_user.role in ("admin", "dean")
 
     approval_status = "approved" if is_priority else "pending_approval"
 

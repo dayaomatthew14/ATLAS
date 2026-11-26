@@ -468,7 +468,9 @@ export default function AssignedSubjects() {
       const baseToast = updated.is_ct
         ? `${subject.code} set to ${updated.ct_label} — ${updated.required_hours_label}/week.`
         : `${subject.code} restored to Regular (13+ students) — ${updated.required_hours_label}/week.`;
-      const rescheduleNote = updated.needs_reschedule
+      const rescheduleNote = updated.auto_adjusted
+        ? ' Plotted timetable slot adjusted automatically.'
+        : updated.needs_reschedule
         ? ' Regenerate or adjust its timetable slot on Schedule to match the new CT duration.'
         : '';
       addToast(`${baseToast}${rescheduleNote}`, updated.needs_reschedule ? 'warning' : 'success');
@@ -853,7 +855,7 @@ export default function AssignedSubjects() {
       {/* Subjects & Rooms Table */}
       <div className="bg-white rounded-panel overflow-hidden border border-slate-200 shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse table-spotlight">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-600">
                 <th className="pl-5 pr-3 py-3.5 whitespace-nowrap">Subject Code</th>

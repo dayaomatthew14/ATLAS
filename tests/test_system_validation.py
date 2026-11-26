@@ -343,6 +343,83 @@ class RouterValidationGuardsTest(unittest.TestCase):
         valid_xlsx = UploadFile(file=io.BytesIO(b"PK\x03\x04"), filename="subjects.xlsx")
         curriculum._validate_excel_upload(valid_xlsx, b"PK\x03\x04")
 
+    def test_schedule_room_conflict_prevention(self):
+        dept = models.Department(code="CAST", name="College of Arts, Sciences & Technology")
+        sem = models.Semester(academic_year="2026-2027", term="1st", is_active=True)
+        self.db.add_all([dept, sem])
+        self.db.commit()
+
+        room = models.Room(name="Lab 608", building="Main", capacity=40, type="computer_lab")
+        curr1 = models.Curriculum(code="CS101", name="CS 1", units=3, department_id=dept.id, is_major=True, type="lecture")
+        curr2 = models.Curriculum(code="CS102", name="CS 2", units=3, department_id=dept.id, is_major=True, type="lecture")
+        fac1 = models.Faculty(first_name="Prof", last_name="One", department_id=dept.id)
+        fac2 = models.Faculty(first_name="Prof", last_name="Two", department_id=dept.id)
+        self.db.add_all([room, curr1, curr2, fac1, fac2])
+        self.db.commit()
+
+        # Add offerings so major subjects can be scheduled
+        off1 = models.SubjectOffering(curriculum_id=curr1.id, semester_id=sem.id, faculty_id=fac1.id)
+        off2 = models.SubjectOffering(curriculum_id=curr2.id, semester_id=sem.id, faculty_id=fac2.id)
+        self.db.add_all([off1, off2])
+        self.db.commit()
+
+        # Create first schedule in Lab 608: Mon 08:00 - 10:00
+        sched1 = models.Schedule(
+            semester_id=sem.id,
+            curriculum_id=curr1.id,
+            faculty_id=fac1.id,
+            room_id=room.id,
+            day_of_week="Mon",
+            start_time=time(8, 0),
+            end_time=time(10, 0),
+        )
+        self.db.add(sched1)
+        self.db.commit()
+
+        chair_user = _fake_user(role="program_chair", department="CAST")
+
+        # 1. Attempt to create second schedule overlapping in Lab 608 (Mon 09:00 - 11:00) -> 409
+        with self.assertRaises(HTTPException) as ctx_create:
+            schedules.create_schedule(
+                schedule=schemas.ScheduleCreate(
+                    semester_id=cast(int, sem.id),
+                    curriculum_id=cast(int, curr2.id),
+                    faculty_id=cast(int, fac2.id),
+                    room_id=cast(int, room.id),
+                    day_of_week="Mon",
+                    start_time=time(9, 0),
+                    end_time=time(11, 0),
+                ),
+                db=self.db,
+                current_user=chair_user,
+            )
+        self.assertEqual(ctx_create.exception.status_code, 409)
+        self.assertIn("Lab 608 already has a class scheduled", ctx_create.exception.detail)
+
+        # 2. Create second schedule at a non-overlapping time (Mon 10:00 - 12:00)
+        sched2 = models.Schedule(
+            semester_id=sem.id,
+            curriculum_id=curr2.id,
+            faculty_id=fac2.id,
+            room_id=room.id,
+            day_of_week="Mon",
+            start_time=time(10, 0),
+            end_time=time(12, 0),
+        )
+        self.db.add(sched2)
+        self.db.commit()
+
+        # 3. Attempt to update sched2 time to overlap with sched1 (Mon 09:30 - 11:30) -> 409
+        with self.assertRaises(HTTPException) as ctx_update:
+            schedules.update_schedule(
+                schedule_id=cast(int, sched2.id),
+                schedule=schemas.ScheduleUpdate(start_time=time(9, 30)),
+                db=self.db,
+                current_user=chair_user,
+            )
+        self.assertEqual(ctx_update.exception.status_code, 409)
+        self.assertIn("Lab 608 already has a class scheduled", ctx_update.exception.detail)
+
 
 if __name__ == "__main__":
     unittest.main()

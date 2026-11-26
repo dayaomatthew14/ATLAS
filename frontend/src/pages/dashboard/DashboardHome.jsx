@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
-  Users, AlertTriangle, Sparkles,
+  Users, AlertTriangle, Sliders,
   FileSpreadsheet, Calendar, RefreshCw, ChevronRight,
   CheckCircle2, BookOpen, Clock, Check, ArrowRight,
 } from 'lucide-react';
@@ -390,7 +390,7 @@ export default function DashboardHome() {
               aria-hidden="true"
               className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200/80 flex items-center justify-center shrink-0 shadow-2xs"
             >
-              <Sparkles className="w-5 h-5 text-emerald-700 stroke-[2.2]" />
+              <Sliders className="w-5 h-5 text-emerald-700 stroke-[2.2]" />
             </span>
             <div>
               <h2 className="text-lg font-extrabold text-[#1E3A2B] tracking-tight">
@@ -439,7 +439,7 @@ export default function DashboardHome() {
                   className="w-full flex items-center justify-between px-5 py-3 rounded-xl font-ui text-caption font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-all shadow-2xs"
                 >
                   <div className="flex items-center gap-3">
-                    <Sparkles className="w-4.5 h-4.5 text-amber-700" />
+                    <AlertTriangle className="w-4.5 h-4.5 text-amber-700" />
                     <span className="text-sm">Resolve Clashes ({conflictsCount})</span>
                   </div>
                   <ChevronRight className="w-4 h-4 text-amber-700" />

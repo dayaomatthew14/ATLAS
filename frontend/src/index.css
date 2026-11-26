@@ -254,14 +254,14 @@ body {
   backdrop-filter: blur(8px);
 }
 
-/* Classes: #FBBF24 with authentic ombre gradient effect */
+/* Classes: Fresh Mint Emerald with authentic ombre gradient effect */
 .stat-card-classes {
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.52) 0%, rgba(251, 191, 36, 0.82) 48%, rgba(251, 191, 36, 0.95) 100%);
-  border: 1px solid rgba(202, 138, 4, 0.32);
-  border-top: 2.5px solid #CA8A04;
+  background: linear-gradient(135deg, rgba(195, 222, 203, 0.52) 0%, rgba(168, 205, 178, 0.85) 48%, rgba(135, 182, 148, 0.96) 100%);
+  border: 1px solid rgba(70, 133, 91, 0.32);
+  border-top: 2.5px solid #46855B;
   box-shadow:
-    0 2px 6px -2px rgba(202, 138, 4, 0.12),
-    0 6px 18px -6px rgba(202, 138, 4, 0.16),
+    0 2px 6px -2px rgba(70, 133, 91, 0.12),
+    0 6px 18px -6px rgba(70, 133, 91, 0.16),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
@@ -1112,4 +1112,34 @@ body {
 }
 .atlas-scroll::-webkit-scrollbar-thumb:hover {
   background-color: rgb(var(--atlas-green-700-rgb) / 0.45);
+}
+
+/* ==========================================================================
+   TABLE ROW SPOTLIGHT (Eye Comfort Focus Effect)
+   When hovering over any single row, all other rows softly dim & blur to
+   reduce visual fatigue and help the user target what to look for effortlessly.
+   ========================================================================== */
+.table-spotlight tbody:hover tr:not(:hover) {
+  opacity: 0.30;
+  filter: blur(0.75px);
+  transition: opacity 140ms ease, filter 140ms ease;
+}
+
+.table-spotlight tbody tr {
+  transition: opacity 140ms ease, filter 140ms ease, background-color 100ms ease;
+}
+
+.table-spotlight tbody tr:hover {
+  opacity: 1 !important;
+  filter: none !important;
+  position: relative;
+  z-index: 10;
+  box-shadow: 0 1px 6px -1px rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-spotlight tbody:hover tr:not(:hover) {
+    filter: none;
+    opacity: 0.45;
+  }
 }

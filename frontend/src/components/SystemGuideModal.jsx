@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight, BookOpen, CalendarRange, Clock, Compass, Download,
-  HelpCircle, ShieldCheck, Sparkles, Users,
+  HelpCircle, ShieldCheck, Sliders, Users,
 } from 'lucide-react';
 import Dialog from './ui/Dialog';
 import Button from './ui/Button';
@@ -86,7 +86,7 @@ const buildSteps = (subjectScope) => [
       'one conflict at a time. Export once it is clean.',
     to: '/dashboard/schedules',
     linkText: 'Schedules',
-    icon: Sparkles,
+    icon: Sliders,
   },
 ];
 

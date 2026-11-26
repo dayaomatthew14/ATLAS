@@ -1,4 +1,4 @@
-import { AlertTriangle, Sparkles } from 'lucide-react';
+import { AlertTriangle, Sliders } from 'lucide-react';
 import Modal from '../Modal';
 import AtlasButton from '../ui/Button';
 import Badge from '../ui/Badge';
@@ -170,7 +170,7 @@ export default function GenerateScheduleModal({
               <AtlasButton variant="ghost" onClick={onClose} disabled={isGenerating}>
                 Cancel
               </AtlasButton>
-              <AtlasButton type="submit" icon={Sparkles} loading={isGenerating} disabled={isGenerating}>
+              <AtlasButton type="submit" icon={Sliders} loading={isGenerating} disabled={isGenerating}>
                 {isGenerating ? 'Generating…' : 'Generate Schedule'}
               </AtlasButton>
             </div>
@@ -217,7 +217,7 @@ export default function GenerateScheduleModal({
                       <AtlasButton
                         size="row"
                         variant="destructive"
-                        icon={Sparkles}
+                        icon={Sliders}
                         onClick={() => onSolveConflict(item)}
                         className="shrink-0 mt-0.5"
                       >
@@ -281,7 +281,7 @@ export default function GenerateScheduleModal({
                           <AtlasButton
                             size="row"
                             variant="secondary"
-                            icon={Sparkles}
+                            icon={Sliders}
                             onClick={() => onSolveConflict({
                               conflict_id: warn.conflict_id,
                               faculty_id: warn.faculty_id,

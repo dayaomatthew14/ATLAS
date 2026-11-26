@@ -29,6 +29,7 @@ export default function DataTable({
   selectedId,
   caption,
   rowActions,
+  spotlight = true,
 }) {
   const headCell =
     'sticky top-0 z-sticky bg-slate-50 px-5 py-4 ' +
@@ -94,7 +95,7 @@ export default function DataTable({
 
   return (
     <div className="bg-white rounded-panel overflow-x-auto border border-slate-200 shadow-sm">
-      <table className="w-full border-collapse bg-white">
+      <table className={`w-full border-collapse bg-white ${spotlight ? 'table-spotlight' : ''}`}>
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200">

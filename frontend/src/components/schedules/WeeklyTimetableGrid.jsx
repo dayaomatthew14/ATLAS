@@ -334,7 +334,7 @@ function WeeklyTimetableGrid({
                 ))}
 
                 {/* Plotted Class Blocks (Proportional to Exact Start & End Minutes) */}
-                {dayItems.map(({ sched, durMins, heightPx, isLongCard, topPx, color, isLab, isComb, displayCode, subjectTitle, hasRoom, rawSection, hasSection, timeRangeLabel, laneIndex, laneCount }) => {
+                {dayItems.map(({ sched, durMins, heightPx, isLongCard, topPx, color, isLab, isComb, displayCode, subjectTitle, rawRoom, hasRoom, rawSection, hasSection, timeRangeLabel, laneIndex, laneCount }) => {
                   const widthPct = 100 / laneCount;
                   const leftPct = laneIndex * widthPct;
 

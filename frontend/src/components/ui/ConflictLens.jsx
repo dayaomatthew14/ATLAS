@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Sliders, X } from 'lucide-react';
 import Button from './Button';
 
 /**
@@ -202,13 +202,13 @@ export default function ConflictLens({
                     /overload/i.test(String(current?.type || '')) ||
                     /overload/i.test(String(current?.reason || ''))
                   ) && (
-                    <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-[12px] font-ui text-amber-950 leading-relaxed">
-                      <span className="font-black text-amber-900 block mb-0.5">DLSAU Workload Cascade Rule:</span>
-                      <span>
-                        Overload teaching hours are deducted first from allocated office hours (max 7.5h 1st term / 8.5h 2nd–3rd term). Any excess is then deducted from the 6 allotted consultation hours. Off-campus hours remain protected.
-                      </span>
-                    </div>
-                  )}
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-[12px] font-ui text-amber-950 leading-relaxed">
+                        <span className="font-black text-amber-900 block mb-0.5">DLSAU Workload Cascade Rule:</span>
+                        <span>
+                          Overload teaching hours are deducted first from allocated office hours (max 7.5h 1st term / 8.5h 2nd–3rd term). Any excess is then deducted from the 6 allotted consultation hours. Off-campus hours remain protected.
+                        </span>
+                      </div>
+                    )}
 
                   {/* Metadata Chips (Subject, Faculty, Dean Approval) */}
                   <div className="mt-2.5 flex items-center gap-2 flex-wrap">
@@ -228,10 +228,10 @@ export default function ConflictLens({
                       /overload|part[- ]time/i.test(String(current?.type || '')) ||
                       /overload|part[- ]time/i.test(String(current?.reason || ''))
                     ) && (
-                      <span className="font-ui text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300">
-                        Overload
-                      </span>
-                    )}
+                        <span className="font-ui text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300">
+                          Overload
+                        </span>
+                      )}
                   </div>
                 </div>
 
@@ -282,7 +282,7 @@ export default function ConflictLens({
                   </Button>
                   <Button
                     size="sm"
-                    icon={Sparkles}
+                    icon={Sliders}
                     onClick={() => current && !current.unresolvable && onResolve(current)}
                     loading={resolvingId != null && resolvingId === (current?.conflict_id ?? current?.id)}
                     disabled={!current || Boolean(current.unresolvable)}

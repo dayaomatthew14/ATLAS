@@ -1,5 +1,5 @@
 import { useRef, useMemo } from 'react';
-import { CheckCircle2, Sparkles, BookOpen, User, Clock, X } from 'lucide-react';
+import { CheckCircle2, Sliders, BookOpen, User, Clock, X } from 'lucide-react';
 import useFocusTrap from '../ui/useFocusTrap';
 import Button from '../ui/Button';
 
@@ -129,7 +129,7 @@ export default function ConflictResolutionDialog({ data, onClose }) {
               className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-2xs mt-0.5 border bg-[#E3EED4] text-[#0F2A1D] border-[#AEC3B0]/70"
             >
               {isAutoScheduled ? (
-                <Sparkles className="w-5 h-5 text-[#2D6A4F] stroke-[2.2]" />
+                <Sliders className="w-5 h-5 text-[#2D6A4F] stroke-[2.2]" />
               ) : (
                 <CheckCircle2 className="w-5 h-5 text-[#2D6A4F] stroke-[2.2]" />
               )}
